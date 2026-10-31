@@ -657,6 +657,35 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/sign-in/local:
+    post:
+      tags: [Keys]
+      operationId: signInLocal
+      summary: Sign the dashboard in on the Bridge's own computer, without a key
+      description: |
+        Used by the dashboard when it is opened on the Bridge's own computer, so nobody has to find or paste a key. Only
+        the Bridge's own page may call it: the request must come from this computer (peer, Host and no forwarding
+        headers), carry an Origin that is this server, and (when the browser sends it) `Sec-Fetch-Site: same-origin`.
+        Anything else gets 403 LOOPBACK_ONLY. Creates an admin key (scopes admin and paper, all accounts, label
+        "Dashboard on this computer") that expires in 30 days; audited `key.created`. At most 5 such keys stay active:
+        older ones are revoked (audited `key.revoked`). 10 sign-ins a minute, then 429.
+      x-stream: S2
+      x-loopback-only: true
+      security: []
+      responses:
+        "201":
+          description: Signed in. The key is shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/KeyCreated" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/limits:
     get:
       tags: [Limits]

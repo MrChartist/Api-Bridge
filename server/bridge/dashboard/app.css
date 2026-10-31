@@ -2114,6 +2114,11 @@ dialog.sheet::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-fi
 .login-cmds dd { margin: 0; overflow-x: auto; }
 .login-cmds dd code { display: inline-block; white-space: nowrap; padding: 4px 8px; }
 .login-help-list > p { margin: 0; }
+.login-help-list[hidden], #login-local[hidden] { display: none; }
+.login-key > summary { cursor: pointer; list-style: none; text-align: center; font: 500 13.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); padding: 4px 0; }
+.login-key > summary::-webkit-details-marker { display: none; }
+.login-key > summary:hover { color: hsl(var(--foreground)); }
+.login-key[open] > summary { margin-bottom: 10px; }
 .login-help-list ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: hsl(var(--foreground) / var(--a-label)); }
 
 /* ───────────────────────── 12b · OPTION DESK ─────────────────────────

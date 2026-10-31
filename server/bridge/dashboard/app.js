@@ -103,7 +103,11 @@ export function store(kind = "local") {
 }
 const session = store("session");
 const local = store("local");
-let memoryKey = session.get(KEY_SLOT);
+/** Set by "Sign out" in this tab, so the page does not sign itself straight back in on this computer. */
+const NO_AUTO_SLOT = "mcb.dashboard.noAutoSignIn";
+// A key from a typed key or a sign-in link lives in this tab; one from signing in on this computer is remembered in
+// this browser (it expires on the Bridge after 30 days, and "Sign out" forgets it).
+let memoryKey = session.get(KEY_SLOT) ?? local.get(KEY_SLOT);
 
 /**
  * The page module the address opens with (pure): the Options desk, screeners, calendar, recorder or live events load
@@ -122,9 +126,31 @@ if (typeof location !== "undefined" && memoryKey) {
   if (mod) import(mod).catch(() => {});
 }
 
-export function setKey(k) {
+/** @param {string|null} k @param {{ remember?: boolean }} [o]  remember: keep it in this browser, not only this tab */
+export function setKey(k, { remember = false } = {}) {
   memoryKey = k || null;
   session.set(KEY_SLOT, memoryKey);
+  if (!memoryKey || remember) local.set(KEY_SLOT, memoryKey);
+}
+
+/** True when the page is opened by a loopback address (the Bridge's own computer). Pure apart from the default. */
+export const onLoopbackHost = (hostname = typeof location !== "undefined" ? location.hostname : "") => ["127.0.0.1", "localhost", "[::1]", "::1"].includes(String(hostname));
+
+/**
+ * Sign the dashboard in on the Bridge's own computer, without a key (POST /v1/sign-in/local). Never throws.
+ * @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<{ key: string } | { error: { title: string, detail: string } | { network: true } }>}
+ */
+export async function signInLocal(fetchImpl = globalThis.fetch) {
+  let res;
+  try {
+    res = await fetchImpl("/v1/sign-in/local", { method: "POST", headers: { "X-MCB-Client": "dashboard" }, cache: "no-store", credentials: "same-origin" });
+  } catch {
+    return { error: { network: true } };
+  }
+  const body = await res.json().catch(() => null);
+  if (res.ok && typeof body?.data?.key === "string") return { key: body.data.key };
+  return { error: { title: "Could not sign in on this computer", detail: typeof body?.detail === "string" && body.detail ? body.detail : "Use an API key instead, or open the Bridge again from its shortcut." } };
 }
 export const currentKey = () => memoryKey;
 
@@ -1697,11 +1723,37 @@ export function chooseTheme(choice) {
   applyTheme(c);
 }
 
-/** Forget the key in this tab and go back to the sign-in screen. */
+/** Forget the key (this tab and this browser) and go back to the sign-in screen, without signing straight back in. */
 export function forgetKey() {
   setKey(null);
+  session.set(NO_AUTO_SLOT, "1");
   location.hash = "";
   location.reload();
+}
+
+/** Get a key on this computer and keep it in this browser. Returns signInLocal's answer ("key" in it when signed in). */
+async function autoSignIn() {
+  const r = await signInLocal();
+  if (!("key" in r)) return r;
+  session.set(NO_AUTO_SLOT, null);
+  setKey(r.key, { remember: true });
+  return r;
+}
+
+/** The sign-in screen: one button on this computer, the key form (open) elsewhere. */
+function showLogin() {
+  const local = onLoopbackHost();
+  const btn = document.getElementById("login-local");
+  if (btn) btn.hidden = !local;
+  const keyBox = /** @type {HTMLDetailsElement|null} */ (document.getElementById("login-key"));
+  if (keyBox) keyBox.open = !local;
+  const help = document.getElementById("login-help");
+  if (help) help.hidden = local;
+  const lead = document.getElementById("login-lead");
+  if (lead) lead.textContent = local ? "You are on the Bridge's own computer, so no key is needed." : "This page is open from another computer: sign in with an API key from the Bridge's computer.";
+  document.getElementById("login").hidden = false;
+  document.getElementById("app").hidden = true;
+  (local ? btn : document.getElementById("key-input"))?.focus();
 }
 
 // ── App boot (browser only) ──
@@ -1710,7 +1762,7 @@ export const app = { state: { demo: false, health: null, meta: null }, local, ch
 // The light chart engine (chart-lite.js) fills every chart slot; the module itself loads on the first slot.
 app.chartEngine = chartEngine();
 
-async function signIn() {
+async function signIn({ retried = false } = {}) {
   const login = document.getElementById("login");
   const shell = document.getElementById("app");
   // /v1/health needs no key, so the sign-in screen can say "demo" before anyone signs in.
@@ -1721,21 +1773,21 @@ async function signIn() {
       if (el) el.hidden = !hl?.demo;
     })
     .catch(() => {});
-  if (!memoryKey) {
-    login.hidden = false;
-    shell.hidden = true;
-    document.getElementById("key-input")?.focus();
-    return;
-  }
+  // On the Bridge's own computer there is no key to type: the page signs itself in (unless this tab just signed out).
+  if (!memoryKey && onLoopbackHost() && session.get(NO_AUTO_SLOT) !== "1") await autoSignIn();
+  if (!memoryKey) return showLogin();
   try {
     const [health, meta] = await Promise.all([api("/v1/health"), api("/v1/meta")]);
     app.state.health = health.data;
     app.state.meta = meta.data;
     app.state.demo = Boolean(health.data?.demo);
   } catch (err) {
-    if (err.status === 401 || err.status === 403) setKey(null);
-    login.hidden = false;
-    shell.hidden = true;
+    if (err.status === 401 || err.status === 403) {
+      setKey(null);
+      // A remembered key that expired or was revoked: get a fresh one once, quietly.
+      if (!retried && onLoopbackHost() && session.get(NO_AUTO_SLOT) !== "1" && "key" in (await autoSignIn())) return signIn({ retried: true });
+    }
+    showLogin();
     document.getElementById("login-error").replaceChildren(alertBox(err));
     shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
     return;
@@ -1772,6 +1824,15 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     else if (t?.closest?.("#sb-toggle")) toggleSidebarRail();
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
     revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
+  });
+  document.getElementById("login-local")?.addEventListener("click", async (e) => {
+    const btn = /** @type {HTMLButtonElement} */ (e.currentTarget);
+    btn.disabled = true;
+    document.getElementById("login-error").replaceChildren();
+    const r = await autoSignIn();
+    btn.disabled = false;
+    if ("key" in r) return signIn();
+    document.getElementById("login-error").replaceChildren(alertBox(r.error));
   });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();

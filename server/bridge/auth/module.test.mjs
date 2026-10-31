@@ -10,7 +10,7 @@ import { createCallContext } from "../core/context.mjs";
 import { createLogger, createNullLogger } from "../core/logger.mjs";
 import { createFakeKeyStore } from "./fake.mjs";
 import { createKeyStore } from "./keyStore.mjs";
-import authModule, { MAX_FAILED_SIGN_IN, SIGN_IN_FAILED, auditKeyEvent, createHandlers, ROUTES } from "./module.mjs";
+import authModule, { LOCAL_KEYS_KEPT, LOCAL_SIGN_IN_LABEL, MAX_FAILED_SIGN_IN, SIGN_IN_FAILED, auditKeyEvent, createHandlers, ROUTES } from "./module.mjs";
 import { SIGN_IN_KEY_TTL_MS, SIGN_IN_TTL_MS, createSignInCode } from "./signIn.mjs";
 
 const auditRecords = [];
@@ -290,5 +290,42 @@ describe("handlers (unit, with fakes)", () => {
     await expect(attempt(code)).rejects.toMatchObject({ code: "RATE_LIMITED" });
     t += 61_000;
     expect((await attempt(code)).status).toBe(201);
+  });
+});
+
+describe("POST /v1/sign-in/local (the dashboard on this computer, no key)", () => {
+  const own = () => `http://127.0.0.1:${port}`;
+  const local = (headers = {}) => request("/v1/sign-in/local", { method: "POST", headers });
+
+  it("gives the Bridge's own page an admin key that works and expires in 30 days, audited", async () => {
+    const r = await local({ origin: own(), "sec-fetch-site": "same-origin" });
+    expect(r.status).toBe(201);
+    const { key, record } = r.json.data;
+    expect(record).toMatchObject({ label: LOCAL_SIGN_IN_LABEL, scopes: ["paper", "admin"], accounts: "*", clientKind: "ui" });
+    expect(Date.parse(record.expiresAt) - Date.now()).toBeGreaterThan(SIGN_IN_KEY_TTL_MS - 60_000);
+    expect((await request("/v1/keys", { headers: bearer(key) })).status).toBe(200);
+    expect(auditRecords.find((a) => a.type === "key.created" && a.data.keyId === record.id)).toMatchObject({ actor: { kind: "local", id: "dashboard-local" } });
+  });
+
+  it("refuses another website, a cross-site fetch, a script without Origin and a forwarded request", async () => {
+    for (const headers of [
+      { origin: "http://evil.example", "sec-fetch-site": "cross-site" },
+      { origin: own(), "sec-fetch-site": "cross-site" },
+      {},
+      { origin: own(), "x-forwarded-for": "203.0.113.9" },
+    ]) {
+      const r = await local(headers);
+      expect(r.status, JSON.stringify(headers)).toBe(403);
+      expect(r.json?.data).toBeUndefined();
+    }
+  });
+
+  it("keeps only the newest LOCAL_KEYS_KEPT local keys active", async () => {
+    const keys = [];
+    for (let i = 0; i < LOCAL_KEYS_KEPT + 2; i++) keys.push((await local({ origin: own() })).json.data.key);
+    const active = (await app.deps.keyStore.list()).filter((k) => k.label === LOCAL_SIGN_IN_LABEL && !k.revokedAt);
+    expect(active).toHaveLength(LOCAL_KEYS_KEPT);
+    expect((await request("/v1/keys", { headers: bearer(keys[0]) })).status).toBe(401);
+    expect((await request("/v1/keys", { headers: bearer(keys.at(-1)) })).status).toBe(200);
   });
 });

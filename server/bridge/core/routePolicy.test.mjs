@@ -12,7 +12,7 @@ import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootSecurityApp, samplePath } from "./__fixtures__/securityApp.mjs";
 
-const NONE_ALLOWED = new Set(["GET /v1/health", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in"]);
+const NONE_ALLOWED = new Set(["GET /v1/health", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in", "POST /v1/sign-in/local"]);
 const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/];
 const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify"]);
 
@@ -45,10 +45,10 @@ describe("T-sec-2: route policy", () => {
     expect(bad).toEqual([]);
   });
 
-  it("the only auth-none write is the loopback-only sign-in", () => {
+  it("the only auth-none writes are the two loopback-only sign-ins", () => {
     const writes = routes.filter((r) => r.method !== "GET" && r.options.auth === "none");
-    expect(writes.map((r) => `${r.method} ${r.pattern}`)).toEqual(["POST /v1/sign-in"]);
-    expect(writes[0].options.loopbackOnly).toBe(true);
+    expect(writes.map((r) => `${r.method} ${r.pattern}`).sort()).toEqual(["POST /v1/sign-in", "POST /v1/sign-in/local"]);
+    for (const w of writes) expect(w.options.loopbackOnly).toBe(true);
   });
 
   it("no non-GET route accepts ?key=", () => {
