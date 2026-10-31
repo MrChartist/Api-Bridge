@@ -114,10 +114,11 @@ function stringLiterals(src) {
   return out;
 }
 
-const ALLOWED = new Set(["Chartist Sans", "Chartist Sans Flex", "Chartist Serif", "Chartist Sans Flex Fallback", "Chartist Sans Fallback", "system-ui", "sans-serif", "serif", "Georgia", "inherit"]);
+// Only the four bundled Chartist faces (dashboard/fonts/): no system, generic or metric-fallback family anywhere.
+const ALLOWED = new Set(["Chartist Sans", "Chartist Sans Flex", "Chartist Serif", "inherit"]);
 
 describe("type system", () => {
-  it("names only the Chartist families (and their fallbacks) anywhere", () => {
+  it("names only the Chartist families anywhere", () => {
     const bad = [];
     for (const [f, s] of sources) {
       for (const m of s.matchAll(/(?:font-family\s*:|--font-[a-z-]+\s*:)\s*([^;}{]+)/g)) {

@@ -35,7 +35,7 @@ html { font-synthesis-weight: none; }
   font-family: "Chartist Sans Flex";
   font-style: normal;
   font-weight: 300 600;
-  font-display: swap;
+  font-display: block;
   size-adjust: 107%;
   src: url("/dashboard/font-chartist-sans-flex.woff2") format("woff2");
 }
@@ -43,7 +43,7 @@ html { font-synthesis-weight: none; }
   font-family: "Chartist Sans Flex";
   font-style: normal;
   font-weight: 300 600;
-  font-display: swap;
+  font-display: block;
   unicode-range: U+0370-03FF, U+2020-2021, U+2032-2033, U+2190-21FF, U+221E, U+2318, U+25A0-25FF, U+2605-2606, U+2713;
   src: url("/dashboard/font-chartist-sans-flex-symbols.woff2") format("woff2");
 }
@@ -51,34 +51,16 @@ html { font-synthesis-weight: none; }
   font-family: "Chartist Sans";
   font-style: normal;
   font-weight: 600;
-  font-display: swap;
+  font-display: block;
   src: url("/dashboard/font-chartist-sans.woff2") format("woff2");
 }
 @font-face {
   font-family: "Chartist Serif";
   font-style: italic;
   font-weight: 400;
-  font-display: swap;
+  font-display: block;
   src: url("/dashboard/font-chartist-serif-italic.woff2") format("woff2");
 }
-/* Size-matched fallbacks: Arial drawn to the same width and line height, so nothing shifts while the fonts load. */
-@font-face {
-  font-family: "Chartist Sans Flex Fallback";
-  src: local("Arial"), local("ArialMT"), local("Liberation Sans");
-  size-adjust: 109.4%;
-  ascent-override: 94.5%;
-  descent-override: 28%;
-  line-gap-override: 0%;
-}
-@font-face {
-  font-family: "Chartist Sans Fallback";
-  src: local("Arial Bold"), local("Arial-BoldMT"), local("Arial");
-  size-adjust: 106.7%;
-  ascent-override: 97.2%;
-  descent-override: 20.8%;
-  line-gap-override: 0%;
-}
-
 /* ───────────────────────── 1 · TOKENS — light ───────────────────────── */
 :root {
   /* iOS system colours */
@@ -288,10 +270,10 @@ html { font-synthesis-weight: none; }
   --safe-r: env(safe-area-inset-right, 0px);
 
   /* Type: the only place families are named (besides the @font-face above). Stacks end in a generic keyword only. */
-  --font-display: "Chartist Sans", "Chartist Sans Fallback", system-ui, sans-serif;
-  --font-body: "Chartist Sans Flex", "Chartist Sans Flex Fallback", system-ui, sans-serif;
-  --font-numeric: "Chartist Sans Flex", "Chartist Sans Flex Fallback", system-ui, sans-serif;
-  --font-serif-accent: "Chartist Serif", Georgia, serif;
+  --font-display: "Chartist Sans";
+  --font-body: "Chartist Sans Flex";
+  --font-numeric: "Chartist Sans Flex";
+  --font-serif-accent: "Chartist Serif";
   --font-mono: var(--font-numeric);
 
   /* The type scale (TYPE-SYSTEM.md §2, step 3): every piece of text uses one of these steps, as `font: var(--t-…)`.
