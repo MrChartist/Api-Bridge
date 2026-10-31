@@ -70,7 +70,7 @@ import { NotImplementedError } from "./errors.mjs";
  * @typedef {"connected"|"expired"|"missing"|"error"|"checking"} SessionStateName
  * @typedef {{ state: SessionStateName, expiresAt: string | null, checkedAt: string | null, message: string | null }} SessionState
  * @typedef {{ id: string, broker: string, label: string, enabled: boolean, session: SessionState, liveAllowedByConfig: boolean,
- *   pooling: boolean, capabilities: string[], authKind: string | null }} AccountSummary   No secrets, ever.
+ *   liveSources?: string[], pooling: boolean, capabilities: string[], authKind: string | null }} AccountSummary   No secrets, ever.
  *
  * @typedef {"pending"|"open"|"trigger_pending"|"partially_filled"|"filled"|"cancelled"|"rejected"|"expired"|"outcome_unknown"} OrderStatus
  * @typedef {"CNC"|"INTRADAY"|"MARGIN"|"MTF"} Product

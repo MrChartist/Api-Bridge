@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { LIST_MS, LOG_IDLE_MS, LOG_MS, TEMPLATE, heartbeatText, isActive, logGap, paramFields, paramLabel, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
+import { LIST_MS, LOG_IDLE_MS, LOG_MS, TEMPLATE, heartbeatText, isActive, liveStartBlock, logGap, paramFields, paramLabel, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
 
 describe("Algo page model (algo-core.js)", () => {
   it("names every status and its tone", () => {
@@ -82,5 +82,31 @@ describe("Algo polling (perf round 5)", () => {
       expect(body, fn).toMatch(/if \(document\.hidden\) \w+Timer = setTimeout\(\w+, LOG_MS\);\s+else load\w+\(\);/);
     }
     expect(src).not.toMatch(/setTimeout\(\(\) => grid\.isConnected && load/);
+  });
+});
+
+describe("Algo › Start live", () => {
+  const zerodha = (o) => ({ id: "z", broker: "zerodha", enabled: true, liveAllowedByConfig: true, liveSources: ["rest"], ...o });
+  const paper = { id: "p", broker: "paper", enabled: true, liveAllowedByConfig: false, liveSources: [] };
+
+  it("is possible when some account allows live orders from REST", () => {
+    expect(liveStartBlock([paper, zerodha()])).toBeNull();
+    expect(liveStartBlock([zerodha({ liveSources: ["webhook"] }), zerodha({ id: "y" })])).toBeNull();
+    // An older Bridge sends no liveSources: its refusal on start says why.
+    expect(liveStartBlock([zerodha({ liveSources: undefined })])).toBeNull();
+  });
+
+  it("says in one line why no account can take a live strategy", () => {
+    expect(liveStartBlock([paper, zerodha({ liveSources: ["webhook", "mcp"] })])).toBe('No account allows live strategies: add "rest" to live.allowedSources for the account in bridge.config.json (strategies send orders through the REST API).');
+    expect(liveStartBlock([paper, zerodha({ liveAllowedByConfig: false })])).toMatch(/^No account allows live strategies: live trading is off .*safety\.liveTrading/);
+    expect(liveStartBlock([paper])).toMatch(/^No broker account to trade live/);
+    expect(liveStartBlock([zerodha({ enabled: false })])).toMatch(/^No broker account/);
+  });
+
+  it("disables the button with that line, and leaves the Bridge's refusal on start as it was", () => {
+    const src = readFileSync(new URL("./algo.js", import.meta.url), "utf8");
+    expect(src).toContain("if (liveWhy) liveBtn.disabled = true;");
+    expect(src).toContain('"aria-describedby": "algo-live-why"');
+    expect(src).toMatch(/Object\.assign\(body, \{ mode: "live", confirmLive: s\.id \}\)/);
   });
 });

@@ -114,6 +114,21 @@ export const LOG_IDLE_MS = 5000;
 /** The wait before the next log read, from the selected strategy's status. */
 export const logGap = (status) => (isActive(status) ? LOG_MS : LOG_IDLE_MS);
 
+/**
+ * Why "Start live" cannot work on any account, in one line, or null when some account may take it. From the account
+ * list (GET /v1/accounts: liveAllowedByConfig, liveSources). The Bridge still checks every start (key scope, the
+ * typed confirmation, readiness); this only keeps a start that every account would refuse from looking possible.
+ */
+export function liveStartBlock(accounts) {
+  const real = (accounts ?? []).filter((a) => a && a.broker !== "paper" && a.enabled !== false);
+  if (!real.length) return "No broker account to trade live: strategies run on paper until you add one in Accounts.";
+  const allowed = real.filter((a) => a.liveAllowedByConfig);
+  if (!allowed.length) return "No account allows live strategies: live trading is off in bridge.config.json (safety.liveTrading and the account's live.enabled).";
+  // An older Bridge does not send liveSources: then only its refusal can say.
+  if (allowed.some((a) => !Array.isArray(a.liveSources) || a.liveSources.includes("rest"))) return null;
+  return 'No account allows live strategies: add "rest" to live.allowedSources for the account in bridge.config.json (strategies send orders through the REST API).';
+}
+
 /** "Paper" or "Live" for a strategy's mode chip. */
 export const modeText = (m) => (m === "live" ? "Live" : "Paper");
 

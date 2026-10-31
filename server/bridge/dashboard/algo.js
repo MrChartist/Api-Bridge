@@ -7,7 +7,7 @@
 import { api, app, codeBlock, copyButton, emptyState, errorState, h, icon, istTime, modal, optional, pill, toast } from "./app.js";
 import { DASH, formatGrouped, formatInt, formatNumber, formatSignedRupee, isFigure } from "./format.js";
 import { clearFieldError, fieldError } from "./flows.js";
-import { DOCS_URL, LIST_MS, LOG_MS, TEMPLATE, heartbeatText, isActive, logGap, modeText, paramFields, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
+import { DOCS_URL, LIST_MS, LOG_MS, TEMPLATE, heartbeatText, isActive, liveStartBlock, logGap, modeText, paramFields, readParams, serverFieldErrors, statusOf, totals, uptimeText } from "./algo-core.js";
 
 const SLOT = "mcb.dashboard.algo";
 const tone = (v) => (isFigure(v) && v > 0 ? "up" : isFigure(v) && v < 0 ? "down" : "");
@@ -88,7 +88,10 @@ export async function renderAlgoPage() {
   const dFacts = h("dl", { class: "algo-facts" });
   const dResumed = h("p", { class: "algo-resumed", hidden: true });
   const startBtn = h("button", { type: "button", class: "primary", onclick: () => start("paper") }, icon("play"), h("span", {}, "Start paper"));
-  const liveBtn = h("button", { type: "button", class: "quiet", onclick: () => start("live") }, h("span", {}, "Start live"));
+  const liveBtn = h("button", { type: "button", class: "quiet", "aria-describedby": "algo-live-why", onclick: () => start("live") }, h("span", {}, "Start live"));
+  // Why "Start live" is off when no account may take a live strategy (the Bridge's refusal on start is unchanged).
+  const liveWhy = accountsRes.error ? null : liveStartBlock(accounts);
+  const liveNote = h("p", { class: "muted small algo-live-why", id: "algo-live-why", hidden: true }, liveWhy ?? "");
   const stopBtn = h("button", { type: "button", onclick: () => stop() }, icon("stop"), h("span", {}, "Stop"));
   const acctSel = h("select", { id: "algo-account", "aria-label": "Account" });
   const paramsHost = h("div", { class: "algo-params" });
@@ -132,6 +135,7 @@ export async function renderAlgoPage() {
     "section",
     { class: "card algo-detail" },
     h("header", { class: "algo-dhead" }, h("div", { class: "algo-dtitles" }, h("div", { class: "algo-dline" }, dTitle, dStatus), dFile), h("div", { class: "algo-dacts" }, startBtn, liveBtn, stopBtn)),
+    liveNote,
     dDesc,
     dAlert,
     dResumed,
@@ -249,6 +253,9 @@ export async function renderAlgoPage() {
     startBtn.hidden = liveBtn.hidden = active;
     stopBtn.hidden = !active;
     startBtn.disabled = liveBtn.disabled = Boolean(s.problem) || st.data.killSwitch || st.busy;
+    if (liveWhy) liveBtn.disabled = true;
+    liveBtn.title = liveWhy ?? "";
+    liveNote.hidden = !liveWhy || active;
     // A start that cannot happen (a broken file, the kill switch) is not drawn as the page's main action.
     startBtn.classList.toggle("primary", !(s.problem || st.data.killSwitch));
     stopBtn.disabled = s.status === "stopping" || st.busy;

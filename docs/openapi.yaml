@@ -8903,6 +8903,7 @@ components:
         enabled: { type: boolean }
         session: { $ref: "#/components/schemas/SessionState" }
         liveAllowedByConfig: { type: boolean }
+        liveSources: { type: array, items: { type: string, enum: [rest, webhook, mcp, cli, guard, alert] }, description: "accounts[].live.allowedSources: the tools that may send this account live orders (live still needs liveAllowedByConfig)." }
         pooling: { type: boolean, description: "This account's market-data budget may serve requests that did not name an account." }
         capabilities: { type: array, items: { type: string } }
         authKind: { type: [string, "null"] }

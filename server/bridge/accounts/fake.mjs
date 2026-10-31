@@ -46,7 +46,7 @@ export const DEFAULT_FAKE_CAPABILITIES = Object.freeze([
 /**
  * @typedef {{ id: string, broker: string, label?: string, enabled?: boolean, pooling?: boolean, capabilities?: string[],
  *   state?: import("../core/contracts.mjs").SessionStateName, expiresAt?: string | null, creds?: Record<string, string>,
- *   adapter?: object, liveAllowedByConfig?: boolean, authKind?: string | null }} FakeAccount
+ *   adapter?: object, liveAllowedByConfig?: boolean, liveSources?: string[], authKind?: string | null }} FakeAccount
  */
 
 /**
@@ -75,6 +75,7 @@ export function createFakeAccountManager({ accounts = [], bus, policies = {} } =
       creds: a.creds ? { ...a.creds } : {},
       adapter: a.adapter ?? null,
       liveAllowedByConfig: Boolean(a.liveAllowedByConfig) && !paper,
+      liveSources: a.liveSources ? [...a.liveSources] : paper ? [] : ["rest"],
       authKind: paper ? null : a.authKind ?? a.adapter?.capabilities?.auth?.kind ?? "apiKeyToken",
     });
   }
@@ -95,6 +96,7 @@ export function createFakeAccountManager({ accounts = [], bus, policies = {} } =
     enabled: r.enabled,
     session: sessionOf(r),
     liveAllowedByConfig: r.liveAllowedByConfig,
+    liveSources: [...r.liveSources],
     pooling: effectivePooling(r),
     capabilities: [...r.capabilities],
     authKind: r.authKind,
