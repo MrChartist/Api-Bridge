@@ -59,6 +59,62 @@ export function moverRows(items, by) {
   });
 }
 
+/** What a board says when it has nothing to rank, per list. */
+export const MOVER_EMPTY = Object.freeze({
+  gainers: "No stock is up on the day.",
+  losers: "No stock is down on the day.",
+  volume: "No volume reported yet.",
+  turnover: "No turnover reported yet.",
+  oi: "No OI for cash stocks: the quotes in this universe carry no open interest.",
+});
+
+/**
+ * One board from its own answer, never from the others: { state: "rows", rows } or { state: "empty" | "error", text }.
+ * Gainers keep only rising names, Losers only falling ones, Open interest only names with OI above zero (cash quotes
+ * send none, or 0), so a board never lists flat names as movers.
+ * @param {{ data?: any, error?: { message?: string } }} res optional(api(...)) for this board
+ * @param {string} by gainers | losers | volume | turnover | oi
+ */
+export function moverBoard(res, by) {
+  const d = res?.data?.data;
+  if (!d) return { state: "error", text: res?.error?.message || "Unavailable." };
+  const tab = MOVER_TABS.find((t) => t.id === by) ?? MOVER_TABS[0];
+  const keep = (r) => {
+    const v = num(r?.[tab.metric]);
+    if (v === null || !r?.symbol) return false;
+    return by === "gainers" ? v > 0 : by === "losers" ? v < 0 : v > 0;
+  };
+  const rows = moverRows((Array.isArray(d.items) ? d.items : []).filter(keep), by);
+  return rows.length ? { state: "rows", rows } : { state: "empty", text: MOVER_EMPTY[by] ?? MOVER_EMPTY.gainers };
+}
+
+/**
+ * Load every board on its own: each answer is drawn the moment it lands (`onBoard(id, res)`), so one slow or stuck
+ * read never holds the others on their placeholders. `onSlow(id)` fires for a board still waiting after `slowMs`.
+ * Resolves when every board has answered (a read that never answers leaves only its own board waiting).
+ * @param {readonly { id: string }[]} tabs
+ * @param {(id: string) => Promise<any>} read resolves to optional(api(...)); never rejects
+ * @param {{ onBoard: (id: string, res: any) => void, onSlow?: (id: string) => void, slowMs?: number, timer?: typeof setTimeout, clear?: typeof clearTimeout }} hooks
+ */
+export function loadBoards(tabs, read, { onBoard, onSlow, slowMs = 8000, timer = setTimeout, clear = clearTimeout }) {
+  return Promise.all(
+    tabs.map((t) => {
+      const slow = onSlow ? timer(() => onSlow(t.id), slowMs) : null;
+      return Promise.resolve()
+        .then(() => read(t.id))
+        .then(
+          (res) => res,
+          (error) => ({ error }),
+        )
+        .then((res) => {
+          if (slow !== null) clear(slow);
+          onBoard(t.id, res);
+          return res;
+        });
+    }),
+  );
+}
+
 /** Advance/decline as three shares that add to 1, and a one-line text. */
 export function breadthParts(summary) {
   const a = num(summary?.advances) ?? 0;

@@ -32,6 +32,8 @@ import {
   imbalanceMeter,
   kindLabel,
   ladderRows,
+  loadBoards,
+  moverBoard,
   moverRows,
   pivotLadder,
   rsiZone,
@@ -223,7 +225,12 @@ const symbolChip = (s) => h("button", { type: "button", class: "chip-btn pm-sym"
 /** One mover list as rows: rank, symbol, price, the metric with a bar, and where the price sits in the day's range. */
 function moverList(items, by, { compact = false } = {}) {
   const rows = moverRows(items, by);
-  if (!rows.length) return h("p", { class: "muted small pm-empty" }, by === "oi" ? "No open interest in this universe (cash quotes carry none)." : "Nothing to rank yet.");
+  if (!rows.length) return h("p", { class: "muted small pm-empty" }, by === "oi" ? "No OI for cash stocks: the quotes in this universe carry no open interest." : "Nothing to rank yet.");
+  return moverOl(rows, by, { compact });
+}
+
+/** Ranked rows (moverRows / moverBoard) as the list. */
+function moverOl(rows, by, { compact = false } = {}) {
   return h(
     "ol",
     { class: `pm-movers${compact ? " compact" : ""}` },
@@ -277,26 +284,45 @@ export async function renderMoversPage() {
   uSel.addEventListener("change", () => {
     st.universe = uSel.value;
     savePrefs({ universe: st.universe });
+    busy = null;
     load();
   });
-  async function load() {
+  // Each board draws from its own answer the moment it lands (pulse-core loadBoards): the first pass over a large
+  // universe on a real broker takes seconds (5 to 13 s seen, longer when the quote budget is busy), and one slow or
+  // stuck read used to hold all five boards on their placeholders behind a Promise.all.
+  let busy = null;
+  function load() {
+    if (busy) return busy;
     const u = st.universe;
-    const res = await Promise.all(MOVER_TABS.map((t) => optional(api(`/v1/analytics/markets/movers?universe=${enc(u)}&by=${t.id}&limit=${st.limit}`))));
-    const first = res.find((r) => r.data)?.data;
-    const failed = res.find((r) => r.error)?.error;
-    err.hidden = Boolean(first);
-    if (!first) fill(err, errorState(failed, { onRetry: load }));
-    MOVER_TABS.forEach((t, i) => {
-      const body = boards[t.id].querySelector(".card-body");
-      const d = res[i].data?.data;
-      if (body) fill(body, d ? moverList(d.items, t.id) : h("p", { class: "muted small pm-empty" }, res[i].error?.message ?? "Unavailable."));
-      boards[t.id].hidden = t.id === "oi" && d && !d.items?.length;
+    let shown = false;
+    let fails = 0;
+    const answer = (id, res) => {
+      if (u !== st.universe) return;
+      const body = boards[id].querySelector(".card-body");
+      const b = moverBoard(res, id);
+      if (body) fill(body, b.state === "rows" ? moverOl(b.rows, id) : h("p", { class: "muted small pm-empty" }, b.text));
+      if (res?.error) fails += 1;
+      const first = res?.data;
+      if (first?.data && !shown) {
+        shown = true;
+        err.hidden = true;
+        fill(adHost, breadthStrip(first.data.summary));
+        const m = first.meta ?? {};
+        status.textContent = `${formatInt(m.quoted)} of ${formatInt(m.requested)} quoted · ${agoLabel(first.data.asOf, Date.now()) || "now"} · refreshes every 15 s`;
+      }
+      if (fails === MOVER_TABS.length) {
+        err.hidden = false;
+        fill(err, errorState(res.error, { onRetry: load }));
+      }
+    };
+    const slow = () => {
+      if (u !== st.universe || shown) return;
+      status.textContent = "Still reading quotes: the first pass over a large universe can take a few seconds…";
+    };
+    busy = loadBoards(MOVER_TABS, (id) => optional(api(`/v1/analytics/markets/movers?universe=${enc(u)}&by=${id}&limit=${st.limit}`)), { onBoard: answer, onSlow: slow }).finally(() => {
+      busy = null;
     });
-    if (first) {
-      fill(adHost, breadthStrip(first.data.summary));
-      const m = first.meta ?? {};
-      status.textContent = `${formatInt(m.quoted)} of ${formatInt(m.requested)} quoted · ${agoLabel(first.data.asOf, Date.now()) || "now"} · refreshes every 15 s`;
-    }
+    return busy;
   }
   load();
   every(15_000, load);

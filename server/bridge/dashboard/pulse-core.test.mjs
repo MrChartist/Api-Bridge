@@ -14,6 +14,9 @@ import {
   istClock,
   ladderRows,
   moverRows,
+  moverBoard,
+  loadBoards,
+  MOVER_TABS,
   pivotLadder,
   rsiZone,
   sortTech,
@@ -159,5 +162,40 @@ describe("misc", () => {
   });
   it("the pulse files use neutral copy", () => {
     for (const f of ["pulse.js", "pulse-core.js"]) expect(checkSource(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), { allow: [] }), f).toEqual([]);
+  });
+});
+
+describe("movers boards load on their own (the stuck Movers page)", () => {
+  // The page used to wait on Promise.all over the five board reads: on a real broker the first quote pass of the F&O
+  // universe takes seconds, and one read that had not answered held every board on its placeholder.
+  it("draws each board as its answer lands; a read that never answers holds only its own board", async () => {
+    const ok = (items) => ({ data: { data: { summary: { advances: 23, declines: 51 }, asOf: "2026-10-30T06:00:00Z", items } } });
+    const items = [
+      { symbol: "NSE:ATHERENERG", ltp: 1756, change: 20, changePct: 1.15, volume: 792000, oi: null, turnover: 1390950000, dayHigh: 1770, dayLow: 1720 },
+      { symbol: "NSE:INFY", ltp: 1185, change: -12, changePct: -1, volume: 1300000, oi: null, turnover: 1540000000, dayHigh: 1200, dayLow: 1180 },
+    ];
+    const drawn = new Map();
+    const slow = [];
+    const timers = new Map();
+    let n = 0;
+    const timer = (fn) => (timers.set(++n, fn), n);
+    const read = (id) => (id === "turnover" ? new Promise(() => {}) : Promise.resolve(ok(items)));
+    loadBoards(MOVER_TABS, read, { onBoard: (id, res) => drawn.set(id, moverBoard(res, id)), onSlow: (id) => slow.push(id), timer, clear: (t) => timers.delete(t) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect([...drawn.keys()].sort()).toEqual(["gainers", "losers", "oi", "volume"]);
+    expect(drawn.get("gainers")).toMatchObject({ state: "rows", rows: [{ ticker: "ATHERENERG" }] });
+    expect(drawn.get("losers").rows.map((r) => r.ticker)).toEqual(["INFY"]);
+    expect(drawn.get("volume").rows.length).toBe(2);
+    // OI is null for cash stocks: the board says so instead of blocking or listing zeros.
+    expect(drawn.get("oi")).toEqual({ state: "empty", text: expect.stringMatching(/^No OI for cash stocks/) });
+    for (const fn of timers.values()) fn();
+    expect(slow).toEqual(["turnover"]);
+  });
+  it("one failed board shows its own error; flat names are no gainers; zero OI is no OI", () => {
+    expect(moverBoard({ error: { message: "Quote budget used up." } }, "volume")).toEqual({ state: "error", text: "Quote budget used up." });
+    const flat = { data: { data: { items: [{ symbol: "NSE:011NSETEST", ltp: 200, changePct: 0, oi: 0, volume: 0 }] } } };
+    expect(moverBoard(flat, "gainers").state).toBe("empty");
+    expect(moverBoard(flat, "losers").state).toBe("empty");
+    expect(moverBoard(flat, "oi").text).toMatch(/^No OI for cash stocks/);
   });
 });
