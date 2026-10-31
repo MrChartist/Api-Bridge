@@ -1,0 +1,4 @@
+# Tests are for this repository only: a consumer of the package does not need them.
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx

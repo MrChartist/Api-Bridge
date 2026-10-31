@@ -3,7 +3,8 @@
 // prices, the hero figures, the payoff paths and the table cells change in place, so sliders, focus and scroll never
 // reset. Legs on the left, the answer (hero + payoff + what-if) on the right. The maths is in options.js (pure,
 // tested), drawing in payoff.js, placement in strategy-place.js. Numbers become text only through format.js.
-import { api, app, chartSlot, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
+import { api, app, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
+import { candlesOf, spotSymbol, strategySpec } from "./chart-specs.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
 import { basketLotGate, demoStaleAsked, loadReference, refCharges, refSession } from "./reference.js";
@@ -629,13 +630,15 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   const grid = h("div", { class: "strat-grid" }, build, analysis, skel);
   const panel = h("section", { class: "desk-panel strat-panel is-loading", "data-panel": "strategy", "aria-label": "Strategy builder" }, staleBar, head, grid, keysEl, bar, liveRegion);
 
-  // The price chart: no placeholder panel; once a chart engine registers, the payoff ⋯ menu offers it (a sheet with
-  // the engine's slot). The engine reads window.__mcbStrategyOverlay() for the strikes, breakevens and ±σ.
+  // The price chart (the payoff ⋯ menu): the underlying's daily candles with the strategy's strikes and breakevens as
+  // levels and the ±1σ / ±2σ expected move at the payoff's horizon as bands (chart-specs.js strategySpec).
   function openPriceChart() {
-    const box = chartSlot("Price chart with your strikes, breakevens and ±σ");
-    if (!box) return;
-    box.dataset.chartSlot = "strategy";
-    modal({ title: "Price chart", body: h("div", { class: "strat-price-chart" }, box), buttons: [{ label: "Close", value: false }] });
+    const o = window.__mcbStrategyOverlay();
+    app.chartEngine?.open("Price chart", {
+      label: "Price chart with your strikes, breakevens and ±σ",
+      studies: { symbol: () => spotSymbol(o.underlying) },
+      load: async () => strategySpec({ ...o, candles: candlesOf((await api(`/v1/history?symbol=${encodeURIComponent(spotSymbol(o.underlying))}&interval=1d&countback=120`)).data?.data) }),
+    });
   }
   window.__mcbStrategyOverlay = () => ({
     underlying: st.underlying,

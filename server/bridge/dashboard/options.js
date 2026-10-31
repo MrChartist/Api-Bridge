@@ -2878,7 +2878,7 @@ export const POSITIONS_DEFAULTS = Object.freeze({
   exitType: "mid",
   hedge: Object.freeze({ method: "fut", side: "BUY" }),
   excluded: Object.freeze({}),
-  chartSlot: false,
+  chartSlot: true,
   deltaBand: null,
   curves: "exp",
   heatCols: "auto",

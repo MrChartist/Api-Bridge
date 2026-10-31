@@ -4,6 +4,7 @@
 // recomputed with Black-76 on the parity forward (options.js); the broker's IVs are not used.
 // Round 2 (docs/design/vol.md): foundation colours, persistent animated curves, tooltips and scrub, the IV surface,
 // heat cells and micro-visuals. Nothing on this page marks demo data (the toolbar's one indicator does).
+import { volSpec } from "./chart-specs.js";
 import { api, chartSlot, emptyState, errorState, h, icon, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { countUp, flashValue, reducedMotion, stopCount } from "./motion.js";
@@ -480,16 +481,24 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     h("div", { class: "vol-read-grid" }, h("div", { class: "vol-read-col" }, h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "Read"), h("span", { class: "vol-sub" }, "By trader type"))), readBody), h("div", { class: "vol-read-col" }, h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "Arbitrage checks"), h("span", { class: "vol-sub" }, "At bid/ask, this expiry"))), arbBody)),
   );
 
-  // ── Chart engine slot (ATM IV and HV20 over time: the owner's engine plugs in here). No engine, no panel. ──
-  const historySlot = chartSlot("ATM IV and HV20 over time", "Will show the daily ATM IV of the front expiry against 20-day realised vol");
+  // ── ATM IV and HV20 over time (chart-lite.js): the daily vol store, front expiry (chart-specs.js volSpec) ──
+  const historySlot = chartSlot("ATM IV and HV20 over time", { id: "vol-history" });
   const historyEl = historySlot
     ? h(
         "section",
         { class: "desk-panel vol-history", "data-panel": "vol-history", "aria-label": "ATM IV and HV20 over time" },
-        h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "ATM IV and HV20 over time"), h("span", { class: "vol-sub" }, "Chart engine slot"))),
+        h("div", { class: "panel-head" }, h("div", { class: "vol-title" }, h("strong", {}, "ATM IV and HV20 over time"), h("span", { class: "vol-sub" }, "Front expiry ATM IV against 20-day realised vol, one point a day"))),
         historySlot,
       )
     : null;
+  let volChartU = null;
+  /** Load the IV history chart for the underlying in view (once per underlying; the store changes once a day). */
+  function syncVolChart() {
+    const u = st.underlying;
+    if (!historySlot || !u || u === volChartU) return;
+    volChartU = u;
+    historySlot.chart.load(async () => volSpec((await api(`/v1/vol/history?underlying=${encodeURIComponent(u)}&basis=front&series=iv,hv20&limit=500`)).data?.data, { underlying: u }));
+  }
 
   // ── Methodology ──
   const methodAge = h("li", {});
@@ -842,6 +851,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     requestDraw();
   }
   async function loadHistory() {
+    syncVolChart();
     const u = st.underlying;
     const have = historyCache.get(u);
     if (have && (have.loading || Date.now() - have.at < HISTORY_TTL)) return;
@@ -2112,6 +2122,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     },
     destroy() {
       destroyed = true;
+      historySlot?.chart.destroy();
       queue.length = 0;
       ro?.disconnect();
       clearTimeout(drawTimer);

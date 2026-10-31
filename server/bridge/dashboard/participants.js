@@ -7,6 +7,7 @@
 // of their index-futures positions long"), never a market view (copyRules.mjs). Numbers become text only through
 // format.js. The history panel holds the shared chart-engine slot (chartSlot) with the SVG small multiples, a data
 // table toggle and CSV as the fallback until the owner's chart engine replaces them.
+import { participantsSpec } from "./chart-specs.js";
 import { api, chartSlot, emptyState, errorState, h, icon, loadingState, mountToolbarCtx, sheetPopover, toast } from "./app.js";
 import { DASH, formatCompact, formatCompactTick, formatFixed, formatPercent, formatSigned, isFigure } from "./format.js";
 import { niceTicks } from "./options.js";
@@ -679,13 +680,13 @@ export async function renderParticipantsPage() {
   const tableBtn = h("button", { type: "button", class: "small pt-tbl-btn", "aria-pressed": String(st.showTable) }, icon("list"), h("span", { class: "pt-csv-l" }, "Table"));
   const histCsv = h("button", { type: "button", class: "small pt-csv", title: "Download the history in view as CSV" }, icon("download"), h("span", { class: "pt-csv-l" }, "CSV"));
   const histSub = h("span", { class: "pt-sub" }, "Trading days · gaps are days without a file");
-  const ptSlot = chartSlot("Participant OI history", "FII index-futures long %, FII net, client index call and put nets by day");
+  const ptSlot = chartSlot("Participant OI history", { id: "participant-oi-history" });
   const histPanel = h(
     "section",
     { class: "desk-panel pt-hist", "data-panel": "pt-hist", "aria-label": "Participant OI history" },
     h("div", { class: "panel-head" }, h("div", { class: "pt-title" }, h("strong", {}, "History"), histSub), h("div", { class: "pt-ctl" }, rangeSeg, tableBtn, histCsv)),
-    // The owner's chart engine plugs in here; the SVG small multiples, table and CSV below are the fallback.
-    // (chartSlot is null until an engine registers; then no wrapper either, so no empty box sits above the multiples.)
+    // The chart (chart-lite.js): FII long % and the nets on one time axis (chart-specs.js participantsSpec). The
+    // small multiples below keep their figures; their own plots are drawn only when no chart engine is registered.
     ptSlot ? h("div", { class: "pt-slot-wrap" }, ptSlot) : null,
     histBody,
   );
@@ -722,24 +723,25 @@ export async function renderParticipantsPage() {
     hosts.length = 0;
     ro?.disconnect();
     model = historyModel(days ?? [], st.range, allRevisions);
+    ptSlot?.chart.set(participantsSpec(model));
     if (!model.dates.length) {
       histBody.replaceChildren(emptyState("people", "No history yet", "Older days fill in from the NSE archive outside market hours.", null, { compact: true }));
       return;
     }
     const [a, b] = rangeEnds(model.from, model.to);
     histSub.textContent = `${a} – ${b} · ${model.dates.length} trading days${model.gaps ? ` · ${model.gaps} without a file` : ""}`;
-    const grid = h("div", { class: "pt-multiples", "data-chart-slot": "participant-oi-history" });
+    const grid = h("div", { class: ptSlot ? "pt-multiples pt-captions" : "pt-multiples", "data-chart-slot": ptSlot ? undefined : "participant-oi-history" });
     for (const s of model.series) {
       const host = h("div", { class: "pt-chart" });
       const card = h(
         "figure",
         { class: "pt-multiple" },
         h("figcaption", {}, h("span", { class: "pt-m-label" }, h("span", { class: "dv-key line", "data-dv": s.dv, "aria-hidden": "true" }), s.label), h("span", { class: "pt-m-val" }, h("b", { class: s.kind === "net" ? toneOf(s.last) : "" }, s.lastText), h("span", { class: "pt-m-chg" }, ` ${s.changeText} in range`))),
-        host,
+        ptSlot ? null : host,
         h("p", { class: "sr-only" }, `${s.label}: ${s.lastText} on ${longDate(model.to)}, ${s.changeText} since ${longDate(model.from)}; low ${valueText(s, s.min)}, high ${valueText(s, s.max)}.`),
       );
       grid.append(card);
-      hosts.push({ host, s });
+      if (!ptSlot) hosts.push({ host, s });
     }
     const parts = [grid];
     if (model.revisions.length) parts.push(h("p", { class: "pt-rev-note" }, icon("info"), model.revisions.map((r) => `${longDate(r.date)}: ${r.text}.`).join(" "), " Long % and shares are ratios and stay comparable."));

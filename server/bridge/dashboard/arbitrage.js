@@ -11,6 +11,8 @@ import { DASH, MINUS, formatCompact, formatFixed, formatInput, formatInt, format
 import { flashValue, lineReveal, reducedMotion } from "./motion.js";
 import * as O from "./options.js";
 import { refCharges, refSession } from "./reference.js";
+import { arbSpec } from "./chart-specs.js";
+import { fromServerSnapshot } from "./oi-store.js";
 import { edgeFades, segmented } from "./views.js";
 import { legend, setBar, spotPill, svgEl } from "./viz.js";
 
@@ -412,9 +414,40 @@ export function arbPanels(ctx) {
     notesSummary.replaceChildren(h("strong", {}, `Risk notes · ${formatInt(n)}`), notesDetails.open ? null : h("span", { class: "arb-sub" }, `${RISK_NOTES[0][0]}…`));
   }
   drawNotes();
-  // The chart-engine slot is a panel only once an engine is registered (no placeholder box until then).
-  const chartBox = chartSlot("Implied forward and box rate by strike over time");
-  const chartEl = chartBox ? h("section", { class: "desk-panel arb-chart", "data-panel": "chart-slot", "aria-label": "Chart engine slot" }, chartBox) : null;
+  // Implied forward and box rate over the session (chart-lite.js; chart-specs.js arbSpec), from the Bridge recorder's
+  // per-strike last prices for this chain. Reloads on a new chain and every 60 s.
+  const chartBox = chartSlot("Implied forward and box rate over time", { id: "arb", refreshMs: 60_000 });
+  const chartEl = chartBox
+    ? h(
+        "section",
+        { class: "desk-panel arb-chart", "data-panel": "chart-slot", "aria-label": "Implied forward and box rate over time" },
+        h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Forward and box rate today"), " ", h("span", { class: "arb-sub" }, "From the recorder's minutes for this chain"))),
+        chartBox,
+      )
+    : null;
+  let arbChartKey = "";
+  function syncArbChart() {
+    const c = st.chain;
+    if (!chartBox || !c?.underlying || !c.expiry) return;
+    const key = `${c.underlying}|${c.expiry}`;
+    if (key === arbChartKey) return;
+    arbChartKey = key;
+    const { underlying, expiry } = c;
+    chartBox.chart.load(async () => {
+      const snaps = [];
+      let cursor = null;
+      for (let page = 0; page < 4; page += 1) {
+        const q = new URLSearchParams({ underlying, expiry, fields: "ltp", limit: "500" });
+        if (cursor) q.set("cursor", cursor);
+        const d = (await api(`/v1/options/snapshots?${q}`)).data?.data;
+        snaps.push(...(d?.snapshots ?? []).map((x) => fromServerSnapshot(x, underlying, expiry)).filter(Boolean));
+        cursor = d?.nextCursor ?? null;
+        if (!cursor) break;
+      }
+      const close = refSession(st.ref).close;
+      return arbSpec(snaps, { underlying, hurdle: cfg().hurdle, daysAt: (t) => O.timeToExpiry(expiry, t, close).days });
+    });
+  }
 
   // ── Model: everything the page shows, from the chain, futures quotes and settings ──
   function futQuote(inst) {
@@ -2913,6 +2946,7 @@ export function arbPanels(ctx) {
       return;
     }
     scanEl.removeAttribute("aria-busy");
+    syncArbChart();
     ladderPlot.classList.remove("skel");
     if (errorShown) {
       errorShown = false;

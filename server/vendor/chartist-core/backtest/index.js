@@ -1,0 +1,15 @@
+export { CanonicalError, canonicalJson, fixed, fromPaise, toPaise } from './canonical.js';
+export { computeRunId, runIdInput } from './runId.js';
+export { LABELS, LABEL_TEXT, headlinesAllowed, stampLabels } from './labels.js';
+export { COST_BASES, COST_COMPONENTS, MIN_CONTRACT_NOTES, COST_SEGMENTS, COST_SIDES, computeCharges, costTableGate, costTableHash, validateCostTable } from './costTable.js';
+export { HEADLINE_KEYS, WIN_COUNT_KEYS, makeEnvelope } from './envelope.js';
+export { simulate } from './simulate.js';
+export { sizeTarget } from './sizing.js';
+export { slippageBp, validateSlippageProfile } from './slippage.js';
+export { costModelFromTable } from './costModel.js';
+export { computeMetrics } from './metrics.js';
+export { FORBIDDEN_VIEWS, FORBIDDEN_WORDING, RESULT_VIEWS, forbiddenIn, viewAllowed } from './views.js';
+export { MAX_PANEL_CELLS, STRATEGY_DEFAULTS, buildSignalPanel, configFor, strategyProblem, strategySettings } from './strategy.js';
+export { MAX_PURGE_SESSIONS, MAX_SWEEP_COMBOS, MAX_SWEEP_PARAMS, MIN_TEST_SESSIONS, MIN_TRAIN_SESSIONS, deflatedSharpe, equityReturns, holdoutSessionsFor, neighbourIndexes, normInv, planWalkForward, returnMoments, robustness, sampleVariance, sweepGrid } from './validation.js';
+export { buildLegPanel, contractId, legLabelFacts, parseContractId, simulateLegs } from './legs.js';
+export { STRIKE_PICK_MIN_OI_LOTS, isOptionStrategy, nearestStrikeBy, optionLegsOf, optionStrategyPlan, resolveLegs, runOptionStrategy } from './optionStrategy.js';

@@ -5,7 +5,8 @@
 //
 // The desk owns the data: `read(strike, side)` returns { x (the chain context), row, q (the leg), position, name,
 // canTrade, paused, warnings }. Numbers are formatted by format.js only; the maths is options.js.
-import { chartSlot, copyButton, h, icon } from "./app.js";
+import { api as bridgeApi, chartSlot, copyButton, h, icon } from "./app.js";
+import { candlesOf, contractSpec } from "./chart-specs.js";
 import { excelFormula } from "./flows.js";
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
@@ -126,8 +127,12 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   const legSell = h("button", { type: "button", class: "small" }, "Add sell leg");
   // This contract's live price as one Excel cell (the key sits in a cell named BridgeKey: API › Keys makes one).
   const xlBtn = copyButton(() => excelFormula(location.origin, state().q?.symbol ?? ""), { label: "Excel formula", toastLabel: "Excel formula copied: put your key in a cell named BridgeKey", cls: "small", ariaLabel: "Copy an Excel formula for this contract's live price" });
-  // The owner's chart engine, once one registers (null until then: h() drops it, so no empty slot shows).
-  const chartSlotEl = chartSlot("Price chart of this contract");
+  // The contract's 5-minute candles (GET /v1/history), reloaded when CE / PE switches the contract; every 60 s while open.
+  // With indicators on, daily candles (studies read one candle per session).
+  let chartSym = null;
+  const chartSlotEl = chartSlot("Price chart of this contract", { id: "contract", refreshMs: 60_000, expand: true, studies: { symbol: () => chartSym } });
+  const loadContract = (sym, name) => async ({ studies }) =>
+    contractSpec({ name, daily: studies, candles: candlesOf((await bridgeApi(`/v1/history?symbol=${encodeURIComponent(sym)}&interval=${studies ? "1d" : "5m"}&countback=${studies ? 120 : 150}`)).data?.data) });
   const grid = h("div", { class: "cs-groups" });
   const warns = h("ul", { class: "ticket-checks cs-warns", "aria-label": "Before you trade", hidden: true });
   const grab = h("div", { class: "cs-grab", "aria-hidden": "true" });
@@ -149,6 +154,11 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
     if (sideSeg.value !== s) sideSeg.value = s;
     const name = d.name ?? `${formatInt(strike)} ${right}`;
     if (title.textContent !== name) title.textContent = name;
+    const sym = q?.symbol ?? null;
+    if (sym && sym !== chartSym && chartSlotEl) {
+      chartSym = sym;
+      chartSlotEl.chart.load(loadContract(sym, name));
+    }
     const chp = O.changePct(q);
     const qSig = `${q?.ltp}|${chp}`;
     if (quote.__sig !== qSig) {
@@ -233,6 +243,7 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   function close() {
     if (closed) return;
     closed = true;
+    chartSlotEl?.chart.destroy();
     window.removeEventListener("hashchange", close);
     if (dlg.open) dlg.close();
     dlg.remove();

@@ -28,6 +28,8 @@ import { normWhatIf, whatIfFigures } from "./whatif-core.js";
 import { cachedTriggers, exitChipText, openPositionExits, openTriggers } from "./triggers.js";
 import { dayRows } from "./orders-core.js";
 import { contractName } from "./flows.js";
+import { OPEN_TRIGGER } from "./trigger-core.js";
+import { candlesOf, lastSession, positionsSpec, spotSymbol } from "./chart-specs.js";
 
 
 /**
@@ -611,11 +613,43 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const xpToggle = h("button", { type: "button", class: "small quiet", "aria-expanded": "false", onclick: () => ((xpOpen = !xpOpen), drawExpiryDesk()) });
   const xpPanel = h("section", { class: "desk-panel xp-panel", "data-panel": "expiry", "aria-label": "Expiry-day desk", hidden: true }, h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Expiry desk"), xpTitle), h("span", { class: "xp-head-r" }, xpClock, xpToggle, xpSquare)), xpBody);
   let xpState = null;
+  // ── Day chart (chart-lite.js): spot through the day with the strikes and any exits set on the index itself, and the
+  // book's P&L from each open leg's 5-minute closes (chart-specs.js positionsSpec). Reloads when the book changes and
+  // every 5 minutes while open; it reads nothing until it scrolls into view.
+  const dayChart = chartSlot("Book P&L and spot through the day, with your strikes", { id: "positions", refreshMs: 300_000 });
   const slotPanel = h(
     "section",
-    { class: "desk-panel pos-slot", "data-panel": "chartslot", "aria-label": "Chart engine slot", hidden: true },
-    chartSlot("Book P&L and spot through the day, with your strikes"),
+    { class: "desk-panel pos-slot", "data-panel": "chartslot", "aria-label": "Day chart", hidden: true },
+    h("div", { class: "panel-head" }, h("span", { class: "panel-title" }, h("strong", {}, "Day chart"), " ", h("span", { class: "muted pos-risk-sub" }, "Spot, your strikes and the book's P&L"))),
+    dayChart,
   );
+  let dayChartSig = "";
+  /** At most this many open legs are read for the P&L line (one history read each). */
+  const DAY_CHART_LEGS = 12;
+  function drawDayChart() {
+    if (slotPanel.hidden || !dayChart) return;
+    const u = st.underlying;
+    const open = legs.filter((l) => l.q && l.symbol && isFigure(l.avg));
+    const sig = `${u}|${open.map((l) => `${l.symbol}:${l.q}:${l.avg}`).join(",")}`;
+    if (sig === dayChartSig) return;
+    dayChartSig = sig;
+    dayChart.chart.load(async () => {
+      const day = async (sym) => lastSession(candlesOf((await api(`/v1/history?symbol=${encodeURIComponent(sym)}&interval=5m&countback=80`)).data?.data));
+      const few = open.length <= DAY_CHART_LEGS;
+      const [spotC, ...legC] = await Promise.all([day(spotSymbol(u)), ...(few ? open.map((l) => optional(day(l.symbol)).then((r) => (r.error ? [] : r))) : [])]);
+      const exits = cachedTriggers(st.account)
+        .filter((t) => t.symbol === spotSymbol(u) && OPEN_TRIGGER.has(t.status))
+        .flatMap((t) => (t.legs ?? []).map((l) => ({ role: l.role === "target" ? "target" : "stop", trigger: l.trigger })));
+      return positionsSpec({
+        underlying: u,
+        spot: spotC,
+        legs: few ? open.map((l, k) => ({ qty: l.q, avg: l.avg, candles: legC[k] })) : [],
+        strikes: open.filter((l) => l.kind === "OPT").map((l) => l.strike),
+        exits,
+        pnlNote: few ? "Book P&L needs today's 5-minute prices for every open leg; one has none yet." : `Book P&L is drawn for up to ${formatInt(DAY_CHART_LEGS)} open legs.`,
+      });
+    });
+  }
   const root = posPanel;
 
   // ── Book strip: Hero · Greeks · Capital (positions.md §4.1–4.3) ──
@@ -3047,7 +3081,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         h("section", {}, h("h3", {}, "Risk"), h("label", { class: "field" }, h("span", {}, "Delta band ± (units; blank = one futures lot)"), bandIn), segField("Payoff curves", seg("Payoff curves", [["now", "Now"], ["exp", "+Exp"], ["target", "+Target"]], c.curves, (v) => ((curvesSeg.value = v), apply({ curves: v })))), sw("Show P&L bars", c.bars, (v) => apply({ bars: v }), "Diverging bars by leg, group and book"), sw("Show σ gauges", c.gauges, (v) => apply({ gauges: v }), "Distance to strike on a 0–3σ track; Δ across spot")),
         h("section", {}, h("h3", {}, "Scenario"), segField("Spot ladder", seg("Spot ladder", [["tight", "±5%"], ["wide", "±10%"], ["sigma", "±2σ"]], c.ladder, (v) => apply({ ladder: v }))), segField("Columns", seg("Matrix columns", [["iv", "IV"], ["days", "Days"]], c.axis, (v) => (matMode !== "greeks" && (matMode = v), (axisSeg.value = matMode), apply({ axis: v })))), segField("Heatmap columns", seg("Heatmap columns", [["auto", "Auto"], ["3", "3"], ["5", "5"]], String(c.heatCols), (v) => apply({ heatCols: v === "auto" ? "auto" : Number(v) }))), h("label", { class: "field" }, h("span", {}, "Loss limit ₹ (cells beyond it are hatched)"), lossIn)),
         h("section", {}, h("h3", {}, "Exit"), segField("Default price", seg("Default exit price", [["mid", "Mid"], ["touch", "Touch"], ["market", "Market"]], c.exitType, (v) => apply({ exitType: v })))),
-        h("section", {}, h("h3", {}, "Panels"), sw("Chart engine slot", c.chartSlot, (v) => apply({ chartSlot: v }), "A placeholder for your own chart engine")),
+        h("section", {}, h("h3", {}, "Panels"), sw("Day chart", c.chartSlot, (v) => apply({ chartSlot: v }), "Spot through the day with your strikes, and the book's P&L")),
       );
     };
     const pop = h(
@@ -3092,6 +3126,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     // POP comes from the risk pass: only the Greeks footer depends on it (the book is not drawn twice).
     if (legs.length) drawGreeksFoot();
     slotPanel.hidden = !cfg().chartSlot || !has;
+    drawDayChart();
     bookPanel.hidden = !d.loaded ? false : !legs.length && switchEl.hidden;
     onClock();
   }

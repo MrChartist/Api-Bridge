@@ -1412,7 +1412,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 :where(button, .btn, .tab):active:not(:disabled):not([aria-disabled="true"]) { scale: var(--press, 0.97); transition-duration: var(--dur-hover), var(--dur-hover), var(--dur-hover), var(--dur-hover), var(--dur-press); transition-timing-function: var(--ease-out); }
 .tab { transition: scale var(--dur-spring) var(--ease-press); }
 :is(.segmented, .tabs, .scr-tabs, .tool-group, .join) button,
-button:is(.chip-btn, .preset-chip, .preset, .scr-uchip, .pos-uchip, .pos-schip, .exp-chip, .hidden-chip, .list-row, .menu-item, .pos-mi, .pos-card, .scr-card, .preset-card, .sg-card, .gk, .oi-t, .oi-wrow, .oi-mrow, .pos-gauge, .pos-cghead, .pos-hedge-head, .sec-toggle, .chart-slot-toggle, .scr-sort-pick, .q-btn, .bs-btn, .side-btn, .link-btn, .pos-comp-b, .arb-wf-more, .arb-sort, .scr-sort-btn, .leg-price, .leg-exp, .leg-on, .strat-name, .oi-prof-collapsed, .palette-option, .cal-tile, .bk-hhead) { --press: 1; }
+button:is(.chip-btn, .preset-chip, .preset, .scr-uchip, .pos-uchip, .pos-schip, .exp-chip, .hidden-chip, .list-row, .menu-item, .pos-mi, .pos-card, .scr-card, .preset-card, .sg-card, .gk, .oi-t, .oi-wrow, .oi-mrow, .pos-gauge, .pos-cghead, .pos-hedge-head, .sec-toggle, .scr-sort-pick, .q-btn, .bs-btn, .side-btn, .link-btn, .pos-comp-b, .arb-wf-more, .arb-sort, .scr-sort-btn, .leg-price, .leg-exp, .leg-on, .strat-name, .oi-prof-collapsed, .palette-option, .cal-tile, .bk-hhead) { --press: 1; }
 
 /* Touch (§3): every button reaches a 44 px target through an invisible area outside its painted edge, so dense
    toolbars keep their xs / small buttons and table rows keep their height. Segments and chips that sit in scrolling
@@ -3525,7 +3525,6 @@ table.place-table td.num .block { white-space: nowrap; }
 .toast-undo-row { display: inline-flex; align-items: center; gap: 4px; }
 button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: transparent; --btn-line: transparent; --fin: 0; }
 /* The price chart (payoff ⋯ → Price chart, only once a chart engine registers): the engine's slot in a sheet. */
-.strat-price-chart .chart-slot-box { aspect-ratio: auto; height: min(420px, 60vh); }
 /* The sticky bar (≤ 1023): toasts and the page's last row stay above it (--bottom-extra = its 56 px + 12 px margin,
    app.css 4 · SHELL), only while it shows (it hides with no legs). */
 @media (max-width: 1023px) { :root[data-page="strategy"]:has(.strat-bar:not([hidden])) { --bottom-extra: 68px; } }
@@ -4212,8 +4211,6 @@ table.oi-etable tr.off .oi-ename { color: hsl(var(--foreground) / var(--a-label)
 .oi-err .icon-btn { width: 28px; height: 28px; }
 /* Timeline: the chart-engine slot (only when an engine is registered) is short until 10 points exist; the snapshots as
    a table below it. The box itself is the shared one (12y: --r-inner, no dashed outline). */
-.oi-tslot.chart-slot-box { aspect-ratio: auto; height: 240px; }
-.oi-tslot.chart-slot-box.short { height: 120px; }
 .oi-note { margin: 0; padding: 8px 14px 10px; font: 400 12px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .oi-note + .oi-note { padding-top: 0; }
 .oi-migrate { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
@@ -4876,7 +4873,6 @@ table.pos-bca tbody th { text-align: left; font: 500 12.5px/1.2 var(--font-body)
 .pos-hedge-body .ticket-checks { padding: 0; }
 .pos-hedge-body .ticket-checks[hidden] { display: none; }
 .pos-hedge-acts { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.pos-slot-box { height: 160px; margin: 12px; border-radius: var(--r-md); background: none; box-shadow: none; outline: 1px dashed var(--mat-separator); outline-offset: -1px; }
 
 /* Roll / adjust preview (handed to the Strategy Builder; nothing is sent from here). */
 .pos-roll { display: flex; flex-direction: column; gap: 10px; }
@@ -5418,8 +5414,6 @@ button.vol-select[aria-pressed="true"]:hover .vol-sel-dot { box-shadow: none; }
 
 /* Chart engine slot and the method note. */
 .vol-slot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 160px; margin: 12px; padding: 16px; border-radius: var(--r-md); text-align: center; font: 500 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); outline: 1px dashed var(--mat-separator); outline-offset: -1px; }
-.vol-history .chart-slot-box { aspect-ratio: auto; height: 240px; }
-@media (max-width: 719px) { .vol-history .chart-slot-box { height: 160px; } }
 .vol-slot-kicker { font: var(--t-label); line-height: 1; color: hsl(var(--foreground) / var(--a-quiet)); }
 .vol-details > summary { display: flex; align-items: center; min-height: 44px; padding: 0 12px; cursor: pointer; font: 600 15px/1.2 var(--font-display); }
 .vol-method-list { margin: 0; padding: 0 16px 12px 32px; }
@@ -6013,7 +6007,6 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
 .arb-note-list { margin: 0; padding: 0 16px 14px 36px; font: 400 12.5px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .arb-note-list li { margin-bottom: 6px; break-inside: avoid; }
 .arb-note-list strong { color: hsl(var(--foreground)); font-weight: 600; }
-.arb-chart .chart-slot-box { aspect-ratio: auto; height: 160px; }
 @media (min-width: 1280px) { .arb-note-list { columns: 2; column-gap: 28px; } }
 @media (min-width: 1024px) {
   :root[data-layout="desk"][data-page="arb"] .content { flex-flow: row wrap; align-items: flex-start; }
@@ -6072,7 +6065,6 @@ table.arb-pv small.block { display: block; margin-top: 3px; white-space: normal;
   .arb-viz:is([data-mode="boxlegend"], [data-mode="matrix"]) .arb-viz-head { flex-wrap: nowrap; gap: 10px; }
   .arb-viz:is([data-mode="boxlegend"], [data-mode="matrix"]) .arb-viz-title { display: none; }
   .arb-viz:is([data-mode="boxlegend"], [data-mode="matrix"]) .arb-viz-head .segmented { margin-left: auto; flex: none; }
-  .arb-chart .chart-slot-box { height: 120px; }
   .arb-fields { grid-template-columns: minmax(0, 1fr); }
   .arb-cal-in { padding-left: 0; }
 }
@@ -6531,8 +6523,6 @@ button.scr-more[hidden], .scr-issues[hidden] { display: none; }
 .scr-pane { max-height: calc(100dvh - var(--toolbar-h) - var(--safe-t) - 28px); overflow: auto; overscroll-behavior: contain; }
 .scr-pane-empty { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; }
 .scr-pane-hint { margin: 0; padding: 22px 18px 8px; text-align: center; font: 400 13px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-.scr-slot.chart-slot-box { aspect-ratio: auto; height: 180px; margin: 0; }
-.scr-pane-empty .scr-slot { margin: 0 14px; }
 .scr-detail-body { display: flex; flex-direction: column; font: 400 13px/1.35 var(--font-body); }
 .scr-d-head { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 10px; }
 .scr-d-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -6623,7 +6613,6 @@ svg .scr-risk-unl.profit { fill: hsl(var(--pos-ink)); }
 .scr-a-alts button.scr-a-alt { min-height: 32px; font-size: 12.5px; color: hsl(var(--foreground) / var(--a-label)); }
 .scr-detail-body.in-sheet :is(.scr-d-head, .scr-d-sec, .scr-d-note, .scr-d-costs, .scr-d-slot) { padding-left: 0; padding-right: 0; }
 .scr-detail-body.in-sheet .scr-d-head { padding-top: 0; }
-.scr-detail-body.in-sheet .scr-slot.chart-slot-box { height: 160px; }
 .dialog-body:has(> .scr-detail-body.in-sheet) { gap: 0; padding-bottom: 0; }
 .scr-detail-body.in-sheet .scr-d-actions { position: sticky; bottom: 0; z-index: 2; margin: 0 -20px; padding: 10px 20px calc(14px + var(--safe-b, 0px)); background: var(--mat-thick); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
 .dialog-body > .scr-detail-body.in-sheet > .scr-pin { display: none; }  /* openSheet() moves it into the sheet head */
@@ -6715,7 +6704,6 @@ button.scr-sort-dir { width: 44px; min-height: 44px; padding: 0; justify-content
   button.scr-more { min-height: 44px; width: 100%; justify-content: center; margin-top: 8px; }
   .scr-method, .scr-method[open] > summary { margin: 0 auto; }
   .scr-f-num input { width: 80px; }
-  .scr-slot.chart-slot-box { height: 160px; }
 }
 @media (pointer: coarse) {
   .scr-tabs button, .scr-chip button, .scr-issues li button { min-height: 44px; }
@@ -6864,7 +6852,6 @@ svg .pt-line { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-line
 svg .pt-dot { fill: currentColor; stroke: hsl(var(--card)); stroke-width: 1.5; }
 svg .pt-rev { stroke: hsl(var(--foreground) / 0.38); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stroke; stroke: hsl(var(--card)); stroke-width: 3px; stroke-linejoin: round; }
-.pt-slot-wrap .chart-slot-box { aspect-ratio: auto; height: 88px; margin: 10px 14px 4px; padding: 10px 16px; }
 /* The label text carries the ellipsis; the row itself is not clipped, so the info button is never cut or overlapped. */
 :root .pt-tiles .desk-stat .label.pt-label-row { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: visible; }
 .pt-label-t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -6926,7 +6913,6 @@ svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stro
   .pt-hist .pt-ctl { display: grid; grid-template-columns: 1fr 1fr; margin-left: 0; width: 100%; }
   .pt-hist .pt-ctl .segmented { grid-column: 1 / -1; }
   .pt-hist .pt-ctl button.small { justify-content: center; }
-  .pt-slot-wrap .chart-slot-box { height: auto; min-height: 72px; margin: 10px 12px 4px; }
   /* Two-line chips (stale file, totals) read as a rounded box, not a crowded pill. */
   .pt-chip { border-radius: 8px; padding: 3px 9px; line-height: 1.35; }
   /* The source pill stays only when it warns (stale or off), as a compact chip; the fetch time is in the notes. */
@@ -6973,13 +6959,6 @@ svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stro
 .empty.compact p { font-size: 13.5px; }
 .chain-note { padding: 0; background: none; }
 .chain-note[hidden] { display: none; }
-
-/* The shared chart-engine slot: fixed aspect ratio, dashed hairline, centred caption. */
-/* Drawn only once a chart engine registers (app.js chartSlot); an L2 surface, no dashed outline. */
-.chart-slot-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; aspect-ratio: 16 / 7; margin: 12px; padding: 16px; border-radius: var(--r-inner); text-align: center; background: var(--mat-fill-1); }
-.chart-slot-kicker { font: var(--t-label); line-height: 1; color: hsl(var(--foreground) / var(--a-quiet)); }
-.chart-slot-label { max-width: 520px; font: 500 14px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
-.chart-slot-sub { max-width: 520px; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 
 /* Summary strip: 8 in a row on desktop, 4 × 2 below 1280, one snapping row on phones (it scrolls, the page never does). */
 .desk-stats.sum-strip { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); overflow: hidden; }
@@ -9056,6 +9035,147 @@ p.bk-fix { font-size: 13px; }
    inks, unchanged). Only these chips; everything else keeps --pos-ink / --neg-ink. */
 .ev-chip.bull, .obu-LB, .obu-SC, .oi-tone-pill[data-tone="up"], .scr-pill.t-pos, .bk-rel[data-tone="ok"], :is(table.chain, .cs-m) .bu-LB { color: hsl(var(--gain-ink-strong)); }
 .ev-chip.bear, .obu-SB, .obu-LU, .oi-tone-pill[data-tone="down"], .scr-pill.t-neg, table.chain .held.short, :is(table.chain, .cs-m) .bu-SB { color: hsl(var(--loss-ink-strong)); }
+
+/* ───────────────────────── 18 · LIGHT CHARTS (chart-lite.js, chart-lite-core.js) ─────────────────────────
+   Ported from MrChartist/scanner src/components/patterns/lite-chart/formation-chart.css, <commit c2ac504>.
+   Every chart slot (app.js chartSlot) draws one SVG. Colour comes from the data-viz and brand tokens by ROLE, so light
+   and dark need no repaint: candles and signed areas take the brand gain / loss fills (--pos, --neg), series take the
+   data-viz tokens (calls blue, puts orange, IV violet, spot the foreground), text takes the inks.
+   Crispness rules (scanner): no transform or filter touches the SVG or its ancestors inside the slot; candle and grid
+   edges are snapped to the device grid in JS and drawn with crispEdges; text is the numeric face at 12px or more.
+   Height: --lc-h on the slot (the skeleton uses it too, so nothing shifts when data lands); 2 and 3 panes grow it. */
+.lc-slot { --lc-h: 260px; display: block; min-width: 0; padding: 6px 14px 12px; }
+.lc-sub { margin: 0 0 6px; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lc-wrap, .lc-host, .lc-status { display: block; min-width: 0; }
+:is(.lc-host, .lc-status, .lc-plot, .lc-legend, .lc-empty, .lc-note)[hidden] { display: none; }
+.lc-skel { display: block; height: var(--lc-h); border-radius: var(--r-inner); background: var(--mat-fill-1); }
+.lc-chart { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lc-legend { min-height: 20px; }
+.lc-legend:empty { display: none; }
+.lc-plot { position: relative; height: var(--lc-h); min-width: 0; overflow: hidden; }
+.lc-chart[data-panes="2"] .lc-plot { height: calc(var(--lc-h) * 1.35); }
+.lc-chart[data-panes="3"] .lc-plot { height: calc(var(--lc-h) * 1.6); }
+.lc-chart[data-panes="4"] .lc-plot { height: calc(var(--lc-h) * 1.85); }
+.lc-chart:is([data-panes="5"], [data-panes="6"]) .lc-plot { height: calc(var(--lc-h) * 2.1); }
+.lc-svg { display: block; overflow: hidden; }
+.lc-svg text { font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased; }
+.lc-note { margin: 0; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lc-empty .empty { min-height: calc(var(--lc-h) * 0.6); justify-content: center; border-radius: var(--r-inner); background: var(--mat-fill-1); }
+
+/* Roles: one colour variable per series tone (--lc-c marks, --lc-ink text). */
+.lc-svg [data-tone] { --lc-c: hsl(var(--foreground) / 0.55); --lc-ink: hsl(var(--foreground) / var(--a-label)); }
+.lc-svg [data-tone="call"] { --lc-c: hsl(var(--dv-call)); --lc-ink: hsl(var(--dv-call-ink)); }
+.lc-svg [data-tone="put"] { --lc-c: hsl(var(--dv-put)); --lc-ink: hsl(var(--dv-put-ink)); }
+.lc-svg [data-tone="pos"] { --lc-c: hsl(var(--pos)); --lc-ink: hsl(var(--pos-ink)); }
+.lc-svg [data-tone="neg"] { --lc-c: hsl(var(--neg)); --lc-ink: hsl(var(--neg-ink)); }
+.lc-svg [data-tone="iv"] { --lc-c: hsl(var(--dv-iv)); --lc-ink: hsl(var(--dv-iv-ink)); }
+.lc-svg [data-tone="spot"] { --lc-c: hsl(var(--dv-spot)); --lc-ink: hsl(var(--foreground)); }
+.lc-svg [data-tone="today"] { --lc-c: hsl(var(--dv-today)); --lc-ink: hsl(var(--ios-blue-ink)); }
+.lc-svg [data-tone="warn"] { --lc-c: hsl(var(--warn)); --lc-ink: hsl(var(--warn-ink)); }
+.lc-svg [data-tone="hv"] { --lc-c: var(--dv-hv); --lc-ink: hsl(var(--foreground) / var(--a-label)); }
+
+/* Grid and axes: horizontal grid at the price ticks, a faint vertical rule at each time label. */
+.lc-grid, .lc-vgrid { stroke: var(--dv-grid); fill: none; }
+.lc-vgrid[data-level="1"] { stroke-dasharray: 2 4; }
+.lc-zero { stroke: var(--dv-zero); fill: none; }
+.lc-axis, .lc-seam { stroke: var(--mat-separator); fill: none; }
+.lc-svg .lc-tick, .lc-svg .lc-time { fill: var(--dv-axis); }
+.lc-svg .lc-time:not([data-level="1"]) { font-weight: 600; fill: hsl(var(--foreground) / var(--a-label)); }
+.lc-svg .lc-pane-label { fill: hsl(var(--foreground) / var(--a-quiet)); }
+
+/* Candles and volume: the brand gain and loss fills. */
+.lc-body[data-dir="up"] { fill: hsl(var(--pos)); }
+.lc-body[data-dir="down"] { fill: hsl(var(--neg)); }
+.lc-wick { fill: none; }
+.lc-wick[data-dir="up"] { stroke: hsl(var(--pos)); }
+.lc-wick[data-dir="down"] { stroke: hsl(var(--neg)); }
+.lc-vol[data-dir="up"] { fill: hsl(var(--pos) / 0.28); }
+.lc-vol[data-dir="down"] { fill: hsl(var(--neg) / 0.28); }
+
+/* Series. */
+.lc-line { fill: none; stroke: var(--lc-c); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.lc-line[data-weight="thin"] { stroke-width: 1.25; }
+.lc-line.dash { stroke-dasharray: 5 4; }
+.lc-area { stroke: none; fill: color-mix(in srgb, var(--lc-c) 16%, transparent); }
+.lc-bar { stroke: none; fill: var(--lc-c); }
+.lc-band { stroke: none; fill: color-mix(in srgb, var(--lc-c) 13%, transparent); }
+.lc-band[data-strength="2"] { fill: color-mix(in srgb, var(--lc-c) 7%, transparent); }
+.lc-svg .lc-band-label { fill: var(--lc-ink); }
+
+/* Levels (LevelLayer.tsx): a ray over the plot and a capsule in the right gutter, led back when nudged. */
+.lc-ray { fill: none; stroke: var(--lc-c); stroke-width: 1; }
+.lc-ray.dash { stroke-dasharray: 4 3; }
+.lc-cap rect { fill: color-mix(in srgb, var(--lc-c) 14%, hsl(var(--card))); stroke: color-mix(in srgb, var(--lc-c) 55%, transparent); stroke-width: 1; }
+.lc-svg .lc-cap text { font-weight: 600; fill: var(--lc-ink); }
+.lc-cap-lead { fill: none; stroke: color-mix(in srgb, var(--lc-c) 55%, transparent); stroke-width: 1; }
+.lc-marker { fill: none; stroke: var(--lc-c); stroke-width: 1; stroke-dasharray: 2 3; }
+.lc-svg .lc-marker-label { font-weight: 600; fill: var(--lc-ink); }
+
+/* Tooltip rows (viz.js scrubber, .dv-tip): a key swatch in the series colour. */
+.lc-tip-key { display: inline-flex; align-items: center; gap: 6px; }
+.lc-tip-key::before { content: ""; flex: none; width: 10px; height: 2px; border-radius: 1px; background: currentColor; }
+.dv-tip .lc-tip-key { color: inherit; }
+.dv-tip .lc-tip-key[data-dv]::before { background: var(--lc-key, currentColor); }
+.dv-tip .lc-tip-key[data-dv="call"] { --lc-key: hsl(var(--dv-call)); }
+.dv-tip .lc-tip-key[data-dv="put"] { --lc-key: hsl(var(--dv-put)); }
+.dv-tip .lc-tip-key[data-dv="pos"] { --lc-key: hsl(var(--pos)); }
+.dv-tip .lc-tip-key[data-dv="neg"] { --lc-key: hsl(var(--neg)); }
+.dv-tip .lc-tip-key[data-dv="iv"] { --lc-key: hsl(var(--dv-iv)); }
+.dv-tip .lc-tip-key[data-dv="spot"] { --lc-key: hsl(var(--dv-spot)); }
+.dv-tip .lc-tip-key[data-dv="today"] { --lc-key: hsl(var(--dv-today)); }
+.dv-tip .lc-tip-key[data-dv="warn"] { --lc-key: hsl(var(--warn)); }
+.dv-tip .lc-tip-key[data-dv="hv"] { --lc-key: var(--dv-hv); }
+
+/* Indicators (candle charts): a compact button above the plot and an inline picker panel (works inside sheets and modals). */
+.lc-tools { display: flex; justify-content: flex-end; margin: 0 0 6px; }
+.lc-ind-btn { display: inline-flex; align-items: center; gap: 6px; }
+.lc-count { min-width: 18px; padding: 0 5px; border-radius: 999px; font: 600 12px/18px var(--font-numeric); text-align: center; color: hsl(var(--foreground)); background: hsl(var(--foreground) / 0.12); }
+.lc-count[hidden] { display: none; }
+.lc-ind-panel { display: flex; flex-direction: column; gap: 8px; margin: 0 0 8px; padding: 10px; border-radius: var(--r-inner); background: var(--mat-fill-1); }
+.lc-ind-panel[hidden] { display: none; }
+.lc-ind-on { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 28px; }
+.lc-ind-chip { display: inline-flex; align-items: center; gap: 4px; }
+.lc-ind-search { width: 100%; }
+.lc-ind-list { display: flex; flex-direction: column; max-height: min(280px, 40vh); overflow: auto; overscroll-behavior: contain; }
+.lc-ind-head { margin: 6px 0 2px; font: 600 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.lc-ind-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-width: 0; min-height: 44px; padding: 6px 8px; border-radius: 8px; text-align: left; font: 400 12.5px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: none; box-shadow: none; }
+.lc-ind-item b { font: 600 13px/1.2 var(--font-body); color: hsl(var(--foreground)); }
+.lc-ind-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-ind-item:hover:not(:disabled) { background: var(--mat-fill-1); }
+.lc-ind-item:disabled { opacity: 0.45; }
+.lc-ind-note { margin: 0; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+
+/* The chart modal (openChartModal): wide on a desktop, the whole screen on a phone; the plot takes the room the legend
+   and the Indicators control leave, so the shared time axis under the last pane is always in view. */
+dialog.sheet.lc-chart-sheet { height: 100dvh; max-height: 100dvh; border-radius: 0; }
+@media (min-width: 720px) {
+  dialog.sheet.lc-chart-sheet { width: min(1100px, 92vw); max-width: none; height: 80vh; max-height: 80vh; border-radius: var(--r-sheet); }
+}
+.lc-chart-sheet .lc-expanded, .lc-expanded :is(.lc-slot, .lc-wrap, .lc-host, .lc-chart):not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.lc-expanded .lc-slot { --lc-h: 260px; padding: 0; }
+.lc-expanded .lc-chart .lc-plot { flex: 1 1 0; height: auto; min-height: 220px; }
+.lc-expanded .lc-ind-list { max-height: min(240px, 30vh); }
+.lc-expand { display: inline-flex; align-items: center; gap: 6px; }
+.lc-tools { gap: 8px; }
+
+/* Where each page puts its chart. */
+.cs-body .lc-slot { --lc-h: 200px; padding: 4px 0 0; }
+.oi-tslot { --lc-h: 240px; }
+.vol-history .lc-slot { --lc-h: 250px; }
+.arb-chart .lc-slot { --lc-h: 200px; }
+.scr-slot { --lc-h: 190px; padding: 0; }
+.scr-pane-empty .scr-slot { margin: 0 14px; }
+.pt-slot-wrap .lc-slot { --lc-h: 220px; }
+/* Participants with the chart: the small multiples keep their figures only (captions), so they take no plot height. */
+:root[data-page="participants"] .pt-hist-body > .pt-multiples.pt-captions { flex: none; grid-auto-rows: auto; }
+.pt-multiples.pt-captions .pt-multiple { padding-bottom: 10px; }
+.pos-slot .lc-slot { --lc-h: 230px; }
+@media (max-width: 719px) {
+  .lc-slot { --lc-h: 200px; padding: 4px 12px 10px; }
+  .oi-tslot, .pt-slot-wrap .lc-slot, .pos-slot .lc-slot, .vol-history .lc-slot { --lc-h: 190px; }
+  .arb-chart .lc-slot, .scr-slot, .cs-body .lc-slot { --lc-h: 170px; }
+  .scr-slot, .cs-body .lc-slot { padding: 0; }
+}
 
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
