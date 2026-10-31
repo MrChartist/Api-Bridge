@@ -3,7 +3,7 @@
 import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, toast } from "./app.js";
 import { contractName } from "./flows.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
-import { ORDER_FILTERS, cancelAllBody, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
+import { ORDER_FILTERS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts } from "./orders-core.js";
 import { fillTotals } from "./statement-core.js";
 
 const KEY = "mcb.orders.filters";
@@ -119,7 +119,6 @@ async function cancelAllFlow(labelOf = (id) => id) {
   if (!g.total) return { text: "No open orders to cancel", tone: "info" };
   const ours = g.bridge.length;
   const theirs = g.external.length;
-  const parts = [g.paper ? `${formatInt(g.paper)} paper` : null, g.live ? `${formatInt(g.live)} live` : null].filter(Boolean).join(" and ");
   const also = theirs ? h("input", { type: "checkbox" }) : null;
   const ok = await modal({
     title: cancelAllTitle(g),
@@ -127,7 +126,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
       "div",
       { class: "stack ca-body" },
       h("p", {}, "The unfilled part is withdrawn. What already filled stays in Positions."),
-      h("section", { class: "ca-group" }, h("h3", { class: "ca-head" }, `Placed through the Bridge · ${formatInt(ours)}`), ours ? h("p", { class: "muted small" }, `${parts}: cancelled.`) : h("p", { class: "muted small" }, "None open."), ours ? cancelList(g.bridge, labelOf) : null),
+      h("section", { class: "ca-group" }, h("h3", { class: "ca-head" }, `Placed through the Bridge · ${formatInt(ours)}`), h("p", { class: "muted small" }, cancelAllBridgeLine(g)), ours ? cancelList(g.bridge, labelOf) : null),
       theirs
         ? h(
             "section",

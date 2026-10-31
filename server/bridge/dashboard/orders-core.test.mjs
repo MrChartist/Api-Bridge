@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cancelAllBody, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
+import { cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, tradeTotals } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -124,6 +124,11 @@ describe("Cancel all: Bridge orders and orders placed outside the Bridge", () =>
     expect(cancelAllButton(3, cancelAllGroups(dry))).toEqual({ show: true, count: 3, label: "Cancel all open (3)" });
     expect(cancelAllButton(0, null)).toEqual({ show: false, count: 0, label: "" });
     expect(cancelAllButton(2, cancelAllGroups({ bridge: { open: [] }, external: { open: [] } }))).toEqual({ show: false, count: 0, label: "" });
+  });
+  it("before confirming, the Bridge group says what would be cancelled, not that it was", () => {
+    expect(cancelAllBridgeLine(cancelAllGroups(dry))).toBe("Cancelled when you confirm: 1 paper and 1 live.");
+    expect(cancelAllBridgeLine(cancelAllGroups({ bridge: { open: [{ orderId: "A", mode: "paper" }, { orderId: "B", mode: "paper" }] }, external: { open: [] } }))).toBe("Cancelled when you confirm: 2 paper.");
+    expect(cancelAllBridgeLine(cancelAllGroups({ bridge: { open: [] }, external: { open: [{ orderId: "M", mode: "live" }] } }))).toBe("None open.");
   });
   it("the question names what would go: the Bridge's orders, or only outside ones when the Bridge has none open", () => {
     expect(cancelAllTitle(cancelAllGroups(dry))).toBe("Cancel 2 open orders?");

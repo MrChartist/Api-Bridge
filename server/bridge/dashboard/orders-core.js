@@ -83,6 +83,15 @@ export function cancelAllTitle(g) {
   return `${formatInt(m)} open order${m === 1 ? "" : "s"} placed outside the Bridge`;
 }
 
+/**
+ * The line under "Placed through the Bridge" in the Cancel all question: what confirming would cancel, by mode. Said
+ * before anything is sent, so not "cancelled." (which read as already done).
+ */
+export function cancelAllBridgeLine(g) {
+  const parts = [g.paper ? `${formatInt(g.paper)} paper` : null, g.live ? `${formatInt(g.live)} live` : null].filter(Boolean).join(" and ");
+  return parts ? `Cancelled when you confirm: ${parts}.` : "None open.";
+}
+
 /** The cancel-all body: Bridge orders only unless the trader ticked "Also cancel … placed outside the Bridge". */
 export function cancelAllBody(includeExternal = false) {
   return { bridgeOnly: includeExternal !== true };
