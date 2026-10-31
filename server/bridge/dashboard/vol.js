@@ -16,6 +16,7 @@ import { rateText, refRate, refSession } from "./reference.js";
 import { clockNote } from "./vol-context.js";
 import { explainBox } from "./explain.js";
 import { explainVol } from "./explain-core.js";
+import { createVolToday } from "./vol-today.js";
 
 const num = (v) => (isFigure(v) ? Number(v) : null);
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -491,6 +492,9 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
         historySlot,
       )
     : null;
+  // ── IV today (vol-today.js): the four answers for the expiry in view, and the ATM IV through the session ──
+  const today = createVolToday({ underlying: () => st.underlying, expiry: () => st.expiry, hv20: () => last?.hv20 ?? null, rank: () => rankOf(st.underlying) });
+  const todayEl = today.el;
   let volChartU = null;
   /** Load the IV history chart for the underlying in view (once per underlying; the store changes once a day). */
   function syncVolChart() {
@@ -948,7 +952,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     last = m;
     // No expiries at all: one empty state in the curves panel, nothing else.
     const none = !st.expiries.length && Boolean(st.empty);
-    for (const el of [kpiEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl]) if (el && el.hidden !== none) el.hidden = none;
+    for (const el of [kpiEl, todayEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl]) if (el && el.hidden !== none) el.hidden = none;
     curvesEl.classList.toggle("no-exp", none);
     lap("kpi", () => drawKpi(m));
     lap("curves", () => drawCurves(m));
@@ -957,6 +961,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
     lap("strikes", () => drawStrikes(m));
     lap("read", () => drawRead(m));
     lap("method", () => drawMethod(m));
+    lap("today", () => today.sync());
     if (debug) window.__volParts = parts;
     const ms = performance.now() - t0;
     if (debug) {
@@ -2068,7 +2073,7 @@ export function createVolPage({ st, save, selectExpiry, retry }) {
 
   const phoneOrder = media(MQ_PHONE);
   return {
-    panels: (phoneOrder ? [kpiEl, curvesEl, surfaceEl, termEl, readEl, strikesEl, historyEl, methodEl] : [kpiEl, curvesEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl]).filter(Boolean),
+    panels: (phoneOrder ? [kpiEl, curvesEl, todayEl, surfaceEl, termEl, readEl, strikesEl, historyEl, methodEl] : [kpiEl, curvesEl, todayEl, surfaceEl, termEl, strikesEl, readEl, historyEl, methodEl]).filter(Boolean),
     root: curvesEl,
     draw,
     onKey,
