@@ -319,9 +319,12 @@ describe("Foundation §3.3: one contrast selection rule", () => {
     expect(rule).toMatch(/background:\s*hsl\(var\(--sel-bg\)\)/);
     expect(rule).toMatch(/color:\s*hsl\(var\(--sel-fg\)\)/);
   });
-  it("switch, checkbox and radio use the contrast pair, never green", () => {
+  it("switch, checkbox and radio use the contrast pair, never green (except the iOS Settings sheet, Customise)", () => {
     expect(css).toMatch(/\.switch input:checked \+ i \{ background: hsl\(var\(--sel-bg\)\)/);
     expect(css).not.toMatch(/\.switch input:checked \+ i \{[^}]*ios-green/);
+    // The chain's Customise sheet is laid out as iOS Settings: its switches are the system green when on.
+    const green = rules(css).filter((r) => /ios-green/.test(r.body) && /\.switch/.test(r.selector)).map((r) => r.selector);
+    expect(green).toEqual([".cz .switch > input:checked + i"]);
     for (const r of rules(css).filter((x) => /checkbox|radio|-inc\b/.test(x.selector))) expect(r.body, r.selector).not.toMatch(/accent-color/);
   });
 });

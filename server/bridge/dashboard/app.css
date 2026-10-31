@@ -119,6 +119,8 @@ html { font-synthesis-weight: none; }
   --mat-blur-soft: blur(18px) saturate(150%);
   --seg-track: hsl(240 6% 10% / 0.06);
   --surface-raised: hsl(0 0% 100%);
+  /* A switch's knob: white in both themes (iOS). */
+  --switch-knob: hsl(0 0% 100%);
   /* Selection: the contrast state. Selected = black capsule, white text (white / black in dark). */
   --sel-bg: 0 0% 0%;
   --sel-fg: 0 0% 100%;
@@ -2434,6 +2436,7 @@ table.chain .vbar.split > span:is(.seg-add, .seg-cut) { border-radius: 0; transf
 table.chain th.strike-col ~ td .vbar.split > span:is(.seg-add, .seg-cut) { clip-path: inset(0 calc((1 - var(--f, 0)) * 100%) 0 0); }
 table.chain .vbar.oi.ce > span.seg-add { background: repeating-linear-gradient(90deg, hsl(var(--c-call) / var(--bar-a)) 0 2px, transparent 2px 4px); }
 table.chain .vbar.oi.pe > span.seg-add { background: repeating-linear-gradient(90deg, hsl(var(--c-put) / var(--bar-a)) 0 2px, transparent 2px 4px); }
+table.chain .vbar.oi.sd > span.seg-add { background: repeating-linear-gradient(90deg, var(--c-neutral) 0 2px, transparent 2px 4px); }
 table.chain .vbar.oi > span.seg-cut { background: repeating-linear-gradient(90deg, hsl(var(--neg) / 0.55) 0 2px, transparent 2px 4px); }
 table.chain .vbar.vol > span.seg-prev { background: hsl(var(--foreground) / 0.18); }
 table.chain .vbar.vol > span.seg-today { background: hsl(var(--foreground) / 0.62); }
@@ -2476,6 +2479,37 @@ table.chain .spot-tag strong { font-weight: 600; color: hsl(var(--foreground)); 
 table.chain .spot-tag .up { color: hsl(var(--pos-ink)); }
 table.chain .spot-tag .down { color: hsl(var(--neg-ink)); }
 table.chain .spot-tag .fut { color: hsl(var(--foreground) / var(--a-quiet)); }
+/* Market line chips (Customise → Market line): a quiet label, then the figure; a figure with a direction in its colour. */
+table.chain .spot-tag .sp-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 7px; border-radius: 99px; background: var(--mat-fill-2); }
+table.chain .spot-tag .sp-k { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+table.chain .spot-tag .quiet { color: hsl(var(--foreground) / var(--a-quiet)); }
+/* The day's range: a short track filled from the low up to the price. */
+table.chain .spot-tag .sp-gauge { position: relative; display: inline-block; align-self: center; width: 32px; height: 4px; border-radius: 2px; background: var(--mat-fill-3); overflow: hidden; }
+table.chain .spot-tag .sp-gauge > i { position: absolute; inset: 0; border-radius: 2px; transform-origin: left center; background: hsl(var(--foreground) / 0.35); }
+
+/* The expiry capsule between the CALLS and PUTS headings: the date and a days-to-expiry pill, plain from three days,
+   amber at one or two, red TODAY on expiry day; it opens the list of expiries. */
+table.chain thead tr.side-head th.strike-col { overflow: visible; }
+button.exp-cap { gap: 5px; min-height: 26px; padding: 0 6px 0 9px; border-radius: 99px; white-space: nowrap; text-transform: none; letter-spacing: 0; font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground)); background: var(--mat-fill-2); box-shadow: none; }
+button.exp-cap svg { width: 12px; height: 12px; color: hsl(var(--foreground) / var(--a-quiet)); }
+.dte { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 99px; font: 600 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+.dte.near { color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); }
+.dte.today { color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.14); }
+.menu-list.exp-list button.exp-item { flex-direction: row; align-items: center; gap: 8px; min-width: 260px; }
+.exp-list .exp-item .exp-d { flex: 1 1 auto; }
+.exp-list .exp-tick { display: inline-flex; width: 16px; }
+.exp-list .exp-item[aria-selected="true"] .exp-d { font-weight: 600; }
+.exp-list .exp-tick svg { width: 14px; height: 14px; }
+.exp-list .exp-d { font: 500 14px/1.2 var(--font-body); }
+.exp-list .exp-d small { margin-left: 6px; font: 400 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.exp-tag { padding: 2px 6px; border-radius: 6px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+.exp-tag.moved { color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); }
+/* Simple | Advanced in the chain's toolbar; on a phone it is Customise's first section. */
+.mode-seg { flex: none; padding: 2px; }
+.mode-seg button { min-height: 28px; padding: 0 12px; font-size: 13px; }
+@media (max-width: 719px) { .mode-seg { display: none; } }
+/* Customise → Contracts (ITM / OTM) with both sides: the other contracts' cells stay, blank. */
+table.chain td.cx-out > * { visibility: hidden; }
 
 /* Bid / Ask (§4.11): you sell at the bid (sell ink), buy at the ask (buy ink); hover or focus = a solid capsule with an
    S / B prefix. */
@@ -2509,65 +2543,29 @@ button.bs-btn.sell { background: hsl(var(--btn-sell)); }
   .pick-bar .segmented button { min-height: 44px; }
 }
 
-/* Chain head: one row (search, strikes, presets, OI-change window … hidden columns, Select, Customise). */
-.chain-head .chain-tools { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; }
-.chain-tools .tools-spacer { flex: 1 1 0; min-width: 0; }
-.chain-tools .win-seg[hidden], .hidden-chip[hidden] { display: none; }
+/* The chain's tools (stale pill, +N hidden, Select, Customise) at the right end of the CALLS / PUTS header row
+   (desk.js createChain places them); on a phone in the head row above the table, beside Calls | Puts | Both. */
+.chain-tools .hidden-chip[hidden], .chain-tools .chain-stale[hidden] { display: none; }
 button.hidden-chip { flex: none; min-height: 30px; padding: 0 10px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-1); box-shadow: none; }
 button.select-btn { --btn-h: 32px; --btn-px: 12px; --btn-fs: 13px; flex: none; gap: 6px; }
 button.select-btn svg { width: 15px; height: 15px; }
 button.select-btn[aria-pressed="true"] { color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); box-shadow: none; }
-.chain-tools button.gear-btn { margin-left: 0; }
-.strikes-pick { display: none; }
-/* A line of its own under the head row (pushes the table down; the panel refits its height). */
-span.search-hint { flex: 1 0 100%; padding: 0 4px; font: 500 12px/1.3 var(--font-body); color: hsl(var(--neg-ink)); }
-span.search-hint[hidden] { display: none; }
-/* Invalid: one ring, in the loss colour (the focus ring changes colour; no second ring inside it). */
-input.strike-search[aria-invalid="true"], :root[data-layout] #content .chain-search input.strike-search[aria-invalid="true"]:is(:focus, :focus-visible) { box-shadow: none; outline: 2px solid hsl(var(--neg)); outline-offset: 0; }
-/* The head fits one row by measured steps (fitHead in desk.js): labels → icons, search → its button, presets → a select,
-   the OI window → a compact select. Phones have their own head. */
-select.win-sel { display: none; flex: none; width: auto; min-height: 32px; padding: 4px 30px 4px 10px; border-radius: 9px; font: 500 13px/1.2 var(--font-body); background-position: right 8px center; }
-@media (min-width: 720px) {
-  .chain-head .chain-tools > :is(.segmented, .chain-search, .strikes-pick, select) { flex-shrink: 0; }
-  .chain-head.ch-icons :is(.select-btn, .gear-btn) .gear-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .chain-head.ch-icons button:is(.select-btn, .gear-btn) { padding: 0 10px; }
-  .chain-head.ch-search .chain-tools .chain-search .search-btn { display: inline-flex; }
-  .chain-head.ch-search .chain-tools .chain-search :is(input.strike-search, .search-kbd) { display: none; }
-  .chain-head.ch-search .chain-tools .chain-search.open { flex: 1 1 auto; }
-  .chain-head.ch-search .chain-tools .chain-search.open .search-btn { display: none; }
-  .chain-head.ch-search .chain-tools .chain-search.open input.strike-search { display: block; width: 100%; }
-  .chain-head.ch-search .chain-search.open ~ :is(.strikes-seg, .preset-sel, .preset-seg, .win-seg, .win-sel, .hidden-chip, .select-btn) { display: none; }
-  .chain-head.ch-presets .chain-tools .preset-seg { display: none; }
-  .chain-head.ch-presets .chain-tools select.preset-sel { display: block; flex: 0 1 auto; min-width: 0; }
-  .chain-head.ch-win .chain-tools .win-seg { display: none; }
-  .chain-head.ch-win .chain-tools select.win-sel:not([hidden]) { display: block; }
-}
-@media (pointer: coarse) { select.win-sel { min-height: 44px; } button.select-btn { min-width: 44px; } }
-/* Tablets: search folds to its icon and the presets to a select, so the head stays one row. */
-@media (max-width: 1023px) {
-  .chain-head .chain-tools { flex-wrap: nowrap; }
-  .chain-tools .preset-seg { display: none; }
-  .chain-tools select.preset-sel { display: block; flex: 0 1 auto; min-width: 0; }
-  .chain-tools .chain-search .search-btn { display: inline-flex; }
-  .chain-tools .chain-search :is(input.strike-search, .search-kbd) { display: none; }
-  .chain-tools .chain-search.open { flex: 1 1 auto; }
-  .chain-tools .chain-search.open .search-btn { display: none; }
-  .chain-tools .chain-search.open input.strike-search { display: block; width: 100%; }
-  .chain-search.open ~ :is(.strikes-seg, .preset-sel, .phone-side, .win-seg, .hidden-chip, .select-btn) { display: none; }
-}
+.chain-tools .chain-stale { flex: none; }
+table.chain thead tr.side-head:has(.sh-tools) { --sh-h: 44px; }
+table.chain thead tr.side-head:has(.sh-tools) th { height: var(--sh-h); }
+table.chain thead tr.side-head:has(.sh-tools) + tr.col-head th { top: var(--sh-h); }
+/* Calls read towards the strike from the left, puts from the right: each label sits beside the strike. */
+table.chain thead tr.side-head th.sh-ce { text-align: right; padding-right: 12px; }
+table.chain thead tr.side-head th:is(.sh-pe, .sh-one) { text-align: left; padding-left: 12px; }
+table.chain .sh-tools { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); text-transform: none; letter-spacing: 0; color: hsl(var(--foreground)); }
+table.chain .sh-tools .chain-tools { flex-wrap: nowrap; gap: 6px; }
+.chain-tools.icons :is(.select-btn, .gear-btn) .gear-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.chain-tools.icons button:is(.select-btn, .gear-btn) { padding: 0 10px; }
+/* The head row above the table is a phone's (its Calls | Puts | Both switch); wider screens have the header row. */
+@media (min-width: 720px) { .chain-panel > .chain-head { display: none; } }
+@media (pointer: coarse) { button.select-btn { min-width: 44px; } }
 
-/* Expiry chips under the line (desktop and tablet). */
-.exp-strip { display: flex; gap: 6px; padding: 8px 12px 0; overflow-x: auto; scrollbar-width: none; }
-.exp-strip::-webkit-scrollbar { display: none; }
-.exp-strip:empty { display: none; }
-button.exp-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 11px; border-radius: 99px; font: 500 12.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
-button.exp-chip:not([aria-pressed="true"]) { background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
-button.exp-chip .ec-t { font: 500 12px/1 var(--font-numeric); opacity: var(--soft-op); }
-@media (max-width: 719px) { .exp-strip { display: none; } }
 
-/* Stale data (§8): the table dims (0.7, shared), and an amber "Stale · 12 s old" pill shows in the chain head. */
-.chain-head .chain-stale { flex: none; }
-.chain-head .chain-stale[hidden] { display: none; }
 
 /* Loading: a skeleton shaped like the chain (header, strike rows with a figure and a bar slot, totals). */
 .chain-skel { padding: 0 12px 10px; }
@@ -2627,6 +2625,93 @@ button.exp-chip .ec-t { font: 500 12px/1 var(--font-numeric); opacity: var(--sof
 .pop-body .seg-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; font: 500 13.5px/1.25 var(--font-body); }
 .pop-body .seg-field .segmented { width: auto; }
 
+/* Customise (desk.js openCustomise), laid out like iOS Settings: captions over grouped inset sections on the raised
+   surface, 44 px rows with the label left and the control right, separators inset from the leading edge, switches in
+   the system green. */
+.popover.customise { width: min(420px, calc(100vw - 32px)); }
+.pop-body.cz { padding: 0 14px 16px; background: var(--mat-fill-1); scroll-behavior: smooth; }
+.pop-body.cz section.cz-sec { padding: 0; box-shadow: none; }
+.pop-body.cz h3.cz-cap { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 18px 4px 6px; font: 500 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.pop-body.cz .cz-sec:first-child h3.cz-cap { margin-top: 12px; }
+.pop-body.cz h3.cz-cap small { font: 500 12px/1.2 var(--font-body); }
+.pop-body.cz h4.cz-sub { margin: 12px 4px 6px; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.cz-group { border-radius: 12px; background: var(--surface-raised); box-shadow: 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
+.cz-row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 6px 14px; font: 500 14px/1.25 var(--font-body); color: hsl(var(--foreground)); }
+.cz-row + .cz-row::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; height: var(--hl); background: var(--mat-separator); }
+.cz-row.stack { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 14px; }
+.cz-row.full { padding: 8px; }
+.cz-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cz-label small { font: 400 12px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.cz-label small.cz-bad { color: hsl(var(--neg-ink)); }
+.cz-label small[hidden] { display: none; }
+.cz-sw { cursor: pointer; }
+.cz-sw.off { cursor: default; opacity: 0.55; }
+.pop-body.cz .cz-row > .segmented { flex: none; width: auto; }
+.pop-body.cz .cz-row:is(.stack, .full) > .segmented { width: 100%; }
+.pop-body.cz .cz-row .segmented button { min-height: 28px; padding: 0 10px; font-size: 13px; }
+.pop-body.cz .cz-presets button { min-width: 0; padding: 0 4px; }
+.cz .switch { width: 51px; height: 31px; }
+.cz .switch i::after { width: 27px; height: 27px; }
+.cz .switch > input:checked + i { background: hsl(var(--ios-green)); }
+.cz .switch > input:checked + i::after { transform: translateX(20px); background: var(--switch-knob); }
+.cz-stepper { display: inline-flex; align-items: center; flex: none; height: 32px; padding: 2px; border-radius: 99px; background: var(--seg-track); }
+.cz-stepper button.step-btn { width: 36px; height: 28px; min-height: 28px; padding: 0; border-radius: 99px; background: transparent; box-shadow: none; }
+.cz-stepper button.step-btn svg { width: 16px; height: 16px; }
+.cz-stepper button.step-btn:disabled { opacity: 0.3; }
+.cz-step-v { min-width: 40px; text-align: center; font: 600 14px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+input.cz-jump { flex: none; width: 150px; min-height: 32px; padding: 4px 10px; border-radius: 9px; font: 500 13px/1 var(--font-numeric); text-align: right; }
+input.cz-jump[aria-invalid="true"] { outline: 2px solid hsl(var(--neg)); outline-offset: 0; }
+.cz-row:is(.cz-col, .cz-add) { justify-content: flex-start; gap: 8px; padding-left: 8px; }
+.cz-row:is(.cz-col, .cz-add) .cz-label { flex: 1 1 auto; }
+.cz-row:is(.cz-col, .cz-add) + .cz-row::before { left: 48px; }
+.cz-col { cursor: grab; }
+.cz-col.cut .cz-label { color: hsl(var(--foreground) / var(--a-label)); }
+.cz-col.dragging { opacity: 0.5; background: var(--mat-fill-2); }
+.cz-col .grip svg { width: 16px; height: 16px; fill: currentColor; stroke: none; color: hsl(var(--foreground) / 0.35); }
+button:is(.cz-rm, .cz-plus) { flex: none; width: 32px; height: 32px; min-height: 32px; padding: 0; border-radius: 99px; background: transparent; box-shadow: none; }
+button.cz-rm { color: hsl(var(--ios-red)); }
+button.cz-plus { color: hsl(var(--ios-green)); }
+button:is(.cz-rm, .cz-plus) svg { width: 22px; height: 22px; stroke-width: 2; }
+button.cz-rm:disabled { opacity: 0.3; }
+.pop-body.cz p.cz-note { margin: 6px 4px 0; font: 400 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+@media (pointer: coarse) { .cz-stepper { height: 44px; } .cz-stepper button.step-btn { height: 40px; } }
+
+/* Symbol search (symbol-search.js): a centred box over a light veil; the search field, All · Index · Stocks · Recent,
+   then the list (matched letters in the foreground ink, the day's change in the gain or loss colour, ✓ on the
+   current underlying). */
+.sym-search { position: fixed; inset: 0; z-index: var(--z-popover); display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px; background: hsl(var(--foreground) / 0.12); animation: sym-veil var(--dur-2) var(--ease-out); }
+.sym-box { display: flex; flex-direction: column; width: min(560px, 100%); max-height: min(70vh, 640px); border-radius: var(--r-pop); background: var(--surface-raised); box-shadow: var(--edge-1), var(--shadow-3); overflow: hidden; animation: sym-in var(--dur-2) var(--ease-out); }
+.sym-field { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.sym-field > svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; color: hsl(var(--foreground) / var(--a-quiet)); }
+input.sym-input, input.sym-input:is(:focus, :focus-visible) { flex: 1 1 auto; min-width: 0; min-height: 40px; padding: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; font: 500 17px/1.2 var(--font-body); }
+input.sym-input::-webkit-search-cancel-button { display: none; }
+button.sym-clear[hidden] { display: none; }
+.sym-tabs { display: flex; align-self: flex-start; gap: 2px; margin: 10px 12px 6px; padding: 2px; border-radius: 99px; background: var(--seg-track); }
+.sym-tabs button { gap: 6px; min-height: 28px; padding: 0 12px; border-radius: 99px; font: 500 13px/1 var(--font-body); background: transparent; box-shadow: none; }
+.sym-n { font: 500 12px/1 var(--font-numeric); opacity: var(--soft-op); }
+.sym-list { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px 0 6px; }
+.sym-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 52px; padding: 0 16px; cursor: pointer; }
+.sym-row.act { background: var(--mat-fill-2); }
+.sym-l { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sym-name { font: 500 15px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
+.sym-name b { font-weight: 600; color: hsl(var(--foreground)); }
+.sym-l small { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.sym-r { display: flex; align-items: center; gap: 10px; }
+.sym-px { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-variant-numeric: tabular-nums; }
+.sym-ltp { font: 500 14px/1 var(--font-numeric); }
+.sym-chg { font: 500 12px/1 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); }
+.sym-chg.up { color: hsl(var(--pos-ink)); }
+.sym-chg.down { color: hsl(var(--neg-ink)); }
+.sym-tick { display: inline-flex; width: 16px; }
+.sym-r svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sym-strike .sym-r { color: hsl(var(--foreground) / var(--a-quiet)); }
+.sym-empty { margin: 0; padding: 28px 16px; text-align: center; font: 500 13px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.sym-hint { margin: 0; padding: 8px 16px; font: 400 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+@keyframes sym-in { from { opacity: 0; transform: translateY(-6px) scale(0.98); } }
+@keyframes sym-veil { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sym-search, .sym-box { animation: none; } }
+@media (max-width: 719px) { .sym-search { padding-top: 8px; } .sym-box { max-height: 80vh; } }
+
 /* Phones: one head row — search, Calls | Puts | Both, the strikes menu, Customise. */
 @media (max-width: 719px) {
   table.chain th, table.chain td { padding: 0 6px; }
@@ -2634,19 +2719,13 @@ button.exp-chip .ec-t { font: 500 12px/1 var(--font-numeric); opacity: var(--sof
   table.chain th:last-child, table.chain td:last-child { padding-right: 10px; }
   table.chain .strike-col { width: 68px; min-width: 68px; }
   table.chain .vbar { min-width: 36px; }
-  .strikes-pick { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: none; height: 44px; padding: 0 12px; border-radius: 999px; font: 500 13px/1 var(--font-numeric); background: var(--seg-track); }
-  .strikes-pick::after { content: ""; width: 12px; height: 12px; background: hsl(var(--foreground) / var(--a-label)); -webkit-mask: var(--chev-mask) center / 12px 12px no-repeat; mask: var(--chev-mask) center / 12px 12px no-repeat; }
-  .strikes-pick select { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; opacity: 0; font-size: 16px; }
-  .chain-tools button.select-btn, .chain-tools .hidden-chip, .chain-tools .tools-spacer, .chain-tools select.preset-sel { display: none; }
-  .chain-head .chain-tools { gap: 6px; }
+  .chain-head .chain-tools button.select-btn, .chain-head .chain-tools .hidden-chip { display: none; }
+  .chain-head .chain-tools { flex: none; gap: 6px; }
   .phone-side { gap: 6px; }
   .phone-side .segmented button { padding: 0 8px; }
-  .strikes-pick { padding: 0 10px; }
-  .chain-search.open ~ .strikes-pick { display: none; }
   .pick-bar { bottom: 44px; gap: 6px; padding-left: 12px; }
 }
 @media (pointer: coarse) {
-  button.exp-chip { min-height: 44px; }
   table.chain thead tr.side-head th { height: 44px; }
   table.chain thead tr.col-head th { top: 44px; }
   table.chain thead tr.col-head.first th { top: 0; }
@@ -2703,16 +2782,6 @@ button.gear-btn[aria-expanded="true"] { --btn-line: var(--btn-edge-hover); --btn
 .desk-chain { position: relative; }
 .chain-note { padding: 7px 12px; font: 500 12px/1.3 var(--font-body); color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.1); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
 .expiry-chip { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 99px; font: 500 12px/1.4 var(--font-body); color: hsl(var(--warn-ink)); background: hsl(var(--warn) / 0.16); vertical-align: 1px; cursor: help; white-space: nowrap; }
-.chain-search { position: relative; display: flex; align-items: center; }
-.chain-search .search-btn { --btn-bg: hsl(var(--btn-paper)); --btn-line: var(--btn-edge); display: none; width: 34px; height: 34px; min-height: 34px; padding: 0; }
-.chain-search .search-btn svg { width: 16px; height: 16px; }
-input.strike-search { width: 140px; min-height: 32px; padding: 4px 26px 4px 10px; border-radius: 9px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
-@media (min-width: 1280px) { input.strike-search { width: 170px; } }
-
-.search-kbd { position: absolute; right: 7px; min-width: 16px; height: 17px; padding: 0 4px; font-size: 12px; pointer-events: none; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
-.strike-search:focus + .search-kbd, .strike-search:not(:placeholder-shown) + .search-kbd { display: none; }
-@media (pointer: coarse) { .search-kbd { display: none; } input.strike-search { padding-right: 10px; } }
-select.preset-sel { display: none; width: auto; min-height: 32px; padding: 4px 30px 4px 10px; border-radius: 9px; font: 500 13px/1.2 var(--font-body); background-position: right 8px center; }
 .atm-pill { position: absolute; left: 50%; bottom: 40px; z-index: 6; transform: translateX(-50%); min-height: 32px; padding: 0 14px; border-radius: 99px; font: 500 12.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--sel-fg)); background: hsl(var(--sel-bg)); -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); box-shadow: 0 0 0 var(--hl) var(--mat-separator), var(--shadow-1); }
 .atm-pill[hidden] { display: none; }
 .phone-side { display: none; }
@@ -2806,8 +2875,7 @@ select.acct-pick { width: auto; min-width: 0; max-width: 220px; min-height: 32px
   .icon-btn.cs-close { width: 44px; height: 44px; min-height: 44px; }
   table.chain, table.chain.dense { --desk-row: 44px; }
   .atm-pill { min-height: 44px; }
-  input.strike-search, select.preset-sel, .chain-search .search-btn { min-height: 44px; }
-  .chain-tools .segmented button { min-height: 44px; }
+  .chain-head .segmented button { min-height: 44px; }
   table.chain thead tr.side-head th { height: 44px; }
   table.chain thead tr.col-head th { top: 44px; }
   table.chain thead tr.col-head.first th { top: 0; }
@@ -2947,20 +3015,10 @@ button.preset:hover { background: var(--mat-fill-1); }
   table.chain.phone .tags { flex-wrap: nowrap; }
   .phone-side { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
   .phone-side .segmented { flex: 1 1 auto; padding: 2px; }
-  .chain-tools .strikes-seg { display: none; }
   .phone-side .segmented button { flex: 1 1 0; min-height: 36px; font-size: 13.5px; }
   .phone-side .parity-note[hidden] { display: none; }
   .chain-head { padding: 8px 12px; }
-  .chain-tools { flex: 1 1 100%; flex-wrap: nowrap; justify-content: flex-start; }
-  .chain-tools .preset-seg { display: none; }
-  select.preset-sel { display: block; flex: 0 1 auto; min-width: 0; }
-  .chain-search .search-btn { display: inline-flex; }
-  .chain-search input.strike-search { display: none; }
-  .chain-search .search-kbd { display: none; }
-  .chain-search.open { flex: 1 1 auto; }
-  .chain-search.open .search-btn { display: none; }
-  .chain-search.open input.strike-search { display: block; width: 100%; }
-  .chain-search.open ~ .strikes-seg, .chain-search.open ~ .preset-sel, .chain-search.open ~ .phone-side { display: none; }
+  .chain-head .chain-tools { flex: none; flex-wrap: nowrap; }
   .desk-keys { display: none; }
   .builder .desk-stats.compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .table-wrap .opt-x { display: none; }
@@ -7073,12 +7131,9 @@ svg .pt-rev-t { fill: hsl(var(--foreground) / var(--a-quiet)); paint-order: stro
   .sum-strip .desk-stat .value { font-size: 16px; }
 }
 
-/* Chain head: one row on every device (no title: the toolbar names the chain). Phones: search icon, strikes, Customise. */
-.chain-head .chain-tools { flex: 1 1 auto; }
-.chain-tools button.gear-btn { margin-left: auto; }
+/* Phones: the head row is Calls | Puts | Both, then Customise (no title: the toolbar names the chain). */
 @media (max-width: 719px) {
-  .chain-head { padding: 6px 12px; }
-  .chain-tools select.preset-sel { display: none; }
+  .chain-head { padding: 6px 12px; flex-wrap: nowrap; }
 }
 table.chain tfoot th.strike-col { line-height: 1.1; }
 table.chain tfoot .foot-total { display: block; font: 500 12px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
@@ -7127,7 +7182,7 @@ table.chain tfoot .foot-pcr { white-space: nowrap; }
 
 /* Touch targets: 44 × 44 on coarse pointers for every Options control (PRD 08 §9.4). */
 @media (pointer: coarse) {
-  button.q-btn, table.chain .side-btn, .chain-tools .segmented button, .panel-tools button, .atm-pill, .col-move .reorder, .step-btn { min-height: 44px; }
+  button.q-btn, table.chain .side-btn, .chain-tools .segmented button, .chain-head .segmented button, .panel-tools button, .atm-pill, .col-move .reorder, .step-btn { min-height: 44px; }
   .col-move .reorder, .step-btn, .icon-btn.tiny { min-width: 44px; min-height: 44px; }
   :root[data-layout="desk"] :is(#content, #dialog, .popover) :is(select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"])) { min-height: 44px; }
   /* Narrow controls get a 44 px width too (named, so flex items keep their content width: min-width auto). */
@@ -8595,8 +8650,6 @@ svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; str
 :root[data-density="compact"] table.chain thead tr.col-head.first th { top: 0; }
 :root[data-density="compact"] table.chain tfoot :is(td, th) { height: 30px; }
 :root[data-density="compact"] .desk-keys { height: 24px; }
-:root[data-density="compact"] .exp-strip { padding-top: 6px; }
-:root[data-density="compact"] button.exp-chip { min-height: 24px; }
 :root[data-density="compact"] .toolbar .icon-btn { --btn-h: var(--ctl-h); }
 @media (pointer: coarse) { :root[data-density="compact"] .toolbar .icon-btn { --btn-h: 44px; } }
 /* The density control (account popover, More sheet): hidden on touch, which is always comfortable. */
@@ -8626,13 +8679,6 @@ svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; str
 :root[data-density="compact"] .card-head { padding-top: 10px; }
 
 /* ── Wide screens: more detail, not more margin ── */
-/* The chain (1600 px and up): the key legend moves up beside the expiry chips, so the table gets its row back. */
-@media (min-width: 1600px) {
-  .chain-panel:has(> .exp-strip:not(:empty)) { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-  .chain-panel:has(> .exp-strip:not(:empty)) > * { grid-column: 1 / -1; }
-  .chain-panel:has(> .exp-strip:not(:empty)) > .exp-strip { grid-column: 1; grid-row: 1; }
-  .chain-panel:has(> .exp-strip:not(:empty)) > .desk-keys { grid-column: 2; grid-row: 1; align-self: end; height: 28px; box-shadow: none; padding-right: 14px; }
-}
 /* KPI strip: more tiles as the width allows (desk.js builds them; each shows from its breakpoint). */
 .chain-kpis .desk-stat:is(.kpi-wide, .kpi-xwide) { display: none; }
 @media (min-width: 1280px) {
