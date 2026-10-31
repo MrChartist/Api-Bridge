@@ -447,7 +447,7 @@ export const PAGES = [
       },
     ],
   },
-  { id: "recorder", label: "Data recorder", icon: "clock", tint: "indigo", group: "Bridge", layout: "desk", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
+  { id: "recorder", label: "Data recorder", icon: "clock", tint: "blue", group: "Bridge", layout: "desk", title: "Data recorder", sub: "Option chains recorded every minute on this computer, with the browser closed", render: renderRecorderPage },
 ];
 
 /**
@@ -565,22 +565,35 @@ const pageGlyph = (p) => {
 };
 
 function nav(active) {
-  const out = [];
-  let group = null;
+  // Groups in PAGES order: each is a list of links (the first, Home, has no label). Each item has its own tinted glyph;
+  // the current page is a soft blue capsule (app.css section 16). data-tip labels the icon on the rail.
+  const groups = [];
   for (const p of PAGES) {
-    if (p.group !== group) {
-      group = p.group;
-      // The first group (Home) has no label.
-      if (group) out.push(h("div", { class: "nav-group" }, group));
-    }
-    const sc = pageShortcut(p);
+    if (!groups.length || groups[groups.length - 1].name !== p.group) groups.push({ name: p.group, pages: [] });
+    groups[groups.length - 1].pages.push(p);
+  }
+  const out = [];
+  for (const g of groups) {
+    const id = g.name ? `nav-g-${g.name.toLowerCase()}` : undefined;
+    if (g.name) out.push(h("div", { class: "nav-group", id }, h("span", {}, g.name)));
     out.push(
       h(
-        "a",
-        { href: `#/${p.id}`, class: `tint-${p.tint}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, title: sc ? `${p.label} (${sc.label})` : p.label, "aria-keyshortcuts": sc?.aria },
-        icon(p.icon),
-        h("span", { class: "lbl" }, p.label),
-        p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", "data-tickets": "", hidden: true }) : null,
+        "ul",
+        { class: "nav-list", role: "list", "aria-labelledby": id },
+        g.pages.map((p) => {
+          const sc = pageShortcut(p);
+          return h(
+            "li",
+            {},
+            h(
+              "a",
+              { href: `#/${p.id}`, class: `tint-${p.tint}`, "aria-current": p.id === active ? "page" : undefined, "data-page": p.id, "data-tip": p.label, "data-tip-key": sc?.label, "aria-keyshortcuts": sc?.aria },
+              icon(p.icon),
+              h("span", { class: "lbl" }, p.label),
+              p.id === "orders" ? h("span", { class: "count", id: "nav-tickets", "data-tickets": "", hidden: true }) : null,
+            ),
+          );
+        }),
       ),
     );
   }
@@ -720,6 +733,48 @@ function moreSheet(active) {
 }
 
 /**
+ * The icon rail's labels (wide screens, data-sb="rail"): one tooltip beside the hovered or keyboard-focused icon of the
+ * sidebar, showing its data-tip (and data-tip-key, the shortcut). The names stay in the links themselves for screen
+ * readers, so the tooltip is aria-hidden. It sits outside the sidebar, which clips its content while it resizes.
+ */
+function sidebarTips() {
+  const bar = $("sidebar");
+  const tip = $("sb-tip");
+  if (!bar || !tip || bar.dataset.tips) return;
+  bar.dataset.tips = "1";
+  let on = null;
+  const hide = () => {
+    on = null;
+    tip.classList.remove("on");
+    tip.hidden = true;
+  };
+  const show = (el) => {
+    if (document.documentElement.dataset.sb !== "rail" || !el?.dataset.tip) return hide();
+    if (on === el) return;
+    on = el;
+    const key = el.dataset.tipKey;
+    tip.replaceChildren(h("span", {}, el.dataset.tip), ...(key ? [h("kbd", {}, key)] : []));
+    tip.hidden = false;
+    const r = el.getBoundingClientRect();
+    const card = bar.getBoundingClientRect();
+    tip.style.left = `${Math.round(card.right + 10)}px`;
+    tip.style.top = `${Math.round(r.top + r.height / 2)}px`;
+    requestAnimationFrame(() => on === el && tip.classList.add("on"));
+  };
+  const target = (e) => /** @type {HTMLElement|null} */ (e.target?.closest?.("[data-tip]"));
+  bar.addEventListener("pointerover", (e) => (e.pointerType === "touch" ? null : show(target(e))), { passive: true });
+  bar.addEventListener("pointerleave", hide, { passive: true });
+  bar.addEventListener("focusin", (e) => {
+    const el = target(e);
+    if (el?.matches(":focus-visible")) show(el);
+  });
+  bar.addEventListener("focusout", hide);
+  bar.addEventListener("click", hide);
+  bar.addEventListener("scroll", hide, { capture: true, passive: true });
+  document.addEventListener("keydown", (e) => e.key === "Escape" && on && hide());
+}
+
+/**
  * The sidebar's account row opens this (an L3 popover): appearance, keyboard shortcuts, the About line (the font
  * credit) and Forget key.
  */
@@ -768,11 +823,11 @@ function symbolSvg(cls = "lockup-symbol") {
   return s;
 }
 /** Light / Dark / Auto, as in the sidebar (app.js handles the clicks for every copy). */
-function appearanceControl(labelledBy) {
+function appearanceControl(labelledBy, label) {
   const current = document.documentElement.getAttribute("data-theme") ?? "auto";
   return h(
     "div",
-    { class: "segmented appearance", role: "group", "aria-labelledby": labelledBy },
+    { class: "segmented appearance", role: "group", "aria-labelledby": labelledBy ?? undefined, "aria-label": labelledBy ? undefined : label },
     [["light", "Light", "sun"], ["dark", "Dark", "moon"], ["auto", "Auto", "monitor"]].map(([v, label, ic]) => h("button", { type: "button", "data-theme-choice": v, "aria-pressed": String(current === v) }, icon(ic), label)),
   );
 }
@@ -1160,6 +1215,10 @@ function setupChrome() {
     acct.append(icon("chevron"));
     acct.addEventListener("click", () => accountPopover(acct));
   }
+  // The sidebar's Light / Dark / Auto capsule (app.js handles the clicks, as for every copy) and the rail's labels.
+  const appearance = $("sb-appearance");
+  if (appearance && !appearance.childElementCount) appearance.append(appearanceControl(null, "Appearance"));
+  sidebarTips();
   addEventListener("resize", () => fitTables($("content")));
   // The one demo indicator explains itself.
   const demo = $("toolbar-demo");
@@ -1175,6 +1234,8 @@ function setupChrome() {
     sb.setAttribute("aria-keyshortcuts", aria);
     sb.prepend(searchIcon());
     sb.append(kbd(mod, "K"));
+    sb.dataset.tip = "Search";
+    sb.dataset.tipKey = shortcut;
     sb.addEventListener("click", () => openPalette());
   }
   // The IST clock in the toolbar (wide screens): today's date and the time. A click opens the market's day: the

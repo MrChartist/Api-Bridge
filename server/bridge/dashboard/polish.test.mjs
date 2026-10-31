@@ -144,7 +144,7 @@ describe("Foundation §3: tokens", () => {
       .map((l) => l.trim())
       .filter(Boolean)
       .join("\n");
-  const COLOUR_TOKENS = ["--sel-bg", "--sel-fg", "--seg-track", "--surface-raised", "--dv-call", "--dv-call-ink", "--dv-put", "--dv-put-ink", "--pos", "--pos-ink", "--neg", "--neg-ink", "--warn", "--warn-ink", "--dv-spot", "--dv-iv", "--dv-iv-ink", "--dv-band", "--dv-today", "--dv-grid", "--dv-axis", ...[1, 2, 3, 4, 5].flatMap((i) => [`--seq-${i}`, `--seq-ink-${i}`]), ...["n3", "n2", "n1", "0", "p1", "p2", "p3"].flatMap((k) => [`--div-${k}`, `--div-ink-${k}`])];
+  const COLOUR_TOKENS = ["--sel-bg", "--sel-fg", "--seg-track", "--surface-raised", "--nav-current-bg", "--dv-call", "--dv-call-ink", "--dv-put", "--dv-put-ink", "--pos", "--pos-ink", "--neg", "--neg-ink", "--warn", "--warn-ink", "--dv-spot", "--dv-iv", "--dv-iv-ink", "--dv-band", "--dv-today", "--dv-grid", "--dv-axis", ...[1, 2, 3, 4, 5].flatMap((i) => [`--seq-${i}`, `--seq-ink-${i}`]), ...["n3", "n2", "n1", "0", "p1", "p2", "p3"].flatMap((k) => [`--div-${k}`, `--div-ink-${k}`])];
   it("defines every colour token in the light block and in both dark blocks", () => {
     for (const [name, body] of [["light", light], ["dark (system)", darkMedia], ["dark (forced)", darkForced]]) for (const t of COLOUR_TOKENS) expect(body, `${name} ${t}`).toMatch(new RegExp(`${t}:\\s*[^;]+;`));
   });
@@ -264,7 +264,9 @@ describe("UI pass 3 §1: no strips in the shared CSS", () => {
   it("the current nav item and the More sheet's current row are fills, never a leading bar", () => {
     expect(css).not.toMatch(/\.nav a\[aria-current="page"\]::before/);
     expect(stripComments(css)).not.toMatch(/\.list-row\[aria-current="page"\][^{]*\{[^}]*inset 3px/);
-    expect(css).toMatch(/\.nav a\[aria-current="page"\] \{[^}]*background: var\(--mat-fill-3\)/);
+    // The sidebar's current page is a soft blue capsule from its own token (IPO Decode), not the contrast selection.
+    expect(css).toMatch(/\.nav a\[aria-current="page"\] \{[^}]*background: var\(--nav-current-bg\)/);
+    expect(css).not.toMatch(/\.nav a\[aria-current="page"\] \{[^}]*--sel-bg/);
   });
   it("cards are L1: opaque, one edge, no drop shadow, no blur, no top highlight; no card-in-card surface", () => {
     const card = block(css, ".card");
