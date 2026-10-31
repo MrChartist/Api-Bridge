@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { refSession } from "./reference.js";
-import { amoWhenText, checksForLaterDay, marketClosedAt, distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { amoWhenText, checksForLaterDay, marketClosedAt, distancePct, exitChipText, pnlAt, slTriggerStart, stopOrderProblem, stopOrderText, gttFillPrice, gttLimit, gttLimitWarning, gttValidityText, kindPhrase, kindText, legText, outcomeText, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 const leg = (o) => ({ op: "below", trigger: 98.5, role: "stop", trail: null, order: { side: "SELL", quantity: 130, orderType: "MARKET" }, ...o });
 
 describe("trigger words", () => {
+  it("keeps GTT in capitals inside a sentence and lowers the rest", () => {
+    expect(kindPhrase({ origin: "gtt", type: "single", legs: [leg({ role: "entry" })] })).toBe("GTT");
+    expect(kindPhrase({ origin: "gtt", type: "oco", legs: [leg(), leg()] })).toBe("GTT OCO");
+    expect(kindPhrase({ origin: "gtt", type: "single", legs: [leg({ role: "entry", trail: { points: 5 } })] })).toBe("trailing GTT");
+    expect(kindPhrase({ origin: "bracket", type: "oco", legs: [leg(), leg({ role: "target" })] })).toBe("stop and target (on entry)");
+    expect(kindPhrase({ origin: "amo", type: "single", legs: [leg({ role: "entry" })] })).toBe("after-market order");
+  });
+
   it("names each kind as brokers do", () => {
     expect(kindText({ origin: "gtt", type: "single", legs: [leg({ role: "entry" })] })).toBe("GTT");
     expect(kindText({ origin: "gtt", type: "oco", legs: [leg(), leg()] })).toBe("GTT OCO");

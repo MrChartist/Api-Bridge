@@ -4,7 +4,7 @@ import { alertBox, api, card, emptyState, h, istDateTime, modal, optional, pill,
 import { contractName, fieldError } from "./flows.js";
 import { DASH, formatFixed, formatInput, formatInt, formatPercent, formatSignedRupee, isFigure } from "./format.js";
 import { whatToDo } from "./reasons-core.js";
-import { OPEN_TRIGGER, amoWhenText, distancePct, exitChipText, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { OPEN_TRIGGER, amoWhenText, distancePct, exitChipText, kindPhrase, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 export { exitChipText };
 
@@ -191,7 +191,7 @@ async function editTrigger(t) {
 
 async function cancelTrigger(t) {
   const ok = await modal({
-    title: `Cancel this ${kindText(t).toLowerCase()}?`,
+    title: `Cancel this ${kindPhrase(t)}?`,
     body: h("div", { class: "stack" }, h("p", {}, `${contractName(t.symbol)}: ${t.legs.map((l) => legText(l, t.lotSize)).join("; ")}.`), h("p", { class: "muted" }, "Nothing is sent. Positions stay as they are.")),
     buttons: [
       { label: "Keep it", value: false },
@@ -204,7 +204,7 @@ async function cancelTrigger(t) {
     toast(`Not cancelled: ${r.error.message ?? "refused"}`, { tone: "error" });
     return false;
   }
-  toast(`Cancelled the ${kindText(t).toLowerCase()} on ${contractName(t.symbol)}`);
+  toast(`Cancelled the ${kindPhrase(t)} on ${contractName(t.symbol)}`);
   return true;
 }
 

@@ -160,6 +160,12 @@ export function kindText(t) {
   return t.type === "oco" ? "GTT OCO" : "GTT";
 }
 
+/** kindText inside a sentence ("Cancel this GTT?", "Cancel this stop and target?"): an acronym keeps its capitals. */
+export function kindPhrase(t) {
+  const k = kindText(t);
+  return /^[A-Z]{2,}\b/.test(k) ? k : k.charAt(0).toLowerCase() + k.slice(1);
+}
+
 /** The trigger's state in plain words, with a pill tone. */
 export function statusText(t) {
   switch (t.status) {
