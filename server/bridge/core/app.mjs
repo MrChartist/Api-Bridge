@@ -127,6 +127,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "algo.js": "text/javascript; charset=utf-8",
   "algo-core.js": "text/javascript; charset=utf-8",
   "desk.js": "text/javascript; charset=utf-8",
+  "symbol-search.js": "text/javascript; charset=utf-8",
   "arbitrage.js": "text/javascript; charset=utf-8",
   "screener.js": "text/javascript; charset=utf-8",
   "screens.js": "text/javascript; charset=utf-8",
