@@ -2439,9 +2439,11 @@ table.chain .bu-pill.bu-SB { background: hsl(var(--neg) / calc(0.12 + 0.10 * var
 table.chain .bu-pill.bu-SC { background: hsl(var(--pos) / calc(0.06 + 0.06 * var(--bw, 0))); }
 table.chain .bu-pill.bu-LU { background: hsl(var(--neg) / calc(0.06 + 0.06 * var(--bw, 0))); }
 table.chain .bu-pill.bu-CH { color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-1); }
-table.chain .bu-cell .bu-pill { --bw: inherit; }
+/* Closing readings (Short covering, Long unwinding) keep their outline, softer than the shared chip's. */
+table.chain .bu-pill:is(.bu-LB, .bu-SB) { box-shadow: none; }
+table.chain .bu-pill.bu-SC { box-shadow: inset 0 0 0 1px hsl(var(--pos) / 0.4); }
+table.chain .bu-pill.bu-LU { box-shadow: inset 0 0 0 1px hsl(var(--neg) / 0.4); }
 table.chain .vbar.bu-m { height: 2px; }
-table.chain .vbar.bu-m > span { background: hsl(var(--foreground) / 0.2); }
 /* Layered bars (OI, Volume): stacked fills on one track, every layer sized by scaleX from the strike side. OI: solid =
    the previous OI, striped = OI added today; on a cut, solid = today's OI and a red striped ghost up to the previous. */
 table.chain .vbar.split { position: relative; }
@@ -2480,8 +2482,8 @@ table.chain td:is(.dv-flash-up, .dv-flash-down) { animation: none; }
    liquid strike ticks every few seconds, and the shared 0.18 cell wash kept the whole LTP column tinted. */
 table.chain td:is(.dv-mark-up, .dv-mark-down) { background-color: transparent !important; }
 table.chain td:is(.dv-mark-up, .dv-mark-down) .l1 strong { border-radius: 5px; }
-table.chain td.dv-mark-up .l1 strong { background: hsl(var(--pos) / 0.12); box-shadow: 0 0 0 3px hsl(var(--pos) / 0.12); }
-table.chain td.dv-mark-down .l1 strong { background: hsl(var(--neg) / 0.12); box-shadow: 0 0 0 3px hsl(var(--neg) / 0.12); }
+table.chain td.dv-mark-up .l1 strong { background: hsl(var(--pos) / 0.1); box-shadow: 0 0 0 3px hsl(var(--pos) / 0.1); }
+table.chain td.dv-mark-down .l1 strong { background: hsl(var(--neg) / 0.1); box-shadow: 0 0 0 3px hsl(var(--neg) / 0.1); }
 table.chain td.dv-flash-up::before { background: hsl(var(--pos) / 0.14); }
 table.chain td.dv-flash-down::before { background: hsl(var(--neg) / 0.14); }
 table.chain td:is(.dv-flash-up, .dv-flash-down)[data-flash="a"]::before { animation: chain-tick 600ms var(--ease-out); }
