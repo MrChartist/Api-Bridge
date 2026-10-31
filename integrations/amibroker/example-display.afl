@@ -1,0 +1,13 @@
+// Mr. Chartist API Bridge — example: show live NIFTY and an option premium in a chart title.
+// Read-only. The key is read by the include from MCB_AMIBROKER_KEY or %USERPROFILE%\.mc-bridge\amibroker.key;
+// never paste it here.
+#include_once <mrchartist-bridge.afl>
+
+spot = McbLtp("NSE:NIFTY");
+ce = McbLtp("NFO:NIFTY-2026-10-27-25000-CE");
+chg = McbQuote("NSE:NIFTY", "changePct");
+
+Plot(C, "Close", colorDefault, styleCandle);
+Title = Name() + "   NIFTY " + WriteIf(IsNull(spot), "n/a", NumToStr(spot, 1.2))
+      + " (" + WriteIf(IsNull(chg), "n/a", NumToStr(chg, 1.2)) + "%)"
+      + "   25000 CE " + WriteIf(IsNull(ce), "n/a", NumToStr(ce, 1.2));

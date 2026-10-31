@@ -1,0 +1,138 @@
+{
+ "broker": "angelone",
+ "note": "Normalised fetchInstruments() output of server/brokers/angelone.mjs over its contract fixture (server/brokers/__fixtures__/angelone/instruments.json). Regenerate if the adapter's mapping changes.",
+ "rows": [
+  {
+   "token": "40001",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY20OCT2624950CE",
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-20",
+   "strike": 24950,
+   "optionType": "CE",
+   "lotSize": 65,
+   "tickSize": 0.05
+  },
+  {
+   "token": "40002",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY20OCT2624950PE",
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-20",
+   "strike": 24950,
+   "optionType": "PE",
+   "lotSize": 65,
+   "tickSize": 0.05
+  },
+  {
+   "token": "40003",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY20OCT2625000CE",
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-20",
+   "strike": 25000,
+   "optionType": "CE",
+   "lotSize": 65,
+   "tickSize": 0.05
+  },
+  {
+   "token": "40004",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY20OCT2625000PE",
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-20",
+   "strike": 25000,
+   "optionType": "PE",
+   "lotSize": 65,
+   "tickSize": 0.05
+  },
+  {
+   "token": "40005",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY20OCT2625050CE",
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-20",
+   "strike": 25050,
+   "optionType": "CE",
+   "lotSize": 65,
+   "tickSize": 0.05
+  },
+  {
+   "token": "40006",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY20OCT2625050PE",
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-20",
+   "strike": 25050,
+   "optionType": "PE",
+   "lotSize": 65,
+   "tickSize": 0.05
+  },
+  {
+   "token": "51440",
+   "exchange": "NFO",
+   "tradingSymbol": "NIFTY27OCT2625000CE",
+   "underlying": "NIFTY",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-27",
+   "strike": 25000,
+   "optionType": "CE",
+   "lotSize": 65,
+   "tickSize": 0.05
+  },
+  {
+   "token": "48699",
+   "exchange": "NFO",
+   "tradingSymbol": "BANKNIFTY27OCT26FUT",
+   "underlying": "BANKNIFTY",
+   "instrumentType": "FUTIDX",
+   "expiry": "2026-10-27",
+   "strike": null,
+   "optionType": null,
+   "lotSize": 30,
+   "tickSize": 0.2
+  },
+  {
+   "token": "1125429",
+   "exchange": "BFO",
+   "tradingSymbol": "SENSEX26O2282000CE",
+   "underlying": "SENSEX",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-22",
+   "strike": 82000,
+   "optionType": "CE",
+   "lotSize": 20,
+   "tickSize": 0.05
+  },
+  {
+   "token": "864500",
+   "exchange": "BFO",
+   "tradingSymbol": "BANKEX26OCT60000PE",
+   "underlying": "BANKEX",
+   "instrumentType": "OPTIDX",
+   "expiry": "2026-10-29",
+   "strike": 60000,
+   "optionType": "PE",
+   "lotSize": 30,
+   "tickSize": 0.05
+  },
+  {
+   "token": "106743",
+   "exchange": "NFO",
+   "tradingSymbol": "RELIANCE27OCT261460CE",
+   "underlying": "RELIANCE",
+   "instrumentType": "OPTSTK",
+   "expiry": "2026-10-27",
+   "strike": 1460,
+   "optionType": "CE",
+   "lotSize": 500,
+   "tickSize": 0.05
+  }
+ ]
+}

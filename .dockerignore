@@ -1,0 +1,27 @@
+# Never send local state or secrets into the Docker build context.
+# (The Dockerfile copies only what it needs; this is a second line of defence.)
+.git
+.github
+.cache
+node_modules
+coverage
+data
+secrets
+bridge.config.json
+master.key
+*.key
+*.pem
+secrets.enc
+.env
+.env.*
+*.log
+logs
+.venv
+venv
+**/__pycache__
+*.tgz
+
+# Not needed in the image
+docs/screenshots
+sdk
+integrations

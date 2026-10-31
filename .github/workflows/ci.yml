@@ -1,0 +1,175 @@
+name: CI
+
+# Runs on pushes and on pull requests, including PRs from forks. It uses the `pull_request` event (never
+# `pull_request_target`), needs no repository secrets and gets a read-only token, so fork PRs run safely.
+# Actions are pinned to full commit SHAs (Dependabot keeps them current).
+on:
+  push:
+    branches: [main, master, "claude/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Runtime dependencies have no known vulnerabilities
+        run: npm audit --omit=dev
+      - name: Lockfile resolves only from registry.npmjs.org over HTTPS, with integrity hashes
+        run: |
+          node -e '
+            const lock = require("./package-lock.json");
+            const bad = [];
+            for (const [path, p] of Object.entries(lock.packages ?? {})) {
+              if (!path || p.link) continue;
+              if (!p.resolved || !p.resolved.startsWith("https://registry.npmjs.org/")) bad.push(`${path}: resolved ${p.resolved}`);
+              if (!p.integrity || !p.integrity.startsWith("sha512-")) bad.push(`${path}: integrity ${p.integrity}`);
+            }
+            if (bad.length) { console.error(bad.join("\n")); process.exit(1); }
+            console.log("lockfile ok");
+          '
+      - name: Production dependencies are pinned to exact versions
+        run: node -e 'const d = require("./package.json").dependencies; const loose = Object.entries(d).filter(([, v]) => !/^\d+\.\d+\.\d+$/.test(v)); if (loose.length) { console.error(loose); process.exit(1); }'
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Syntax check (node --check on every .mjs)
+        run: node scripts/check-mjs.mjs
+      - name: Tests with coverage
+        run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov
+        env:
+          TZ: UTC
+      - name: Node SDK tests
+        run: node --test sdk/node/test/client.test.mjs
+      - name: Smoke test (start, /v1/health, stop)
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          echo '{"server":{"port":4399},"dataDir":"'"$RUNNER_TEMP"'/smoke/data","logging":{"level":"warn"}}' > "$RUNNER_TEMP/smoke/bridge.config.json"
+          node bin/mc-bridge.mjs start --config "$RUNNER_TEMP/smoke/bridge.config.json" &
+          pid=$!
+          for i in $(seq 1 50); do curl -fsS http://127.0.0.1:4399/v1/health && break; sleep 0.2; done
+          curl -fsS http://127.0.0.1:4399/v1/health | grep -q '"status":"ok"'
+          kill -TERM "$pid"
+          wait "$pid" || true
+      - name: Upload coverage
+        if: matrix.node == 22
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+  python-sdk:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci   # the Python tests run against the Node fake server, which needs `ws`
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pip install ./sdk/python
+      - name: pytest
+        run: python -m pytest sdk/python/tests -q
+
+  # The beginner install paths on real machines: the one-line installers run from this checkout (no network for the
+  # Bridge itself), then the installed Bridge starts and answers. Windows uses the built-in Windows PowerShell 5.1.
+  install-windows:
+    name: Installer (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install.ps1 from this checkout
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:MCB_SOURCE = $env:GITHUB_WORKSPACE
+          $env:MCB_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'mcb\app'
+          $env:MCB_HOME = Join-Path $env:RUNNER_TEMP 'mcb\home'
+          $env:MCB_NO_START = '1'
+          & .\install.ps1
+          if (-not (Test-Path (Join-Path $env:MCB_HOME 'bridge.config.json'))) { throw 'no config written' }
+          if (-not (Test-Path (Join-Path $env:MCB_INSTALL_DIR 'mc-bridge.cmd'))) { throw 'no mc-bridge.cmd' }
+          $desktop = [Environment]::GetFolderPath('Desktop')
+          if (-not (Test-Path (Join-Path $desktop 'Mr Chartist Bridge.lnk'))) { throw 'no Desktop shortcut' }
+      - name: The installed launcher starts the Bridge
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Join-Path $env:RUNNER_TEMP 'mcb\app'
+          $cfg = Join-Path $env:RUNNER_TEMP 'mcb\home'
+          $p = Start-Process powershell -PassThru -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $app 'scripts\install\launch-windows.ps1'), '-AppDir', $app, '-ConfigDir', $cfg)
+          $ok = $false
+          for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 1
+            try { $ok = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4300/v1/health).StatusCode -eq 200 } catch { }
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*mc-bridge.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+          if (-not $ok) { throw 'the Bridge did not answer /v1/health' }
+      - name: Uninstall keeps settings
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:MCB_SOURCE = $env:GITHUB_WORKSPACE
+          $env:MCB_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'mcb\app'
+          $env:MCB_HOME = Join-Path $env:RUNNER_TEMP 'mcb\home'
+          $env:MCB_UNINSTALL = '1'
+          & .\install.ps1
+          if (Test-Path $env:MCB_INSTALL_DIR) { throw 'program folder still there' }
+          if (-not (Test-Path (Join-Path $env:MCB_HOME 'bridge.config.json'))) { throw 'settings were removed' }
+
+  install-macos:
+    name: Installer (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: install.sh from this checkout, then the installed command starts the Bridge
+        run: |
+          set -eu
+          export MCB_SOURCE="$GITHUB_WORKSPACE"
+          sh install.sh --no-start
+          app="$HOME/Applications/Mr Chartist Bridge.app"
+          test -x "$app/Contents/MacOS/mr-chartist-bridge"
+          plutil -lint "$app/Contents/Info.plist"
+          "$HOME/.local/bin/mc-bridge" doctor --no-port-check
+          "$HOME/.local/bin/mc-bridge" start --demo > "$RUNNER_TEMP/bridge.log" 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:4300/v1/health > /dev/null 2>&1 && break; sleep 1; done
+          curl -fsS http://127.0.0.1:4300/v1/health
+          kill %1
+          sh install.sh --uninstall
+          test ! -e "$app"
+          test -f "$HOME/.mc-bridge/bridge.config.json"

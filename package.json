@@ -1,0 +1,67 @@
+{
+  "name": "@mrchartist/api-bridge-v2",
+  "version": "2.0.0",
+  "description": "Mr. Chartist API Bridge: one local API for all your Indian broker accounts, with rate-limit-aware routing, streaming and safety gates.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "author": "Mr. Chartist",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrChartist/api-bridge.git"
+  },
+  "homepage": "https://github.com/MrChartist/api-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/MrChartist/api-bridge/issues"
+  },
+  "keywords": [
+    "trading",
+    "india",
+    "broker",
+    "nse",
+    "bse",
+    "option-chain",
+    "market-data",
+    "rate-limit",
+    "websocket",
+    "webhooks",
+    "excel",
+    "amibroker",
+    "mcp",
+    "paper-trading",
+    "dhan",
+    "zerodha",
+    "upstox"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node bin/mc-bridge.mjs start",
+    "dev": "node bin/mc-bridge.mjs start --demo --open",
+    "doctor": "node bin/mc-bridge.mjs doctor",
+    "bridge": "node bin/mc-bridge.mjs",
+    "audit:runtime": "npm audit --omit=dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check:mjs": "node scripts/check-mjs.mjs",
+    "capabilities": "node scripts/generate-broker-capabilities.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "ws": "8.22.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@vitest/coverage-v8": "^5.0.5",
+    "postject": "1.0.0-alpha.6",
+    "resedit": "3.1.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "bin": {
+    "mc-bridge": "bin/mc-bridge.mjs"
+  }
+}

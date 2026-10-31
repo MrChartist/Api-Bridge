@@ -1,0 +1,51 @@
+# Public DEMO of the Mr. Chartist API Bridge on a Hostinger VPS (or any Docker host), behind Caddy with HTTPS.
+#
+#   export DOMAIN=bridge.example.com
+#   docker compose up -d --build
+#   docker compose logs bridge          # the admin key, printed once on the first start
+#
+# Demo mode only: sample prices, no broker, no credentials, paper orders. Never run real broker accounts on a
+# public server; see README.md in this folder.
+services:
+  bridge:
+    build: ../..
+    image: mrchartist/api-bridge:demo
+    restart: unless-stopped
+    environment:
+      MCB_DEMO: "1"
+      MCB_CONFIG: /data/bridge.config.json
+      MCB_MASTER_KEY_FILE: /secrets/master.key   # created by init; demo mode never stores broker secrets with it
+      DOMAIN: ${DOMAIN:?Set DOMAIN, for example DOMAIN=bridge.example.com}
+    entrypoint: ["sh", "-c", "node /deploy/write-demo-config.mjs && exec node /app/bin/mc-bridge.mjs start --config /data/bridge.config.json"]
+    volumes:
+      - ./write-demo-config.mjs:/deploy/write-demo-config.mjs:ro
+      - demo-data:/data
+      - demo-secrets:/secrets
+    expose:
+      - "4300"                 # only to Caddy on the compose network; no port on the server itself
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  caddy:
+    image: caddy:2.8.4-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
+    restart: unless-stopped
+    depends_on: [bridge]
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  demo-data:
+  demo-secrets:
+  caddy-data:
+  caddy-config:
