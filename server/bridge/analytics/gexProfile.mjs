@@ -119,9 +119,11 @@ export function gexVerdict(net, lean) {
  * The profile of one chain. `strikes` are greekExposure's rows ({ strike, callGex, putGex, netGex }) so the walls and
  * the lean read the same bars the page draws; the flip and the curve re-price the legs.
  * @param {object} chain  the option chain (rows with ce/pe { oi, iv }, underlyingLtp, units, lotSize)
- * @param {{ days: number, rate?: number, strikes: Array<{strike:number, callGex:number, putGex:number, netGex:number}>, range?: number }} o
+ * `curve: false` leaves the curve out and `steps` sets the scan's resolution (the session series asks for both, as it
+ * solves a profile at every reading).
+ * @param {{ days: number, rate?: number, strikes: Array<{strike:number, callGex:number, putGex:number, netGex:number}>, range?: number, curve?: boolean, steps?: number }} o
  */
-export function gexProfile(chain, { days, rate = DEFAULT_RATE, strikes = [], range = FLIP_RANGE } = {}) {
+export function gexProfile(chain, { days, rate = DEFAULT_RATE, strikes = [], range = FLIP_RANGE, curve: withCurve = true, steps = SCAN_STEPS } = {}) {
   const spot = fin(chain?.underlyingLtp) ? chain.underlyingLtp : null;
   const legs = profileLegs(chain);
   const rows = (strikes ?? []).filter((s) => fin(s?.strike));
@@ -132,13 +134,13 @@ export function gexProfile(chain, { days, rate = DEFAULT_RATE, strikes = [], ran
   const f = (p) => netGexAt(legs, p, opts);
   const lo = spot * (1 - range);
   const hi = spot * (1 + range);
-  const flips = crossings(f, lo, hi, SCAN_STEPS);
+  const flips = crossings(f, lo, hi, steps);
   const flip = flips.length ? flips.reduce((b, x) => (Math.abs(x - spot) < Math.abs(b - spot) ? x : b)) : null;
   // The curve spans the strikes read (never wider than the scan), so it lines up with the bars.
   const kLo = Math.max(lo, legs[0].strike);
   const kHi = Math.min(hi, legs[legs.length - 1].strike);
   const curve = [];
-  if (kHi > kLo) for (let i = 0; i < CURVE_POINTS; i++) {
+  if (withCurve && kHi > kLo) for (let i = 0; i < CURVE_POINTS; i++) {
     const p = kLo + ((kHi - kLo) * i) / (CURVE_POINTS - 1);
     curve.push({ price: r2(p), net: r0(f(p)) });
   }

@@ -7333,6 +7333,30 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/analytics/exposure/session:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsExposureSession
+      summary: Gamma exposure through the session, one point per recorded reading, and the full reading at a chosen time
+      description: >-
+        From the data recorder's readings of the latest recorded session (today, else the most recent of the four days before; days are never mixed),
+        one in each `every` minutes and at most 120. Each reading is re-solved: gamma at spot from each leg's recorded IV, then gexProfile. `points[]`
+        carries { t, spot, net, gross, flip, callWall, putWall, ladderCross, lean, verdict, regimeAtSpot, strikes } (the flip scan is 120 steps over
+        ±25% of spot, then bisected; no curve). `ladder` gives the strikes read at the first and last point. With `at` (ISO time or epoch ms) `reading`
+        is the reading nearest it in /v1/analytics/exposure's shape (strikes, totals, profile with its curve), for a replay. `unavailable` explains an
+        empty series. A model estimate, not an observed dealer position.
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: underlying, in: query, required: true, schema: { type: string, maxLength: 30 } }
+        - { name: expiry, in: query, required: true, schema: { type: string, format: date } }
+        - { name: every, in: query, description: Minutes between readings (default 5)., schema: { type: integer, minimum: 1, maximum: 15 } }
+        - { name: at, in: query, description: The reading to return in full (ISO time or epoch milliseconds)., schema: { type: string, maxLength: 40 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/analytics/oi-explorer:
     get:
       tags: [Analytics]
