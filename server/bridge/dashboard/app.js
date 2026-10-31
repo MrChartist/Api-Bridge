@@ -567,6 +567,9 @@ export const ICONS = {
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
   sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
+  minus: '<path d="M5 12h14"/>',
+  remove: '<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',
+  add: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   up: '<path d="m6 15 6-6 6 6"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
@@ -913,8 +916,10 @@ function installCtxPicker() {
   const fine = () => typeof matchMedia !== "function" || matchMedia("(pointer: fine)").matches;
   /** @type {{ el: HTMLElement, sel: HTMLSelectElement, label: Element, close: (refocus?: boolean) => void } | null} */
   let open = null;
+  // A picker marked data-search (the desk's underlying) opens its page's symbol search instead of this menu.
   const pickOf = (t) => {
-    const sel = t?.closest?.(".ctx-pick")?.querySelector("select");
+    const label = t?.closest?.(".ctx-pick");
+    const sel = label && !label.hasAttribute("data-search") ? label.querySelector("select") : null;
     return sel && !sel.disabled ? /** @type {HTMLSelectElement} */ (sel) : null;
   };
   const show = (sel, viaKeyboard) => {
