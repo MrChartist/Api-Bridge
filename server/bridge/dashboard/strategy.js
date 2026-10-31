@@ -2765,8 +2765,9 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
     });
   }
 
+  /** "?": the app's shortcuts sheet, opened on the Strategy Builder (shortcuts-core.js lists these KEYS). */
   function showKeys() {
-    modal({ title: "Strategy builder keys", body: h("table", { class: "keys-table" }, h("tbody", {}, KEYS.map(([k, t]) => h("tr", {}, h("th", { scope: "row" }, k.map((kk) => h("kbd", {}, kk))), h("td", {}, t))))), buttons: [{ label: "Close", value: true }] });
+    import("./palette.js").then((m) => m.showShortcuts({ group: "Strategy Builder" }));
   }
 
   // Ctrl/Cmd+S and Ctrl/Cmd+Z: the desk's key handler ignores modified keys, so the builder listens for these two.

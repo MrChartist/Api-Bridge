@@ -10672,6 +10672,71 @@ input.bx-act-search { width: 240px; max-width: 100%; }
   .bx-summary-note { text-align: left; }
 }
 
+/* ───────────────────────── 1-Tap, order defaults, shortcuts and glossary (one-tap.js, shortcuts.js) ─────────────────────────
+   The toolbar capsule is quiet while 1-Tap is off (trading pages only) and unmistakable while it is on: an amber
+   "1-Tap ON" flag for paper, a solid red one for LIVE, with the account beside it, on every page. */
+.toolbar-onetap-slot { display: inline-flex; flex: none; }
+.toolbar-onetap-slot[hidden] { display: none; }
+button.toolbar-onetap { --btn-h: var(--ctl-h); --btn-px: 5px; --btn-fs: 12.5px; --btn-bg: var(--btn-soft); --btn-line: transparent; height: auto; gap: 6px; color: hsl(var(--foreground)); }
+.onetap-flag { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 99px; font: 500 12.5px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; }
+.onetap-flag svg { width: 14px; height: 14px; flex: none; }
+.onetap-sub { padding-right: 8px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+/* The Options pages' toolbar is full: there the flag is short (the bolt alone while off; "ON" in amber for paper,
+   "LIVE" in red), and the account is in the tooltip, the label and the capsule's sheet. Elsewhere the full words. */
+.onetap-short:empty { display: none; }
+:root:not([data-layout="desk"]) .onetap-short { display: none; }
+:root[data-layout="desk"] .onetap-main { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:root[data-layout="desk"] .onetap-flag { padding: 0 8px; }
+:root[data-layout="desk"] .onetap-sub { display: none; }
+/* With the capsule on the bar, the live control gives up its words a little sooner (they stay in its label). */
+@container tbar (max-width: 1299px) {
+  .toolbar:has(.toolbar-onetap-slot:not([hidden])) button.live-ctl .live-txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* 1-Tap on: the Demo pill keeps its dot (its words stay in its label), so the ON flag fits beside the chain's tools. */
+  .toolbar:has(button.toolbar-onetap:is([data-on="paper"], [data-on="live"])) button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; }
+  .toolbar:has(button.toolbar-onetap:is([data-on="paper"], [data-on="live"])) .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+.onetap-sub:empty { display: none; }
+button.toolbar-onetap[data-on="paper"] .onetap-flag { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / 0.2); box-shadow: inset 0 0 0 1px hsl(var(--ios-orange) / 0.55); font-weight: 600; }
+button.toolbar-onetap[data-on="live"] .onetap-flag { color: hsl(var(--ios-on-fill)); background: hsl(var(--neg)); font-weight: 600; }
+button.toolbar-onetap[data-on="live"] .onetap-sub { color: hsl(var(--neg-ink)); font-weight: 600; }
+@media (max-width: 1023px) { .onetap-sub { display: none; } }
+.onetap-pop-body { padding: 4px 16px 16px; min-width: 280px; max-width: 340px; }
+.onetap-pop-body p { margin: 0; }
+.onetap-pop-mode { font: 600 15px/1.3 var(--font-body); color: hsl(var(--ios-orange-ink)); }
+.onetap-pop-mode.live { color: hsl(var(--neg-ink)); }
+.onetap-pop-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.od-sheet .hint { margin: 4px 0 0; }
+.od-lots { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 12px; }
+.od-lot { display: flex; flex-direction: column; gap: 4px; font: 500 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.od-lot .bk-stepper > input { font-size: 15px; }
+.od-box { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 12px; border-radius: 12px; background: var(--mat-fill-1); }
+.od-sum { margin: 0; font: 500 13px/1.35 var(--font-body); }
+.od-rules { margin: 0; padding-left: 18px; font: 500 13px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.od-rules li + li { margin-top: 4px; }
+.sc-sheet { gap: 12px; }
+.sc-head { display: flex; flex-direction: column; gap: 10px; }
+.sc-head .segmented { align-self: flex-start; }
+.sc-search { width: 100%; min-height: 38px; }
+.sc-list { max-height: min(58vh, 540px); overflow: auto; overscroll-behavior: contain; margin: 0 -4px; padding: 0 4px; }
+.sc-group + .sc-group { margin-top: 16px; }
+.sc-cap { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / var(--a-quiet)); }
+.sc-soon { padding: 3px 8px; border-radius: 99px; font: 500 12px/1 var(--font-body); letter-spacing: 0; text-transform: none; background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-label)); }
+.sc-row { display: grid; grid-template-columns: minmax(104px, max-content) minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 7px 0; font: 500 13.5px/1.35 var(--font-body); }
+.sc-row + .sc-row { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.sc-keys { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; }
+.sc-what { color: hsl(var(--foreground) / var(--a-label)); }
+.sc-row.coming .sc-what { color: hsl(var(--foreground) / var(--a-quiet)); }
+.sc-gloss { margin: 0; }
+.sc-gloss-row { padding: 9px 0; }
+.sc-gloss-row + .sc-gloss-row { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.sc-gloss dt { font: 600 14px/1.3 var(--font-body); }
+.sc-gloss dd { margin: 3px 0 0; font: 500 13.5px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.sc-empty { padding: 16px 0; }
+/* The ticket's Place button with its money on a second line (desk.js drawButton: margin · charges). */
+.dialog-actions button.btn.with-money { flex-direction: column; justify-content: center; gap: 2px; height: auto; min-height: var(--btn-h, 44px); padding-block: 5px; }
+.btn.with-money .btn-main { line-height: 1.1; }
+.btn.with-money .btn-money { font: 500 12px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; opacity: 0.86; white-space: nowrap; }
+
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
    (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */

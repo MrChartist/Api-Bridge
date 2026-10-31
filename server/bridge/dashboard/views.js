@@ -46,6 +46,7 @@ import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText, startupText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { mountOneTap } from "./one-tap.js";
 import { PAGE_CODES } from "./workspace.js";
 import { triggersCard } from "./triggers.js";
 import { fundsCard, ordersCard, renderTradesPage, sideCell } from "./orders-book.js";
@@ -1174,6 +1175,8 @@ function setupChrome() {
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon()),
     h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
   );
+  // 1-Tap instant trade and order defaults (one-tap.js): the toolbar capsule, Ctrl+Alt+1. Off on every load.
+  mountOneTap($("toolbar-onetap"));
   // The API budget indicator (budget.js), fed by the shared live connection.
   const budgetSlot = $("toolbar-budget");
   if (budgetSlot && !budgetSlot.dataset.ready) {

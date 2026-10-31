@@ -146,6 +146,7 @@ const legOrder = (a, b) => (a.kind === "FUT") !== (b.kind === "FUT") ? (a.kind =
 export const POSITION_KEYS = [
   [["J", "K"], "row", "Next / previous leg (↓ ↑ too)"],
   [["Space"], "select", "Select the leg for a bulk exit"],
+  [["⇧B", "⇧S"], "buy / sell", "Buy / sell more of the focused leg's contract: the ticket, or at once when 1-Tap is on"],
   [["I"], "include", "Include or exclude the leg in risk"],
   [["X"], "exit", "Exit the focused leg (ticket)"],
   [["⇧X"], "exit all", "Exit plan for every leg"],
@@ -173,7 +174,7 @@ const noChain = new Set();
  * @param {{ st: object, save: () => void, account: () => object|null, openTicket: (o: object) => Promise<unknown>,
  *   onClock: () => void, setUnderlying: (u: string) => void, openInChain: (expiry: string, strike: number, side: string) => void }} o
  */
-export function createPositionsPage({ st, save, account, openTicket, onClock, setUnderlying, openInChain: goChain }) {
+export function createPositionsPage({ st, save, account, openTicket, quickTrade = null, onClock, setUnderlying, openInChain: goChain }) {
   const cfg = () => st.pos;
   const setCfg = (patch) => {
     st.pos = O.positionsConfig({ ...st.pos, ...patch });
@@ -2063,6 +2064,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     }).then((r) => r === "placed" && tick());
   }
 
+  /** Shift+B / Shift+S on a focused leg: more of its contract with the order defaults (desk.js quickTrade: the ticket,
+   *  or sent at once when 1-Tap is on). */
+  function tradeLeg(l, side) {
+    const o = { row: { strike: l.strike }, right: l.right ?? "CE", kind: l.kind, side, symbol: l.symbol, expiry: l.expiry, quote: legQuote(l.symbol), lotSize: l.lot, tick: l.tick, freezeQty: l.freeze, name: fullName(l) };
+    Promise.resolve((quickTrade ?? openTicket)(o)).then((r) => r === "placed" && tick());
+  }
+
   // ── Analyse in the builder ──
   function analyse(g) {
     const opts = g.legs.filter((l) => l.q && l.kind === "OPT");
@@ -3300,12 +3308,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
 
   // ── Keyboard ──
+  /** "?": the app's shortcuts sheet, opened on Positions (shortcuts-core.js lists POSITION_KEYS). */
   function showKeys() {
-    modal({
-      title: "Positions keys",
-      body: h("table", { class: "keys-table" }, h("tbody", {}, POSITION_KEYS.map(([keys, , long]) => h("tr", {}, h("th", { scope: "row" }, keys.map((k) => h("kbd", {}, k))), h("td", {}, long))))),
-      buttons: [{ label: "Close", value: true }],
-    });
+    import("./palette.js").then((m) => m.showShortcuts({ group: "Positions" }));
   }
   function onKey(e) {
     const k = e.key;
@@ -3330,6 +3335,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (k === " " && f && !onControl) return rowClick(f.symbol, false), true;
     if (k === "i" && f) return toggleInclude([f.symbol], !f.inc), true;
     if (k === "x") return f ? exitLeg(f.symbol) : toast("Focus a leg first (J / K)", { tone: "info" }), true;
+    if (e.shiftKey && /^[bs]$/i.test(k)) return f ? tradeLeg(f, k.toLowerCase() === "b" ? "BUY" : "SELL") : toast("Focus a leg first (J / K)", { tone: "info" }), true;
     if (k === "X") return legs.some((l) => l.q) && openExitPlan(legs.filter((l) => l.q), ""), true;
     if (k === "a" && f) {
       const g = groups.find((x) => x.legs.includes(f));
