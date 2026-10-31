@@ -2481,7 +2481,7 @@ table.chain tr.row-in > * { animation: chain-row-in 180ms var(--ease-out) both; 
    own). Soft at rest; the largest (the OI walls) carry the full colour. OI in the side colour on one scale for both
    sides; OI change green / red; volume neutral; build-up strength in its reading's colour. They grow away from the
    strike and resize from the old length (420 ms). */
-table.chain .vbar { position: absolute; left: var(--chain-gx); right: var(--chain-gx); bottom: 3px; display: block; height: 3px; border-radius: 99px; background: transparent; overflow: hidden; pointer-events: none; }
+table.chain .vbar { position: absolute; left: var(--chain-gx); right: var(--chain-gx); bottom: 1px; display: block; height: 3px; border-radius: 99px; background: transparent; overflow: hidden; pointer-events: none; }
 table.chain td:first-child .vbar { left: 12px; }
 table.chain td:last-child .vbar { right: 12px; }
 table.chain .vbar > span { display: block; width: 100%; height: 100%; border-radius: 99px; background: var(--c-neutral); transform-origin: right center; transition: transform 420ms var(--ease-out); }
@@ -2534,7 +2534,8 @@ table.chain .bu-pill.bu-LU { box-shadow: inset 0 0 0 1px hsl(var(--neg) / 0.4); 
 table.chain .vbar.bu-m { height: 2px; }
 /* Layered bars (OI, Volume): stacked fills on one track, every layer sized by scaleX from the strike side. OI: solid =
    the previous OI, striped = OI added today; on a cut, solid = today's OI and a red striped ghost up to the previous. */
-table.chain .vbar.split { position: relative; }
+/* A split bar stays at the cell's foot like any bar (position: absolute, from .vbar): its layers stack inside it. A
+   `position: relative` here made it a zero-width grid item, so the OI and volume bars never drew. */
 table.chain .vbar.split > span { position: absolute; inset: 0; transform: scaleX(var(--f, 0)); }
 table.chain .vbar.split > span:is(.seg-add, .seg-cut) { border-radius: 0; transform: none; clip-path: inset(0 0 0 calc((1 - var(--f, 0)) * 100%)); transition: clip-path 420ms var(--ease-out); }
 table.chain th.strike-col ~ td .vbar.split > span:is(.seg-add, .seg-cut) { clip-path: inset(0 calc((1 - var(--f, 0)) * 100%) 0 0); }
@@ -2543,9 +2544,42 @@ table.chain .vbar.oi.pe > span.seg-add { background: repeating-linear-gradient(9
 table.chain .vbar.oi.ce.r1 > span.seg-add { background: repeating-linear-gradient(90deg, hsl(var(--c-call)) 0 2px, transparent 2px 4px); }
 table.chain .vbar.oi.pe.r1 > span.seg-add { background: repeating-linear-gradient(90deg, hsl(var(--c-put)) 0 2px, transparent 2px 4px); }
 table.chain .vbar.oi.sd > span.seg-add { background: repeating-linear-gradient(90deg, var(--c-neutral) 0 2px, transparent 2px 4px); }
-table.chain .vbar.oi > span.seg-cut { background: repeating-linear-gradient(90deg, hsl(var(--neg) / 0.45) 0 2px, transparent 2px 4px); }
+table.chain .vbar.oi > span.seg-cut, table.chain .vbar.oi:is(.r1, .r2) > span.seg-cut { background: repeating-linear-gradient(90deg, hsl(var(--neg) / 0.45) 0 2px, transparent 2px 4px); }
 table.chain .vbar.vol > span.seg-prev { background: hsl(var(--foreground) / 0.12); }
 table.chain .vbar.vol > span.seg-today { background: hsl(var(--foreground) / 0.36); }
+
+/* ── Highlights (Customise → Highlights; desk.js hlRank). The side's #1 – #3 by OI and by volume carry a numbered
+   capsule before the figure (#1 filled, #2 and #3 tinted; OI in the side's colour, volume in plain ink, since volume
+   has no side of its own) and a firmer bar. The largest OI additions and cuts sit on a soft capsule of their own
+   green / red (#1 a little deeper and bolder). The side's strongest build-ups fill fuller, the #1 with a soft halo. ── */
+table.chain .rk { flex: none; display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font: 600 12px/1 var(--font-numeric); font-style: normal; font-variant-numeric: tabular-nums; }
+table.chain .rk.oi.ce { color: hsl(var(--c-call-ink)); background: hsl(var(--c-call) / 0.14); }
+table.chain .rk.oi.pe { color: hsl(var(--c-put-ink)); background: hsl(var(--c-put) / 0.16); }
+table.chain .rk.oi.ce.r1 { color: hsl(var(--background)); background: hsl(var(--c-call)); }
+table.chain .rk.oi.pe.r1 { color: hsl(var(--background)); background: hsl(var(--c-put)); }
+table.chain .rk.vol { color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+table.chain .rk.vol.r1 { color: hsl(var(--background)); background: hsl(var(--foreground) / 0.78); }
+table.chain .mk { margin-inline: -4px; padding: 0 4px; border-radius: 6px; }
+table.chain .mk.m1 { font-weight: 600; }
+table.chain small.l2.mk.up, table.chain .l1.up > .mk { color: hsl(var(--gain-ink-strong)); background: hsl(var(--pos) / 0.12); }
+table.chain small.l2.mk.down, table.chain .l1.down > .mk { color: hsl(var(--loss-ink-strong)); background: hsl(var(--neg) / 0.12); }
+table.chain small.l2.mk.up.m1, table.chain .l1.up > .mk.m1 { background: hsl(var(--pos) / 0.22); }
+table.chain small.l2.mk.down.m1, table.chain .l1.down > .mk.m1 { background: hsl(var(--neg) / 0.22); }
+table.chain .vbar.split.oi { height: 2px; }
+table.chain .vbar.split.oi.top { height: 3px; }
+table.chain .vbar.vol.top { height: 3px; }
+table.chain .vbar.vol.top > span.seg-today { background: hsl(var(--foreground) / 0.5); }
+table.chain .vbar.vol.r1 > span.seg-today { background: hsl(var(--foreground) / 0.72); }
+table.chain .bu-pill.top { font-weight: 600; }
+table.chain .bu-pill.weak:is(.bu-LB, .bu-SB, .bu-SC, .bu-LU) { font-weight: 400; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); }
+table.chain .bu-pill.top.bu-LB { background: hsl(var(--pos) / 0.28); }
+table.chain .bu-pill.top.bu-SB { background: hsl(var(--neg) / 0.28); }
+table.chain .bu-pill.top.bu-SC { background: hsl(var(--pos) / 0.18); }
+table.chain .bu-pill.top.bu-LU { background: hsl(var(--neg) / 0.18); }
+table.chain .bu-pill.t1.bu-LB { box-shadow: 0 0 0 3px hsl(var(--pos) / 0.14); }
+table.chain .bu-pill.t1.bu-SB { box-shadow: 0 0 0 3px hsl(var(--neg) / 0.14); }
+table.chain .bu-pill.t1.bu-SC { box-shadow: inset 0 0 0 1px hsl(var(--pos) / 0.4), 0 0 0 3px hsl(var(--pos) / 0.12); }
+table.chain .bu-pill.t1.bu-LU { box-shadow: inset 0 0 0 1px hsl(var(--neg) / 0.4), 0 0 0 3px hsl(var(--neg) / 0.12); }
 /* 16Δ / 30Δ: under the delta in the ATM ink (no block of colour, no width of its own). */
 table.chain .cg > small.l2.dt { color: hsl(var(--c-atm-ink)); cursor: help; }
 table.chain .held { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 4px; font: 500 12px/1 var(--font-numeric); }
@@ -3164,6 +3198,14 @@ button.preset:hover { background: var(--mat-fill-1); }
 .ci-title { font: 600 14px/1.25 var(--font-display); letter-spacing: -0.01em; }
 .ci-sub { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .ci-line { margin: 0; font: 500 13px/1.45 var(--font-body); }
+/* The cell's highlight ranks (chain-insight-core.js cellRanks): OI in the side's colour, OI added green, OI cut red,
+   volume and build-up in plain ink. */
+.ci-ranks { display: flex; flex-wrap: wrap; gap: 4px; }
+.ci-rank { display: inline-flex; align-items: center; min-height: 20px; padding: 2px 8px; border-radius: 99px; font: 500 12px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-1); }
+.ci-rank.oi.ce { color: hsl(var(--c-call-ink)); background: hsl(var(--c-call) / 0.12); }
+.ci-rank.oi.pe { color: hsl(var(--c-put-ink)); background: hsl(var(--c-put) / 0.14); }
+.ci-rank.add { color: hsl(var(--gain-ink-strong)); background: hsl(var(--pos) / 0.12); }
+.ci-rank.cut { color: hsl(var(--loss-ink-strong)); background: hsl(var(--neg) / 0.12); }
 .ci-vis { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: var(--r-inner); background: var(--mat-fill-1); font: 500 12.5px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
 .ci-move { display: grid; grid-template-columns: 88px auto 1fr; align-items: center; gap: 8px; }
 .ci-move-l { color: hsl(var(--foreground) / var(--a-label)); font-family: var(--font-body); font-size: 12px; }
@@ -3836,6 +3878,47 @@ input.picker-filter { width: 96px; min-height: 30px; padding: 4px 10px; border-r
 /* Menus (leg ⋯, expiry, tools, head, chart) */
 .popover.menu-pop { width: min(300px, calc(100vw - 32px)); }
 .popover.menu-pop.strike-menu { width: min(400px, calc(100vw - 32px)); }
+/* The chain's Highlights sheet (desk.js highlightsBody): one row per kind (OI, volume, OI added, OI cut, build-up),
+   calls and puts side by side. Each side's #1 is a capsule (rank, strike, figure); #2 and #3 follow as quiet links. A
+   strike jumps the chain to it. Under the grid, the day's positioning on screen as a split green / red meter. */
+.popover.hl-pop { width: min(540px, calc(100vw - 32px)); }
+.hl-sheet { display: grid; gap: 14px; padding: 2px 16px 16px; }
+.hl-grid { display: grid; }
+.hl-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; padding: 9px 0; box-shadow: inset 0 -1px 0 var(--mat-separator); }
+.hl-row:last-child { box-shadow: none; }
+.hl-row.hl-headrow { padding: 0 0 6px; }
+.hl-side { font: 600 12px/1.2 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; }
+.hl-side.ce { color: hsl(var(--c-call-ink)); }
+.hl-side.pe { color: hsl(var(--c-put-ink)); }
+.hl-label { padding-top: 6px; font: 500 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.hl-cell { display: grid; gap: 5px; justify-items: start; min-width: 0; }
+.hl-cell.none { padding-top: 6px; font-size: 13px; }
+.hl-sheet button.hl-top { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-height: 30px; padding: 0 11px 0 6px; border-radius: 99px; font: 400 13px/1 var(--font-numeric); color: hsl(var(--foreground)); background: var(--mat-fill-1); box-shadow: none; cursor: pointer; }
+@media (hover: hover) { .hl-sheet button.hl-top:hover { background: var(--mat-fill-2); } }
+.hl-top strong { font-weight: 600; }
+.hl-top .hl-v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--foreground) / var(--a-label)); }
+.hl-top .hl-v.up { color: hsl(var(--pos-ink)); }
+.hl-top .hl-v.down { color: hsl(var(--neg-ink)); }
+.hl-top .rk { flex: none; display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; font: 600 12px/1 var(--font-numeric); font-style: normal; color: hsl(var(--background)); background: hsl(var(--foreground) / 0.78); }
+.hl-top .rk.oi.ce { background: hsl(var(--c-call)); }
+.hl-top .rk.oi.pe { background: hsl(var(--c-put)); }
+.hl-more { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding-left: 6px; font: 400 12px/1.4 var(--font-numeric); color: hsl(var(--foreground) / var(--a-label)); }
+.hl-wall { font: 500 12px/1.4 var(--font-body); }
+.hl-wall.ce { color: hsl(var(--c-call-ink)); }
+.hl-wall.pe { color: hsl(var(--c-put-ink)); }
+.hl-sheet button.hl-alt { min-height: 20px; padding: 0 2px; border-radius: 6px; font: inherit; color: hsl(var(--foreground) / var(--a-label)); background: transparent; box-shadow: none; cursor: pointer; }
+@media (hover: hover) { .hl-sheet button.hl-alt:hover { color: hsl(var(--foreground)); background: var(--mat-fill-1); } }
+.hl-pos { display: grid; gap: 8px; padding: 12px 14px; border-radius: 14px; background: var(--mat-fill-1); }
+.hl-pos-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.hl-pos-head .hl-label { padding: 0; }
+.hl-pos-v { font: 600 13px/1.3 var(--font-numeric); }
+.hl-pos-v .up { color: hsl(var(--pos-ink)); }
+.hl-pos-v .down { color: hsl(var(--neg-ink)); }
+.hl-meter { display: flex; gap: 2px; height: 6px; border-radius: 99px; overflow: hidden; }
+.hl-meter > i { flex: 1 1 0; min-width: 2px; }
+.hl-meter > i.up { background: hsl(var(--pos)); }
+.hl-meter > i.down { background: hsl(var(--neg)); }
+.hl-note { margin: 0; font: 400 12px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .strike-menu .menu-list button.menu-item small { white-space: normal; }
 .menu-list { gap: 2px; padding: 4px; }
 .menu-list button.menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 36px; padding: 6px 10px; border-radius: 8px; background: transparent; box-shadow: none; text-align: left; font: 500 13px/1.25 var(--font-body); }
@@ -8846,7 +8929,7 @@ svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; str
 :root[data-density="compact"] table.chain .cg.bu-cell { grid-template-rows: 27px; }
 :root[data-density="compact"] table.chain thead tr.col-head th { height: 28px; }
 :root[data-density="compact"] table.chain tfoot :is(td, th) { height: 30px; }
-:root[data-density="compact"] table.chain .vbar { bottom: 2px; }
+:root[data-density="compact"] table.chain .vbar { bottom: 1px; }
 :root[data-density="compact"] .desk-keys { height: 24px; }
 :root[data-density="compact"] .toolbar .icon-btn { --btn-h: var(--ctl-h); }
 @media (pointer: coarse) { :root[data-density="compact"] .toolbar .icon-btn { --btn-h: 44px; } }

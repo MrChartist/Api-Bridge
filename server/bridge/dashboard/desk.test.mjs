@@ -53,6 +53,9 @@ describe("chain settings", () => {
     expect(c.line).toEqual({ straddle: true, em: true, iv: false, range: false, pcr: false, mp: false, walls: false });
     expect(c.insight).toBe(true);
     expect(chainConfig({ insight: false }).insight).toBe(false);
+    // Highlights: on by default, each kind its own switch; a broken save falls back per key.
+    expect(c.hl).toEqual({ oi: true, vol: true, chg: true, bu: true });
+    expect(chainConfig({ hl: { vol: false, bu: "x" } }).hl).toEqual({ oi: true, vol: false, chg: true, bu: true });
     expect(c.itm).toBe(false);
     expect(chainConfig({ mode: "simple" }).mode).toBe("simple");
     expect(chainConfig({ mode: "x" }).mode).toBe("advanced");

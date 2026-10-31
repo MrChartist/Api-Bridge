@@ -123,6 +123,8 @@ function drawCard(m) {
     out.push(h("p", { class: "ci-foot" }, "Click the header for the full cell index."));
     return out;
   }
+  // The cell's highlight ranks (#1 OI on this side, one of the largest OI cuts …) as quiet capsules under the title.
+  if (m.ranks?.length) out.push(h("div", { class: "ci-ranks" }, m.ranks.map((r) => h("span", { class: `ci-rank ${r.kind} ${m.side ?? ""} r${r.rank}`.trim() }, r.text))));
   if (m.headline) out.push(h("p", { class: `ci-line${m.tone ? ` ${m.tone}` : ""}` }, m.headline));
   const v = m.visual ? drawVisual(m.visual) : null;
   if (v) out.push(v);

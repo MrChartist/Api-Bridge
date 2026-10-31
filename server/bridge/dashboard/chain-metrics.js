@@ -367,6 +367,100 @@ export function volBarSplit(volume, prevVolume, max) {
   return { today: clamp(v), prev: p === null ? null : clamp(p) };
 }
 
+// ── Highlights: the chain's top strikes per side (desk.js context, once per refresh) ──
+
+/**
+ * strike → rank (1 … n) of the `n` largest values above 0 that `value(row)` gives; ties go to the lower strike. A row
+ * with no figure (or 0, or below) is never ranked, so a thin chain ranks fewer than `n`.
+ */
+export function topRanks(rows, value, n = 3) {
+  const list = [];
+  for (const r of rows ?? []) {
+    const v = num(value(r));
+    const k = num(r?.strike);
+    if (v !== null && v > 0 && k !== null) list.push([k, v]);
+  }
+  list.sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  return new Map(list.slice(0, n).map(([k], i) => [k, i + 1]));
+}
+
+/** A build-up reading has to reach this intensity (buildupIntensity, 0..1) to be marked among the strongest. */
+export const HL_BUILDUP_FLOOR = 0.3;
+
+/**
+ * The highlights of one chain, per side: the strikes ranked #1 … #3 by open interest (`oi`, #1 = the wall), volume
+ * (`vol`), OI added (`add`), OI cut (`cut`, by size) and build-up intensity (`bu`, only readings at or above
+ * HL_BUILDUP_FLOOR, so a quiet chain marks none). `buildup(row, side)` returns a reading's intensity (or null); without
+ * it `bu` is empty. Returns { ce: { oi, vol, add, cut, bu }, pe: { … } }, each a Map strike → rank.
+ */
+export function chainHighlights(rows, { n = 3, buildup = null } = {}) {
+  const side = (s) => ({
+    oi: topRanks(rows, (r) => r?.[s]?.oi, n),
+    vol: topRanks(rows, (r) => r?.[s]?.volume, n),
+    add: topRanks(rows, (r) => r?.[s]?.oiChange, n),
+    cut: topRanks(rows, (r) => (num(r?.[s]?.oiChange) === null ? null : -Number(r[s].oiChange)), n),
+    bu: buildup ? topRanks(rows, (r) => {
+      const v = num(buildup(r, s));
+      return v !== null && v >= HL_BUILDUP_FLOOR ? v : null;
+    }, n) : new Map(),
+  });
+  return { ce: side("ce"), pe: side("pe") };
+}
+
+/** The strikes of a rank map in rank order: [strike #1, strike #2, …]. */
+export function rankedStrikes(ranks) {
+  return [...(ranks ?? new Map())].sort((a, b) => a[1] - b[1]).map(([k]) => k);
+}
+
+/** Highlight kinds in plain words: the hover cards and the Highlights sheet. */
+export const HL_NAMES = Object.freeze({ oi: "open interest", vol: "volume", add: "OI added", cut: "OI cut", bu: "build-up" });
+
+/**
+ * One rank in plain words: "#1 open interest on the call side: the call wall". Null without a rank.
+ * @param {"oi"|"vol"|"add"|"cut"|"bu"} kind
+ */
+export function rankText(kind, rank, side) {
+  if (!(num(rank) >= 1)) return null;
+  const s = side === "pe" ? "put" : "call";
+  const what = kind === "bu" ? "build-up strength" : (HL_NAMES[kind] ?? kind);
+  const tail = kind === "oi" && rank === 1 ? `: the ${s} wall` : "";
+  return `#${rank} ${what} on the ${s} side${tail}`;
+}
+
+/**
+ * Positioning on a set of rows (the strikes on screen), the day's moves: every leg whose premium and OI both moved
+ * votes with the size of its OI change. Call premium up or put premium down leans up; call premium down or
+ * put premium up leans down (the build-up names, read from each side). `opening` = the share of the grouped weight in
+ * legs whose OI rose (new positions), the rest closing. A grouping, not a forecast. Null when no leg voted.
+ * @returns {{ upShare: number, up: number, down: number, opening: number, legs: number, voted: number } | null}
+ */
+export function positioning(rows) {
+  let up = 0;
+  let down = 0;
+  let open = 0;
+  let legs = 0;
+  let voted = 0;
+  for (const r of rows ?? []) {
+    for (const s of ["ce", "pe"]) {
+      const q = r?.[s];
+      if (!q) continue;
+      const e = dayEnds(q);
+      if (e.px === null || e.px0 === null || e.oi === null || e.oi0 === null) continue;
+      legs += 1;
+      const dPx = e.px - e.px0;
+      const dOi = e.oi - e.oi0;
+      if (!dPx || !dOi) continue;
+      voted += 1;
+      const w = Math.abs(dOi);
+      if ((s === "ce") === dPx > 0) up += w;
+      else down += w;
+      if (dOi > 0) open += w;
+    }
+  }
+  const tot = up + down;
+  return tot > 0 ? { upShare: (up / tot) * 100, up, down, opening: (open / tot) * 100, legs, voted } : null;
+}
+
 // ── Greeks: three different dashes ──
 
 /**

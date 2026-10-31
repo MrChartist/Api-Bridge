@@ -192,3 +192,47 @@ describe("Greek dashes", () => {
     expect(M.greekState("theta", null)).toBe("unavailable");
   });
 });
+
+describe("highlights", () => {
+  const leg = (oi, oiChange, volume, ltp = 100, close = 100) => ({ oi, oiChange, volume, ltp, close });
+  const rows = [
+    { strike: 100, ce: leg(500, 50, 10, 110), pe: leg(900, -300, 40, 90) },
+    { strike: 200, ce: leg(800, 200, 30, 90), pe: leg(900, 100, 0) },
+    { strike: 300, ce: leg(800, -20, 20), pe: leg(null, null, null) },
+    { strike: 400, ce: leg(100, 0, 50), pe: leg(200, 150, 5, 120) },
+  ];
+  it("ranks the top three per side above 0; ties go to the lower strike; no figure is never ranked", () => {
+    const hl = M.chainHighlights(rows);
+    expect([...hl.ce.oi]).toEqual([[200, 1], [300, 2], [100, 3]]);
+    expect([...hl.pe.oi]).toEqual([[100, 1], [200, 2], [400, 3]]);
+    expect([...hl.ce.vol]).toEqual([[400, 1], [200, 2], [300, 3]]);
+    expect([...hl.pe.vol]).toEqual([[100, 1], [400, 2]]);
+    expect([...hl.ce.add]).toEqual([[200, 1], [100, 2]]);
+    expect([...hl.ce.cut]).toEqual([[300, 1]]);
+    expect([...hl.pe.cut]).toEqual([[100, 1]]);
+    expect(hl.ce.bu.size).toBe(0);
+    expect(M.rankedStrikes(hl.ce.oi)).toEqual([200, 300, 100]);
+  });
+  it("build-ups: only readings at or above the floor are marked", () => {
+    const hl = M.chainHighlights(rows, { buildup: (r, s) => (s === "ce" ? ({ 100: 0.9, 200: 0.29, 300: 0.5 })[r.strike] ?? null : null) });
+    expect([...hl.ce.bu]).toEqual([[100, 1], [300, 2]]);
+    expect(hl.pe.bu.size).toBe(0);
+  });
+  it("rank text names the wall at #1 OI", () => {
+    expect(M.rankText("oi", 1, "ce")).toBe("#1 open interest on the call side: the call wall");
+    expect(M.rankText("vol", 2, "pe")).toBe("#2 volume on the put side");
+    expect(M.rankText("cut", 3, "pe")).toBe("#3 OI cut on the put side");
+    expect(M.rankText("bu", 1, "ce")).toBe("#1 build-up strength on the call side");
+    expect(M.rankText("oi", null, "ce")).toBeNull();
+  });
+  it("positioning: OI-change weighted, call premium up and put premium down lean up", () => {
+    // ce 100 up/+50 leans up, ce 200 down/+200 leans down, pe 100 down/-300 leans up (closing), pe 400 up/+150 leans down; flat legs cast no vote.
+    const p = M.positioning(rows);
+    expect(p.up).toBe(350);
+    expect(p.down).toBe(350);
+    expect(p.upShare).toBe(50);
+    expect(p.opening).toBeCloseTo((400 / 700) * 100, 9);
+    expect(p.voted).toBe(4);
+    expect(M.positioning([{ strike: 1, ce: leg(10, 0, 1) }])).toBeNull();
+  });
+});

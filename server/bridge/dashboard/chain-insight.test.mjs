@@ -1,7 +1,7 @@
 // The chain's insight cards and help (chain-insight-core.js, chain-help.js): cell parsing, card placement, the fact
 // rows' fallback, the card content, the cell index search and the self-check scoring. Pure: no DOM.
 import { describe, expect, it } from "vitest";
-import { buildupMoves, cardModel, factsFor, placeCard, readCell, theorPrice } from "./chain-insight-core.js";
+import { buildupMoves, cardModel, cellRanks, factsFor, placeCard, readCell, theorPrice } from "./chain-insight-core.js";
 import { CELL_INDEX, FAMILIES, QUIZ, READING_ORDER, cellHelp, quizSummary, scoreQuiz, searchCells } from "./chain-help.js";
 import { checkCopy } from "./copyRules.mjs";
 
@@ -238,5 +238,22 @@ describe("insight on the merged chain (columns and customise rounds)", () => {
     const m = cardModel("bu5", row.ce, row, "ce", { ...x, bu5: { state: "warming", win: "5", waitMs: 60_000 } });
     expect(m.headline).toMatch(/^Warming up/);
     expect(m.sub).toMatch(/^5 min/);
+  });
+});
+
+describe("highlight ranks on the card", () => {
+  const hl = { ce: { oi: new Map([[23400, 1]]), vol: new Map([[23400, 2]]), add: new Map([[23400, 1]]), cut: new Map(), bu: new Map() }, pe: { oi: new Map(), vol: new Map(), add: new Map(), cut: new Map([[23400, 3]]), bu: new Map([[23400, 1]]) } };
+  const hx = { ...x, hl };
+  it("each cell names its own ranks; LTP names every rank the leg holds", () => {
+    expect(cellRanks("oi", row, "ce", hx).map((r) => r.text)).toEqual(["#1 open interest on the call side: the call wall", "#1 OI added on the call side"]);
+    expect(cellRanks("vol", row, "ce", hx)).toEqual([{ kind: "vol", rank: 2, text: "#2 volume on the call side" }]);
+    expect(cellRanks("chg", row, "pe", hx).map((r) => r.kind)).toEqual(["cut"]);
+    expect(cellRanks("ltp", row, "pe", hx).map((r) => r.kind)).toEqual(["cut", "bu"]);
+    expect(cellRanks("iv", row, "ce", hx)).toEqual([]);
+    expect(cellRanks("oi", row, "ce", x)).toEqual([]);
+    expect(cardModel("oi", row.ce, row, "ce", hx).ranks).toHaveLength(2);
+  });
+  it("the minute build-ups read their own window's ranks", () => {
+    expect(cellRanks("bu5", row, "ce", { ...hx, bu5: { top: { ce: new Map([[23400, 2]]) } } })).toEqual([{ kind: "bu", rank: 2, text: "#2 build-up strength on the call side" }]);
   });
 });
