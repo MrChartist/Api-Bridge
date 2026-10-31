@@ -15,14 +15,40 @@
 // Cleanup (docs/perf/baseline.md, route-change leaks): one ResizeObserver per chart, disconnected when the chart is
 // destroyed; a chart whose box has left the document destroys itself (its observer fires on removal, and every route
 // change sweeps). The device pixel ratio has ONE listener for the whole page.
-import { api, emptyState, errorState, h, icon, modal, store, toast } from "./app.js";
+import { emptyState, errorState, h, icon, modal, toast } from "./app.js";
 import * as C from "./chart-lite-core.js";
-import { MAX_STUDIES, studyList, studyRequest, withStudies } from "./chart-specs.js";
-import { DASH, formatCompactTick, formatFixed, isFigure } from "./format.js";
+import * as P from "./chart-pro-core.js";
+import { chartId, createPro, savedTimeframe } from "./chart-pro.js";
+import { DASH, formatCompactTick, formatFixed, formatSigned, isFigure } from "./format.js";
 import { legend, scrubber, svgEl } from "./viz.js";
 
 const TONES = new Set(["call", "put", "pos", "neg", "iv", "spot", "today", "warn", "hv", "muted"]);
 const toneOf = (t, d = "spot") => (TONES.has(t) ? t : d);
+
+/** The positions [k0, k1] in a sorted point list whose bar index is within [a, b] (k1 < k0 when none). */
+function ptsRange(pts, a, b) {
+  let lo = 0;
+  let hi = pts.length;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (pts[m].i < a) lo = m + 1;
+    else hi = m;
+  }
+  const k0 = lo;
+  hi = pts.length;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (pts[m].i <= b) lo = m + 1;
+    else hi = m;
+  }
+  return [k0, lo - 1];
+}
+const slicePts = (pts, a, b) => {
+  const [k0, k1] = ptsRange(pts, a, b);
+  return pts.slice(k0, k1 + 1);
+};
+/** Decimals of a percent axis: one when its ticks are under a percent apart. */
+const pctDp = (p) => (P.niceStep(((p.hi - p.lo) / p.scaleBase) * 100) < 1 ? 1 : 0);
 
 // ── One device-pixel-ratio listener and one route sweep for every chart on the page ──
 const live = new Set();
@@ -67,12 +93,20 @@ const tipFormat = (s, pane) => s.format ?? pane?.format ?? ((v) => (Math.abs(v) 
 /**
  * Create a chart in `host` (an element whose CSS gives it a height; `.lc-chart` does). Returns
  * { update(spec), addSeries(series), removeSeries(id), redraw(), destroy(), get spec, host }.
+ * Options for the chart tools (chart-pro.js): `pro` (no tooltip scrubber: the tools draw their own crosshair),
+ * `onDraw(geo)` after every draw. `chart.setView({ from, to })` zooms and pans, `chart.setLook({ scale, grid,
+ * volume })` sets the price scale ("linear" | "log" | "percent"), the grid and the volume strip.
  * @param {HTMLElement} host
  * @param {object} spec  see chart-lite-core.js buildModel; plus label, note
+ * @param {{ pro?: boolean, onDraw?: Function }} [o]
  */
-export function createChart(host, spec = {}) {
+let clipSeq = 0;
+export function createChart(host, spec = {}, o = {}) {
   armSweep();
   sweep();
+  let view = null;
+  let look = { scale: "linear", grid: true, volume: true };
+  const clipId = `lc-clip-${(clipSeq += 1)}`;
   let cur = { ...spec, series: [...(spec.series ?? [])] };
   let model = C.buildModel(cur);
   let raf = 0;
@@ -88,7 +122,7 @@ export function createChart(host, spec = {}) {
   const note = h("p", { class: "lc-note", hidden: true });
   const emptyHost = h("div", { class: "lc-empty", hidden: true });
   host.replaceChildren(legendHost, plot, emptyHost, note);
-  const scrub = scrubber(plot, {
+  const scrub = o.pro ? { clear() {}, destroy() {} } : scrubber(plot, {
     steps: () => (geo ? model.times.length : 0),
     label: `${cur.label ?? "Chart"}: use the arrow keys to read values`,
     indexAt: (x) => (geo ? geo.X.indexAt(x) : -1),
@@ -176,23 +210,31 @@ export function createChart(host, spec = {}) {
     const H = C.deviceFloor(plot.clientHeight, dpr);
     if (W < 60 || H < 60) return; // hidden or not laid out yet: the observer calls again when it is
     last = { w: W, h: H, dpr };
-    const panes = C.layoutPanes(model, H);
+    const count = model.times.length;
+    if (view) view = P.clampView(view, count);
+    const range = view ? P.visibleRange(view, count) : [0, count - 1];
+    const mainPane = model.panes[0]?.id;
+    const scale = look.scale !== "linear" && mainPane ? { pane: mainPane, mode: look.scale, base: baseValue(mainPane, range[0]) } : null;
+    const panes = C.layoutPanes(model, H, { range: view ? range : null, scale, noVolume: !look.volume });
     const levelsOf = (p) => model.series.filter((s) => s.type === "level" && s.pane === p.id && s.label);
     const fmts = new Map(panes.map((p) => [p.id, axisFormat(p, p.ticks)]));
     const tickTexts = panes.flatMap((p) => p.ticks.map((v) => fmts.get(p.id)(v)));
     const capsOf = new Map(panes.map((p) => [p.id, p.lo === null ? [] : C.placeCapsules(levelsOf(p).map((l) => ({ id: l.id, value: l.value, text: l.label, tone: toneOf(l.tone, "muted") })), p)]));
     const capTexts = [...capsOf.values()].flat().map((c) => c.text);
-    const X = C.layoutX(model, W, C.gutterFor(tickTexts, capTexts));
+    const X = C.layoutX(model, W, C.gutterFor(tickTexts, capTexts), view);
     if (!X) return;
-    geo = { X, panes };
+    geo = { X, panes, W, H, dpr, range };
+    /** The points of a series that are on screen, with one either side so lines run off the edges. */
+    const vis = (pts) => (view ? slicePts(pts, range[0] - 1, range[1] + 1) : pts);
     const hair = C.hairline(dpr);
     const layers = { grid: [], fill: [], marks: [], lines: [], levels: [], text: [] };
-    const timeTicks = C.planTimeTicks({ times: model.times, xOf: X.xOf, left: X.left, right: X.right, kind: model.kind });
+    const vt = view ? model.times.slice(range[0], range[1] + 1) : model.times;
+    const timeTicks = C.planTimeTicks({ times: vt, xOf: (j) => X.xOf(j + (view ? range[0] : 0)), left: X.left, right: X.right, kind: model.kind });
     const lastPane = panes[panes.length - 1];
 
     for (const p of panes) {
       if (p.lo === null) continue;
-      const f = fmts.get(p.id);
+      const f = p.scaleMode === "percent" ? (v) => `${formatSigned(P.pctFrom(v, p.scaleBase), pctDp(p))}%` : fmts.get(p.id);
       const caps = capsOf.get(p.id);
       // Horizontal grid and price ticks (those a capsule does not cover).
       for (const v of C.hideTicks(p.ticks, p, caps)) {
@@ -214,7 +256,7 @@ export function createChart(host, spec = {}) {
         if (s.pane !== p.id) continue;
         const tone = toneOf(s.tone);
         if (s.type === "band") {
-          if (s.pts) layers.fill.push(svgEl("path", { class: "lc-band", "data-tone": toneOf(s.tone, "iv"), d: C.bandPath(s.pts, X.xOf, p.yOf) }));
+          if (s.pts) layers.fill.push(svgEl("path", { class: "lc-band", "data-tone": toneOf(s.tone, "iv"), d: C.bandPath(vis(s.pts), X.xOf, p.yOf) }));
           else {
             const y1 = C.snap(p.yOf(Math.max(Number(s.lo), Number(s.hi))), dpr);
             const y2 = C.snap(p.yOf(Math.min(Number(s.lo), Number(s.hi))), dpr);
@@ -224,37 +266,44 @@ export function createChart(host, spec = {}) {
         } else if (s.type === "area") {
           const base = Number.isFinite(Number(s.baseline)) ? p.yOf(Number(s.baseline)) : p.priceBottom;
           if (s.signed) {
-            const sp = C.splitSigned(s.pts);
+            const sp = C.splitSigned(vis(s.pts));
             const y0 = p.yOf(0);
             layers.fill.push(svgEl("path", { class: "lc-area", "data-tone": "pos", d: C.areaPath(sp.pos, X.xOf, p.yOf, y0) }));
             layers.fill.push(svgEl("path", { class: "lc-area", "data-tone": "neg", d: C.areaPath(sp.neg, X.xOf, p.yOf, y0) }));
             layers.lines.push(svgEl("path", { class: "lc-line", "data-tone": "pos", d: C.linePath(sp.pos, X.xOf, p.yOf) }));
             layers.lines.push(svgEl("path", { class: "lc-line", "data-tone": "neg", d: C.linePath(sp.neg, X.xOf, p.yOf) }));
           } else {
-            layers.fill.push(svgEl("path", { class: "lc-area", "data-tone": tone, d: C.areaPath(s.pts, X.xOf, p.yOf, base) }));
-            layers.lines.push(svgEl("path", { class: "lc-line", "data-tone": tone, d: C.linePath(s.pts, X.xOf, p.yOf) }));
+            layers.fill.push(svgEl("path", { class: "lc-area", "data-tone": tone, d: C.areaPath(vis(s.pts), X.xOf, p.yOf, base) }));
+            layers.lines.push(svgEl("path", { class: "lc-line", "data-tone": tone, d: C.linePath(vis(s.pts), X.xOf, p.yOf) }));
           }
         } else if (s.type === "bars") {
-          const paths = C.histogramPaths(s.pts, X.xOf, p.yOf, X.slot, dpr, { signed: s.signed, tone });
+          const paths = C.histogramPaths(vis(s.pts), X.xOf, p.yOf, X.slot, dpr, { signed: s.signed, tone });
           for (const [k, d] of Object.entries(paths)) layers.marks.push(svgEl("path", { class: "lc-bar", "data-tone": toneOf(k), d, "shape-rendering": "crispEdges" }));
         } else if (s.type === "candles") {
-          const { bars, step } = C.groupBars(s.pts, 0, s.pts.length - 1, Math.max(1, Math.floor((X.right - X.left) / C.MIN_SLOT)));
+          const [k0, k1] = view ? ptsRange(s.pts, range[0], range[1]) : [0, s.pts.length - 1];
+          if (k1 < k0) continue;
+          const { bars, step } = C.groupBars(s.pts, k0, k1, Math.max(1, Math.floor((X.right - X.left) / C.MIN_SLOT)));
           const slot = X.slot * step;
-          const cp = C.candlePaths(bars, X.xOf, p.yOf, slot, dpr);
-          const g = svgEl("g", { class: "lc-candles", "shape-rendering": "crispEdges" });
-          g.append(
-            svgEl("path", { class: "lc-wick", "data-dir": "up", d: cp.upWick, "stroke-width": C.n3(hair) }),
-            svgEl("path", { class: "lc-wick", "data-dir": "down", d: cp.downWick, "stroke-width": C.n3(hair) }),
-            svgEl("path", { class: "lc-body", "data-dir": "up", d: cp.upBody }),
-            svgEl("path", { class: "lc-body", "data-dir": "down", d: cp.downBody }),
-          );
+          const g = svgEl("g", { class: "lc-candles", "data-style": s.style ?? undefined, "shape-rendering": "crispEdges" });
+          if (s.style === "ohlc") {
+            const op = C.ohlcPaths(bars, X.xOf, p.yOf, slot, dpr);
+            g.append(svgEl("path", { class: "lc-wick lc-ohlc", "data-dir": "up", d: op.up, "stroke-width": C.n3(Math.max(hair, 1)) }), svgEl("path", { class: "lc-wick lc-ohlc", "data-dir": "down", d: op.down, "stroke-width": C.n3(Math.max(hair, 1)) }));
+          } else {
+            const cp = C.candlePaths(bars, X.xOf, p.yOf, slot, dpr);
+            g.append(
+              svgEl("path", { class: "lc-wick", "data-dir": "up", d: cp.upWick, "stroke-width": C.n3(hair) }),
+              svgEl("path", { class: "lc-wick", "data-dir": "down", d: cp.downWick, "stroke-width": C.n3(hair) }),
+              svgEl("path", { class: "lc-body", "data-dir": "up", d: cp.upBody, "stroke-width": s.style === "hollow" ? C.n3(Math.max(hair, 1)) : undefined }),
+              svgEl("path", { class: "lc-body", "data-dir": "down", d: cp.downBody }),
+            );
+          }
           layers.marks.push(g);
           if (p.volumeBand) {
             const vp = C.volumePaths(bars, X.xOf, p.volumeBand, slot, dpr);
             layers.marks.push(svgEl("path", { class: "lc-vol", "data-dir": "up", d: vp.up, "shape-rendering": "crispEdges" }), svgEl("path", { class: "lc-vol", "data-dir": "down", d: vp.down, "shape-rendering": "crispEdges" }));
           }
         } else if (s.type === "line") {
-          layers.lines.push(svgEl("path", { class: s.dash ? "lc-line dash" : "lc-line", "data-tone": tone, "data-weight": s.weight ?? undefined, d: C.linePath(s.pts, X.xOf, p.yOf) }));
+          layers.lines.push(svgEl("path", { class: s.dash ? "lc-line dash" : "lc-line", "data-tone": tone, "data-weight": s.weight ?? undefined, d: C.linePath(vis(s.pts), X.xOf, p.yOf) }));
         }
       }
       // Levels: a crisp ray over the plot and a capsule in the gutter (LevelLayer.tsx), led back when nudged.
@@ -280,7 +329,7 @@ export function createChart(host, spec = {}) {
     const top = panes[0]?.top ?? 0;
     const bottom = lastPane?.priceBottom ?? H;
     for (const s of model.series) {
-      if (s.type !== "marker") continue;
+      if (s.type !== "marker" || s.i < range[0] || s.i > range[1]) continue;
       const x = C.crisp(X.xOf(s.i), dpr, 1);
       layers.levels.push(svgEl("line", { class: "lc-marker", "data-tone": toneOf(s.tone, "today"), x1: C.n3(x), x2: C.n3(x), y1: C.n3(top), y2: C.n3(bottom) }));
       if (s.label) layers.text.push(svgEl("text", { class: "lc-marker-label", "data-tone": toneOf(s.tone, "today"), x: C.n3(Math.min(X.right - 4, x + 4)), y: C.n3(top + 13), "text-anchor": x + 4 + C.estimateWidth(s.label) > X.right ? "end" : "start" }, s.label));
@@ -298,20 +347,54 @@ export function createChart(host, spec = {}) {
     svg.setAttribute("viewBox", `0 0 ${C.n3(W)} ${C.n3(H)}`);
     svg.setAttribute("aria-label", summary());
     svg.dataset.kind = model.kind;
+    // Zoomed: marks and lines are clipped to the plot so nothing runs into the price axis.
+    const clip = view ? `url(#${clipId})` : undefined;
     svg.replaceChildren(
-      svgEl("g", { class: "lc-l-grid", "shape-rendering": "crispEdges" }, layers.grid),
-      svgEl("g", { class: "lc-l-fill" }, layers.fill),
-      svgEl("g", { class: "lc-l-marks" }, layers.marks),
-      svgEl("g", { class: "lc-l-lines" }, layers.lines),
+      ...(view ? [svgEl("defs", {}, svgEl("clipPath", { id: clipId }, svgEl("rect", { x: C.n3(X.left), y: 0, width: C.n3(X.right - X.left), height: C.n3(H) })))] : []),
+      svgEl("g", { class: look.grid ? "lc-l-grid" : "lc-l-grid lc-nogrid", "shape-rendering": "crispEdges" }, layers.grid),
+      svgEl("g", { class: "lc-l-fill", "clip-path": clip }, layers.fill),
+      svgEl("g", { class: "lc-l-marks", "clip-path": clip }, layers.marks),
+      svgEl("g", { class: "lc-l-lines", "clip-path": clip }, layers.lines),
       svgEl("g", { class: "lc-l-levels" }, layers.levels),
       svgEl("g", { class: "lc-l-text", "aria-hidden": "true" }, layers.text),
     );
+    o.onDraw?.(geo);
+  }
+
+  /** The percent scale's base: the first value on screen of the main pane's candles (or first line). */
+  function baseValue(paneId, from) {
+    const s = model.series.find((x) => x.pane === paneId && x.type === "candles") ?? model.series.find((x) => x.pane === paneId && (x.type === "line" || x.type === "area"));
+    if (!s?.pts?.length) return null;
+    const [k] = ptsRange(s.pts, from, Infinity);
+    const p = s.pts[Math.min(k, s.pts.length - 1)];
+    return s.type === "candles" ? p.close : Number.isFinite(p.v) ? p.v : null;
   }
 
   const chart = {
     host,
+    plot,
     get spec() {
       return cur;
+    },
+    /** The last draw's geometry: { X, panes, W, H, dpr, range } (null before the first draw). */
+    get geo() {
+      return geo;
+    },
+    get view() {
+      return view;
+    },
+    /** Zoom and pan: a view { from, to } in bar indices, or null for every bar. Redraws on the next frame. */
+    setView(v) {
+      view = v ? P.clampView(v, model.times.length) : null;
+      schedule();
+    },
+    get look() {
+      return look;
+    },
+    /** { scale: "linear" | "log" | "percent", grid: boolean, volume: boolean } */
+    setLook(next) {
+      look = { ...look, ...next };
+      schedule();
     },
     get model() {
       return model;
@@ -366,114 +449,30 @@ export function createChart(host, spec = {}) {
   return chart;
 }
 
-// ── Indicators: the ChartistScript studies (GET /v1/studies, POST /v1/studies/compute), on candle charts ──
-// Lazy: the catalogue is read the first time the picker opens, and nothing is computed until a study is on. The ids on
-// are remembered in this browser (one list for every candle chart), at most MAX_STUDIES.
-const STUDY_SLOT = "mcb.dashboard.studies";
-const prefs = store("local");
-const activeStudies = () => studyList(prefs.get(STUDY_SLOT));
-let catalogue = null;
-const loadCatalogue = () => (catalogue ??= api("/v1/studies").then((r) => (r.data?.data?.studies ?? []).filter((x) => x.available)).catch((e) => ((catalogue = null), Promise.reject(e))));
-const computed = new Map();
-/** One compute per symbol, studies and length for 5 minutes (a daily study moves once a day). */
-function computeStudies(req) {
-  const key = JSON.stringify(req);
-  const hit = computed.get(key);
-  if (hit && Date.now() - hit.at < 300_000) return hit.p;
-  const p = api("/v1/studies/compute", { method: "POST", body: req }).then((r) => r.data?.data ?? null);
-  p.catch(() => computed.delete(key));
-  if (computed.size > 40) computed.clear();
-  computed.set(key, { at: Date.now(), p });
-  return p;
-}
+// ── Chart slots ──
 
-/**
- * The "Indicators" button and its picker, an inline panel in the slot (a popover would sit under the strategy's modal
- * and the chain's sheet, which make the rest of the page inert). `onChange(ids)` runs after the list changes.
- */
-let pickerSeq = 0;
-function studiesControl(label, onChange) {
-  const count = h("span", { class: "lc-count" });
-  const panelId = `lc-ind-${(pickerSeq += 1)}`;
-  const btn = h("button", { type: "button", class: "small lc-ind-btn", "aria-expanded": "false", "aria-controls": panelId }, icon("chart"), h("span", {}, "Indicators"), count);
-  const onList = h("div", { class: "lc-ind-on", "aria-live": "polite" });
-  const search = h("input", { type: "search", class: "lc-ind-search", placeholder: "Search indicators", "aria-label": `Search indicators for ${label}`, autocomplete: "off" });
-  const list = h("div", { class: "lc-ind-list", role: "group", "aria-label": "Indicators to add" });
-  const panel = h("div", { class: "lc-ind-panel", id: panelId, hidden: true }, h("p", { class: "lc-ind-note" }, `Daily candles. Up to ${MAX_STUDIES}, remembered in this browser.`), onList, search, list);
-  let all = null;
-  const paint = () => {
-    const n = activeStudies().length;
-    count.textContent = n ? String(n) : "";
-    count.hidden = !n;
-    btn.setAttribute("aria-label", n ? `Indicators: ${n} on` : "Indicators");
-  };
-  const set = (ids) => {
-    prefs.set(STUDY_SLOT, JSON.stringify(studyList(ids)));
-    paint();
-    draw();
-    onChange(activeStudies());
-  };
-  function draw() {
-    const on = activeStudies();
-    onList.replaceChildren(
-      ...(on.length
-        ? on.map((id) => h("button", { type: "button", class: "chip-btn lc-ind-chip", "aria-label": `Remove ${id}`, onclick: () => set(on.filter((x) => x !== id)) }, h("span", {}, id), icon("close")))
-        : [h("span", { class: "lc-ind-note" }, "None on")]),
-    );
-    if (!all) return;
-    const q = search.value.trim().toLowerCase();
-    const full = on.length >= MAX_STUDIES;
-    const rows = all.filter((x) => !on.includes(x.id) && (!q || x.id.includes(q) || String(x.summary ?? "").toLowerCase().includes(q)));
-    const item = (x) => h("button", { type: "button", class: "lc-ind-item", disabled: full, title: x.summary ?? "", onclick: () => set([...activeStudies(), x.id]) }, h("b", {}, x.id), h("span", {}, String(x.summary ?? "").split(/[.;(]/)[0]));
-    const group = (title, items) => (items.length ? [h("p", { class: "lc-ind-head" }, title), ...items.map(item)] : []);
-    list.replaceChildren(
-      ...(full ? [h("p", { class: "lc-ind-note" }, `${MAX_STUDIES} on: remove one to add another.`)] : []),
-      ...group("On the price", rows.filter((x) => x.pane === "price")),
-      ...group("Below the chart", rows.filter((x) => x.pane !== "price")),
-      ...(rows.length ? [] : [h("p", { class: "lc-ind-note" }, "No match")]),
-    );
-  }
-  const open = async (on) => {
-    panel.hidden = !on;
-    btn.setAttribute("aria-expanded", String(on));
-    if (!on) return;
-    draw();
-    search.focus({ preventScroll: true });
-    if (all) return;
-    list.replaceChildren(h("p", { class: "lc-ind-note", role: "status" }, "Loading the list"));
-    try {
-      all = await loadCatalogue();
-      draw();
-    } catch (err) {
-      list.replaceChildren(errorState(err, { onRetry: () => open(true) }));
-    }
-  };
-  btn.addEventListener("click", () => open(panel.hidden));
-  search.addEventListener("input", draw);
-  panel.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    open(false);
-    btn.focus();
-  });
-  paint();
-  return { el: btn, panel, paint };
-}
+/** A spec draws candles (the chart tools attach to it). */
+const hasCandles = (spec) => Boolean(spec?.series?.some((s) => s?.type === "candles"));
 
 /**
  * A chart slot (app.js chartSlot): loads its data when it comes near the viewport, shows a skeleton, an error with
  * Retry or an honest empty state, and redraws in place on `set` / `reload`. `opts`:
- *   { label, data?: spec, load?: ({ studies }) => Promise<spec>, refreshMs?: number,
- *     studies?: { symbol: () => string|null, interval?: "1d" } }
- * A loader may return { empty: { title, text } } when there is no data source or nothing recorded yet. With `studies`,
- * an Indicators control sits above a candle chart; the loader is told whether any are on (`studies: true`), since
- * studies read daily candles only.
- * Returns { set(spec), load(loader), reload(), destroy(), chart }.
+ *   { id?, label, data?: spec, load?: (ctx) => Promise<spec>, refreshMs?: number, expand?: boolean,
+ *     symbol?: () => string|null, studies?: { symbol: () => string|null }, trade?: (side, price) => void,
+ *     pro?: boolean }
+ * A candle chart gets the chart tools (chart-pro.js: header, ranges and intervals, chart types, zoom, crosshair,
+ * menus, drawings, indicators) unless `pro: false`. With a symbol (`symbol`, or the older `studies.symbol`) the
+ * header's ranges and intervals reload the candles from /v1/history; `trade` lets the chart menu open the page's
+ * order ticket prefilled at a price. The loader is called with { label, studies, interval, range }: `studies` is true
+ * when a daily-only (Bridge) indicator is on and the page picks the interval; `interval` / `range` are the chosen time
+ * frame (a loader that honours them sets `interval` on its spec and the slot does not fetch again).
+ * A loader may return { empty: { title, text } } when there is no data source or nothing recorded yet.
+ * Returns { set(spec), load(loader), reload(), destroy(), chart, pro }.
  */
 export function mountSlot(box, opts = {}) {
   let loader = opts.load ?? null;
   let chart = null;
+  let pro = null;
   let seen = typeof IntersectionObserver === "undefined";
   let io = null;
   let timer = 0;
@@ -485,52 +484,54 @@ export function mountSlot(box, opts = {}) {
   // is in flight, so a chart still below the fold neither animates nor reads as a page that is loading.
   const skel = h("div", { class: "lc-skel", "aria-hidden": "true" });
   const status = h("div", { class: "lc-status" }, skel);
-  const control = opts.studies ? studiesControl(opts.label ?? "chart", () => run()) : null;
   // A chart in a narrow panel (the chain's sheet, the screener's pane) opens full size in the chart modal.
   const expand = opts.expand ? h("button", { type: "button", class: "small lc-expand", "aria-label": `Open ${opts.label ?? "the chart"} full size`, onclick: () => loader && openChartModal(opts.label ?? "Chart", { ...opts, load: loader }) }, icon("external"), h("span", {}, "Expand")) : null;
-  const tools = control || expand ? [h("div", { class: "lc-tools" }, expand, control?.el), ...(control ? [control.panel] : [])] : [];
-  box.replaceChildren(...tools, status, host);
+  const headHost = h("div", { class: "lc-tools" }, expand);
+  headHost.hidden = !expand;
+  box.replaceChildren(headHost, status, host);
   host.hidden = true;
-  /** The loader's spec with the indicators on laid over it (a failed compute keeps the chart and says so). */
-  async function studied(spec) {
-    const ids = control ? activeStudies() : [];
-    const candles = spec?.series?.find((x) => x.type === "candles");
-    const symbol = opts.studies?.symbol?.();
-    if (!ids.length || !candles?.data?.length || !symbol) return spec;
-    try {
-      return withStudies(spec, await computeStudies(studyRequest({ symbol, interval: opts.studies.interval ?? "1d", bars: candles.data.length, ids })));
-    } catch (err) {
-      toast(`Indicators not drawn: ${err?.message ?? "the Bridge did not answer"}`, { tone: "warn" });
-      return spec;
-    }
-  }
+  const wantPro = (spec) => opts.pro !== false && (opts.pro === true || hasCandles(spec));
 
-  const ensure = () => {
-    if (!chart || !chart.alive) chart = createChart(host, { label: opts.label });
+  const ensure = (spec) => {
+    if (chart?.alive) return chart;
+    const asPro = wantPro(spec);
+    chart = createChart(host, { label: opts.label }, asPro ? { pro: true, onDraw: (g) => pro?.onDraw(g) } : {});
+    if (asPro) {
+      pro?.destroy();
+      headHost.hidden = false;
+      pro = createPro({ box, head: headHost, chart, opts, reload: () => run(true), expandBtn: expand });
+    }
     return chart;
   };
   function show(spec) {
     if (dead) return;
     status.hidden = true;
     host.hidden = false;
-    const c = ensure();
+    const c = ensure(spec);
     // A new spec replaces the old one whole (no note, pane or kind left over from the last draw).
-    c.update({ label: opts.label, note: "", panes: undefined, kind: undefined, ...spec });
+    const next = { label: opts.label, note: "", panes: undefined, kind: undefined, ...spec };
+    if (pro && hasCandles(next) && !next.empty) pro.render(next);
+    else c.update(next);
   }
-  async function run() {
+  async function run(manual = false) {
     if (dead || !loader) return;
     if (!box.isConnected && seq > 0) return ctl.destroy();
     const my = ++seq;
     if (!status.hidden) skel.classList.add("skel");
     try {
-      const base = await loader({ label: opts.label, studies: Boolean(control) && activeStudies().length > 0 });
-      const spec = await studied(base);
+      const tf = pro?.tf ?? (opts.pro !== false ? savedTimeframe(chartId(opts)) : null);
+      const base = await loader({ label: opts.label, studies: Boolean(pro?.wantsDaily()), interval: tf?.interval ?? null, range: tf?.range ?? null });
+      if (dead || my !== seq) return;
+      // The tools come with the first candles, before the swap, so a remembered interval applies from the first draw.
+      if (!pro && base && !base.empty && wantPro(base)) ensure(base);
+      const spec = pro && base && hasCandles(base) ? await pro.timeframe(base) : base;
       if (dead || my !== seq) return;
       show(spec ?? { empty: { title: "No data", text: "" } });
     } catch (err) {
       if (dead || my !== seq) return;
       skel.classList.remove("skel");
-      if (chart?.alive && chart.model.hasData) return; // keep the last good drawing; the next refresh tries again
+      // Keep the last good drawing (the next refresh tries again); a change the person asked for says why it failed.
+      if (chart?.alive && chart.model.hasData) return manual ? toast(`Chart not updated: ${err?.message ?? "the Bridge did not answer"}`, { tone: "warn" }) : undefined;
       host.hidden = true;
       status.hidden = false;
       status.replaceChildren(errorState(err, { onRetry: () => run() }));
@@ -570,6 +571,10 @@ export function mountSlot(box, opts = {}) {
     get chart() {
       return chart;
     },
+    /** The chart tools' public side (symbol, last price, setInterval, setRange, openIndicators), or null. */
+    get pro() {
+      return pro?.publicApi ?? null;
+    },
     /** Draw this spec now (live data: cheap, one redraw per frame). */
     set(spec) {
       if (dead) return;
@@ -589,6 +594,7 @@ export function mountSlot(box, opts = {}) {
       dead = true;
       io?.disconnect();
       if (timer) clearInterval(timer);
+      pro?.destroy();
       chart?.destroy();
     },
   };

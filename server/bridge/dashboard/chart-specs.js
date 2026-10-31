@@ -50,12 +50,19 @@ const empty = (title, text) => ({ empty: { title, text } });
 
 // ── Chain sheet: the contract's candles ──
 
-/** The contract's 5-minute candles and volume (the latest session and the one before it). */
-export function contractSpec({ name, candles, daily = false }) {
+/** Words for an interval id in a chart's label ("5-minute", "daily"). */
+const INTERVAL_WORDS = { "1m": "1-minute", "3m": "3-minute", "5m": "5-minute", "10m": "10-minute", "15m": "15-minute", "30m": "30-minute", "60m": "hourly", "1d": "daily", "1w": "weekly", "1M": "monthly" };
+
+/**
+ * The contract's candles and volume: 5-minute by default, or the interval the chart's header picked. `daily` without
+ * an interval is the older "indicators on" switch to daily candles.
+ */
+export function contractSpec({ name, candles, daily = false, interval = null }) {
   if (!candles?.length) return empty("No candles for this contract yet", "The broker has no history for it, or it has not traded yet.");
+  const words = INTERVAL_WORDS[interval] ?? (daily ? "daily" : "5-minute");
   return {
-    label: `${name}: ${daily ? "daily" : "5-minute"} candles`,
-    note: daily ? "Daily candles while indicators are on: studies read one candle per session." : "",
+    label: `${name}: ${words} candles`,
+    note: "",
     // The axis takes its decimals from the tick step (chart-lite.js); the tooltip keeps the price's two.
     panes: [{ id: "price" }],
     series: [{ id: "c", type: "candles", label: name, data: candles, volume: true, format: price2 }],

@@ -14,6 +14,8 @@
 // Y-domains cover every value about to be drawn (candle wicks, lines, levels, bands): nothing is clamped to the plot
 // edge, which would draw a level exactly where the series maximum sits (the scanner's "misleading chart" rule).
 
+import { priceScale } from "./chart-pro-core.js";
+
 // ── Device pixels (crisp.ts) ──
 
 /** Round a CSS-pixel coordinate to the nearest device pixel. */
@@ -134,6 +136,24 @@ export function candlePaths(bars, xOf, yOf, slot, dpr) {
   return out;
 }
 
+/**
+ * OHLC bars (the "Bars" chart type): a vertical high-low stroke with the open ticked left and the close right, as two
+ * paths (up, down) drawn with a one-device-pixel stroke.
+ */
+export function ohlcPaths(bars, xOf, yOf, slot, dpr) {
+  const arm = Math.max(1 / dpr, Math.min(6, (bodyDevWidth(slot, dpr) / dpr) / 2));
+  const out = { up: "", down: "" };
+  for (const b of bars) {
+    const cx = centreX(xOf(b.center), dpr);
+    const yo = crisp(yOf(b.open), dpr);
+    const yc = crisp(yOf(b.close), dpr);
+    const d = `M${n3(cx)} ${n3(snap(yOf(b.high), dpr))}V${n3(snap(yOf(b.low), dpr))}M${n3(cx - arm)} ${n3(yo)}H${n3(cx)}M${n3(cx)} ${n3(yc)}H${n3(cx + arm)}`;
+    if (b.up) out.up += d;
+    else out.down += d;
+  }
+  return out;
+}
+
 /** Volume as two paths (up / down), bars no wider than their candle body and snapped to the grid. */
 export function volumePaths(bars, xOf, band, slot, dpr) {
   const maxVol = Math.max(0, ...bars.map((b) => b.volume || 0));
@@ -172,7 +192,7 @@ export function histogramPaths(points, xOf, yOf, slot, dpr, { signed = false, to
   return out;
 }
 
-/** A polyline through [{ i, v }]; a missing value (null, NaN) breaks the line. */
+/** A polyline through [{ i, v, gap? }]; a missing value (null, NaN) or a point marked `gap` starts a new line. */
 export function linePath(points, xOf, yOf) {
   let d = "";
   let pen = false;
@@ -181,6 +201,7 @@ export function linePath(points, xOf, yOf) {
       pen = false;
       continue;
     }
+    if (p.gap) pen = false;
     d += `${pen ? "L" : "M"}${n3(xOf(p.i))} ${n3(yOf(p.v))}`;
     pen = true;
   }
@@ -346,24 +367,29 @@ export function buildModel(spec) {
   return { times, series: live, panes, hasData, kind: spec?.kind ?? axisKind(times) };
 }
 
-/** Every value a pane will draw, for its domain. */
-export function paneValues(model, paneId) {
+/** Every value a pane will draw, for its domain; with `range` [a, b], only the bars on screen count. */
+export function paneValues(model, paneId, range = null) {
   const vals = [];
   const include = [];
+  const a = range ? range[0] : -Infinity;
+  const b = range ? range[1] : Infinity;
+  const on = (p) => p.i >= a && p.i <= b;
   for (const s of model.series) {
     if (s.pane !== paneId) continue;
-    if (s.type === "candles") for (const c of s.pts) vals.push(c.high, c.low);
-    else if (s.type === "line" || s.type === "area") {
-      for (const p of s.pts) vals.push(p.v);
+    if (s.type === "candles") {
+      for (const c of s.pts) if (on(c)) vals.push(c.high, c.low);
+    } else if (s.type === "line" || s.type === "area") {
+      for (const p of s.pts) if (on(p)) vals.push(p.v);
       if (s.type === "area" && Number.isFinite(finite(s.baseline))) include.push(Number(s.baseline));
       if (s.signed) include.push(0);
     } else if (s.type === "bars") {
-      for (const p of s.pts) vals.push(p.v);
+      for (const p of s.pts) if (on(p)) vals.push(p.v);
       include.push(0);
     } else if (s.type === "level" && s.fit !== false) vals.push(Number(s.value));
     else if (s.type === "band") {
-      if (s.pts) for (const p of s.pts) vals.push(p.lo, p.hi);
-      else if (s.fit !== false) vals.push(Number(s.lo), Number(s.hi));
+      if (s.pts) {
+        for (const p of s.pts) if (on(p)) vals.push(p.lo, p.hi);
+      } else if (s.fit !== false) vals.push(Number(s.lo), Number(s.hi));
     }
   }
   return { vals, include };
@@ -388,8 +414,10 @@ export const PANE_LABEL_H = 16;
 /**
  * Vertical layout: the panes stacked by weight between the top pad and the time axis, each with its domain, scale
  * and price ticks. Width-independent, so the right gutter can be sized from these ticks before the x layout.
+ * `o.range` [a, b]: only these bars set the domains (a zoomed view). `o.scale` { pane, mode: "linear"|"log"|
+ * "percent", base }: the price scale of one pane (chart-pro-core.js priceScale). Each pane gets `vOf(y)` too.
  */
-export function layoutPanes(model, height) {
+export function layoutPanes(model, height, o = {}) {
   const top0 = LC_PAD.top;
   const bottom0 = height - LC_PAD.bottom;
   const n = model.panes.length;
@@ -404,36 +432,43 @@ export function layoutPanes(model, height) {
     const top = y + (p.label ? PANE_LABEL_H : 0);
     const bottom = y + h;
     y = bottom + LC_PAD.gap;
-    const hasVol = model.series.some((s) => s.pane === p.id && s.type === "candles" && s.volume && s.pts.some((c) => c.volume > 0));
+    const hasVol = !o.noVolume && model.series.some((s) => s.pane === p.id && s.type === "candles" && s.volume && s.pts.some((c) => c.volume > 0));
     const volH = hasVol && h > 120 ? VOLUME_BAND : 0;
     const priceBottom = bottom - volH;
-    const { vals, include } = paneValues(model, p.id);
+    const { vals, include } = paneValues(model, p.id, o.range ?? null);
     const dom = paneDomain(vals, { include: [...include, ...(p.include ?? [])] });
     if (!dom || priceBottom - top < 16) {
-      out.push({ ...p, labelTop, top, bottom, priceBottom, lo: null, hi: null, yOf: () => NaN, ticks: [], volumeBand: null });
+      out.push({ ...p, labelTop, top, bottom, priceBottom, lo: null, hi: null, yOf: () => NaN, vOf: () => NaN, ticks: [], volumeBand: null });
       continue;
     }
     const { lo, hi } = dom;
-    const yOf = (v) => top + (1 - (v - lo) / (hi - lo)) * (priceBottom - top);
-    const ticks = niceTicks(lo, hi, Math.max(2, Math.min(6, Math.floor((priceBottom - top) / 34))));
-    out.push({ ...p, labelTop, top, bottom, priceBottom, lo, hi, yOf, ticks: ticks.filter((v) => v >= lo && v <= hi), volumeBand: volH ? { top: priceBottom + 4, bottom } : null });
+    const count = Math.max(2, Math.min(6, Math.floor((priceBottom - top) / 34)));
+    const sc = o.scale && o.scale.pane === p.id && o.scale.mode !== "linear" ? priceScale(o.scale.mode, lo, hi, top, priceBottom, o.scale.base, count) : null;
+    const yOf = sc ? sc.yOf : (v) => top + (1 - (v - lo) / (hi - lo)) * (priceBottom - top);
+    const vOf = sc ? sc.vOf : (yy) => lo + (1 - (yy - top) / (priceBottom - top)) * (hi - lo);
+    const ticks = sc?.ticks ?? niceTicks(lo, hi, count);
+    out.push({ ...p, labelTop, top, bottom, priceBottom, lo, hi, yOf, vOf, scaleMode: sc?.mode ?? "linear", scaleBase: sc?.base ?? null, ticks: ticks.filter((v) => v >= lo && v <= hi), volumeBand: volH ? { top: priceBottom + 4, bottom } : null });
   }
   return out;
 }
 
 /**
  * Horizontal layout over the shared time axis: bar `i` sits in the middle of its slot, so the first and last are not
- * clipped. Null when there is not enough room to draw honestly.
+ * clipped. With a view { from, to } (fractional bar indices, chart-pro-core.js) only those slots fill the width.
+ * Null when there is not enough room to draw honestly.
  */
-export function layoutX(model, width, gutterRight) {
+export function layoutX(model, width, gutterRight, view = null) {
   const left = LC_PAD.left;
   const right = width - gutterRight;
   const count = model.times.length;
   if (count < 1 || right - left < 40) return null;
-  const slot = (right - left) / count;
-  const xOf = (i) => left + (i + 0.5) * slot;
-  const indexAt = (x) => Math.max(0, Math.min(count - 1, Math.floor((x - left) / slot)));
-  return { left, right, slot, xOf, indexAt, count };
+  const from = view ? view.from : 0;
+  const slots = view ? Math.max(1, view.to - view.from + 1) : count;
+  const slot = (right - left) / slots;
+  const xOf = (i) => left + (i - from + 0.5) * slot;
+  const iOf = (x) => (x - left) / slot - 0.5 + from;
+  const indexAt = (x) => Math.max(0, Math.min(count - 1, Math.round(iOf(x))));
+  return { left, right, slot, xOf, iOf, indexAt, count, from, to: from + slots - 1 };
 }
 
 /** Width of the right gutter: the widest price tick or level capsule, plus the lead and a clear edge. */

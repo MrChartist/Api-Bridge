@@ -1023,8 +1023,11 @@ export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not liv
  *   el.chart.load(loader)  load with `async () => spec` (a new contract or underlying), drawn when near the viewport
  *   el.chart.reload()      run the loader again
  *   el.chart.destroy()     stop it (charts also stop themselves when their box leaves the page)
- * `opts`: { data?: spec, load?: loader, refreshMs?, id? }. A spec is chart-lite-core.js `buildModel`'s; a loader may
- * return { empty: { title, text } } when no data source exists yet, and the slot says so plainly.
+ *   el.chart.pro          the chart tools on a candle chart (symbol, interval, last, setInterval, setRange, …) or null
+ * `opts`: { data?: spec, load?: loader, refreshMs?, id?, expand?, symbol?: () => string, trade?: (side, price) => void,
+ * pro?: boolean }. A spec is chart-lite-core.js `buildModel`'s; a loader may return { empty: { title, text } } when no
+ * data source exists yet, and the slot says so plainly. A candle spec gets the chart tools (chart-pro.js) unless
+ * `pro: false`; with `symbol` its ranges and intervals reload candles; with `trade` its menu opens the page's ticket.
  * The second argument may be the options object (no sub-line). Null only if no engine is registered.
  */
 export function chartSlot(label, sub = "", opts = {}) {
@@ -1067,6 +1070,11 @@ function chartEngine() {
         destroy: () => ((dead = true), real?.destroy()),
         get chart() {
           return real?.chart ?? null;
+        },
+        /** The chart tools on a candle chart (chart-pro.js): { symbol, interval, last, setInterval(id), setRange(id),
+         *  openIndicators(), resetView(), trade(side)|null }, or null before the first candles. */
+        get pro() {
+          return real?.pro ?? null;
         },
       };
     },
