@@ -4,7 +4,7 @@
  *
  *   GET /v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE[&account=][&maxAgeMs=]
  *   GET /v1/quotes?symbols=...[&account=][&maxAgeMs=]
- *   GET /v1/depth?symbol=...[&account=][&maxAgeMs=]
+ *   GET /v1/depth?symbol=...[&levels=5|20|200][&account=][&maxAgeMs=]
  *   GET /v1/history?symbol=...&interval=5m&(from=...[&to=...] | [to=...&]countback=N)[&format=csv][&account=]
  *   GET /v1/expiries?underlying=NIFTY[&exchange=NFO][&account=]
  *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&ivModel=b76-forward][&account=][&maxAgeMs=]
@@ -131,6 +131,14 @@ export function autoBackupFor(deps) {
   }
 }
 
+/** Depth levels asked for: 5, 20 or 200 (a hint; brokers answer with the levels they have). undefined when absent. */
+export function depthLevelsParam(q) {
+  const v = opt(q, "levels");
+  if (v === undefined) return undefined;
+  if (!["5", "20", "200"].includes(v)) throw invalid("levels", "levels must be 5, 20 or 200.");
+  return Number(v);
+}
+
 const meta = (ctx, opts) => ({ requestId: ctx.requestId, accountId: opts.accountId ?? null });
 
 /**
@@ -171,7 +179,8 @@ export function createMarketRoutes(deps) {
       const symbol = opt(ctx.query, "symbol");
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:RELIANCE.");
       const opts = readOptions(ctx);
-      const data = await md().depth(symbol, opts);
+      const levels = depthLevelsParam(ctx.query);
+      const data = await md().depth(symbol, levels ? { ...opts, levels } : opts);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
 

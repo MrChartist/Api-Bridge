@@ -1,9 +1,12 @@
 /**
  * News, announcements and calendars — stream S15, read scope, no broker account, personal / local use only (exchange
- * and regulator content is not for redistribution). Free official sources only.
+ * and regulator content is not for redistribution). Free official sources, plus the public markets RSS feeds of four
+ * business papers for /headlines (title and link only: each article stays on its publisher's site).
  *
  *   GET /v1/analytics/news/regulatory?source=sebi|rbi|all&days=7&q=      SEBI + RBI RSS wire, deduped, tagged
  *   GET /v1/analytics/news/announcements?symbol=&days=3&q=               NSE corporate announcements, deduped by attachment
+ *   GET /v1/analytics/news/headlines?symbols=&source=all&days=2&q=&only=  one feed: market news, NSE filings and SEBI /
+ *                                                                         RBI, each row tagged with the symbols it names
  *   GET /v1/analytics/calendar/central-banks[?bank=RBI|FOMC|ECB&days=365] curated decision dates with a countdown
  *   GET /v1/analytics/calendar/fno-ban                                    NSE F&O securities in ban, entries / exits
  *   GET /v1/analytics/calendar/timeline?days=14[&underlyings=NIFTY,...]   events + central banks + expiries, sorted
@@ -47,7 +50,16 @@ export const ENDPOINTS = Object.freeze({
   nseAnnouncements: Object.freeze({ url: `${NSE_BASE}/api/corporate-announcements`, verified: false }),
   nseEventCalendar: Object.freeze({ url: `${NSE_BASE}/api/event-calendar`, verified: false }),
   nseFoBan: Object.freeze({ url: "https://nsearchives.nseindia.com/content/fo/fo_secban.csv", verified: false }),
+  // Market news headlines (title and link only; the article stays on the publisher's site).
+  etMarkets: Object.freeze({ url: "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", source: "et", name: "The Economic Times", feed: "markets", verified: false }),
+  mcMarkets: Object.freeze({ url: "https://www.moneycontrol.com/rss/marketreports.xml", source: "moneycontrol", name: "Moneycontrol", feed: "market-reports", verified: false }),
+  bsMarkets: Object.freeze({ url: "https://www.business-standard.com/rss/markets-106.rss", source: "business-standard", name: "Business Standard", feed: "markets", verified: false }),
+  mintMarkets: Object.freeze({ url: "https://www.livemint.com/rss/markets", source: "mint", name: "Mint", feed: "markets", verified: false }),
 });
+/** The market-news RSS kinds read by /headlines. */
+export const MARKET_KINDS = Object.freeze(["etMarkets", "mcMarkets", "bsMarkets", "mintMarkets"]);
+export const HEADLINE_SOURCES = Object.freeze(["all", "market", "nse", "regulatory"]);
+export const MAX_HEADLINE_SYMBOLS = 50;
 const UNVERIFIED_NOTE = "Upstream endpoints are assumed, not verified against a live session; see ENDPOINTS in newsFeeds.mjs. Personal, local use only.";
 
 export const RSS_TTL_MS = 10 * 60_000;
@@ -60,7 +72,7 @@ const MAX_ROWS = 300;
 const MAX_SEEN = 500;
 const IST_OFFSET_MS = 5.5 * 3600_000;
 const DAY = 86_400_000;
-const LIMITS = Object.freeze({ regulatory: { def: 7, max: 90 }, announcements: { def: 3, max: 30 }, banks: { def: 365, max: 400 }, timeline: { def: 14, max: 60 } });
+const LIMITS = Object.freeze({ regulatory: { def: 7, max: 90 }, announcements: { def: 3, max: 30 }, banks: { def: 365, max: 400 }, timeline: { def: 14, max: 60 }, headlines: { def: 2, max: 14 } });
 const RBI_KINDS = ["rbiPress", "rbiNotifications", "rbiSpeeches"];
 const SOURCE_KINDS = { sebi: ["sebi"], rbi: RBI_KINDS, all: ["sebi", ...RBI_KINDS] };
 
@@ -216,6 +228,60 @@ const matchesQuery = (q, ...parts) => {
 };
 const byDateDesc = (a, b) => (a.publishedAt === b.publishedAt ? (a.id < b.id ? -1 : 1) : (a.publishedAt ?? "") < (b.publishedAt ?? "") ? 1 : -1);
 
+/** Words a company name ends with that headlines leave out ("Reliance Industries Limited" -> "Reliance Industries"). */
+const NAME_TAIL = /\s+(?:limited|ltd\.?|corporation|corp\.?|of india|company|co\.?|\(india\)|india)$/i;
+/** The short name a headline would use for a company, or null. */
+export function headlineName(name) {
+  let n = String(name ?? "").replace(/\s+/g, " ").trim();
+  for (let i = 0; i < 3; i += 1) n = n.replace(NAME_TAIL, "").trim();
+  return n.length >= 3 ? n : null;
+}
+
+/**
+ * Matchers for symbols: [{ symbol, res: RegExp[] }]. A ticker of 3 or more characters matches as a whole word in
+ * capitals (TCS, ITC, SBIN); a company name matches as whole words in any case. NIFTY, BANKNIFTY and SENSEX are
+ * always matched by their usual names.
+ * @param {Array<{ symbol: string, name?: string|null }>} list
+ */
+export function symbolMatchers(list) {
+  const out = [
+    { symbol: "BANKNIFTY", res: [/\bBank\s?Nifty\b|\bNifty\s?Bank\b/i] },
+    { symbol: "NIFTY", res: [/(?<!Bank\s?)\bNifty\b(?!\s?(?:Bank|IT|Auto|Pharma|FMCG|Metal|Realty|Midcap|Smallcap|Next|Fin|Media|Energy|PSU))/i] },
+    { symbol: "SENSEX", res: [/\bSensex\b/i] },
+  ];
+  for (const s of Array.isArray(list) ? list : []) {
+    const symbol = String(s?.symbol ?? "").toUpperCase();
+    if (!/^[A-Z0-9&-]{2,20}$/.test(symbol) || out.some((o) => o.symbol === symbol)) continue;
+    const res = [];
+    if (symbol.length >= 3) res.push(new RegExp(`(?<![A-Za-z0-9&])${escRe(symbol)}(?![A-Za-z0-9&])`));
+    const nm = headlineName(s.name);
+    if (nm && nm.toUpperCase() !== symbol) res.push(new RegExp(`(?<![A-Za-z0-9])${escRe(nm).replace(/\s+/g, "\\s+")}(?![A-Za-z0-9])`, "i"));
+    if (res.length) out.push({ symbol, res });
+  }
+  return out;
+}
+
+/** The symbols a headline names, in the matchers' order. */
+export function tagSymbols(text, matchers) {
+  const s = String(text ?? "");
+  return matchers.filter((m) => m.res.some((re) => re.test(s))).map((m) => m.symbol);
+}
+
+/** Feed items from one market-news kind -> headline rows (title and link only). */
+export function mapMarketFeed(xml, kind) {
+  const meta = ENDPOINTS[kind];
+  return parseFeed(xml).map((i) => ({
+    id: `${meta.source}:${i.guid ?? i.link ?? `${i.title}|${i.publishedAt ?? ""}`}`.slice(0, 400),
+    kind: "market",
+    source: meta.source,
+    sourceName: meta.name,
+    title: i.title,
+    link: i.link,
+    publishedAt: i.publishedAt,
+    tags: tagText(i.title),
+  }));
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // NSE announcements, F&O ban list
 // ---------------------------------------------------------------------------------------------------------------
@@ -312,7 +378,7 @@ function defaultFetcher(deps) {
   };
   return async (kind, params = {}) => {
     try {
-      if (SOURCE_KINDS.all.includes(kind)) {
+      if (SOURCE_KINDS.all.includes(kind) || MARKET_KINDS.includes(kind)) {
         const { json } = await reg.get(ENDPOINTS[kind].url, { headers: { Accept: "application/rss+xml, application/xml, text/xml, */*" } });
         return json?.__text ?? null;
       }
@@ -495,7 +561,61 @@ export function createNewsFeeds(deps) {
     return r;
   }
 
-  return { regulatory, announcements, fnoBan, eventRows, now };
+  /** Company names from the instrument master, by ticker (cached; a failed lookup leaves the ticker alone). */
+  const names = new Map();
+  async function nameOf(ticker) {
+    if (names.has(ticker)) return names.get(ticker);
+    let name = null;
+    try {
+      const res = await extra(deps, "symbols")?.search?.({ q: ticker, exchange: "NSE", limit: 10 });
+      const hit = (res?.items ?? []).find((r) => String(r?.canonical ?? r?.symbol ?? "").toUpperCase() === `NSE:${ticker}`);
+      name = typeof hit?.name === "string" ? hit.name : null;
+    } catch {
+      name = null;
+    }
+    if (names.size > 2000) names.clear();
+    names.set(ticker, name);
+    return name;
+  }
+
+  /**
+   * One headline feed. source: all | market | nse | regulatory. Rows: { id, kind (market | filing | regulator), source,
+   * sourceName, title, link, publishedAt, tags, symbols }. A source that fails is listed in `failed` and does not fail
+   * the call unless every source failed.
+   */
+  async function headlines({ source = "all", days = LIMITS.headlines.def, symbols = [] } = {}) {
+    if (!HEADLINE_SOURCES.includes(source)) throw invalid("source", `source must be one of ${HEADLINE_SOURCES.join(", ")}.`);
+    const tasks = [];
+    if (source === "all" || source === "market") for (const k of MARKET_KINDS) tasks.push([ENDPOINTS[k].source, cached(`rss|${k}`, RSS_TTL_MS, async () => mapMarketFeed(await call(k, {}), k))]);
+    if (source === "all" || source === "nse") {
+      const p = announcements({ days: Math.min(days, LIMITS.announcements.max) }).then((r) => ({
+        ...r,
+        rows: r.items.map((a) => ({ id: `nse:${a.id}`, kind: "filing", source: "nse", sourceName: "NSE filings", title: `${a.company ?? a.symbol}: ${a.subject}`, link: a.attachmentUrl, publishedAt: a.publishedAt, tags: a.tags, symbols: [a.symbol] })),
+      }));
+      tasks.push(["nse", p]);
+    }
+    if (source === "all" || source === "regulatory") {
+      const p = regulatory({ source: "all", days }).then((r) => ({
+        ...r,
+        rows: r.items.map((x) => ({ id: x.id, kind: "regulator", source: x.source, sourceName: x.source === "sebi" ? "SEBI" : "RBI", title: x.title, link: x.link, publishedAt: x.publishedAt, tags: x.tags })),
+      }));
+      tasks.push(["regulatory", p]);
+    }
+    const settled = await Promise.allSettled(tasks.map(([, p]) => p));
+    const ok = settled.filter((x) => x.status === "fulfilled").map((x) => x.value);
+    if (!ok.length) throw settled[0]?.reason ?? upstream("No headline source answered.");
+    const failed = tasks.filter((_, i) => settled[i].status === "rejected").map(([k]) => k);
+    const wanted = [...new Set(symbols.map((x) => String(x).toUpperCase()))].slice(0, MAX_HEADLINE_SYMBOLS);
+    const matchers = symbolMatchers(await Promise.all(wanted.map(async (t) => ({ symbol: t, name: await nameOf(t) }))));
+    const cutoff = now() - days * DAY;
+    const items = dedupe(ok.flatMap((r) => r.rows))
+      .filter((r) => r.publishedAt === null || Date.parse(r.publishedAt) >= cutoff)
+      .map((r) => ({ ...r, symbols: [...new Set([...(r.symbols ?? []), ...tagSymbols(r.title, matchers)])] }))
+      .sort(byDateDesc);
+    return { items, fetchedAt: Math.min(...ok.map((r) => r.fetchedAt)), stale: ok.some((r) => r.stale), failed, watched: wanted };
+  }
+
+  return { regulatory, announcements, fnoBan, eventRows, headlines, now };
 }
 
 const services = new WeakMap();
@@ -631,6 +751,24 @@ export function newsFeedsRoutes(deps) {
     return { data: { items: rows.slice(0, MAX_ROWS) }, meta: meta(ctx, "nse", r, { days, total: rows.length }) };
   }
 
+  async function headlinesRoute(ctx) {
+    const source = ctx.query.get("source") || "all";
+    if (!HEADLINE_SOURCES.includes(source)) throw invalid("source", `source must be one of ${HEADLINE_SOURCES.join(", ")}.`);
+    const days = intParam(ctx, "days", LIMITS.headlines);
+    const q = qParam(ctx);
+    const rawS = ctx.query.get("symbols");
+    const symbols = rawS ? [...new Set(rawS.split(",").map((x) => x.trim().toUpperCase().replace(/^(NSE|BSE):/, "")).filter(Boolean))] : [];
+    if (symbols.length > MAX_HEADLINE_SYMBOLS || symbols.some((x) => !/^[A-Z0-9&-]{1,20}$/.test(x))) throw invalid("symbols", `symbols must be up to ${MAX_HEADLINE_SYMBOLS} comma-separated tickers such as RELIANCE,TCS.`);
+    const only = ctx.query.get("only");
+    if (only !== null && only !== "" && only !== "symbols") throw invalid("only", "only may be symbols: rows that name one of the symbols.");
+    const r = await svc.headlines({ source, days, symbols });
+    const rows = r.items.filter((i) => matchesQuery(q, i.title) && (only !== "symbols" || i.symbols.some((x) => symbols.includes(x))));
+    return {
+      data: { items: rows.slice(0, MAX_ROWS), sources: Object.fromEntries(MARKET_KINDS.map((k) => [ENDPOINTS[k].source, ENDPOINTS[k].name])) },
+      meta: meta(ctx, source, r, { days, total: rows.length, failedFeeds: r.failed, symbols: r.watched, note: `${UNVERIFIED_NOTE} Headlines and links only; each article stays on its publisher's site.` }),
+    };
+  }
+
   async function centralBanksRoute(ctx) {
     const days = intParam(ctx, "days", LIMITS.banks);
     const bank = ctx.query.get("bank");
@@ -700,6 +838,7 @@ export function newsFeedsRoutes(deps) {
   return [
     ["GET", "/v1/analytics/news/regulatory", { scope: "read" }, regulatoryRoute],
     ["GET", "/v1/analytics/news/announcements", { scope: "read" }, announcementsRoute],
+    ["GET", "/v1/analytics/news/headlines", { scope: "read" }, headlinesRoute],
     ["GET", "/v1/analytics/calendar/central-banks", { scope: "read" }, centralBanksRoute],
     ["GET", "/v1/analytics/calendar/fno-ban", { scope: "read" }, fnoBanRoute],
     ["GET", "/v1/analytics/calendar/timeline", { scope: "read" }, timelineRoute],

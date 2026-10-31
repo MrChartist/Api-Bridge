@@ -85,11 +85,12 @@ describe("feed parser", () => {
 });
 
 describe("regulatory route", () => {
-  it("declares all five routes with read scope", () => {
+  it("declares all six routes with read scope", () => {
     const rs = newsFeedsRoutes({ newsFeedsFetcher: async () => "" });
     expect(rs.map(([m, p, o]) => [m, p, o.scope])).toEqual([
       ["GET", "/v1/analytics/news/regulatory", "read"],
       ["GET", "/v1/analytics/news/announcements", "read"],
+      ["GET", "/v1/analytics/news/headlines", "read"],
       ["GET", "/v1/analytics/calendar/central-banks", "read"],
       ["GET", "/v1/analytics/calendar/fno-ban", "read"],
       ["GET", "/v1/analytics/calendar/timeline", "read"],

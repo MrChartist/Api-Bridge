@@ -922,11 +922,13 @@ paths:
     get:
       tags: [Market data]
       operationId: getDepth
-      summary: Market depth (5 levels where the broker offers it)
+      summary: Market depth (5 levels where the broker offers it; 20 or 200 where it has a deeper book)
+      description: "levels asks for a deeper book (20 or 200). It is a hint passed to the broker adapter: brokers with only 5-level quotes answer 5 levels, so read the length of bids and asks rather than the hint. Each depth is cached apart."
       x-stream: S5
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/SymbolQuery"
+        - { name: levels, in: query, description: "Depth asked for: 5 (default), 20 or 200.", schema: { type: integer, enum: [5, 20, 200] } }
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/ReadPriority"
@@ -7670,7 +7672,7 @@ paths:
       x-stream: S15
       x-scope: read
       parameters:
-        - { name: universe, in: query, schema: { type: string, enum: [FNO, NIFTY50], default: FNO } }
+        - { name: universe, in: query, description: "FNO, NIFTY50, INDICES or a list from config scanner.universes.", schema: { type: string, maxLength: 40, default: FNO } }
         - { name: by, in: query, schema: { type: string, enum: [gainers, losers, volume, turnover, oi], default: gainers } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 10 } }
         - $ref: "#/components/parameters/AccountQueryOptional"
@@ -7757,6 +7759,40 @@ paths:
         - { name: days, in: query, schema: { type: integer, enum: [60, 120, 250], default: 120 } }
         - { name: pairs, in: query, description: Pairs in each of the most and least correlated lists., schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
         - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/technicals:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsTechnicals
+      summary: Technical readouts from daily candles, for any broker
+      description: "Per symbol: EMA and SMA 20/50/200 and where price sits against each, RSI 14, MACD 12/26/9 with its last cross, ADX 14, Stochastic 14/3, ATR 14, Bollinger 20/2 with %B, Supertrend 10/3, classic floor pivots from the previous session, the 52-week range, volume against its 20-day average, 5/20/60/250-session returns, and facts: plain statements of what the numbers show (not advice). Computed by the Bridge with the ChartistScript kernel from GET /v1/history daily candles, so it works with every broker that serves candles and in demo mode. The latest session follows the live quote. Symbols that fail come back in errors. Cost: one daily-candle read per symbol (background priority, cached for the IST day and shared), plus one batched quote call."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbols, in: query, required: true, description: "Up to 25 comma-separated symbols, e.g. NSE:RELIANCE,NSE:TCS.", schema: { type: string, maxLength: 1700 } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/analytics/depth-profile:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsDepthProfile
+      summary: Order-book profile from market depth (5, 20 or 200 levels)
+      description: "One depth read through marketData (same as GET /v1/depth), profiled: each level with its running total, share of the side and of the largest level, average order size and a large flag (at least 3 times the median level); best bid and ask, mid, spread in price and basis points, microprice, quantity imbalance over the whole book and the best five levels (-1 all ask to +1 all bid), and the three largest levels per side. levels is a hint; levels.bids and levels.asks say what the broker returned. Cost: one depth call (cached for the depth freshness target)."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/SymbolQuery"
+        - { name: levels, in: query, description: "Depth asked for: 5 (default), 20 or 200.", schema: { type: integer, enum: [5, 20, 200] } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/MaxAge"
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
         "4XX": { $ref: "#/components/responses/Problem" }
@@ -8126,6 +8162,24 @@ paths:
         - { name: symbol, in: query, schema: { type: string, maxLength: 20 } }
         - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 30, default: 3 } }
         - { name: q, in: query, description: Keywords; every word must appear (case-insensitive)., schema: { type: string, maxLength: 100 } }
+      responses:
+        "200": { $ref: "#/components/responses/AnalyticsResult" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/analytics/news/headlines:
+    get:
+      tags: [Analytics]
+      operationId: getAnalyticsNewsHeadlines
+      summary: Market news, NSE filings and SEBI / RBI notices in one feed, tagged by symbol
+      description: "Merges the public markets RSS feeds of The Economic Times, Moneycontrol, Business Standard and Mint (title and link only; each article stays on its publisher's site), NSE corporate announcements and the SEBI / RBI feeds, newest first, deduplicated by id and link. Each row has kind (market, filing or regulator), source, sourceName, title, link, publishedAt, tags and symbols: the asked symbols it names (ticker in capitals or company name from the instrument master) plus NIFTY, BANKNIFTY and SENSEX. only=symbols keeps rows that name an asked symbol. A source that fails is listed in meta.failedFeeds. RSS is cached ten minutes, announcements five. No broker account is used. Endpoints are unverified (assumed URLs, see ENDPOINTS in newsFeeds.mjs). Personal, local use only. meta carries source, fetchedAt, stale and note."
+      x-stream: S15
+      x-scope: read
+      parameters:
+        - { name: symbols, in: query, description: "Up to 50 comma-separated tickers to tag, such as RELIANCE,TCS (an NSE: or BSE: prefix is dropped).", schema: { type: string, maxLength: 1100 } }
+        - { name: source, in: query, schema: { type: string, enum: [all, market, nse, regulatory], default: all } }
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 14, default: 2 } }
+        - { name: only, in: query, description: "symbols keeps only rows that name an asked symbol.", schema: { type: string, enum: [symbols] } }
+        - { name: q, in: query, description: Keywords; every word must appear in the title (case-insensitive)., schema: { type: string, maxLength: 100 } }
       responses:
         "200": { $ref: "#/components/responses/AnalyticsResult" }
         "4XX": { $ref: "#/components/responses/Problem" }

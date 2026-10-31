@@ -567,7 +567,8 @@ export function createMarkets(deps) {
 
   async function movers(ctx) {
     const q = ctx.query;
-    const universe = enumParam(q, "universe", ["FNO", "NIFTY50"], "FNO");
+    // FNO and NIFTY50, plus INDICES and any list from config scanner.universes (the scanner's own universes).
+    const universe = enumParam(q, "universe", [...new Set(["FNO", "NIFTY50", ...(typeof universes.list === "function" ? universes.list().map((u) => u.name) : [])])], "FNO");
     const by = enumParam(q, "by", MOVER_KEYS, "gainers");
     const limit = intParam(q, "limit", 1, 50, 10);
     const scope = scopeOf(ctx);
