@@ -13,6 +13,7 @@
 // Bridge's own recorder (GET /v1/options/snapshots, P1-1) when it records this chain, else the ones this page records
 // while open (oi-store.js, then a cache of the server series). Everything is built once and patched on each 3 s refresh (bars resize with a transform on
 // --v, never regrow). The maths is in options.js (pure, tested); numbers become text through format.js only.
+import { oiSpec } from "./chart-specs.js";
 import { api, chartSlot, emptyState, errorState, h, icon, loadingState, modal, optional, sheetPopover, toast } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
@@ -478,11 +479,9 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     h("p", { class: "oi-note" }, "Monthly expiries carry positional and hedge OI; rollovers distort OI chg in the final days."),
   );
 
-  // ── Timeline (the owner's chart engine plugs in here) ──
-  // null until a chart engine registers (app.js chartSlot); h() drops it from the panel then.
-  const slot = chartSlot("Call OI, Put OI, PCR, Max Pain and spot vs time");
+  // ── Timeline (chart-lite.js): spot and max pain, call and put OI, PCR, from the snapshots (chart-specs.js oiSpec) ──
+  const slot = chartSlot("Call OI, Put OI, PCR, Max Pain and spot vs time", { id: "oi-timeline" });
   slot?.classList.add("oi-tslot");
-  const slotLabel = slot?.querySelector(".chart-slot-label");
   const coverageEl = h("p", { class: "oi-note" });
   const migrateEl = h("p", { class: "oi-note oi-migrate" });
   const snapBody = h("div", { class: "oi-snaps-body" });
@@ -1446,12 +1445,11 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     if (seriesCache.sig !== sig) seriesCache = { sig, data: O.oiSeries(snaps) };
     const series = seriesCache.data;
     const n = series.length;
-    const label = `Call OI, Put OI, PCR, Max Pain and spot vs time · ${plural(n, "point")} ready`;
-    if (slot && slotLabel && slotLabel.textContent !== label) {
-      slotLabel.textContent = label;
-      slot.setAttribute("aria-label", `Chart engine slot: ${label}`);
+    // Live: the chart redraws when a snapshot lands (the series is memoised on the same signature).
+    if (slot && slot.__sig !== sig) {
+      slot.__sig = sig;
+      slot.chart.set(oiSpec(series, { underlying: c.underlying }));
     }
-    slot?.classList.toggle("short", n < 10);
     const sc = byServer && e?.cov ? e.cov : null;
     const notPlanned = !byServer && e?.inPlan === false;
     const cov = sc

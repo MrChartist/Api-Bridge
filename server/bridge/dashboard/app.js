@@ -882,12 +882,65 @@ export function mountToolbarCtx(page, ...nodes) {
 export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not live market data. Orders are paper only.";
 
 /**
- * The shared slot for the owner's chart engine. Nothing is drawn until an engine registers (`app.chartEngine`): the
- * function returns null then, so every caller filters it out (replaceChildren(null) would print "null").
+ * A chart slot: the light chart engine (chart-lite.js, registered as `app.chartEngine`) draws into it. The engine
+ * module loads on the first slot, so a page without a chart never fetches it. Returns the slot element with
+ * `el.chart`, a controller usable at once (calls made before the engine arrives are queued):
+ *   el.chart.set(spec)     draw this data now (live data: one redraw per frame however often it is called)
+ *   el.chart.load(loader)  load with `async () => spec` (a new contract or underlying), drawn when near the viewport
+ *   el.chart.reload()      run the loader again
+ *   el.chart.destroy()     stop it (charts also stop themselves when their box leaves the page)
+ * `opts`: { data?: spec, load?: loader, refreshMs?, id? }. A spec is chart-lite-core.js `buildModel`'s; a loader may
+ * return { empty: { title, text } } when no data source exists yet, and the slot says so plainly.
+ * The second argument may be the options object (no sub-line). Null only if no engine is registered.
  */
-export function chartSlot(label, sub = "") {
+export function chartSlot(label, sub = "", opts = {}) {
   if (!app.chartEngine) return null;
-  return h("div", { class: "chart-slot-box", role: "img", "aria-label": `Chart engine slot: ${label}` }, h("span", { class: "chart-slot-kicker" }, "Chart engine slot"), h("span", { class: "chart-slot-label" }, label), sub ? h("span", { class: "chart-slot-sub" }, sub) : null);
+  if (sub && typeof sub === "object") [opts, sub] = [sub, ""];
+  const box = h("div", { class: "lc-slot", "data-chart-slot": opts.id ?? undefined, "aria-label": label, role: "group" }, sub ? h("p", { class: "lc-sub" }, sub) : null);
+  box.chart = app.chartEngine.mount(box, { label, ...opts });
+  return box;
+}
+
+/** The engine behind `app.chartEngine`: chart-lite.js, imported on first use; a controller proxy until it arrives. */
+let chartModule = null;
+function chartEngine() {
+  const load = () => (chartModule ??= import("./chart-lite.js"));
+  return {
+    name: "chart-lite",
+    load,
+    /** Mount a chart slot in `box` (see chartSlot); the returned controller queues calls until the module is in. */
+    mount(box, opts) {
+      let real = null;
+      let dead = false;
+      let lastSet = null;
+      let lastLoad = null;
+      let reloads = 0;
+      const host = h("div", { class: "lc-wrap" });
+      box.append(host);
+      load()
+        .then((m) => {
+          if (dead) return;
+          real = m.mountSlot(host, opts);
+          if (lastLoad) real.load(lastLoad);
+          if (lastSet) real.set(lastSet);
+          if (reloads && !lastLoad) real.reload();
+        })
+        .catch(() => host.replaceChildren(emptyState("chart", "Chart unavailable", "The chart module did not load. Reload the page to try again.", null, { compact: true })));
+      return {
+        set: (spec) => (real ? real.set(spec) : (lastSet = spec)),
+        load: (fn) => (real ? real.load(fn) : (lastLoad = fn)),
+        reload: () => (real ? real.reload() : (reloads += 1)),
+        destroy: () => ((dead = true), real?.destroy()),
+        get chart() {
+          return real?.chart ?? null;
+        },
+      };
+    },
+    /** Create a chart directly in `host` (no loader or states): resolves to chart-lite.js createChart's chart. */
+    async create(host, spec) {
+      return (await load()).createChart(host, spec);
+    },
+  };
 }
 
 /**
@@ -1546,7 +1599,9 @@ export function forgetKey() {
 
 // ── App boot (browser only) ──
 
-export const app = { state: { demo: false, health: null, meta: null }, local };
+export const app = { state: { demo: false, health: null, meta: null }, local, chartEngine: null };
+// The light chart engine (chart-lite.js) fills every chart slot; the module itself loads on the first slot.
+app.chartEngine = chartEngine();
 
 async function signIn() {
   const login = document.getElementById("login");

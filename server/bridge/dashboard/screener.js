@@ -6,7 +6,8 @@
 // Round 2 (docs/design/screener.md): a visible ranking (rank column, violet heat, movement since the last sweep),
 // CE / PE identity, per-tab visual columns, phone cards with micro-visuals, an always-on detail column from 1280 px
 // with a score ring and a risk payoff, the toolbar live control with the chain dots, pins and a match map.
-import { DEMO_EXPLAINER, alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, sheetPopover, toast } from "./app.js";
+import { candlesOf, screenerSpec, spotSymbol } from "./chart-specs.js";
+import { DEMO_EXPLAINER, alertBox, api, app, chartSlot, h, icon, istTime, modal, mountToolbarCtx, optional, sheetPopover, toast } from "./app.js";
 import { DASH, MINUS, formatCompact, formatFixed, formatInt, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { UNDERLYINGS } from "./desk.js";
 import { barsEnter, countUp, flashValue, lineReveal, reducedMotion, stopCount } from "./motion.js";
@@ -2032,9 +2033,23 @@ export function renderScreenerPage() {
     }
   }
   const titleOf = (r) => (r.kind === "arb" ? `${r.type} · ${r.chain}` : r.name);
+  // Price and IV of the selected row's underlying (chart-lite.js; chart-specs.js screenerSpec): daily candles and the
+  // vol store's 30-day ATM IV, read once per underlying for 5 minutes however often the detail repaints.
+  const chartData = new Map();
+  const chartSpecFor = (u) => {
+    const hit = chartData.get(u);
+    if (hit && Date.now() - hit.at < 300_000) return hit.p;
+    const p = Promise.all([
+      api(`/v1/history?symbol=${encodeURIComponent(spotSymbol(u))}&interval=1d&countback=120`),
+      optional(api(`/v1/vol/history?underlying=${encodeURIComponent(u)}&basis=cm30&series=iv&limit=500`)),
+    ]).then(([px, iv]) => screenerSpec({ underlying: u, candles: candlesOf(px.data?.data), ivHistory: iv.error ? null : iv.data?.data }));
+    p.catch(() => chartData.delete(u));
+    chartData.set(u, { at: Date.now(), p });
+    return p;
+  };
   const chartSlotBox = (r) => {
-    // null until a chart engine registers (app.js chartSlot); h() drops it.
-    const box = chartSlot("Price and IV history", r ? `${r.underlying}: your chart engine plugs in here` : "Your chart engine plugs in here");
+    if (!r?.underlying) return null;
+    const box = chartSlot("Price and IV history", { id: "screener", load: () => chartSpecFor(r.underlying) });
     box?.classList.add("scr-slot");
     return box;
   };
