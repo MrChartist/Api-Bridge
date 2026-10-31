@@ -182,6 +182,7 @@ function commands() {
     { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "monitor", tint: "gray", run: () => setTheme("auto") },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
     { id: "market-alert", label: "New market alert", sub: "Tell me when PCR, IV, OI at a strike, basis or flow reaches a level", keywords: "alert notify pcr iv oi strike basis gamma tide unusual bell", icon: "warn", tint: "red", run: () => import("./alerts.js").then((m) => m.openMarketAlertSheet()) },
+    { id: "brief", label: "Market brief", sub: "Trend, breadth, PCR, RSI, MACD, IV, VWAP and key levels, as facts", keywords: "analysis trend summary levels pivot cpr vwap rsi macd pcr breadth", icon: "radar", tint: "indigo", hint: ["Shift", "Y"], run: () => import("./brief.js").then((m) => m.openBrief()) },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
     { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
   ].map((a) => ({ ...a, group: "Actions" }));
@@ -396,6 +397,7 @@ export function shortcutList() {
   return [
     { keys: [mod, "K"], what: "Search pages and actions" },
     { keys: ["/"], what: "Search (when not typing in a field)" },
+    { keys: ["Shift", "Y"], what: "Open or close the market brief" },
     { keys: ["?"], what: "Show these shortcuts" },
     ...pages.filter((p) => p.key).sort((a, b) => a.key - b.key).map((p) => ({ keys: [mod, String(p.key)], what: `Go to ${p.label}` })),
     ...workspaceShortcuts(),
