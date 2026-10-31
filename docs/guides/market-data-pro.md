@@ -60,15 +60,17 @@ largest levels per side.
 
 One feed, newest first, deduplicated by id and link, from:
 
-- the public markets RSS feeds of The Economic Times, Moneycontrol, Business Standard and Mint — **title and link
+- the public markets RSS feeds of The Economic Times, Business Standard and Mint — **title and link
   only**; each article stays on its publisher's site
 - NSE corporate announcements and SEBI / RBI RSS (the existing sources of `/v1/analytics/news/*`)
 
 Each row is tagged with the asked `symbols` it names (the ticker in capitals, or the company name from the instrument
 master) plus NIFTY, BANKNIFTY and SENSEX. `only=symbols` keeps rows that name one. A feed that fails is listed in
-`meta.failedFeeds` and does not fail the call. RSS is cached 10 minutes, announcements 5. All feed URLs are assumed
-from knowledge of the sites and marked `verified: false` (see `ENDPOINTS` in `server/bridge/analytics/newsFeeds.mjs`);
-personal, local use only. Demo mode serves sample headlines with no network.
+`meta.failedFeeds` and does not fail the call. RSS is cached 10 minutes, announcements 5. The ET and Mint markets feeds were
+probed on 31 Oct 2026 and are marked `verified: true`; Business Standard's answered 403 to a non-browser client and
+stays `verified: false`; Moneycontrol's RSS feeds stopped updating in April 2024, so it is no longer read. The other
+URLs are assumed from knowledge of the sites (see `ENDPOINTS` in `server/bridge/analytics/newsFeeds.mjs`); personal,
+local use only. Demo mode serves sample headlines with no network.
 
 ## Dashboard
 
@@ -106,7 +108,13 @@ Read from DhanHQ v2 docs (dhanhq.co/docs/v2) on 31 Oct 2026:
   live feed" is could not be confirmed from Dhan's documentation. Nothing in the Bridge guesses at them.
 - Data API rate limit in the docs: 5 requests a second, 100,000 a day.
 
-The Bridge does not yet read Dhan's 20 / 200-level WebSockets: Dhan's REST quote gives 5 levels, so a Dhan account
-answers `levels=20|200` with 5 levels today. Wiring the depth sockets into the Dhan adapter (behind the same
-`fetchDepth(…, { levels })` hint and the stream hub) is the natural next step; when Dhan publishes the other Pro
-APIs they can sit behind the same Bridge endpoints as faster providers, with the generic versions as the fallback.
+A Dhan account answers `levels=20|200` from these WebSockets (`server/brokers/dhanDepth.mjs`, wired into
+`fetchDepth(…, { levels })` in `dhanMarket.mjs`) for NSE equity and F&O instruments. One pool per Dhan user keeps at
+most 4 depth sockets (Dhan drops the user's first socket when a sixth opens, so one is left for the live market feed):
+20-level instruments share sockets of up to 50, each 200-level instrument has its own, the least recently used quiet
+socket gives up its slot when the pool is full, instruments not read for 60 s are unsubscribed and empty sockets
+closed. Anything else (BSE or index symbols, a full pool, Dhan's disconnect codes 805-809, a refused handshake, no data
+within 3 s) answers the 5-level REST quote instead, and refusals pause the sockets for that user for a while so a poll
+does not retry them every 2 s. The packet parser is unit-tested on byte-built fixtures; it has not been run against
+Dhan's live feed. When Dhan publishes the other Pro APIs they can sit behind the same Bridge endpoints as faster
+providers, with the generic versions as the fallback.

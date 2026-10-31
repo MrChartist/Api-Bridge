@@ -91,7 +91,7 @@ const RSS = (title, items) =>
 const rfc = (iso, hh = "17:30:00") => new Date(`${iso}T${hh}+05:30`).toUTCString();
 
 /** Demo market-news feeds (newsFeeds.mjs MARKET_KINDS): [paper, host]. */
-const MARKET_DEMO = { etMarkets: ["The Economic Times", "economictimes.indiatimes.com"], mcMarkets: ["Moneycontrol", "www.moneycontrol.com"], bsMarkets: ["Business Standard", "www.business-standard.com"], mintMarkets: ["Mint", "www.livemint.com"] };
+const MARKET_DEMO = { etMarkets: ["The Economic Times", "economictimes.indiatimes.com"], bsMarkets: ["Business Standard", "www.business-standard.com"], mintMarkets: ["Mint", "www.livemint.com"] };
 const HEADLINE_PATTERNS = [
   "{co} shares rise {pct}% after quarterly results",
   "{co} slips {pct}% as volumes pick up",

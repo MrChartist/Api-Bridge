@@ -1,6 +1,6 @@
 /**
  * News, announcements and calendars — stream S15, read scope, no broker account, personal / local use only (exchange
- * and regulator content is not for redistribution). Free official sources, plus the public markets RSS feeds of four
+ * and regulator content is not for redistribution). Free official sources, plus the public markets RSS feeds of three
  * business papers for /headlines (title and link only: each article stays on its publisher's site).
  *
  *   GET /v1/analytics/news/regulatory?source=sebi|rbi|all&days=7&q=      SEBI + RBI RSS wire, deduped, tagged
@@ -11,8 +11,8 @@
  *   GET /v1/analytics/calendar/fno-ban                                    NSE F&O securities in ban, entries / exits
  *   GET /v1/analytics/calendar/timeline?days=14[&underlyings=NIFTY,...]   events + central banks + expiries, sorted
  *
- * EVERY URL IN `ENDPOINTS` IS ASSUMED FROM KNOWLEDGE OF THE SITES AND HAS NOT BEEN PROBED; each is marked
- * verified:false and each response says so in meta.note. A payload that does not match raises UPSTREAM_ERROR.
+ * The URLs in `ENDPOINTS` are assumed from knowledge of the sites and marked verified:false, except the market-news
+ * feeds probed on 31 Oct 2026 (verified:true, see the comments there); responses say so in meta.note. A payload that does not match raises UPSTREAM_ERROR.
  *
  * Same machinery as flows.mjs / marketEvents.mjs: cookie-primed createHttpClient for NSE, injected fetcher for tests,
  * per-query TTL cache with in-flight dedupe, stale-serve when a refresh fails, and (when deps.paths.dataDir is set)
@@ -41,7 +41,7 @@ import { NSE_BASE, nseDateToIso } from "../backup/providers/nse.mjs";
 import { mapEvents } from "./marketEvents.mjs";
 import { CENTRAL_BANK_DATES, CENTRAL_BANK_NOTE } from "./centralBankDates.mjs";
 
-/** All upstream locations in one place. UNVERIFIED: none of these has been probed from a live session. */
+/** All upstream locations in one place. verified:false = assumed, never probed; verified:true = probed (date in the comment). */
 export const ENDPOINTS = Object.freeze({
   sebi: Object.freeze({ url: "https://www.sebi.gov.in/sebirss.xml", source: "sebi", feed: "combined", verified: false }),
   rbiPress: Object.freeze({ url: "https://www.rbi.org.in/pressreleases_rss.xml", source: "rbi", feed: "press-releases", verified: false }),
@@ -50,17 +50,27 @@ export const ENDPOINTS = Object.freeze({
   nseAnnouncements: Object.freeze({ url: `${NSE_BASE}/api/corporate-announcements`, verified: false }),
   nseEventCalendar: Object.freeze({ url: `${NSE_BASE}/api/event-calendar`, verified: false }),
   nseFoBan: Object.freeze({ url: "https://nsearchives.nseindia.com/content/fo/fo_secban.csv", verified: false }),
-  // Market news headlines (title and link only; the article stays on the publisher's site).
-  etMarkets: Object.freeze({ url: "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", source: "et", name: "The Economic Times", feed: "markets", verified: false }),
-  mcMarkets: Object.freeze({ url: "https://www.moneycontrol.com/rss/marketreports.xml", source: "moneycontrol", name: "Moneycontrol", feed: "market-reports", verified: false }),
+  // Market news headlines (title and link only; the article stays on the publisher's site). Probed 31 Oct 2026 with a
+  // plain GET (Accept: RSS/XML), each answer run through mapMarketFeed:
+  //  - ET: 200 text/xml, RSS 2.0 "Markets-Economic Times", 50 items dated that day. Verified.
+  //  - Mint: 200 application/xml, RSS 2.0 "mint - markets", 35 items dated that day (pubDate inside CDATA, parsed). Verified.
+  //  - Business Standard: 403 "Access Denied" from the CDN to a non-browser client (WebFetch too). The URL is the one
+  //    listed for its Markets section and the client here sends a browser User-Agent, but it could not be confirmed:
+  //    still read, still unverified; a refusal shows in meta.failedFeeds.
+  //  - Moneycontrol: every /rss/*.xml feed (marketreports, latestnews, buzzingstocks, marketedge, results, technicals,
+  //    MCtopnews) answers 200 but stopped updating in April 2024 (MCtopnews in 2016), and latestnews.xml is still the
+  //    one its markets page links. No current official markets feed exists, so it is kept here for reference only and
+  //    left out of MARKET_KINDS (retired).
+  etMarkets: Object.freeze({ url: "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", source: "et", name: "The Economic Times", feed: "markets", verified: true }),
+  mcMarkets: Object.freeze({ url: "https://www.moneycontrol.com/rss/marketreports.xml", source: "moneycontrol", name: "Moneycontrol", feed: "market-reports", verified: false, retired: true }),
   bsMarkets: Object.freeze({ url: "https://www.business-standard.com/rss/markets-106.rss", source: "business-standard", name: "Business Standard", feed: "markets", verified: false }),
-  mintMarkets: Object.freeze({ url: "https://www.livemint.com/rss/markets", source: "mint", name: "Mint", feed: "markets", verified: false }),
+  mintMarkets: Object.freeze({ url: "https://www.livemint.com/rss/markets", source: "mint", name: "Mint", feed: "markets", verified: true }),
 });
 /** The market-news RSS kinds read by /headlines. */
-export const MARKET_KINDS = Object.freeze(["etMarkets", "mcMarkets", "bsMarkets", "mintMarkets"]);
+export const MARKET_KINDS = Object.freeze(["etMarkets", "bsMarkets", "mintMarkets"]);
 export const HEADLINE_SOURCES = Object.freeze(["all", "market", "nse", "regulatory"]);
 export const MAX_HEADLINE_SYMBOLS = 50;
-const UNVERIFIED_NOTE = "Upstream endpoints are assumed, not verified against a live session; see ENDPOINTS in newsFeeds.mjs. Personal, local use only.";
+const UNVERIFIED_NOTE = "Some upstream endpoints are assumed, not verified against a live session; see ENDPOINTS in newsFeeds.mjs. Personal, local use only.";
 
 export const RSS_TTL_MS = 10 * 60_000;
 export const ANNOUNCEMENTS_TTL_MS = 5 * 60_000;
