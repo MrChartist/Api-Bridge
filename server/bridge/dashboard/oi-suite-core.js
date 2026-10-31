@@ -80,6 +80,110 @@ export function windowFrames(frames, win, { tolMin = 2.5 } = {}) {
   return { state: "ok", base, latest, spanMin: span(base), wantMin: want };
 }
 
+// ── Custom windows, the live reading and the replay cursor ──
+
+/** "HH:MM" as minutes after midnight; null when it is not a clock. */
+export function hmMinutes(hm) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(hm ?? ""));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+const hmOf = (mins) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+
+/**
+ * The clock choices of a custom window, in `stepMin` steps of the cash session: From runs 09:15 to 15:15, To 09:30
+ * to 15:30. Pairs [value, label] (both "HH:MM").
+ */
+export function clockChoices(stepMin = 15) {
+  const step = Math.max(5, Number(stepMin) || 15);
+  const from = [];
+  const to = [];
+  for (let m = 555; m <= 915; m += step) from.push([hmOf(m), hmOf(m)]);
+  for (let m = 555 + step; m <= 930; m += step) to.push([hmOf(m), hmOf(m)]);
+  return { from, to };
+}
+
+/** The frames whose clock time lies between `from` and `to` (inclusive; either may be null for an open end). */
+export function framesBetween(frames, from = null, to = null) {
+  const a = hmMinutes(from);
+  const b = hmMinutes(to);
+  return (frames ?? []).filter((f) => {
+    const m = hmMinutes(f.hm);
+    if (m === null) return false;
+    return (a === null || m >= a) && (b === null || m <= b);
+  });
+}
+
+/**
+ * A custom window: the first frame at or after `from` against the last at or before `to` (a `to` past the newest
+ * reading ends at the newest). Same states as windowFrames, plus `from` / `to`; "none" when fewer than two frames lie
+ * inside, or `to` is not after `from`.
+ */
+export function customWindow(frames, from, to) {
+  const a = hmMinutes(from);
+  const b = hmMinutes(to);
+  const inside = a !== null && b !== null && b > a ? framesBetween(frames, from, to) : [];
+  const latest = inside.at(-1) ?? null;
+  const base = inside[0] ?? null;
+  if (inside.length < 2) return { state: "none", base: null, latest, spanMin: 0, wantMin: null, custom: true, from, to };
+  return { state: "ok", base, latest, spanMin: Math.round((latest.t - base.t) / MIN), wantMin: null, custom: true, from, to };
+}
+
+/**
+ * The newest recorded frame with live quotes laid over it, as a new frame stamped `t` / `hm` (the recorded one is
+ * never changed). `quotes`: Map of "strike|ce" / "strike|pe" to { oi, ltp }. An OI is used only when it is in the
+ * frame's unit: within half to double the recorded figure (a feed in lots against a recording in contracts would fake
+ * a move), or a whole number of lots where nothing was recorded. Null when no quote changed anything.
+ * @param {object} frame @param {Map<string, { oi?: number|null, ltp?: number|null }>} quotes
+ */
+export function liveFrame(frame, quotes, { spot = null, t = null, hm = "" } = {}) {
+  if (!frame?.k?.length) return null;
+  const f = { ...frame, co: [...frame.co], po: [...frame.po], cl: [...frame.cl], pl: [...frame.pl], live: true };
+  let changed = false;
+  const okOi = (v, was) => {
+    if (!isFigure(v) || Number(v) < 0) return false;
+    if (was !== null && was > 0) return v / was > 0.5 && v / was < 2;
+    return Number(v) % (frame.lot || 1) === 0;
+  };
+  frame.k.forEach((k, i) => {
+    for (const [side, oiArr, pxArr] of [["ce", "co", "cl"], ["pe", "po", "pl"]]) {
+      const q = quotes?.get?.(`${k}|${side}`);
+      if (!q) continue;
+      if (okOi(q.oi, f[oiArr][i]) && Number(q.oi) !== f[oiArr][i]) {
+        f[oiArr][i] = Number(q.oi);
+        changed = true;
+      }
+      if (isFigure(q.ltp) && Number(q.ltp) > 0 && Number(q.ltp) !== f[pxArr][i]) {
+        f[pxArr][i] = Number(q.ltp);
+        changed = true;
+      }
+    }
+  });
+  if (isFigure(spot) && Number(spot) > 0 && Number(spot) !== frame.spot) {
+    f.spot = Number(spot);
+    f.atm = null; // the nearest listed strike to the new price
+    changed = true;
+  }
+  if (!changed) return null;
+  if (isFigure(t)) f.t = Math.max(Number(t), frame.t + 1);
+  if (hm) f.hm = hm;
+  return f;
+}
+
+/**
+ * Where a replay cursor goes (null = following the newest reading): first, prev, next, latest, or a number (a seek).
+ * `count` is the number of frames. Moving forward onto the newest frame stays on it as a position (not "latest").
+ */
+export function moveCursor(cursor, action, count) {
+  const last = Math.max(0, (Number(count) || 0) - 1);
+  const at = cursor === null || cursor === undefined ? last : Math.max(0, Math.min(last, cursor));
+  if (action === "latest") return null;
+  if (action === "first") return 0;
+  if (action === "prev") return Math.max(0, at - 1);
+  if (action === "next") return Math.min(last, at + 1);
+  if (typeof action === "number" && Number.isFinite(action)) return Math.max(0, Math.min(last, Math.round(action)));
+  return cursor ?? null;
+}
+
 /** Build-up from the change in OI and in premium: LB (both up), SB (OI up, premium down), SC (OI down, premium up), LU (both down). Null when either is flat or missing. */
 export function buildupCode(dOi, dPx) {
   if (!isFigure(dOi) || !isFigure(dPx) || Number(dOi) === 0 || Number(dPx) === 0) return null;
@@ -174,7 +278,41 @@ const VERDICTS = Object.freeze({
  *  - levels this window wrote or covered: the call at or above price with the most short build-up (a possible
  *    ceiling), the put at or below price with the most (a possible floor), and the largest short covering on either.
  */
-export function boardReading(moves, { bar = 20, lot = 1, spot = null } = {}) {
+/**
+ * The fourth check, "the biggest legs kept going": the `n` legs that moved the most contracts over the window are
+ * each scored on the last `steps` one-reading steps (the last steps + 1 frames): a step agrees when that leg's OI
+ * moved the same way as over the whole window. The score is the legs' agreeing steps, weighted by contracts moved
+ * (0 to `steps`); it passes at 2 of 3 (two thirds of the steps) or more. Null when fewer than steps + 1 frames.
+ * @param {Array<object>} moves  legMoves over the window
+ * @param {Array<object>} frames the frames up to and including the window's newest, oldest first
+ */
+export function keptGoing(moves, frames, { n = 5, steps = 3 } = {}) {
+  const list = frames ?? [];
+  if (list.length < steps + 1) return null;
+  const tail = list.slice(-(steps + 1));
+  const idx = tail.map((f) => new Map(f.k.map((k, i) => [k, i])));
+  const legs = (moves ?? []).filter((m) => m.d !== 0).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, n);
+  if (!legs.length) return null;
+  let weight = 0;
+  let agreed = 0;
+  for (const m of legs) {
+    const arr = m.side === "ce" ? "co" : "po";
+    let ok = 0;
+    for (let s = 1; s < tail.length; s += 1) {
+      const i0 = idx[s - 1].get(m.strike);
+      const i1 = idx[s].get(m.strike);
+      const a = i0 === undefined ? null : tail[s - 1][arr][i0];
+      const b = i1 === undefined ? null : tail[s][arr][i1];
+      if (a !== null && b !== null && b !== a && Math.sign(b - a) === Math.sign(m.d)) ok += 1;
+    }
+    weight += Math.abs(m.d);
+    agreed += Math.abs(m.d) * ok;
+  }
+  const score = weight > 0 ? Math.round((agreed / weight) * 10) / 10 : 0;
+  return { score, steps, legs: legs.length, pass: score >= (steps * 2) / 3 };
+}
+
+export function boardReading(moves, { bar = 20, lot = 1, spot = null, kept = undefined } = {}) {
   let opened = 0;
   let closed = 0;
   let standing = 0;
@@ -215,7 +353,18 @@ export function boardReading(moves, { bar = 20, lot = 1, spot = null } = {}) {
     { id: "behaviour", label: "One build-up leads", pass: total > 0 && topBucket[1].sum / total >= 0.45, detail: total > 0 ? `${BUILDUPS[topBucket[0]].name} carries ${Math.round((topBucket[1].sum / total) * 100)}% of all that moved (needs 45%)` : "Nothing moved" },
     { id: "big", label: `Legs over the ${bar}% bar`, pass: big >= 3, detail: `${big} leg${big === 1 ? "" : "s"} moved ${bar}% or more of their own book (needs 3)` },
   ];
-  const passes = checks.filter((c) => c.pass).length;
+  // The fourth check is counted only when it was asked for; with too few readings it shows, uncounted (pass null).
+  if (kept !== undefined) {
+    checks.push(
+      kept
+        ? { id: "kept", label: "The biggest legs kept going", pass: kept.pass, detail: `The ${kept.legs} biggest legs, by size, kept moving their way on ${String(kept.score)} of the last ${kept.steps} steps (needs ${Math.ceil((kept.steps * 2) / 3)})` }
+        : { id: "kept", label: "The biggest legs kept going", pass: null, detail: "Needs four readings in a row; not counted" },
+    );
+  }
+  const passes = checks.filter((c) => c.pass === true).length;
+  // The loudest leg pointing the other way: one heavy leg against the board does not settle it, so it is named.
+  const opp = lean === "up" ? -1 : lean === "down" ? 1 : 0;
+  const against = opp ? (moves ?? []).filter((m) => m.lean === opp).reduce((b, m) => (!b || Math.abs(m.d) > Math.abs(b.d) ? m : b), null) : null;
   const s = num(spot);
   // The most contracts; a tie goes to the strike nearer the price.
   const pick = (list) => list.reduce((b, m) => (!b || Math.abs(m.d) > Math.abs(b.d) || (Math.abs(m.d) === Math.abs(b.d) && Math.abs(m.strike - s) < Math.abs(b.strike - s)) ? m : b), null);
@@ -227,7 +376,7 @@ export function boardReading(moves, { bar = 20, lot = 1, spot = null } = {}) {
           floor: pick((moves ?? []).filter((m) => m.side === "pe" && m.code === "SB" && m.strike <= s)),
           covering: pick((moves ?? []).filter((m) => m.code === "SC" && ((m.side === "ce" && m.strike >= s) || (m.side === "pe" && m.strike <= s)))),
         };
-  return { opened, closed, total, net, regime, lean, upShare, dirShare, word, detail, tone, checks, firmness: passes >= 3 ? "firm" : passes === 2 ? "partial" : "thin", buckets, big, legs: (moves ?? []).length, levels };
+  return { opened, closed, total, net, regime, lean, upShare, dirShare, word, detail, tone, checks, firmness: passes >= 3 ? "firm" : passes === 2 ? "partial" : "thin", passes, counted: checks.filter((c) => c.pass !== null).length, against, buckets, big, legs: (moves ?? []).length, levels };
 }
 
 /** Each build-up's loudest legs by contracts moved (never by percent): { SB: { rows, more, sum }, ... }. */

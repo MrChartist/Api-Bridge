@@ -6,7 +6,8 @@
 // format.js. The maths that decides geometry, wording and request bodies is pure and exported for
 // analyticsViews.test.mjs; only the functions further down touch the DOM. views.js adds the pages with
 // analyticsMorePages(() => helpers), after the first six, so the numbered shortcuts do not move.
-import { alertBox, api, app, card, emptyState, h, icon, istDateTime, modal, pill, table, toast } from "./app.js";
+import { alertBox, api, app, card, emptyState, h, icon, istDateTime, modal, pill, sheetPopover, table, toast } from "./app.js";
+import { workspace } from "./workspace.js";
 import { intentHandoff } from "./trade-intent.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatSigned, isFigure } from "./format.js";
 import { TAG_CHAR_W, calcStatus, chainControls, chartHeight, chartHost, compact, dataDisclosure, demoPill, handoff, legend, linear, nextId, niceScale, payoffChart, readNumber, s, statusRow, strikeBars, svgRoot, tickDecimals, tile, tiles } from "./analyticsViews.js";
@@ -763,8 +764,55 @@ async function renderFlows(H) {
 }
 
 // ───────────────────────── Expiry day ─────────────────────────
+// One reading first (a hero: the time left as the word, one sentence that places spot against max pain, the straddle's
+// range and the gamma regime, four figures and the flags), then where spot sits, the straddle and the walls. The two
+// flag limits sit behind Customise (kept in this browser).
 
-function drawExpiry(res) {
+const EXPIRY_LIMITS_KEY = "mcb.dashboard.expiry.limits";
+/** The flag limits: spot this far from max pain (%) and straddle decay since the open (%). Defaults 0.5 and 50. */
+export function expiryLimits(saved) {
+  const v = saved && typeof saved === "object" ? saved : {};
+  const ok = (x, lo, hi) => isFigure(x) && Number(x) >= lo && Number(x) <= hi;
+  return { maxPainPct: ok(v.maxPainPct, 0, 100) ? Number(v.maxPainPct) : 0.5, decayPct: ok(v.decayPct, 0, 100) ? Number(v.decayPct) : 50 };
+}
+function readLimits() {
+  try {
+    return expiryLimits(JSON.parse(localStorage.getItem(EXPIRY_LIMITS_KEY) ?? "{}"));
+  } catch {
+    return expiryLimits(null);
+  }
+}
+function saveLimits(v) {
+  try {
+    localStorage.setItem(EXPIRY_LIMITS_KEY, JSON.stringify(v));
+  } catch {
+    /* private window: the limits last this view only */
+  }
+}
+
+/**
+ * The digest in one sentence (pure): spot against max pain, inside or outside the straddle's break-evens, and the
+ * gamma regime. Descriptive only.
+ */
+export function expirySentence(d) {
+  const mp = d?.maxPain ?? {};
+  const st = d?.straddle ?? {};
+  const g = d?.gamma ?? {};
+  const parts = [];
+  if (isFigure(d?.spot) && isFigure(mp.strike) && isFigure(mp.spotDistance)) {
+    const dist = Number(mp.spotDistance);
+    parts.push(dist === 0 ? `Spot sits at max pain ${formatInt(mp.strike)}` : `Spot is ${formatFixed(Math.abs(dist), 0)} pts (${formatFixed(Math.abs(Number(mp.spotDistancePct ?? 0)), 2)}%) ${dist > 0 ? "above" : "below"} max pain ${formatInt(mp.strike)}`);
+  }
+  if (isFigure(d?.spot) && isFigure(st.lowerBreakeven) && isFigure(st.upperBreakeven)) {
+    const inside = d.spot >= st.lowerBreakeven && d.spot <= st.upperBreakeven;
+    parts.push(`${inside ? "inside" : "outside"} the ${formatInt(st.lowerBreakeven)}–${formatInt(st.upperBreakeven)} range the ATM straddle prices in`);
+  }
+  const lead = parts.length ? `${parts.join(", ")}.` : "";
+  const gw = g.regime === "positive" ? " Gamma is positive: dealer hedging tends to damp moves." : g.regime === "negative" ? " Gamma is negative: dealer hedging tends to add to moves." : "";
+  return `${lead}${gw}`.trim() || "The digest has no price or levels yet.";
+}
+
+function drawExpiry(res, tools) {
   const d = res.data?.data ?? {};
   const fr = res.data?.meta?.freshness;
   const st = d.straddle ?? {};
@@ -783,56 +831,100 @@ function drawExpiry(res) {
     { id: "flip", label: "Gamma flip", value: g.flipStrike, cls: "flip" },
   ];
   const band = isFigure(st.lowerBreakeven) && isFigure(st.upperBreakeven) ? { from: Number(st.lowerBreakeven), to: Number(st.upperBreakeven) } : null;
-  const regimeWord = { positive: "Positive: dealers dampen moves", negative: "Negative: dealers amplify moves", neutral: "Neutral" }[g.regime] ?? DASH;
   const t = d.timeToExpiry ?? {};
+  const left = countdownText(t.hours);
+  const word = t.isExpiryDay ? (left === "Expired" ? "Expired today" : `Expiry day · ${left} left`) : left === DASH ? "Expiry" : `${left} to expiry`;
+  const dist = Number(mp.spotDistance);
+  const sign = (v) => (!isFigure(v) || Number(v) === 0 ? "ink-zero" : Number(v) > 0 ? "ink-pos" : "ink-neg");
+  const decayFlag = isFigure(st.decayedPct) && Number(st.decayedPct) >= Number(d.thresholds?.decayPct ?? 101);
+  const heroCard = h(
+    "section",
+    { class: "card an-wide oix-hero" },
+    h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, "Expiry day")), h("div", { class: "an-head-tools oix-tools" }, tools)),
+    h(
+      "div",
+      { class: "card-body" },
+      h(
+        "div",
+        { class: "oix-read" },
+        h(
+          "div",
+          { class: "oix-lead" },
+          h("p", { class: "oix-word", "data-tone": "zero" }, word),
+          h("p", { class: "oix-detail" }, expirySentence(d)),
+          h("p", { class: "oix-scope" }, `${d.underlying ?? ""} ${isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH} · expiry ${d.expiry ? formatDayMonth(d.expiry) : DASH} 15:30 IST${d.asOf ? ` · digest at ${istDateTime(d.asOf)} IST` : ""}`),
+        ),
+        h(
+          "dl",
+          { class: "oix-figs" },
+          [
+            ["Max pain", isFigure(mp.strike) ? formatInt(mp.strike) : DASH, "", isFigure(mp.spotDistance) ? h("span", { class: sign(dist) }, `Spot ${formatSigned(dist, 0)} pts`) : "Holders collect least here"],
+            ["ATM straddle", money(st.price), "", isFigure(st.impliedMovePct) ? `±${formatFixed(st.impliedMovePct, 2)}% implied move` : ""],
+            ["Since the open", isFigure(st.decayedPct) ? `${formatSigned(-Number(st.decayedPct), 1)}%` : DASH, isFigure(st.decayedPct) ? sign(-Number(st.decayedPct)) : "", isFigure(st.dayOpenPrice) ? `Straddle from ${money(st.dayOpenPrice)}${decayFlag ? " · past your limit" : ""}` : ""],
+            ["Gamma", g.regime ? g.regime[0].toUpperCase() + g.regime.slice(1) : DASH, "", isFigure(g.flipStrike) ? `Flip ${formatInt(g.flipStrike)}` : ""],
+          ].map(([k, v, cls, sub]) => h("div", { class: "oix-fig" }, h("dt", {}, k), h("dd", { class: cls || undefined }, v), sub ? h("span", { class: "oix-fig-sub" }, sub) : null)),
+        ),
+      ),
+      h(
+        "div",
+        { class: "exp-flags" },
+        flags.length
+          ? h("ul", { class: "flag-list" }, flags.map((f) => h("li", {}, pill((SEVERITY[f.severity] ?? SEVERITY.low).text, (SEVERITY[f.severity] ?? SEVERITY.low).tone), h("span", {}, f.message))))
+          : h("p", { class: "oix-hint" }, `Nothing flagged against your limits: spot within ${formatFixed(d.thresholds?.maxPainPct, 2)}% of max pain, the straddle down less than ${formatFixed(d.thresholds?.decayPct, 0)}% from its open, gamma not negative.`),
+      ),
+    ),
+  );
   return [
-    statusRow(fr, d.asOf ? h("span", { class: "muted small" }, `digest at ${istDateTime(d.asOf)} IST`) : null),
-    tiles(
-      tile("Time to expiry", countdownText(t.hours), `To 15:30 IST on ${d.expiry ?? DASH}${t.isExpiryDay ? " · expiry day" : ""}`, t.hours === 0 ? "down" : undefined),
-      tile(`${d.underlying ?? ""} spot`, isFigure(d.spot) ? formatFixed(d.spot, 2) : DASH, "Underlying last price"),
-      tile("Max pain", isFigure(mp.strike) ? formatInt(mp.strike) : DASH, isFigure(mp.spotDistance) ? `Spot is ${formatFixed(Math.abs(mp.spotDistance), 2)} points (${formatFixed(Math.abs(mp.spotDistancePct), 2)}%) ${mp.spotDistance > 0 ? "above" : mp.spotDistance < 0 ? "below" : "at"} it` : "Writers pay out least here"),
-      tile("Gamma regime", g.regime ? g.regime[0].toUpperCase() + g.regime.slice(1) : DASH, regimeWord),
-    ),
-    sectionCard(
-      flags.length ? `${flags.length} thing${flags.length === 1 ? "" : "s"} to look at` : "Flags",
-      `Checked against your limits: spot ${formatFixed(d.thresholds?.maxPainPct, 2)}% from max pain, straddle down ${formatFixed(d.thresholds?.decayPct, 0)}% from its open.`,
-      flags.length
-        ? h("ul", { class: "flag-list" }, flags.map((f) => h("li", {}, pill((SEVERITY[f.severity] ?? SEVERITY.low).text, (SEVERITY[f.severity] ?? SEVERITY.low).tone), h("span", {}, f.message))))
-        : h("p", { class: "muted" }, "Nothing unusual: spot is within your max pain limit, the straddle has not decayed past your limit and gamma is not negative."),
-    ),
+    statusRow(fr),
+    heroCard,
     sectionCard("Where spot sits", "The shaded band is the range the ATM straddle prices in (between its break-evens).", rulerChart(markers, { band, label: `Price ruler for ${d.underlying} ${d.expiry}: spot ${isFigure(d.spot) ? formatInt(d.spot) : "unknown"}, max pain ${isFigure(mp.strike) ? formatInt(mp.strike) : "unknown"}, straddle break-evens ${isFigure(st.lowerBreakeven) ? formatInt(st.lowerBreakeven) : "unknown"} to ${isFigure(st.upperBreakeven) ? formatInt(st.upperBreakeven) : "unknown"}.` })),
     h(
       "div",
       { class: "grid cols-2" },
-      sectionCard(`ATM straddle at ${isFigure(st.strike) ? formatInt(st.strike) : DASH}`, "Buying the call and the put at the money.", kv([["Straddle price", money(st.price)], ["Call / put", `${isFigure(st.cePrice) ? formatFixed(st.cePrice, 2) : DASH} / ${isFigure(st.pePrice) ? formatFixed(st.pePrice, 2) : DASH}`], ["Implied move", isFigure(st.impliedMove) ? `${formatFixed(st.impliedMove, 2)} points (${formatFixed(st.impliedMovePct, 2)}%)` : DASH], ["Break-evens", isFigure(st.lowerBreakeven) ? `${formatFixed(st.lowerBreakeven, 2)} to ${formatFixed(st.upperBreakeven, 2)}` : DASH], ["Day-open price", money(st.dayOpenPrice)], ["Decayed since open", isFigure(st.decayedPct) ? `${formatFixed(st.decayedPct, 1)}%` : DASH, Number(st.decayedPct) >= Number(d.thresholds?.decayPct ?? 101) ? "down" : ""]])),
+      sectionCard(`ATM straddle at ${isFigure(st.strike) ? formatInt(st.strike) : DASH}`, "Buying the call and the put at the money.", kv([["Straddle price", money(st.price)], ["Call / put", `${isFigure(st.cePrice) ? formatFixed(st.cePrice, 2) : DASH} / ${isFigure(st.pePrice) ? formatFixed(st.pePrice, 2) : DASH}`], ["Implied move", isFigure(st.impliedMove) ? `${formatFixed(st.impliedMove, 2)} points (${formatFixed(st.impliedMovePct, 2)}%)` : DASH], ["Break-evens", isFigure(st.lowerBreakeven) ? `${formatFixed(st.lowerBreakeven, 2)} to ${formatFixed(st.upperBreakeven, 2)}` : DASH], ["Day-open price", money(st.dayOpenPrice)], ["Decayed since open", isFigure(st.decayedPct) ? `${formatFixed(st.decayedPct, 1)}%` : DASH, decayFlag ? "down" : ""]])),
       sectionCard("OI walls and gamma", "Where the most open interest and gamma sit.", kv([["Resistance (call OI)", wall(walls.resistance)], ["Support (put OI)", wall(walls.support)], ["PCR (OI)", isFigure(walls.pcrOi) ? formatFixed(walls.pcrOi, 2) : DASH], ["Net gamma", compact(g.netGex)], ["Gamma flip", isFigure(g.flipStrike) ? formatInt(g.flipStrike) : DASH], ["Largest gamma", isFigure(g.largestStrike) ? formatInt(g.largestStrike) : DASH]])),
     ),
   ];
 }
 
 async function renderExpiry(H) {
-  const wb = await workbench(H, {
-    tabs: [
-      {
-        id: "digest",
-        label: "Digest",
-        expiry: true,
-        strikes: true,
-        fields: [
-          { key: "maxPainPct", label: "Flag when spot is this far from max pain (%)", type: "number", value: "0.5", min: "0" },
-          { key: "decayPct", label: "Flag when the straddle has lost this much (%)", type: "number", value: "50", min: "0", max: "100" },
-        ],
-        run: async ({ v, o }) => {
-          const mp = readNumber(o.maxPainPct);
-          const dc = readNumber(o.decayPct);
-          if (mp === null || mp < 0) return H.errorBox({ title: "Check the limits", detail: "The max pain limit must be a number, 0 or more." });
-          if (dc === null || dc < 0 || dc > 100) return H.errorBox({ title: "Check the limits", detail: "The straddle decay limit must be a number from 0 to 100." });
-          return drawExpiry(await api(`/v1/analytics/expiry-day?${new URLSearchParams({ underlying: v.underlying, expiry: v.expiry, strikes: String(v.strikes), maxPainPct: String(mp), decayPct: String(dc) })}`));
-        },
-      },
-    ],
+  const u = workspace.state.underlying;
+  const e = workspace.state.expiry;
+  if (!e) return emptyState("info", "No expiry to show", "Pick an underlying with upcoming expiries in the top bar.");
+  const host = h("div", { class: "stack" });
+  const custom = h("button", { type: "button", class: "small oix-custom", "aria-haspopup": "dialog" }, icon("sliders"), "Customise");
+  const load = async () => {
+    const lim = readLimits();
+    try {
+      const res = await api(`/v1/analytics/expiry-day?${new URLSearchParams({ underlying: u, expiry: e, strikes: String(workspace.state.strikes ?? 10), maxPainPct: String(lim.maxPainPct), decayPct: String(lim.decayPct) })}`);
+      host.replaceChildren(...drawExpiry(res, [custom]));
+    } catch (err) {
+      host.replaceChildren(H.errorBox(err));
+    }
+  };
+  custom.addEventListener("click", () => {
+    const lim = readLimits();
+    const input = (key, max) => {
+      const el = h("input", { type: "number", min: "0", max: String(max), step: key === "maxPainPct" ? "0.1" : "5", value: String(lim[key]), inputmode: "decimal" });
+      el.addEventListener("change", () => {
+        const next = expiryLimits({ ...readLimits(), [key]: readNumber(el.value) });
+        el.value = String(next[key]);
+        saveLimits(next);
+        load();
+      });
+      return el;
+    };
+    const body = h(
+      "div",
+      { class: "stack oix-sheet" },
+      H.field("Flag when spot is this far from max pain (%)", input("maxPainPct", 100)),
+      H.field("Flag when the straddle has lost this much since the open (%)", input("decayPct", 100)),
+      h("p", { class: "muted small" }, "Kept in this browser. The flags compare the digest with these limits; they are not alerts."),
+    );
+    sheetPopover({ trigger: custom, title: "Expiry day", body });
   });
-  return wb.node;
+  await load();
+  return host;
 }
 
 // ───────────────────────── OI change ─────────────────────────

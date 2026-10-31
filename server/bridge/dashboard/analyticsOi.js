@@ -1,23 +1,28 @@
 // Markets › OI Analysis › OI change, Spurts, PCR and Max pain, and Analytics › Exposure › OI heatmap, drawn in the
 // analytics host (analytics.js). Every view reads the Bridge recorder's day for the chain in the top bar
 // (GET /v1/options/snapshots: what it recorded, gaps never filled) once, keeps it for 30 s, and tops it up every
-// minute while the view is open. The maths is in oi-suite-core.js (pure, tested); this file only draws.
+// minute while the view is open. While the market is open the chain's own quotes (the shared stream, quote mode) are
+// laid over the newest recorded minute as a live reading: a tick only updates a map, and the view is patched in place
+// at most every 2.5 s. Replay steps or plays through the recorded readings (never remembered); OI change, Spurts and
+// the heatmap also take a custom From–To window. The maths is in oi-suite-core.js (pure, tested); this file only draws.
 //
 // Each view leads with one reading (a hero panel: the word, one sentence, three or four figures) and puts its window
 // in the hero's head as a capsule; everything optional sits behind Customise. Direction is always coloured
 // (--pos / --neg), the side by its hue (calls blue, puts orange); details are on hover, not printed.
-import { api, emptyState, h, icon, pill, sheetPopover } from "./app.js";
+import { api, app, emptyState, h, icon, pill, sheetPopover } from "./app.js";
 import { DASH, formatCompact, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
-import { chartHost, niceScale, s, svgRoot, tickDecimals } from "./analyticsViews.js";
+import { niceScale, s, svgRoot, tickDecimals } from "./analyticsViews.js";
 import { heatmapTable } from "./analyticsFlow.js";
-import { maxPainRelevance, pcrBand } from "./options.js";
+import { istClock, marketSession, maxPainRelevance, pcrBand } from "./options.js";
+import { watch } from "./live.js";
+import { spotSymbolOf } from "./alert-core.js";
 import { workspace } from "./workspace.js";
 import * as C from "./oi-suite-core.js";
 
 // ───────────────────────── shared ─────────────────────────
 
 const PREFS_KEY = "mcb.dashboard.oix";
-const DEFAULTS = Object.freeze({ win: "15", bar: "20", legs: "both", each: "10", pcrEach: "20", step: "30", lead: "oi", colour: "buildup", side: "both", hmMode: "day" });
+const DEFAULTS = Object.freeze({ win: "15", bar: "20", legs: "both", each: "10", pcrEach: "20", step: "30", lead: "oi", colour: "buildup", side: "both", hmMode: "day", from: "09:15", to: "15:30", hmWin: "all", spcr: "near" });
 /** This browser's choices for these views (a convenience: a blocked store just means the defaults). */
 function prefs() {
   try {
@@ -87,30 +92,362 @@ async function loadDay(u, e, { force = false } = {}) {
   return day;
 }
 
+// ── Patching in place ──
+// A live repaint, a replay step or a minute's top-up builds the view again off-screen and walks it against what is on
+// screen: only changed text, attributes and charts are written, so hover, scroll, focus and open details stay put.
+// Card heads (the analytics host restyles them) and the hero's tools (live controls) are kept as they are.
+
+/** Classes the analytics host adds to a fitted card (fitDesk): kept through a patch. */
+const FIT_CLASSES = new Set(["an-panel", "an-wide", "an-gone", "an-formbar"]);
+/** Chart hosts drawn on demand: host -> { sig, build, last, draw }. A patch redraws a chart only when its sig changed. */
+const charts = new WeakMap();
+const chartRo =
+  typeof ResizeObserver !== "undefined"
+    ? new ResizeObserver((entries) => {
+        for (const { target } of entries) {
+          if (!target.isConnected) chartRo.unobserve(target);
+          else charts.get(target)?.draw();
+        }
+      })
+    : null;
+
 /**
- * A view's frame: the context, a root that holds what is drawn, a first load and a quiet top-up every minute while the
- * view is on screen. `draw(day)` returns the nodes; it runs again on a top-up and on any control change.
+ * A chart host that draws `build(width)` once it is laid out and again when its width changes. `sig` names the data
+ * drawn: a patch with the same sig keeps the drawn chart (and its hover); a new sig redraws it at its current width.
+ */
+function liveHost(sig, build) {
+  const host = h("div", { class: "chart-host" });
+  const c = {
+    sig,
+    build,
+    last: 0,
+    draw(force = false) {
+      const w = Math.max(260, Math.floor(host.clientWidth || 640));
+      if (!force && w === c.last) return;
+      c.last = w;
+      host.replaceChildren(c.build(w));
+    },
+  };
+  charts.set(host, c);
+  if (chartRo) chartRo.observe(host);
+  else c.draw();
+  return host;
+}
+
+function syncAttrs(a, b) {
+  const details = a.tagName === "DETAILS";
+  for (const { name } of [...a.attributes]) if (!b.hasAttribute(name) && name !== "data-fit" && !(details && name === "open")) a.removeAttribute(name);
+  for (const { name, value } of [...b.attributes]) {
+    if (details && name === "open") continue;
+    let v = value;
+    if (name === "class" && a.dataset.fit) v = [...new Set([...value.split(/\s+/).filter(Boolean), ...[...a.classList].filter((c) => FIT_CLASSES.has(c))])].join(" ");
+    if (a.getAttribute(name) !== v) a.setAttribute(name, v);
+  }
+}
+
+/** Walk `b` (fresh, off-screen) against `a` (on screen), writing only the differences into `a`. */
+function morph(a, b) {
+  if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) return a.replaceWith(b);
+  if (a.nodeType === 3 || a.nodeType === 8) {
+    if (a.data !== b.data) a.data = b.data;
+    return;
+  }
+  if (a.nodeType !== 1) return;
+  if (a.hasAttribute("data-keep") || a.classList.contains("card-head")) return;
+  // The freshness row is read by the host when it is added: a new reading is a new row.
+  if (a.classList.contains("analytics-status")) {
+    if (a.textContent !== b.textContent) a.replaceWith(b);
+    return;
+  }
+  const ca = charts.get(a);
+  const cb = charts.get(b);
+  if (ca || cb) {
+    if (!ca || !cb) return a.replaceWith(b);
+    chartRo?.unobserve(b);
+    if (ca.sig !== cb.sig) {
+      ca.sig = cb.sig;
+      ca.build = cb.build;
+      ca.draw(true);
+    }
+    return;
+  }
+  syncAttrs(a, b);
+  morphChildren(a, b);
+}
+/** Children pairwise; a pinned child (data-pin: the replay strip) is not the drawing's and stays where it is. */
+function morphChildren(a, b) {
+  const old = [...a.childNodes].filter((n) => !(n.nodeType === 1 && n.hasAttribute("data-pin")));
+  const next = [...b.childNodes];
+  let prev = null;
+  next.forEach((n, i) => {
+    if (i < old.length) {
+      morph(old[i], n);
+      prev = old[i].isConnected ? old[i] : n;
+    } else {
+      a.insertBefore(n, prev ? prev.nextSibling : a.firstChild);
+      prev = n;
+    }
+  });
+  for (let i = next.length; i < old.length; i += 1) old[i].remove();
+}
+
+// ── The live reading: the chain's quotes laid over the newest recorded minute ──
+
+/** A view repaints from live quotes at most this often; a tick itself only updates a map. */
+const LIVE_MS = 2500;
+const hmNow = () => {
+  const m = istClock(Date.now()).mins;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+};
+
+/** Live only for today's recording, while the market is open (or the demo feed runs). */
+function liveAllowed(day) {
+  const last = day.frames.at(-1);
+  if (!last || istClock(last.t).date !== istClock(Date.now()).date) return false;
+  return Boolean(app.state.demo) || marketSession(Date.now()).phase === "open";
+}
+
+/**
+ * The chain's legs and index, watched on the shared stream (quote mode, one delivery a second at most). One read of
+ * the chain gives the symbols and a first reading; ticks then replace OI and premium per leg. `onChange` is told when
+ * something arrived; the view decides when to repaint.
+ */
+function liveSource(u, e, onChange) {
+  const quotes = new Map();
+  const bySymbol = new Map();
+  const index = spotSymbolOf(u);
+  let spot = null;
+  let at = 0;
+  let feed = null;
+  let stopped = false;
+  (async () => {
+    try {
+      const d = (await api(`/v1/optionchain?${new URLSearchParams({ underlying: u, expiry: e, strikes: "100", greeks: "false" })}`)).data?.data ?? {};
+      if (stopped) return;
+      for (const r of d.rows ?? []) {
+        for (const side of ["ce", "pe"]) {
+          const leg = r[side];
+          if (!leg) continue;
+          const key = `${Number(r.strike)}|${side}`;
+          quotes.set(key, { oi: leg.oi ?? null, ltp: leg.ltp ?? null });
+          if (leg.symbol) bySymbol.set(leg.symbol, key);
+        }
+      }
+      if (isFigure(d.underlyingLtp)) spot = Number(d.underlyingLtp);
+      at = Date.now();
+      onChange();
+      feed = watch(
+        [index, ...bySymbol.keys()],
+        "quote",
+        (ticks) => {
+          for (const [sym, t] of ticks) {
+            if (sym === index) {
+              if (isFigure(t.ltp)) spot = Number(t.ltp);
+              continue;
+            }
+            const key = bySymbol.get(sym);
+            if (!key) continue;
+            const q = quotes.get(key) ?? { oi: null, ltp: null };
+            quotes.set(key, { oi: isFigure(t.oi) ? t.oi : q.oi, ltp: isFigure(t.ltp) ? t.ltp : q.ltp });
+          }
+          at = Date.now();
+          onChange();
+        },
+        { minGapMs: 1000 },
+      );
+    } catch {
+      /* no live layer: the recorder's minutes still draw */
+    }
+  })();
+  return {
+    frame: (base) => (at ? C.liveFrame(base, quotes, { spot, t: at, hm: hmNow() }) : null),
+    stop() {
+      stopped = true;
+      feed?.stop();
+    },
+  };
+}
+
+// ── Replay: the recorded day, one reading at a time ──
+
+const SPEEDS = [["1", "1×"], ["2", "2×"], ["4", "4×"]];
+
+/** The replay strip: transport, a slider over the readings, the time and state, speed, Latest and close. */
+function replayStrip(H, T, act) {
+  const btn = (name, label, fn, cls = "") => {
+    const b = h("button", { type: "button", class: `icon-btn small oix-rp-btn${cls ? ` ${cls}` : ""}`, "aria-label": label, title: label }, h("span", { class: "oix-rp-ic", "aria-hidden": "true" }, [name].flat().map((n) => icon(n))));
+    b.addEventListener("click", fn);
+    return b;
+  };
+  const first = btn(["chevron", "chevron"], "First reading", () => act("first"), "back dbl");
+  const prev = btn("chevron", "Previous reading", () => act("prev"), "back");
+  const play = btn("play", "Play", () => act("toggle"));
+  const next = btn("chevron", "Next reading", () => act("next"));
+  const slider = h("input", { type: "range", class: "oix-rp-range", min: "0", max: "0", step: "1", value: "0", "aria-label": "Replay position" });
+  slider.addEventListener("input", () => act(Number(slider.value)));
+  const time = h("b", { class: "oix-rp-time" });
+  const state = h("span", { class: "oix-rp-state" });
+  const ends = [h("span", { class: "oix-rp-end" }), h("span", { class: "oix-rp-end" })];
+  const speed = H.segmented("Replay speed", SPEEDS, String(T.speed));
+  speed.classList.add("oix-cap", "oix-rp-speed");
+  speed.addEventListener("change", () => act({ speed: Number(speed.value) }));
+  const latest = h("button", { type: "button", class: "small oix-rp-latest" }, "Latest");
+  latest.addEventListener("click", () => act("latest"));
+  const close = btn("close", "Close replay", () => act("close"));
+  const el = h(
+    "div",
+    { class: "oix-replay", role: "group", "aria-label": "Session replay", hidden: true, "data-pin": "" },
+    h("div", { class: "oix-rp-transport" }, first, prev, play, next),
+    h("div", { class: "oix-rp-track" }, slider, h("div", { class: "oix-rp-ends" }, ends)),
+    h("div", { class: "oix-rp-read" }, time, state),
+    h("div", { class: "oix-rp-tail" }, speed, latest, close),
+  );
+  el.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") {
+      ev.stopPropagation();
+      act("close");
+    }
+  });
+  /** Text and attributes only: called on every step. */
+  const sync = (frames) => {
+    el.hidden = !T.open;
+    if (!T.open) return;
+    const n = frames.length;
+    const at = T.cursor ?? n - 1;
+    slider.max = String(Math.max(0, n - 1));
+    slider.value = String(at);
+    time.textContent = frames[at]?.hm ?? DASH;
+    state.textContent = T.playing ? "Playing" : T.cursor === null ? "Latest reading" : `Paused · ${formatInt(n - 1 - at)} reading${n - 1 - at === 1 ? "" : "s"} before the newest`;
+    ends[0].textContent = frames[0]?.hm ?? "";
+    ends[1].textContent = frames.at(-1)?.hm ?? "";
+    play.replaceChildren(icon(T.playing ? "pause" : "play"));
+    play.setAttribute("aria-label", T.playing ? "Pause" : T.cursor !== null && at >= n - 1 ? "Replay from the start" : "Play");
+    play.title = play.getAttribute("aria-label");
+    latest.disabled = T.cursor === null;
+  };
+  return { el, sync };
+}
+
+/**
+ * A view's frame: the context, a root that holds what is drawn, a first load, a quiet top-up every minute, the live
+ * layer and the replay. `draw(day, again)` returns the nodes: `day.frames` is what to read (cut at the replay cursor,
+ * or with the live reading as its newest frame), `again()` redraws after a control change. Live repaints, replay steps
+ * and top-ups patch what is on screen in place.
  */
 async function recorderView(H, draw) {
   const u = workspace.state.underlying;
   const e = workspace.state.expiry;
   if (!e) return emptyState("info", "No expiry to show", "Pick an underlying with upcoming expiries in the top bar.");
-  const root = h("div", { class: "stack", "aria-live": "polite" });
+  const root = h("div", { class: "stack oix-root" });
   let day;
   try {
     day = await loadDay(u, e);
   } catch (err) {
     return H.errorBox(err);
   }
-  const paint = () => {
+  /** Replay state: never remembered (an old board must not pass for the current one). */
+  const T = { open: false, cursor: null, playing: false, speed: 1 };
+  let liveF = null;
+  let playTimer = null;
+  const view = () => {
+    if (T.cursor !== null) return { ...day, frames: day.frames.slice(0, T.cursor + 1), replay: true };
+    if (liveF) return { ...day, frames: [...day.frames, liveF], live: true };
+    return day;
+  };
+  const replayBtn = h("button", { type: "button", class: "small oix-custom oix-replay-btn", "aria-pressed": "false", title: "Step or play through today's recorded readings" }, icon("clock"), "Replay");
+  const strip = replayStrip(H, T, (a) => act(a));
+  const placeTools = () => {
+    const tools = root.querySelector(".oix-hero .oix-tools");
+    if (tools && replayBtn.parentNode !== tools) tools.append(replayBtn);
+    if (tools) tools.dataset.keep = "";
+    const hero = root.querySelector(".oix-hero");
+    if (hero && strip.el.parentNode !== hero.parentNode) hero.after(strip.el);
+    replayBtn.setAttribute("aria-pressed", String(T.open));
+    strip.sync(day.frames);
+  };
+  const paint = (soft = false) => {
     try {
-      root.replaceChildren(...[draw(day, paint)].flat().filter(Boolean));
-      applyVars(root);
+      const fresh = h("div", {}, ...[draw(view(), () => paint(false))].flat().filter(Boolean));
+      applyVars(fresh);
+      if (soft && root.firstChild) morphChildren(root, fresh);
+      else root.replaceChildren(...fresh.childNodes);
+      placeTools();
     } catch (err) {
       root.replaceChildren(H.errorBox(err));
     }
   };
+  const stopPlay = () => {
+    T.playing = false;
+    if (playTimer) clearInterval(playTimer);
+    playTimer = null;
+  };
+  const startPlay = () => {
+    stopPlay();
+    const n = day.frames.length;
+    if (T.cursor === null || T.cursor >= n - 1) T.cursor = 0;
+    T.playing = true;
+    playTimer = setInterval(() => {
+      if (!root.isConnected || (typeof document !== "undefined" && document.hidden)) {
+        stopPlay();
+        return placeTools();
+      }
+      T.cursor = C.moveCursor(T.cursor, "next", day.frames.length);
+      if (T.cursor >= day.frames.length - 1) stopPlay();
+      paint(true);
+    }, 1000 / T.speed);
+  };
+  function act(a) {
+    if (a === "close") {
+      stopPlay();
+      T.open = false;
+      T.cursor = null;
+      paint(true);
+      return replayBtn.focus();
+    }
+    if (a === "toggle") {
+      if (T.playing) stopPlay();
+      else startPlay();
+      return paint(true);
+    }
+    if (a && typeof a === "object" && "speed" in a) {
+      T.speed = a.speed;
+      if (T.playing) startPlay();
+      return placeTools();
+    }
+    stopPlay();
+    T.cursor = C.moveCursor(T.cursor, a, day.frames.length);
+    paint(true);
+  }
+  replayBtn.addEventListener("click", () => {
+    if (T.open) return act("close");
+    T.open = true;
+    paint(true);
+    strip.el.querySelector(".oix-rp-range")?.focus();
+  });
   paint();
+  // Live: ticks mark the reading dirty; a repaint happens at most every LIVE_MS, only while following the newest.
+  let live = null;
+  let dirty = false;
+  let seen = false;
+  const startLive = () => {
+    if (live || !liveAllowed(day)) return;
+    live = liveSource(u, e, () => (dirty = true));
+  };
+  startLive();
+  const liveTimer = setInterval(() => {
+    if (root.isConnected) seen = true;
+    else if (seen) {
+      clearInterval(liveTimer);
+      stopPlay();
+      return live?.stop();
+    }
+    if (!dirty || T.cursor !== null || (typeof document !== "undefined" && document.hidden)) return;
+    dirty = false;
+    const f = live?.frame(day.frames.at(-1));
+    if (!f) return;
+    liveF = f;
+    paint(true);
+  }, LIVE_MS);
   const timer = setInterval(async () => {
     if (!root.isConnected) return clearInterval(timer);
     if (typeof document !== "undefined" && document.hidden) return;
@@ -118,7 +455,10 @@ async function recorderView(H, draw) {
       const next = await loadDay(u, e, { force: true });
       if (next.frames.at(-1)?.t !== day.frames.at(-1)?.t) {
         day = next;
-        paint();
+        // The live reading is laid over the new minute on the next tick.
+        liveF = live?.frame(day.frames.at(-1)) ?? null;
+        startLive();
+        if (!T.playing) paint(true);
       }
     } catch {
       /* the next minute tries again; what is drawn stays */
@@ -128,7 +468,16 @@ async function recorderView(H, draw) {
 }
 
 /** The freshness row the host moves into the top bar: where the figures come from and the time of the newest one. */
-const freshRow = (day) => h("div", { class: "row analytics-status" }, pill("Bridge recorder", day.frames.length ? "ok" : "warn"), day.frames.length ? h("span", { class: "muted small" }, `as of ${day.frames.at(-1).hm} IST`) : null);
+const freshRow = (day) =>
+  h(
+    "div",
+    { class: "row analytics-status" },
+    pill(day.replay ? "Replay · Bridge recorder" : day.live ? "Live · Bridge recorder" : "Bridge recorder", day.frames.length ? (day.replay ? "info" : "ok") : "warn"),
+    day.frames.length ? h("span", { class: "muted small" }, `as of ${day.frames.at(-1).hm} IST`) : null,
+  );
+
+/** Where the reading stands in time, for the hero's scope line: "Live", or the replay's time. */
+const whenText = (day, latest = day.frames.at(-1)) => (day.replay ? ` · replay at ${day.frames.at(-1)?.hm ?? DASH}` : latest?.live ? " · live" : "");
 
 /** Nothing recorded for this chain today: say why, and how to fill it. */
 function noDay(day, what) {
@@ -170,7 +519,7 @@ function customise(H, title, fields, onChange) {
  * The hero: a title and the view's capsules in the head; in the body the reading (a coloured word), one sentence, the
  * scope line and up to four figures. `tone`: pos | neg | zero.
  */
-function hero({ title, word, tone = "zero", detail, scope, figs = [], tools = [], extra = null }) {
+export function hero({ title, word, tone = "zero", detail, scope, figs = [], tools = [], extra = null }) {
   return h(
     "section",
     { class: "card an-wide oix-hero" },
@@ -193,8 +542,45 @@ function hero({ title, word, tone = "zero", detail, scope, figs = [], tools = []
 const panel = (title, sub, body, { wide = false, cls = "" } = {}) =>
   h("section", { class: `card oix-panel${wide ? " an-wide" : ""}${cls ? ` ${cls}` : ""}` }, h("header", { class: "card-head" }, h("div", { class: "card-titles" }, h("h2", {}, title), sub ? h("p", {}, sub) : null)), h("div", { class: "card-body" }, body));
 
-/** "15m · since 10:05", "30m of 1h · since 09:15", or why it is not measured. */
+/** The window capsule's choices: the rolling windows, Day and a custom stretch of the session. */
+const WINDOWS = [...C.OIX_WINDOWS, ["custom", "Custom"]];
+const CLOCKS = C.clockChoices(15);
+
+/** The window a view reads: a rolling one, Day, or the custom From–To stretch. */
+const windowFor = (frames, p) => (p.win === "custom" ? C.customWindow(frames, p.from, p.to) : C.windowFrames(frames, p.win));
+
+/**
+ * The window capsule, and with Custom the From and To clocks beside it (15-minute steps; To always after From).
+ * Returns the tools to put in the hero's head.
+ */
+function windowTools(H, again, key = "win") {
+  const win = capsule(H, "Window", key, key === "win" ? WINDOWS : HM_WINDOWS, again);
+  const p = prefs();
+  if (p[key] !== "custom") return [win];
+  const clock = (label, k, list) => {
+    const sel = h("select", { class: "oix-clock", "aria-label": label }, list.map(([v, t]) => h("option", { value: v }, t)));
+    sel.value = list.some((x) => x[0] === p[k]) ? p[k] : list[k === "from" ? 0 : list.length - 1][0];
+    sel.addEventListener("change", () => {
+      savePref(k, sel.value);
+      const q = prefs();
+      // To is always later than From: move the other end one step past this one.
+      if ((C.hmMinutes(q.to) ?? 0) <= (C.hmMinutes(q.from) ?? 0)) {
+        if (k === "from") savePref("to", CLOCKS.to.find((x) => C.hmMinutes(x[0]) > C.hmMinutes(q.from))?.[0] ?? "15:30");
+        else savePref("from", [...CLOCKS.from].reverse().find((x) => C.hmMinutes(x[0]) < C.hmMinutes(q.to))?.[0] ?? "09:15");
+      }
+      again();
+    });
+    return sel;
+  };
+  return [win, h("div", { class: "oix-range", role: "group", "aria-label": "Custom window" }, h("span", {}, "From"), clock("From", "from", CLOCKS.from), h("span", {}, "to"), clock("To", "to", CLOCKS.to))];
+}
+
+/** "15m · since 10:05", "30m of 1h · since 09:15", "10:00–11:30 · since 10:00", or why it is not measured. */
 function windowText(w) {
+  if (w.custom) {
+    if (w.state === "none") return `Fewer than two readings between ${w.from} and ${w.to}`;
+    return w.base.hm === w.from && w.latest.hm === w.to ? `${w.from}–${w.to}` : `${w.from}–${w.to} · read ${w.base.hm}–${w.latest.hm}`;
+  }
   if (w.state === "none") return "Needs two recorded readings";
   if (w.state === "gap") return `No reading close enough to ${w.wantMin} min back; not measured`;
   const len = w.wantMin === null ? "Day" : w.state === "short" ? `${w.spanMin}m of ${w.wantMin >= 60 ? `${w.wantMin / 60}h` : `${w.wantMin}m`}` : w.wantMin >= 60 ? `${w.wantMin / 60}h` : `${w.wantMin}m`;
@@ -212,7 +598,9 @@ const unmeasured = (title, w, tools) => hero({ title, word: w.state === "none" ?
  */
 function timeChart({ series, refs = [], band = null, marks = [], yFmt = (v, dp) => formatFixed(v, Math.max(2, dp)), readout, label, height = 260 }) {
   const times = series[0]?.points.map((p) => p.t) ?? [];
-  return chartHost((w) => {
+  // Redrawn when a point is added or the newest one moves (the live reading), not on every patch.
+  const sig = `${times.length}|${times.at(-1)}|${series.map((x) => x.points.at(-1)?.v).join(",")}|${marks.length}|${label}`;
+  return liveHost(sig, (w) => {
     const H = height;
     const pad = { l: 52, r: 14, t: 28, b: 24 };
     const vals = [...series.flatMap((x) => x.points.map((p) => p.v)), ...refs.map((r) => r.v), ...(band ?? [])].filter(isFigure);
@@ -285,10 +673,10 @@ async function renderOiChange(H) {
     const e = workspace.state.expiry;
     if (!day.frames.length) return noDay(day, `${u} ${dayText(e)}`);
     const p = prefs();
-    const win = capsule(H, "Window", "win", C.OIX_WINDOWS, again);
     const custom = customise(H, "OI change", [["Strikes", "each", EACH, "Counted in listed strikes either side of ATM"]], again);
-    const w = C.windowFrames(day.frames, p.win);
-    if (w.state === "none" || w.state === "gap") return [freshRow(day), unmeasured("OI change", w, [win, custom])];
+    const tools = [...windowTools(H, again), custom];
+    const w = windowFor(day.frames, p);
+    if (w.state === "none" || w.state === "gap") return [freshRow(day), unmeasured("OI change", w, tools)];
     const latest = w.latest;
     const moves = C.legMoves(w.base, latest, { strikes: C.scopeStrikes(latest, eachOf(p.each)), thinOi: Math.max(5000, 20 * latest.lot) });
     const ch = C.changeByStrike(moves);
@@ -304,13 +692,14 @@ async function renderOiChange(H) {
         word: reading.word,
         tone: reading.tone,
         detail: changeSentence(reading.key, t),
-        scope: `${u} ${dayText(e)} · ${windowText(w)} · ${eachText(p.each)} · contracts`,
+        scope: `${u} ${dayText(e)} · ${windowText(w)} · ${eachText(p.each)} · contracts${whenText(day, latest)}`,
         figs: [
           ["Calls", sCnt(t.ce), signCls(t.ce), `+${cnt(t.ceAdd)} added · ${cnt(t.ceCut)} cut`],
           ["Puts", sCnt(t.pe), signCls(t.pe), `+${cnt(t.peAdd)} added · ${cnt(t.peCut)} cut`],
           ["Puts − calls", sCnt(net), signCls(net), "Put change less call change"],
+          adds[0] ? ["Largest add", legName(adds[0]), `oix-leg ${adds[0].side}`, `${sCnt(adds[0].d)} · ${sPct(adds[0].pct)}`] : null,
         ],
-        tools: [win, custom],
+        tools,
       }),
       panel("Change by strike", "Calls on the left, puts on the right. Added in green, cut in red and hatched. Hover a bar for its figures.", changeLadder(ch.rows, latest), { wide: true }),
       panel("Biggest additions", "The legs that added the most contracts in the window", moverList(adds)),
@@ -382,7 +771,6 @@ async function renderSpurts(H) {
     if (!day.frames.length) return noDay(day, `${u} ${dayText(e)}`);
     const p = prefs();
     const bar = Number(p.bar);
-    const win = capsule(H, "Window", "win", C.OIX_WINDOWS, again);
     const custom = customise(
       H,
       "Spurts",
@@ -393,14 +781,18 @@ async function renderSpurts(H) {
       ],
       again,
     );
-    const w = C.windowFrames(day.frames, p.win);
-    if (w.state === "none" || w.state === "gap") return [freshRow(day), unmeasured("Spurts", w, [win, custom])];
+    const tools = [...windowTools(H, again), custom];
+    const w = windowFor(day.frames, p);
+    if (w.state === "none" || w.state === "gap") return [freshRow(day), unmeasured("Spurts", w, tools)];
     const latest = w.latest;
     const moves = C.legMoves(w.base, latest, { strikes: C.scopeStrikes(latest, eachOf(p.each)), legs: p.legs, thinOi: Math.max(5000, 20 * latest.lot) });
-    const r = C.boardReading(moves, { bar, lot: latest.lot, spot: latest.spot });
+    // The fourth check reads the readings up to the window's newest (one-reading steps).
+    const upTo = day.frames.slice(0, day.frames.indexOf(latest) + 1);
+    const kept = C.keptGoing(moves, upTo, { n: 5, steps: 3 });
+    const r = C.boardReading(moves, { bar, lot: latest.lot, spot: latest.spot, kept });
     const top = C.topMoves(moves, 3);
-    const passes = r.checks.filter((c) => c.pass).length;
     const lvl = (m) => (m ? `${legName(m)} ${sCnt(m.d)}` : DASH);
+    const against = r.against ? `${legName(r.against)} ${sCnt(r.against.d)} (${C.BUILDUPS[r.against.code]?.plain.toLowerCase() ?? "no build-up"}) points the other way.` : "";
     return [
       freshRow(day),
       hero({
@@ -408,14 +800,14 @@ async function renderSpurts(H) {
         word: r.word,
         tone: r.tone,
         detail: r.detail,
-        scope: `${u} ${dayText(e)} · ${windowText(w)} · ${eachText(p.each)}${p.legs === "both" ? "" : p.legs === "ce" ? " · calls only" : " · puts only"} · big move ≥ ${bar}%`,
+        scope: `${u} ${dayText(e)} · ${windowText(w)} · ${eachText(p.each)}${p.legs === "both" ? "" : p.legs === "ce" ? " · calls only" : " · puts only"} · big move ≥ ${bar}%${whenText(day, latest)}`,
         figs: [
           ["Opened", `+${cnt(r.opened)}`, "ink-pos", "Contracts added"],
           ["Closed", r.closed ? `−${cnt(r.closed)}` : "0", r.closed ? "ink-neg" : "ink-zero", "Contracts removed"],
           ["Points up", isFigure(r.upShare) ? `${formatInt(r.upShare * 100)}%` : DASH, isFigure(r.upShare) ? (r.upShare >= 0.6 ? "ink-pos" : r.upShare <= 0.4 ? "ink-neg" : "ink-zero") : "", "Of the size with a direction"],
-          ["Backing", `${r.firmness} · ${passes} of 3`, "", `${r.big} of ${r.legs} legs over ${bar}%`],
+          ["Backing", `${r.firmness[0].toUpperCase()}${r.firmness.slice(1)} · ${r.passes} of ${r.counted}`, `oix-firm f-${r.firmness}`, `${r.big} of ${r.legs} legs over ${bar}%`],
         ],
-        tools: [win, custom],
+        tools,
         extra: h(
           "details",
           { class: "oix-more" },
@@ -423,7 +815,12 @@ async function renderSpurts(H) {
           h(
             "div",
             { class: "oix-more-body" },
-            h("ul", { class: "oix-checks" }, r.checks.map((c) => h("li", { "data-pass": String(c.pass) }, h("span", { class: "oix-tick", "aria-hidden": "true" }, c.pass ? "✓" : "✗"), h("b", {}, c.label), h("span", {}, c.detail)))),
+            h(
+              "div",
+              { class: "stack" },
+              h("ul", { class: "oix-checks" }, r.checks.map((c) => h("li", { "data-pass": String(c.pass) }, h("span", { class: "oix-tick", "aria-hidden": "true" }, c.pass === null ? DASH : c.pass ? "✓" : "✗"), h("b", {}, c.label), h("span", {}, c.detail)))),
+              against ? h("p", { class: "oix-hint" }, `Against the reading: ${against}`) : null,
+            ),
             h(
               "dl",
               { class: "oix-levels" },
@@ -431,7 +828,7 @@ async function renderSpurts(H) {
               h("div", {}, h("dt", {}, "Possible floor"), h("dd", {}, lvl(r.levels.floor)), h("span", { class: "oix-hint" }, "The put at or below price with the most short build-up in this window")),
               h("div", {}, h("dt", {}, "Coming off"), h("dd", {}, lvl(r.levels.covering)), h("span", { class: "oix-hint" }, "The largest short covering on either side of price")),
             ),
-            h("p", { class: "oix-hint" }, "Opened against closed decides the regime (one sixth either way); the lean weighs every leg by the contracts it moved. A rule of thumb over what already happened, not a forecast. Legs that opened with very few contracts are left out of the lean."),
+            h("p", { class: "oix-hint" }, "Opened against closed decides the regime (one sixth either way); the lean weighs every leg by the contracts it moved. Four checks say how firmly the board backs it (three or four firm, two partial) and never change it. A rule of thumb over what already happened, not a forecast. Legs that opened with very few contracts are left out of the lean."),
           ),
         ),
       }),
@@ -483,7 +880,8 @@ const squash = (v) => Math.sign(v) * Math.log10(1 + Math.abs(v) / 10);
 /** The rotation map: premium move across, OI move up, a mark per leg. */
 function rotationMap(moves, { bar, label }) {
   const pts = moves.filter((m) => !m.thin && isFigure(m.pct) && isFigure(m.pxPct));
-  return chartHost((w) => {
+  const sig = `${bar}|${label}|${pts.map((m) => `${m.d}:${Math.round(m.pxPct * 10)}`).join(",")}`;
+  return liveHost(sig, (w) => {
     const H = Math.round(Math.min(520, Math.max(300, w * 0.55)));
     const pad = { l: 18, r: 18, t: 30, b: 30 };
     const svg = svgRoot(w, H, label);
@@ -547,11 +945,18 @@ const toneCls = (t) => (t === "pos" ? "ink-pos" : t === "neg" ? "ink-neg" : "ink
 async function renderPcr(H) {
   const u = workspace.state.underlying;
   // The OI explorer reads every expiry's chain: its columns give the PCR by expiry (read once with the view).
-  const byExpiry = api(`/v1/analytics/oi-explorer?${new URLSearchParams({ underlying: u, expiries: "4" })}`).then(
+  // Kept here (not filled into a drawn node later): a patch draws off-screen, so the list must be part of each drawing.
+  let expiries;
+  let redraw = null;
+  api(`/v1/analytics/oi-explorer?${new URLSearchParams({ underlying: u, expiries: "4" })}`).then(
     (r) => C.expiryPcrs(r.data?.data?.columns),
     () => null,
-  );
+  ).then((list) => {
+    expiries = list;
+    redraw?.();
+  });
   return recorderView(H, (day, again) => {
+    redraw = again;
     const e = workspace.state.expiry;
     if (!day.frames.length) return noDay(day, `${u} ${dayText(e)}`);
     const p = prefs();
@@ -567,8 +972,7 @@ async function renderPcr(H) {
     const wholeWord = pcrWord(whole.pcr);
     const pts = series.map((x) => ({ t: x.t, hm: x.hm, v: x.pcr }));
     const reach = now.lo !== null ? `${formatInt(now.n)} strikes ${formatInt(now.lo)}–${formatInt(now.hi)} around ${formatInt(now.centre)}` : "";
-    const expiryPanel = h("div", { class: "oix-exp" }, h("p", { class: "muted small" }, "Reading the other expiries…"));
-    byExpiry.then((list) => applyVars(expiryPanel.replaceChildren(expiryRows(list, e)) ?? expiryPanel));
+    const expiryPanel = h("div", { class: "oix-exp" }, expiries === undefined ? h("p", { class: "muted small" }, "Reading the other expiries…") : expiryRows(expiries, e));
     return [
       freshRow(day),
       hero({
@@ -576,7 +980,7 @@ async function renderPcr(H) {
         word: `${pcrText(now.pcr)} · ${word.word}`,
         tone: word.tone,
         detail: isFigure(now.pcr) ? `${formatInt(Math.round(now.pcr * 100))} puts open for every 100 calls on ${eachText(p.pcrEach)}. A ratio of open positions, not of trades, and it cannot say who holds them.` : "No call OI in scope, so there is no ratio.",
-        scope: `${u} ${dayText(e)} · ${reach} · as of ${latest.hm}${p.pcrEach !== "all" && wholeWord.word !== word.word && isFigure(whole.pcr) ? ` · the whole expiry reads ${pcrText(whole.pcr)} (${wholeWord.word.toLowerCase()})` : ""}`,
+        scope: `${u} ${dayText(e)} · ${reach} · as of ${latest.hm}${whenText(day)}${p.pcrEach !== "all" && wholeWord.word !== word.word && isFigure(whole.pcr) ? ` · the whole expiry reads ${pcrText(whole.pcr)} (${wholeWord.word.toLowerCase()})` : ""}`,
         figs: [
           ["Since open", isFigure(st.change) ? formatSigned(st.change, 2) : DASH, signCls(st.change), isFigure(st.first) ? `From ${pcrText(st.first)} at ${series.find((x) => isFigure(x.pcr))?.hm ?? ""}` : ""],
           ["Day range", isFigure(st.lo) ? `${pcrText(st.lo)}–${pcrText(st.hi)}` : DASH, "", isFigure(st.lo) ? `Low ${st.loAt} · high ${st.hiAt}` : ""],
@@ -670,7 +1074,7 @@ async function renderMaxPain(H) {
         word: formatInt(pc.strike),
         tone: "zero",
         detail: `The settlement price at which option holders of this expiry would collect least: ${rupees(pc.pain)} in all. Spot ${formatFixed(latest.spot, 2)} is ${formatFixed(Math.abs(gap), 0)} pts (${formatFixed((Math.abs(gap) / latest.spot) * 100, 2)}%) ${gap >= 0 ? "above" : "below"} it. A summary of the book, not a target.`,
-        scope: `${u} ${dayText(e)} · ${formatInt(latest.k.length)} recorded strikes · as of ${latest.hm}${edge ? " · at the edge of the recorded strikes, so the true level may lie beyond" : ""}`,
+        scope: `${u} ${dayText(e)} · ${formatInt(latest.k.length)} recorded strikes · as of ${latest.hm}${whenText(day)}${edge ? " · at the edge of the recorded strikes, so the true level may lie beyond" : ""}`,
         figs: [
           ["Floor", floor.word ? floor.word[0].toUpperCase() + floor.word.slice(1) : DASH, "", isFigure(floor.pct) ? `Next strike costs ${formatFixed(floor.pct, floor.pct < 1 ? 2 : 1)}% more` : ""],
           ["Moved today", formatInt(moves.length), "", first ? `From ${formatInt(first.strike)} at ${first.hm}` : ""],
@@ -708,7 +1112,8 @@ async function renderMaxPain(H) {
 function painColumns(pc, latest) {
   const i = pc.curve.findIndex((c) => c.strike === pc.strike);
   const list = pc.curve.slice(Math.max(0, i - 12), i + 13);
-  return chartHost((w) => {
+  const sig = `${pc.strike}|${Math.round(pc.pain)}|${Math.round(latest.spot)}|${list.length}`;
+  return liveHost(sig, (w) => {
     const H = 260;
     const pad = { l: 8, r: 8, t: 20, b: 26 };
     const svg = svgRoot(w, H, `Pain by settlement strike; the lowest is ${formatInt(pc.strike)}`);
@@ -743,28 +1148,44 @@ function painColumns(pc, latest) {
 // ───────────────────────── OI heatmap ─────────────────────────
 
 const STEPS = [["15", "15m"], ["30", "30m"], ["60", "1h"]];
+const HM_WINDOWS = [["all", "Session"], ["60", "Last 1h"], ["30", "Last 30m"], ["15", "Last 15m"], ["custom", "Custom"]];
+
+/** The readings the heatmap is built from: the whole session, the last stretch before the newest, or From–To. */
+function hmFrames(frames, p) {
+  if (p.hmWin === "custom") return C.framesBetween(frames, p.from, p.to);
+  if (p.hmWin === "all" || !frames.length) return frames;
+  const from = frames.at(-1).t - Number(p.hmWin) * 60_000;
+  return frames.filter((f) => f.t >= from);
+}
 
 async function renderHeatmap(H) {
-  const p0 = prefs();
-  const mode = H.segmented("Heatmap", [["day", "Through the day"], ["expiry", "By expiry"]], p0.hmMode);
-  mode.classList.add("oix-cap");
   const host = h("div", { class: "stack" });
+  // A fresh switch for every drawing (a patch draws off-screen: a shared node would be taken out of the page).
+  const makeMode = () => {
+    const m = H.segmented("Heatmap", [["day", "Through the day"], ["expiry", "By expiry"]], prefs().hmMode);
+    m.classList.add("oix-cap");
+    m.addEventListener("change", () => {
+      if (m.value === prefs().hmMode) return;
+      savePref("hmMode", m.value);
+      show();
+    });
+    return m;
+  };
   const show = async () => {
-    savePref("hmMode", mode.value);
     host.replaceChildren(h("p", { class: "muted", role: "status" }, "Loading…"));
-    const node = mode.value === "expiry" ? await byExpiryHeat(H, mode) : await throughTheDay(H, mode);
+    const node = prefs().hmMode === "expiry" ? await byExpiryHeat(H, makeMode()) : await throughTheDay(H, makeMode);
     host.replaceChildren(...[node].flat().filter(Boolean));
   };
-  mode.addEventListener("change", show);
   await show();
   return host;
 }
 
 /** Strike × time for one expiry: calls on the left, puts on the right, the newest column beside the strike. */
-function throughTheDay(H, mode) {
+function throughTheDay(H, makeMode) {
   return recorderView(H, (day, again) => {
     const u = workspace.state.underlying;
     const e = workspace.state.expiry;
+    const mode = makeMode();
     if (!day.frames.length) return [...noDay(day, `${u} ${dayText(e)}`), hero({ title: "OI heatmap", word: "Nothing recorded yet", tools: [mode] })];
     const p = prefs();
     const lead = capsule(H, "Tiles lead with", "lead", [["oi", "OI"], ["chg", "Change"]], again);
@@ -772,14 +1193,19 @@ function throughTheDay(H, mode) {
       H,
       "OI heatmap",
       [
+        ["Chart shows", "hmWin", HM_WINDOWS, "The plane is built from this stretch only, and its colours are measured again for it. Custom picks From and To in 15-minute steps"],
         ["Column step", "step", STEPS, "Each column is the last reading in its step"],
         ["Tile colour", "colour", [["buildup", "Build-up"], ["amount", "Amount"]], "Build-up: green where the premium rose, red where it fell. Amount: deeper is more OI"],
         ["Sides", "side", [["both", "Both"], ["ce", "Calls"], ["pe", "Puts"]], null],
       ],
       again,
     );
-    const latest = day.frames.at(-1);
-    const cols = C.timeColumns(day.frames, Number(p.step));
+    const range = p.hmWin === "custom" ? windowTools(H, again, "hmWin").slice(1) : [];
+    const shown = hmFrames(day.frames, p);
+    const tools = [mode, lead, ...range, custom];
+    if (!shown.length) return [freshRow(day), hero({ title: "OI heatmap", word: "No readings in this window", detail: p.hmWin === "custom" ? `Nothing was recorded between ${p.from} and ${p.to}. Pick another stretch in Customise.` : "Nothing was recorded in this stretch yet.", tools })];
+    const latest = shown.at(-1);
+    const cols = C.timeColumns(shown, Number(p.step));
     const strikes = C.scopeStrikes(latest, workspace.state.strikes ?? 10);
     const plane = C.heatPlane(cols, strikes);
     const atm = C.atmOf(latest);
@@ -796,14 +1222,14 @@ function throughTheDay(H, mode) {
         word: cols.length < 2 ? "One reading so far" : reading.word,
         tone: cols.length < 2 ? "zero" : reading.tone,
         detail: cols.length < 2 ? "A change needs two columns; the plane grows as the session is recorded." : `Since ${cols[0].hm}: puts ${sCnt(t.pe)}, calls ${sCnt(t.ce)} on the strikes drawn.${loudest ? ` The largest single move is ${legName(loudest)} at ${sCnt(loudest.d)}.` : ""}`,
-        scope: `${u} ${dayText(e)} · ${formatInt(cols.length)} columns of ${STEPS.find((x) => x[0] === p.step)?.[1] ?? ""} · ±${workspace.state.strikes ?? 10} strikes · newest ${latest.hm}`,
+        scope: `${u} ${dayText(e)} · ${HM_WINDOWS.find((x) => x[0] === p.hmWin)?.[1] ?? "Session"}${p.hmWin === "custom" ? ` ${p.from}–${p.to}` : ""} · ${formatInt(cols.length)} columns of ${STEPS.find((x) => x[0] === p.step)?.[1] ?? ""} · ±${workspace.state.strikes ?? 10} strikes · newest ${latest.hm}${whenText(day, latest)}`,
         figs: [
           ["Spot", formatFixed(latest.spot, 2), "", `ATM ${formatInt(atm)}`],
           ["Max pain", mp === null ? DASH : formatInt(mp), "", "Whole recorded expiry"],
           ["Call OI", cnt(C.scopedTotals(latest, workspace.state.strikes ?? 10).ce), "", "On the strikes drawn"],
           ["Put OI", cnt(C.scopedTotals(latest, workspace.state.strikes ?? 10).pe), "", "On the strikes drawn"],
         ],
-        tools: [mode, lead, custom],
+        tools,
       }),
       panel(
         "Open interest through the session",

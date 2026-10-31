@@ -4,10 +4,12 @@
 //  - Cone: the ±1σ and ±2σ price range each expiry's ATM IV implies (GET /v1/analytics/surface for the IVs, the
 //    underlying's quote for spot). A lognormal reading of IV, not a forecast.
 // Reads go through api(); nothing polls. Figures become text through format.js only.
-import { api, card, emptyState, h, table } from "./app.js";
+import { api, card, emptyState, h, icon, table } from "./app.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import { legend, nextId, statusRow, tile, tiles } from "./analyticsViews.js";
 import { seriesChart } from "./analyticsMore.js";
+import { hero } from "./analyticsOi.js";
+import { changeReading } from "./oi-suite-core.js";
 import { spotSymbolOf } from "./alert-core.js";
 import { workspace } from "./workspace.js";
 
@@ -71,7 +73,39 @@ export function probabilityCone(spot, slices) {
     .sort((a, b) => a.days - b.days);
 }
 
+/**
+ * One strike's day in one reading (pure): the net change of each side since the first reading (the OI change view's
+ * words: puts added reads green, calls added red), the strike's put-call ratio then and now, and the biggest single
+ * step between two readings (the moment the strike moved most). Null without rows.
+ * @param {Array<{ time: string, ceOi: number|null, peOi: number|null }>} rows
+ */
+export function strikeReading(rows) {
+  if (!rows?.length) return null;
+  const ce = firstLast(rows, "ceOi");
+  const pe = firstLast(rows, "peOi");
+  const reading = changeReading({ ce: ce.change ?? 0, pe: pe.change ?? 0 });
+  const ratio = (c, p) => (isFigure(c) && isFigure(p) && c > 0 ? p / c : null);
+  let peak = null;
+  for (let i = 1; i < rows.length; i += 1) {
+    for (const [side, key] of [["ce", "ceOi"], ["pe", "peOi"]]) {
+      const a = rows[i - 1][key];
+      const b = rows[i][key];
+      if (!isFigure(a) || !isFigure(b) || b === a) continue;
+      if (!peak || Math.abs(b - a) > Math.abs(peak.d)) peak = { time: rows[i].time, side, d: b - a };
+    }
+  }
+  // The ratio from one reading that has both sides (never a call from one minute over a put from another).
+  const both = rows.filter((x) => isFigure(x.ceOi) && isFigure(x.peOi));
+  return { ce, pe, word: reading.word, tone: reading.tone, pcrNow: both.length ? ratio(both.at(-1).ceOi, both.at(-1).peOi) : null, pcrFirst: both.length ? ratio(both[0].ceOi, both[0].peOi) : null, peak };
+}
+
 const loading = () => h("p", { class: "muted", role: "status" }, "Loading…");
+/** The step between readings, from the first two: "1 min", "5 min". */
+const everyText = (rows) => {
+  const a = Date.parse(rows[0]?.time ?? "");
+  const b = Date.parse(rows[1]?.time ?? "");
+  return Number.isFinite(a) && Number.isFinite(b) && b > a ? `${formatInt(Math.round((b - a) / 60_000))} min` : DASH;
+};
 const lakh = (v) => (isFigure(v) ? `${formatFixed(v / LAKH, 2)} L` : DASH);
 
 // ───────────────────────── Strike history ─────────────────────────
@@ -83,48 +117,76 @@ async function renderStrikeHistory(H) {
   const chain = (await api(`/v1/optionchain?underlying=${encodeURIComponent(u)}&expiry=${encodeURIComponent(e)}&strikes=15`)).data?.data ?? {};
   const strikes = (chain.rows ?? []).map((r) => Number(r.strike)).filter((k) => k > 0);
   if (!strikes.length) return emptyState("list", "No strikes", "The chain came back empty for this expiry.");
-  const strikeEl = h("select", { id: nextId("an-sh") }, strikes.map((k) => h("option", { value: String(k) }, `${formatInt(k)}${k === chain.atmStrike ? " (ATM)" : ""}`)));
-  strikeEl.value = String(chain.atmStrike ?? strikes[Math.floor(strikes.length / 2)]);
-  const everyEl = h("select", { id: nextId("an-sh") }, [["1", "1 min"], ["5", "5 min"], ["15", "15 min"]].map(([v, t]) => h("option", { value: v }, t)));
-  everyEl.value = "5";
-  const out = h("div", { class: "stack", "aria-live": "polite" });
+  const atm = chain.atmStrike ?? strikes[Math.floor(strikes.length / 2)];
+  const strikeEl = h("select", { id: nextId("an-sh"), class: "oix-clock", "aria-label": "Strike" }, strikes.map((k) => h("option", { value: String(k) }, `${formatInt(k)}${k === chain.atmStrike ? " · ATM" : ""}`)));
+  strikeEl.value = String(atm);
+  // The strike as a capsule stepper: ‹ strike › (the select in the middle lists every strike read).
+  const step = (dir) => {
+    const i = strikes.indexOf(Number(strikeEl.value)) + dir;
+    if (i < 0 || i >= strikes.length) return;
+    strikeEl.value = String(strikes[i]);
+    load();
+  };
+  const stepBtn = (dir, label) => {
+    const b = h("button", { type: "button", class: `icon-btn small oix-rp-btn${dir < 0 ? " back" : ""}`, "aria-label": label, title: label }, h("span", { class: "oix-rp-ic", "aria-hidden": "true" }, icon("chevron")));
+    b.addEventListener("click", () => step(dir));
+    return b;
+  };
+  const strikeCap = h("div", { class: "oix-range sh-stepper", role: "group", "aria-label": "Strike" }, stepBtn(-1, "Lower strike"), strikeEl, stepBtn(1, "Higher strike"));
+  const everyEl = H.segmented("Every", [["1", "1m"], ["5", "5m"], ["15", "15m"]], "5");
+  everyEl.classList.add("oix-cap");
+  const tools = [strikeCap, everyEl];
+  const out = h("div", { class: "stack" });
   let seq = 0;
   const load = async () => {
     const mine = ++seq;
-    out.replaceChildren(loading());
+    out.setAttribute("aria-busy", "true");
     try {
       const q = new URLSearchParams({ underlying: u, expiry: e, fields: "oi,iv", every: everyEl.value, strikes: "30", limit: "400" });
       const res = await api(`/v1/options/snapshots?${q}`);
-      if (mine === seq) out.replaceChildren(...drawStrikeHistory(res, Number(strikeEl.value), u, e).filter(Boolean));
+      if (mine === seq) out.replaceChildren(...drawStrikeHistory(res, Number(strikeEl.value), u, e, atm, tools).filter(Boolean));
     } catch (err) {
       if (mine === seq) out.replaceChildren(H.errorBox(err));
     }
+    if (mine === seq) out.removeAttribute("aria-busy");
   };
   strikeEl.addEventListener("change", load);
   everyEl.addEventListener("change", load);
+  out.replaceChildren(loading());
   await load();
-  return h("div", { class: "stack" }, h("section", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "form-grid" }, H.field("Strike", strikeEl), H.field("Every", everyEl)))), out);
+  return out;
 }
 
-function drawStrikeHistory(res, strike, u, e) {
+function drawStrikeHistory(res, strike, u, e, atm, tools) {
   const d = res.data?.data ?? {};
   const rows = strikeSeries(d.snapshots, strike);
   if (!rows.length) {
-    return [emptyState("clock", "Nothing recorded for this strike today", d.unavailable ? String(d.unavailable.reason ?? d.unavailable) : "The Bridge records chains every minute for indices while it runs. Leave it running in market hours and this fills in.")];
+    return [hero({ title: "Strike history", word: "Nothing recorded yet", detail: d.unavailable ? String(d.unavailable.reason ?? d.unavailable) : "The Bridge records index chains every minute while it runs in market hours; this fills in as the session is recorded.", tools })];
   }
-  const ceOi = firstLast(rows, "ceOi");
-  const peOi = firstLast(rows, "peOi");
   const ceIv = firstLast(rows, "ceIv");
   const peIv = firstLast(rows, "peIv");
   const label = (r) => istClock(r.time);
   const signedLakh = (v) => (isFigure(v) ? `${formatSigned(v / LAKH, 2)} L` : DASH);
+  const r = strikeReading(rows);
+  const tone = (v) => (!isFigure(v) || v === 0 ? "ink-zero" : v > 0 ? "ink-pos" : "ink-neg");
+  const side = (s) => (s === "ce" ? "call" : "put");
+  const where = strike === atm ? "at the money" : strike > atm ? "above the money" : "below the money";
+  const pcrTxt = (v) => (isFigure(v) ? formatFixed(v, 2) : DASH);
   return [
-    tiles(
-      tile(`${formatInt(strike)} CE OI`, lakh(ceOi.last), `${signedLakh(ceOi.change)} since ${label(rows[0])}`, ceOi.change > 0 ? "up" : ceOi.change < 0 ? "down" : undefined),
-      tile(`${formatInt(strike)} PE OI`, lakh(peOi.last), `${signedLakh(peOi.change)} since ${label(rows[0])}`, peOi.change > 0 ? "up" : peOi.change < 0 ? "down" : undefined),
-      tile("CE IV", isFigure(ceIv.last) ? formatPercent(ceIv.last, 2) : DASH, isFigure(ceIv.change) ? `${formatSigned(ceIv.change, 2)} points` : ""),
-      tile("PE IV", isFigure(peIv.last) ? formatPercent(peIv.last, 2) : DASH, isFigure(peIv.change) ? `${formatSigned(peIv.change, 2)} points` : ""),
-    ),
+    hero({
+      title: "Strike history",
+      word: `${formatInt(strike)} · ${r.word}`,
+      tone: r.tone,
+      detail: `Since ${label(rows[0])} the call side ${r.ce.change >= 0 ? "added" : "cut"} ${lakh(Math.abs(r.ce.change ?? 0))} and the put side ${r.pe.change >= 0 ? "added" : "cut"} ${lakh(Math.abs(r.pe.change ?? 0))}.${r.peak ? ` The biggest single step was the ${side(r.peak.side)} at ${label({ time: r.peak.time })}: ${signedLakh(r.peak.d)}.` : ""} Contracts opened or closed, not who holds them.`,
+      scope: `${u} ${formatDayMonth(e)} · ${formatInt(strike)} ${where} · ${formatInt(rows.length)} recorded readings · every ${everyText(rows)} · as of ${label(rows.at(-1))} IST`,
+      figs: [
+        ["Call OI", lakh(r.ce.last), "", h("span", { class: tone(r.ce.change) }, `${signedLakh(r.ce.change)} since ${label(rows[0])}`)],
+        ["Put OI", lakh(r.pe.last), "", h("span", { class: tone(r.pe.change) }, `${signedLakh(r.pe.change)} since ${label(rows[0])}`)],
+        ["Strike PCR", pcrTxt(r.pcrNow), isFigure(r.pcrNow) ? (r.pcrNow >= 1 ? "ink-pos" : "ink-neg") : "", isFigure(r.pcrFirst) ? `From ${pcrTxt(r.pcrFirst)} · ${isFigure(r.pcrNow) && r.pcrNow >= 1 ? "put-heavy" : "call-heavy"}` : ""],
+        ["IV call · put", `${isFigure(ceIv.last) ? formatPercent(ceIv.last, 1) : DASH} · ${isFigure(peIv.last) ? formatPercent(peIv.last, 1) : DASH}`, "", isFigure(ceIv.change) || isFigure(peIv.change) ? `${isFigure(ceIv.change) ? formatSigned(ceIv.change, 2) : DASH} · ${isFigure(peIv.change) ? formatSigned(peIv.change, 2) : DASH} points` : ""],
+      ],
+      tools,
+    }),
     card({
       title: "Open interest, lakh units",
       sub: `${u} ${e} ${formatInt(strike)}, ${formatInt(rows.length)} recorded snapshots`,
