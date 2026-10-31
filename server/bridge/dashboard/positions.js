@@ -30,6 +30,7 @@ import { dayRows } from "./orders-core.js";
 import { contractName } from "./flows.js";
 import { OPEN_TRIGGER } from "./trigger-core.js";
 import { candlesOf, lastSession, positionsSpec, spotSymbol } from "./chart-specs.js";
+import { accountOverview, attentionItems, moneyShort, riskGrid, riskParts, riskRead } from "./positions-core.js";
 
 
 /**
@@ -429,7 +430,29 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   };
 
   // ── Panels ──
-  const switchEl = h("div", { class: "pos-switch", role: "group", "aria-label": "Other underlyings with open legs", hidden: true });
+  // Account overview (positions-core.js accountOverview): the hero over the page. Total P&L over every position the
+  // account holds today, today's P&L, margin used, and a rail of the underlyings with open legs (the one on screen
+  // selected). The book strip under it is the underlying on screen.
+  const ovTotal = h("strong", { class: "pos-ov-v" }, DASH);
+  const ovTotalSub = h("span", { class: "pos-ov-s" });
+  const ovDay = h("strong", { class: "pos-ov-v2" }, DASH);
+  const ovMargin = h("strong", { class: "pos-ov-v2" }, DASH);
+  const ovMarginOf = h("span", { class: "pos-ov-of" });
+  const ovMeterFill = h("i", { class: "pos-ov-mf" });
+  const ovMarginSub = h("span", { class: "pos-ov-s" });
+  const ovMarginEl = h("div", { class: "pos-ov-f margin" }, h("span", { class: "pos-lbl" }, "Margin used"), h("span", { class: "pos-ov-line" }, ovMargin, ovMarginOf), h("span", { class: "pos-ov-meter", "aria-hidden": "true" }, ovMeterFill), ovMarginSub);
+  const switchEl = h("div", { class: "pos-ov-rail", role: "group", "aria-label": "Underlyings with open legs", hidden: true });
+  const ovEl = h(
+    "div",
+    { class: "pos-ov", role: "group", "aria-label": "Account today" },
+    h("div", { class: "pos-ov-f main" }, h("span", { class: "pos-lbl" }, "Total P&L"), ovTotal, ovTotalSub),
+    h("div", { class: "pos-ov-f" }, h("span", { class: "pos-lbl" }, "Day P&L"), ovDay, h("span", { class: "pos-ov-s" }, "Today, every underlying")),
+    ovMarginEl,
+    switchEl,
+  );
+  // Needs attention (positions-core.js attentionItems): ITM and tested shorts, a near expiry, the biggest loser. A tap
+  // lights the legs it is about and moves the row focus to the first.
+  const attnEl = h("div", { class: "pos-attn", role: "group", "aria-label": "Needs attention", hidden: true });
   const errBar = h("p", { class: "err-bar pos-err", hidden: true, role: "status" });
   // Hero: Net P&L, where it came from (won / lost / realised), credit kept, net if closed now.
   const heroLabel = h("span", { class: "pos-lbl" }, "Net P&L");
@@ -500,7 +523,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   const bookGrid = h("div", { class: "pos-bgrid" }, heroEl, greeksEl, capEl);
   const warnLive = h("p", { class: "sr-only", "aria-live": "polite" });
   const warnEl = h("div", { class: "pos-warns" });
-  const bookPanel = h("section", { class: "desk-panel pos-book", "data-panel": "book", "aria-label": "Book" }, switchEl, errBar, bookGrid, warnEl, warnLive);
+  const bookPanel = h("section", { class: "desk-panel pos-book", "data-panel": "book", "aria-label": "Book" }, ovEl, attnEl, errBar, bookGrid, warnEl, warnLive);
 
   const titleEl = h("span", { class: "panel-title" });
   const gearBtn = h("button", { type: "button", class: "small gear-btn", "aria-haspopup": "dialog", "aria-label": "Customise positions", title: "Columns, grouping, scenario and exit defaults" }, icon("sliders"), h("span", { class: "gear-label" }, "Customise"));
@@ -674,15 +697,117 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
   let bookEntered = false;
   let compKeys = { won: [], lost: [], realised: [] };
-  function drawBook() {
-    const others = O.bookUnderlyings(d.all, st.underlying);
-    const ssig = JSON.stringify(others);
+  /** The account overview: total and day P&L, margin used, the underlyings rail. */
+  function drawOverview() {
+    const ov = accountOverview(d.all, { funds: d.fundsFor === st.account ? d.funds : null, dayTotal: d.all.length ? dayRows(d.all).total : null, current: st.underlying });
+    ovEl.classList.toggle("loading", !d.loaded);
+    setFigure(ovTotal, ov.total, ov.total === null ? DASH : rs(ov.total), (v) => rs(v));
+    ovTotal.className = `pos-ov-v ${tone(ov.total) ?? ""}`.trim();
+    const withLegs = ov.underlyings.filter((u) => u.legs).length;
+    const tSub = ov.open ? `${plural(ov.open, "open position")} · ${plural(withLegs, "underlying")}` : "No open positions";
+    if (ovTotalSub.textContent !== tSub) ovTotalSub.textContent = tSub;
+    ovTotal.parentElement.title = `Realised and open P&L over every position in this account today, from the account's own figures${ov.missing ? `. ${plural(ov.missing, "position")} sent no P&L and ${ov.missing === 1 ? "is" : "are"} left out` : ""}`;
+    setFigure(ovDay, ov.day, ov.day === null ? DASH : rs(ov.day), (v) => rs(v));
+    ovDay.className = `pos-ov-v2 ${tone(ov.day) ?? ""}`.trim();
+    const m = ov.margin;
+    const mt = m.used === null ? DASH : ru(m.used);
+    if (ovMargin.textContent !== mt) ovMargin.textContent = mt;
+    const of = m.total === null ? "" : `of ${ru(m.total)}`;
+    if (ovMarginOf.textContent !== of) ovMarginOf.textContent = of;
+    const mv = String(m.util === null ? 0 : Math.round(Math.min(1, m.util) * 1000) / 1000);
+    if (ovMeterFill.style.getPropertyValue("--v") !== mv) ovMeterFill.style.setProperty("--v", mv);
+    ovMarginEl.dataset.level = m.level;
+    const ms = m.util === null ? "Funds unavailable" : `${formatPercent(m.util * 100, 0)} used · free ${ru(m.free)}`;
+    if (ovMarginSub.textContent !== ms) ovMarginSub.textContent = ms;
+    // The rail: one capsule per underlying with open legs, the one on screen selected (shared selection rule).
+    const rail = ov.underlyings.filter((u) => u.legs || u.underlying === st.underlying);
+    // Rebuilt when the underlyings or their leg counts change; each tick only patches the P&L text in place.
+    const ssig = JSON.stringify([rail.map((o) => [o.underlying, o.legs]), st.underlying]);
     if (switchEl.__sig !== ssig) {
       switchEl.__sig = ssig;
-      switchEl.replaceChildren(h("span", { class: "pos-switch-lbl" }, "Also open"), ...others.map((o) => h("button", { type: "button", class: "pos-uchip", onclick: () => setUnderlying(o.underlying), title: `Switch to ${o.underlying} (broker P&L)` }, h("strong", {}, o.underlying), h("span", { "aria-hidden": "true" }, "·"), plural(o.legs, "leg"), h("span", { "aria-hidden": "true" }, "·"), money(o.pnl))));
+      switchEl.replaceChildren(
+        ...rail.map((o) => {
+          const cur = o.underlying === st.underlying;
+          return h(
+            "button",
+            { type: "button", class: "chip-btn pos-uchip", "data-u": o.underlying, "aria-pressed": String(cur), onclick: () => !cur && setUnderlying(o.underlying) },
+            h("strong", {}, o.underlying),
+            o.legs ? h("span", { class: "pos-uchip-n" }, formatInt(o.legs)) : null,
+            h("span", { class: "pos-uchip-p" }),
+          );
+        }),
+      );
     }
-    // With nothing to show here the empty state carries the other underlyings instead.
-    switchEl.hidden = !others.length || !legs.some((l) => l.q || cfg().closed);
+    rail.forEach((o, k) => {
+      const b = switchEl.children[k];
+      const p = b?.lastChild;
+      if (!p) return;
+      const t = o.pnl === null ? "" : moneyShort(o.pnl);
+      if (p.textContent !== t) p.textContent = t;
+      const c = `pos-uchip-p ${tone(o.pnl) ?? ""}`.trim();
+      if (p.className !== c) p.className = c;
+      p.hidden = o.pnl === null;
+      b.title = o.underlying === st.underlying ? `${o.underlying}: on screen` : `Show ${o.underlying} (broker P&L ${rs(o.pnl)})`;
+    });
+    // A rail of one (the underlying on screen) says nothing the page does not.
+    switchEl.hidden = rail.length < 2;
+  }
+  /** Needs attention: the most urgent things in this underlying's book, as capsules that light their legs. */
+  let attnSym = [];
+  let attnTimer = null;
+  function drawAttention() {
+    const r = scopeNow() === "account" && !dayMode && legs.some((l) => l.q) ? attentionItems(legs, { now: Date.now(), close: refSession(st.ref).close }) : { items: [], more: 0 };
+    attnEl.hidden = !r.items.length;
+    // Rebuilt only when the items themselves change; a tick that moves a figure (the loser's P&L) patches the text,
+    // so a capsule under the pointer is never swapped out mid-click.
+    const sig = JSON.stringify([r.items.map((i) => [i.id, i.level, i.label]), r.more]);
+    if (attnEl.__sig !== sig) {
+      attnEl.__sig = sig;
+      attnEl.__items = r.items.map(() => ({ i: null }));
+      attnEl.replaceChildren(
+        h("span", { class: "pos-attn-lbl" }, "Needs attention"),
+        ...r.items.map((i, k) => {
+          const t = h("span", { class: "t" });
+          const b = h("button", { type: "button", class: `pos-attn-i ${i.level}`, "data-kind": i.kind, onclick: () => attend(attnEl.__items[k].i) }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", { class: "k" }, i.label), t);
+          attnEl.__items[k].t = t;
+          attnEl.__items[k].b = b;
+          return b;
+        }),
+        ...(r.more ? [h("span", { class: "pos-attn-more" }, `+${formatInt(r.more)} more`)] : []),
+      );
+    }
+    r.items.forEach((i, k) => {
+      const ref = attnEl.__items[k];
+      ref.i = i;
+      const tsig = `${i.text}|${tone(i.value)}`;
+      if (ref.t.__sig !== tsig) {
+        ref.t.__sig = tsig;
+        ref.t.replaceChildren(...(i.kind === "loser" ? [`${i.name} `, h("span", { class: tone(i.value) }, moneyShort(i.value))] : [i.text]));
+        ref.b.title = `${i.label}: ${i.text}. Shows the leg${i.symbols.length === 1 ? "" : "s"} in the table`;
+      }
+    });
+  }
+  function attend(i) {
+    if (i.kind === "expiry" && xpState?.expiry === i.id.slice(7) && !xpOpen) {
+      xpOpen = true;
+      drawExpiryDesk();
+    }
+    const first = i.symbols.find((s) => rowRefs.has(s));
+    if (first) {
+      focusSym = first;
+      patchRows(colsNow());
+      rowRefs.get(first).el.scrollIntoView?.({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
+    }
+    clearTimeout(attnTimer);
+    hoverRows(attnSym, false);
+    attnSym = i.symbols;
+    hoverRows(attnSym, true);
+    attnTimer = setTimeout(() => hoverRows(attnSym, false), 1800);
+  }
+  function drawBook() {
+    drawOverview();
+    drawAttention();
+    if (heroLabel.textContent !== `${st.underlying} P&L`) heroLabel.textContent = `${st.underlying} P&L`;
     const errText = d.error && d.lastOk ? `Couldn't refresh positions. Showing ${istTime(d.lastOk)}.` : "";
     if (errBar.textContent !== errText) errBar.textContent = errText;
     errBar.hidden = !errText;
@@ -885,9 +1010,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     const shown = util === null ? null : Math.round(util * 100);
     const lvl = shown === null ? "none" : shown >= 90 ? "neg" : shown >= 70 ? "warn" : "ok";
     capEl.dataset.level = lvl;
-    const top = has ? `${ru(used)} of ${ru(total)}` : "Funds unavailable";
+    // The overview carries the account's margin; this cell is the share of it this underlying's book needs.
+    const top = has ? (mb ? `≈ ${ru(mb)}${est.required > used ? "+" : ""} for ${st.underlying}` : `${ru(used)} in use`) : "Funds unavailable";
     if (capTop.textContent !== top) capTop.textContent = top;
-    const pct = has ? formatPercent(util * 100, 0) : "";
+    const pct = has && mb ? formatPercent((mb / total) * 100, 0) : "";
     if (capPct.textContent !== pct) capPct.textContent = pct;
     const a = has ? (mb ?? 0) / total : 0;
     const b = has ? Math.max(0, used - (mb ?? 0)) / total : 0;
@@ -900,7 +1026,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     setSeg(segBook, 0, a);
     setSeg(segOther, a, b);
     segBook.hidden = !mb;
-    const sub = has ? `${mb ? `≈ this book ${ru(mb)}${est.required > used ? "+" : ""} · ` : ""}free ${ru(avail ?? total - used)}` : "";
+    const sub = has ? `${mb && used - mb > 1 ? `other books ${ru(used - mb)} · ` : ""}free ${ru(avail ?? total - used)}` : "";
     if (capSub.textContent !== sub) capSub.textContent = sub;
     const saved = est && est.benefit > 1 ? ` Hedges save about ${ru(est.benefit)} against each leg on its own (${ru(est.standalone)}).` : "";
     capEl.title = `Account-wide margin from your broker or the paper engine. 'This book' is the portfolio estimate${est && est.required > (used ?? Infinity) ? ` (≥ ${ru(est.required)})` : ""}.${saved} ${SPAN_METHOD}${util !== null && util >= 0.7 ? ` ${formatPercent(util * 100, 1)} of funds used.` : ""}`;
@@ -937,7 +1063,8 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   }
   function drawWarnings() {
     const st0 = staleness();
-    const w = legs.length ? O.bookWarnings(legs, { spot, stale: st0, band: book && book.priced ? { delta: book.delta, band: deltaBand() } : null, rates: refCharges(st.ref) }) : [];
+    // Tested and in-the-money shorts are in Needs attention (with the legs they point at), not repeated here.
+    const w = legs.length ? O.bookWarnings(legs, { spot, stale: st0, band: book && book.priced ? { delta: book.delta, band: deltaBand() } : null, rates: refCharges(st.ref) }).filter((x) => x.id !== "tested") : [];
     const sig = JSON.stringify([w, warnOpen, isPhone()]);
     if (warnEl.__sig === sig) return;
     warnEl.__sig = sig;
@@ -1113,12 +1240,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
           { class: "pos-empty" },
           emptyState(
             "wallet",
-            `No open ${st.underlying} options`,
-            `${touchWord()} a bid or ask in the Option Chain to trade, or build a strategy first.${keyHint(" Keys: B / S on a strike.")}`,
+            others.length ? `Nothing open on ${st.underlying}` : "No open positions",
+            others.length
+              ? `Your open positions are on ${others.map((o) => o.underlying).join(", ")}: pick one above, or start a ${st.underlying} trade from the Option Chain.`
+              : `${touchWord()} a bid or ask in the Option Chain to trade, or build a strategy and send it as one basket.${account()?.broker === "paper" ? " This is a paper account: practise first, nothing reaches the exchange." : ""}${keyHint(" Keys: B / S on a strike.")}`,
             [h("button", { type: "button", class: "primary small", onclick: () => (location.hash = "#/chain") }, "Open Option Chain"), h("a", { href: "#/strategy", class: "small-link" }, "Strategy Builder")],
             { compact: true },
           ),
-          others.length ? h("p", { class: "pos-others" }, "Open elsewhere: ", others.map((o) => h("button", { type: "button", class: "pos-uchip", onclick: () => setUnderlying(o.underlying) }, `${o.underlying} (${formatInt(o.legs)})`))) : null,
         ),
       );
     }
@@ -1201,16 +1329,18 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       const gpnl = h("span", { class: "pos-gpnl" });
       const gbar = divBar("pos-gpbar");
       const locked = h("span", { class: "pos-locked", hidden: true });
+      const riskEl = h("span", { class: "pos-grisk" });
       const acts = h(
         "span",
         { class: "pos-gacts" },
         g.expiry ? h("button", { type: "button", class: "small plain", onclick: () => analyse(g), title: "Open this expiry's option legs in the strategy builder (exact quantities)" }, "Analyse") : null,
         g.expiry && g.legs.some((l) => l.q && l.kind === "OPT") ? h("button", { type: "button", class: "small plain", title: "Roll this group's option legs to a later expiry in one basket", onclick: () => openRoll(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Roll") : null,
+        g.legs.some((l) => l.q) ? h("button", { type: "button", class: "small plain", title: "Add a hedge: the hedge helper sizes a future or option to bring the book's Δ to your target, before and after shown; nothing is sent until you confirm", onclick: () => openHedge() }, "Add hedge") : null,
         h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), `${groupTitle(g).split(" · ")[0]}`) }, "Exit group"),
         g.legs.some((l) => l.q) ? h("button", { type: "button", class: "small plain", "aria-label": `Alert on ${groupTitle(g).split(" · ")[0]}`, title: "Alert on this group: P&L, spot, delta, time to expiry or a leg's premium", onclick: () => alertOn(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, icon("bell")) : null,
       );
-      head.append(h("th", { scope: "rowgroup", colspan: String(ncol) }, h("div", { class: "pos-gline" }, incHit, title, glyph.el, h("span", { class: "pos-gp" }, gpnl, gbar.el), stats, acts), locked));
-      groupRefs.set(g.key, { inc, title, stats, locked, glyph, gpnl, gbar });
+      head.append(h("th", { scope: "rowgroup", colspan: String(ncol) }, h("div", { class: "pos-gline" }, incHit, title, glyph.el, h("span", { class: "pos-gp" }, gpnl, gbar.el), stats, acts), riskEl, locked));
+      groupRefs.set(g.key, { inc, title, stats, locked, glyph, gpnl, gbar, riskEl });
       const rows = g.legs.filter(shownLeg).map((l) => {
         const tr = h("tr", { tabindex: "-1", "data-key": l.symbol, class: l.q ? "" : "closed" });
         const cells = new Map();
@@ -1243,6 +1373,31 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     el.addEventListener("pointerenter", (e) => e.pointerType === "mouse" && pay.highlightMarker(sym));
     el.addEventListener("pointerleave", (e) => e.pointerType === "mouse" && pay.highlightMarker(null));
   }
+  /** The group's risk at its expiry: max loss / profit and breakevens from a wide sampled curve, cached per group. */
+  const riskCache = new Map();
+  function groupRisk(g) {
+    const inc = g.legs.filter((l) => l.q && l.inc && l.priced);
+    const ref = inc.find((l) => l.kind === "OPT") ?? inc[0];
+    if (!ref || num(ref.F) === null) return null;
+    const sig = `${inc.map((l) => `${l.symbol}:${l.q}:${formatFixed(l.mark, 1)}:${formatFixed(l.iv, 1)}`).join()}|${Math.round(ref.F)}`;
+    const c = riskCache.get(g.key);
+    if (c?.sig === sig) return c.read;
+    const days = O.legDaysToExpiry(ref, Date.now(), refSession(st.ref).close);
+    const m = O.sigmaMove(ref.F, ref.atmIv ?? ref.iv, ref.T);
+    const xs = riskGrid(ref.F, m ? m / ref.F : 0.02, inc.filter((l) => l.kind === "OPT").map((l) => l.strike));
+    const read = riskRead(O.bookCurveStats((x) => O.scenarioPnl(inc, { dS: x / ref.F - 1, days }), xs));
+    riskCache.set(g.key, { sig, read });
+    return read;
+  }
+  /** The risk line's nodes: max loss in red, max profit in green, the breakevens in label ink. */
+  const riskNodes = (r) =>
+    !r
+      ? []
+      : [
+          h("span", {}, "Max loss ", h("strong", { class: r.lossUnlimited ? "down" : tone(r.maxLoss) }, r.lossUnlimited ? "Unlimited" : moneyShort(r.maxLoss))),
+          h("span", {}, "Max profit ", h("strong", { class: r.profitUnlimited ? "up" : tone(r.maxProfit) }, r.profitUnlimited ? "Unlimited" : moneyShort(r.maxProfit))),
+          r.breakevens.length ? h("span", {}, `${r.breakevens.length === 1 ? "Breakeven" : "Breakevens"} `, h("strong", {}, r.breakevens.slice(0, 3).map((b) => formatInt(b)).join(" · "))) : h("span", {}, "No breakeven"),
+        ];
   function groupGlyph() {
     const up = svgEl("path", { class: "up" });
     const dn = svgEl("path", { class: "dn" });
@@ -1279,13 +1434,14 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
         const gpnl = h("span", { class: "pos-gpnl" });
         const gbar = divBar("pos-gpbar");
         const locked = h("span", { class: "pos-locked", hidden: true });
+        const riskEl = h("span", { class: "pos-grisk" });
         const head = h(
           "button",
           { type: "button", class: "pos-cghead", "aria-expanded": String(isOpen), onclick: () => (isOpen ? collapsed.add(g.key) : collapsed.delete(g.key), drawPositions()) },
           h("span", { class: "pos-gline" }, title, glyph.el, h("span", { class: "pos-gp" }, gpnl, gbar.el)),
           icon("chevron"),
         );
-        groupRefs.set(g.key, { inc: null, title, stats, locked, glyph, gpnl, gbar });
+        groupRefs.set(g.key, { inc: null, title, stats, locked, glyph, gpnl, gbar, riskEl });
         const list = isOpen
           ? h(
               "div",
@@ -1310,7 +1466,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
               }),
             )
           : null;
-        return h("section", { class: "pos-cgroup", "data-group": g.key }, head, locked, list, isOpen && g.expiry ? h("div", { class: "pos-cacts" }, h("button", { type: "button", class: "small", onclick: () => analyse(g) }, "Analyse"), g.legs.some((l) => l.q && l.kind === "OPT") ? h("button", { type: "button", class: "small", onclick: () => openRoll(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Roll") : null, h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Exit group")) : null);
+        return h("section", { class: "pos-cgroup", "data-group": g.key }, head, riskEl, locked, list, isOpen && g.expiry ? h("div", { class: "pos-cacts" }, h("button", { type: "button", class: "small", onclick: () => analyse(g) }, "Analyse"), g.legs.some((l) => l.q && l.kind === "OPT") ? h("button", { type: "button", class: "small", onclick: () => openRoll(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Roll") : null, h("button", { type: "button", class: "small", onclick: () => openExitPlan(g.legs.filter((l) => l.q), groupTitle(g).split(" · ")[0]) }, "Exit group")) : null);
       }),
     );
   }
@@ -1352,6 +1508,9 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       setCell(ref.stats, JSON.stringify([Math.round(s.delta), Math.round(s.theta), s.kept === null ? null : Math.round(s.kept), phone]), () =>
         phone ? [] : [h("span", {}, `Δ ${formatSigned(s.delta, 0)}`), h("span", {}, "Θ ", money(s.theta)), s.kept !== null ? h("span", {}, `kept ${formatPercent(s.kept, 0)}`) : null],
       );
+      const rr = g.structure.locked ? null : groupRisk(g);
+      const rk0 = rr ? JSON.stringify([Math.round(rr.maxLoss ?? -1e15), Math.round(rr.maxProfit ?? 1e15), rr.breakevens]) : "";
+      setCell(ref.riskEl, rk0, () => riskNodes(rr), { hidden: rr ? null : "", title: rr ? `${riskParts(rr).join(" · ")} at ${g.expiry ? expiryText(g.expiry) : "the first expiry"}: included legs, from the model curve` : null });
       const vals = groupCurve(g);
       const gk = vals ? vals.map((v) => Math.round(v)).join() : "";
       if (ref.glyph.el.__sig !== gk) {
@@ -1936,8 +2095,10 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
   function drawExpiryDesk() {
     const xs = expiryScope();
     xpState = xs;
-    xpPanel.hidden = !xs;
-    if (!xs) return;
+    // Days away the desk stays out of the way (Needs attention names a near expiry and opens it); on the day and the
+    // session before it opens by itself.
+    xpPanel.hidden = !xs || (xs.when === "later" && !xpOpen);
+    if (xpPanel.hidden) return;
     const shown = xs.when !== "later" || xpOpen;
     xpBody.hidden = !shown;
     xpSquare.hidden = !shown;
@@ -2803,6 +2964,13 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     h("div", { class: "pos-hedge-acts" }, h("label", { class: "check" }, showBox, "Show on payoff"), ticketBtn),
   );
   hedgeHead.addEventListener("click", () => setHedgeOpen(!hd.open));
+  /** "Add hedge" on a group: open the hedge helper (nothing is sent from it without a confirmed ticket). */
+  function openHedge() {
+    if (hedgePanel.hidden) return;
+    if (!hd.open) setHedgeOpen(true);
+    hedgePanel.scrollIntoView?.({ block: "nearest", behavior: reducedMotion() ? "auto" : "smooth" });
+    targetIn.focus({ preventScroll: true });
+  }
   function setHedgeOpen(open) {
     hd.open = open;
     hedgeHead.setAttribute("aria-expanded", String(open));
@@ -3127,7 +3295,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
     if (legs.length) drawGreeksFoot();
     slotPanel.hidden = !cfg().chartSlot || !has;
     drawDayChart();
-    bookPanel.hidden = !d.loaded ? false : !legs.length && switchEl.hidden;
+    bookPanel.hidden = !account();
     onClock();
   }
 
@@ -3293,6 +3461,7 @@ export function createPositionsPage({ st, save, account, openTicket, onClock, se
       clearTimeout(hvTimer);
       clearInterval(xpTimer);
       clearTimeout(compTimer);
+      clearTimeout(attnTimer);
       // The payoff's document listener, ResizeObserver and any morph frame must not outlive the page.
       pay.destroy();
     },

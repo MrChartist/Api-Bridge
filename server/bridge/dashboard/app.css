@@ -4854,13 +4854,63 @@ table.oi-ladder tbody tr:not(.oi-xband):has(+ tr.oi-xband) > td { background-pos
 :is(.pos-book, .pos-panel, .pos-riskp) .up { color: hsl(var(--pos-ink)); }
 :is(.pos-book, .pos-panel, .pos-riskp) .down { color: hsl(var(--neg-ink)); }
 .pos-lbl { display: inline-flex; align-items: center; gap: 6px; font: var(--t-label); line-height: 1.2; color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
-.pos-switch { display: flex; align-items: center; gap: 6px; padding: 8px 12px; overflow-x: auto; scrollbar-width: none; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
-.pos-switch::-webkit-scrollbar { display: none; }
-.pos-switch[hidden] { display: none; }
-.pos-switch-lbl { flex: none; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-button.pos-uchip { flex: none; min-height: 28px; padding: 0 10px; gap: 4px; border-radius: 99px; font: 500 12.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); white-space: nowrap; }
+/* Account overview (the page's hero): Total P&L large, Day P&L and Margin used beside it, the underlyings rail at the
+   end. Hairline-divided figures on the panel, no nested cards; the rail's capsules use the shared selection rule. */
+.pos-ov { display: flex; align-items: stretch; flex-wrap: wrap; gap: 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.pos-ov-f { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; padding: 14px 20px; }
+.pos-ov-f + .pos-ov-f { box-shadow: inset var(--hl) 0 0 var(--mat-separator); }
+.pos-ov-f.main { padding-left: 16px; min-width: 200px; }
+.pos-ov-v { font: 600 30px/1.08 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; white-space: nowrap; border-radius: 6px; }
+.pos-ov-v2 { font: 600 20px/1.15 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; border-radius: 4px; }
+.pos-ov .pos-ov-v.up, .pos-ov .pos-ov-v2.up { color: hsl(var(--pos-ink)); }
+.pos-ov .pos-ov-v.down, .pos-ov .pos-ov-v2.down { color: hsl(var(--neg-ink)); }
+.pos-ov-s { font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
+.pos-ov-line { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.pos-ov-of { font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-label)); }
+.pos-ov-f.margin { min-width: 180px; }
+.pos-ov-meter { position: relative; display: block; width: 100%; max-width: 200px; height: 6px; border-radius: 3px; background: var(--mat-fill-2); overflow: hidden; }
+.pos-ov-mf { position: absolute; inset: 0; border-radius: 3px; background: hsl(var(--foreground) / 0.55); transform-origin: left center; transform: scaleX(var(--v, 0)); transition: transform var(--dur-3) var(--ease-std); }
+.pos-ov-f.margin[data-level="warn"] .pos-ov-mf { background: hsl(var(--warn)); }
+.pos-ov-f.margin[data-level="neg"] .pos-ov-mf { background: hsl(var(--neg)); }
+.pos-ov-f.margin[data-level="warn"] .pos-ov-s { color: hsl(var(--warn-ink)); }
+.pos-ov-f.margin[data-level="neg"] .pos-ov-s { color: hsl(var(--neg-ink)); }
+.pos-ov.loading .pos-ov-v, .pos-ov.loading .pos-ov-v2 { opacity: 0.5; }
+.pos-ov-rail { display: flex; align-items: center; gap: 6px; flex: 1 1 260px; justify-content: flex-end; min-width: 0; padding: 10px 16px; overflow-x: auto; scrollbar-width: none; }
+.pos-ov-rail::-webkit-scrollbar { display: none; }
+.pos-ov-rail[hidden] { display: none; }
+button.pos-uchip { flex: none; min-height: 30px; padding: 0 12px; gap: 6px; border-radius: 99px; font: 500 12.5px/1 var(--font-numeric); font-variant-numeric: tabular-nums; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); white-space: nowrap; }
 button.pos-uchip strong { font-weight: 600; }
-button.pos-uchip:hover { background: var(--mat-fill-1); }
+button.pos-uchip:hover:not([aria-pressed="true"]) { background: var(--mat-fill-1); }
+.pos-uchip-n { min-width: 16px; padding: 2px 5px; border-radius: 99px; font: 500 12px/1 var(--font-numeric); text-align: center; background: var(--mat-fill-2); }
+.pos-uchip-p.up { color: hsl(var(--pos-ink)); } .pos-uchip-p.down { color: hsl(var(--neg-ink)); }
+/* On the selected (contrast) capsule the P&L keeps its direction colour, in the bright tone that reads on it. */
+button.pos-uchip[aria-pressed="true"] .pos-uchip-p.up { color: hsl(var(--pos)); }
+button.pos-uchip[aria-pressed="true"] .pos-uchip-p.down { color: hsl(var(--neg)); }
+button.pos-uchip[aria-pressed="true"] .pos-uchip-n { background: hsl(var(--sel-fg) / 0.18); }
+@media (max-width: 719px) {
+  .pos-ov-f { padding: 12px; }
+  .pos-ov-f.main { flex: 1 0 100%; min-width: 0; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+  .pos-ov-f.main + .pos-ov-f { box-shadow: none; }
+  .pos-ov-f:not(.main) { flex: 1 1 0; }
+  .pos-ov-v { font-size: 26px; }
+  .pos-ov-v2 { font-size: 17px; }
+  .pos-ov-rail { flex: 1 0 100%; justify-content: flex-start; padding: 8px 12px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+}
+/* Needs attention: capsules that name the leg or expiry and light it in the table. */
+.pos-attn { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 16px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
+.pos-attn[hidden] { display: none; }
+.pos-attn-lbl { flex: none; margin-right: 2px; font: var(--t-label); color: hsl(var(--foreground) / var(--a-quiet)); }
+button.pos-attn-i { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 11px; border-radius: 99px; font: 500 12.5px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-1); box-shadow: none; white-space: nowrap; }
+button.pos-attn-i .dot { width: 7px; height: 7px; flex: none; border-radius: 99px; background: hsl(var(--warn)); }
+button.pos-attn-i .k { font-weight: 600; }
+button.pos-attn-i .t { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+button.pos-attn-i .t .up { color: hsl(var(--pos-ink)); } button.pos-attn-i .t .down { color: hsl(var(--neg-ink)); }
+button.pos-attn-i.bad { color: hsl(var(--neg-ink)); }
+button.pos-attn-i.bad .dot { background: hsl(var(--neg)); }
+button.pos-attn-i.warn .k { color: hsl(var(--warn-ink)); }
+button.pos-attn-i:hover { background: var(--mat-fill-2); }
+button.pos-attn-i:focus-visible { outline: 2px solid var(--sel-ring); outline-offset: 0; }
+.pos-attn-more { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .pos-err[hidden] { display: none; }
 .pos-err { margin: 0; color: hsl(var(--neg-ink)); background: hsl(var(--neg) / 0.08); }
 .pos-book.kept .pos-bgrid { opacity: 0.7; }
@@ -5046,6 +5096,13 @@ table.pos-table tr.pos-ghead th { padding: 7px 12px; text-align: left; font: 500
 .pos-gacts { display: inline-flex; gap: 4px; margin-left: auto; }
 .pos-gacts button { min-height: 26px; padding: 0 9px; font-size: 12.5px; }
 .pos-locked { display: block; margin-top: 4px; font: 500 12px/1.3 var(--font-numeric); color: hsl(var(--dv-iv-ink)); }
+/* A group's risk at its expiry: max loss (red), max profit (green), breakevens. */
+.pos-grisk { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; font: 500 12px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / var(--a-quiet)); }
+.pos-grisk[hidden] { display: none; }
+.pos-grisk strong { font-weight: 600; color: hsl(var(--foreground) / var(--a-label)); }
+.pos-grisk strong.up { color: hsl(var(--pos-ink)); } .pos-grisk strong.down { color: hsl(var(--neg-ink)); }
+table.pos-table tr.pos-ghead .pos-grisk { padding-left: 30px; }
+.pos-cgroup .pos-grisk { padding: 6px 12px 0; }
 .pos-locked[hidden] { display: none; }
 table.pos-table tbody tr[data-key] { cursor: default; }
 table.pos-table tbody tr[data-key] > td { transition: background-color var(--dur-1) var(--ease-std); }
@@ -5114,7 +5171,6 @@ table.pos-table thead th.c-inc { font-size: 12px; letter-spacing: 0.04em; }
 .pos-bulk button { min-height: 28px; }
 .pos-empty p { margin: 0 0 8px; }
 .pos-empty p:last-child { margin: 0; }
-.pos-empty .pos-uchip { margin-right: 6px; }
 .pos-menu { position: absolute; top: 0; right: 10px; width: 240px; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .pos-menu button { width: 100%; justify-content: flex-start; min-height: 32px; font-size: 13px; }
 /* Menu and sheet items read as actions, not links: foreground ink, a neutral fill on hover / focus (never accent);
@@ -7517,7 +7573,6 @@ a.small-link:hover { text-decoration: underline; }
 .strat-bar .bar-clear { flex: none; min-height: 44px; padding: 0 14px; }
 .strat-metrics .desk-stat .value { overflow: visible; text-overflow: clip; }
 @media (max-width: 719px) { .strat-metrics .desk-stat .value { font-size: clamp(14px, 4.2vw, 17px); white-space: nowrap; } }
-.pos-others { margin: 0; padding: 0 16px 16px; text-align: center; font: 500 13px/1.6 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
 .pos-head button.warn { color: hsl(var(--ios-orange-ink)); }
 @media (pointer: coarse) { a.small-link { min-height: 44px; } }
 @media (pointer: coarse) and (not (any-pointer: fine)) { .desk-keys { display: none; } }
