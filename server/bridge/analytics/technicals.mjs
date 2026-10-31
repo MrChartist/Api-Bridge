@@ -200,7 +200,7 @@ export function technicalSummary(candles) {
   if (golden) add("cross-50-200", `50-day SMA crossed ${golden.dir === "up" ? "above" : "below"} the 200-day SMA ${agoText(golden.barsAgo)}`, golden.dir);
   if (rsi !== null && rsi >= 70) add("rsi-high", "RSI 14 is above 70", "up");
   if (rsi !== null && rsi <= 30) add("rsi-low", "RSI 14 is below 30", "down");
-  if (macdCross) add("macd-cross", `MACD crossed ${macdCross.dir === "up" ? "above" : "below"} its signal line ${agoText(macdCross.barsAgo)}`, macdCross.dir);
+  if (macdCross) add("macd-cross", `MACD crossed ${macdCross.dir === "up" ? "above" : "below"} its 9-day average ${agoText(macdCross.barsAgo)}`, macdCross.dir);
   if (stDir(st) && stDir(stPrev) && stDir(st) !== stDir(stPrev)) add("st-flip", `Supertrend turned ${stDir(st)} today`, stDir(st));
   if (volRatio !== null && volRatio >= 2) add("volume", `Volume ${rnd(volRatio, 1)}× its 20-day average`, "info");
   if (fin(bb.upper) !== null && ltp > bb.upper) add("bb-upper", "Close above the upper Bollinger band", "up");

@@ -39,6 +39,7 @@ describe("pure helpers", () => {
   it("headlineName drops the corporate tail", () => {
     expect(headlineName("Reliance Industries Limited")).toBe("Reliance Industries");
     expect(headlineName("State Bank of India")).toBe("State Bank");
+    expect(headlineName("Infosys (Demo)")).toBe("Infosys");
     expect(headlineName("")).toBeNull();
     expect(headlineName("AB Ltd")).toBeNull();
   });

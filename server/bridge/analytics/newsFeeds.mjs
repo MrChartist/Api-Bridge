@@ -229,7 +229,7 @@ const matchesQuery = (q, ...parts) => {
 const byDateDesc = (a, b) => (a.publishedAt === b.publishedAt ? (a.id < b.id ? -1 : 1) : (a.publishedAt ?? "") < (b.publishedAt ?? "") ? 1 : -1);
 
 /** Words a company name ends with that headlines leave out ("Reliance Industries Limited" -> "Reliance Industries"). */
-const NAME_TAIL = /\s+(?:limited|ltd\.?|corporation|corp\.?|of india|company|co\.?|\(india\)|india)$/i;
+const NAME_TAIL = /\s+(?:limited|ltd\.?|corporation|corp\.?|of india|company|co\.?|\([^)]*\)|india)$/i;
 /** The short name a headline would use for a company, or null. */
 export function headlineName(name) {
   let n = String(name ?? "").replace(/\s+/g, " ").trim();
