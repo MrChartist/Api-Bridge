@@ -403,3 +403,43 @@ Shots in `scratchpad/qa2/p2/shots/`:
 - **Tests under heavy machine load** (load average 15 to 30 from parallel agents): `recorder/store.test` "full-day
   read ≤ 300 ms" took 342 to 1297 ms and `hooks/routes` "acknowledges within 50 ms" timed out. Both pass on a quiet
   machine. Not loosened.
+
+## Final sweep (31 Oct)
+
+Demo Bridge on port 4720 with a fresh home (`scratchpad/final/home`), Saturday 05:25 IST, market closed. Scripts and
+shots are in `scratchpad/final/`: `sweep.cjs` (every sidebar page and every tab of its first tab list, 55 views),
+`fl.cjs <item>` (the flows), `kill.cjs setup|on|off`, `pnl2.cjs`, `misc.cjs`.
+
+**Sweep.** 1920 dark, 1440 light and 390 dark, twice (before and after the fixes). Probes: console errors, failed
+requests, horizontal scroll, text clipped without an ellipsis, "null" / "undefined" / "NaN" / "Infinity" text,
+"Loading" still showing, type under 12 px, weight over 600. The only findings were the `<small>` sizes below (fixed).
+No horizontal scroll, clipping, bad text or heavy weights on any view. With three browsers on one key at once, Home
+drew a few 429s (the per-key limit, expected); one browser alone draws none.
+
+**Flows (paper).** Ticket place (limit 2 % under), modify to 2 lots, cancel; GTT from the ticket ("At a price") and a
+bracket (market entry with stop and target), both cancelled from Orders › Triggers; position stop and target from the
+row menu; convert Intraday to Carry (the stop and target carried with it); AMO queued and cancelled; SL ticket; Cancel
+all (2 open); Statement .xlsx export; Algo: added the four examples, started EMA crossover, Stop all; Day / Net,
+depth, order filters, Trades. Kill switch on from Safety: REST place, exit, modify, convert, Algo start, a ChartInk
+webhook and a GTT firing were all refused with KILL_SWITCH_ACTIVE; the running short straddle was stopped; the ticket
+read "Blocked"; cancel still worked. Preview and setting a GTT stay allowed (nothing is sent; the fire is checked).
+Released with RELEASE: orders and Algo start work again. P&L: Home, Positions (all accounts), Accounts, Orders › Funds
+and `/v1/positions` use the same figures, but demo prices move between refreshes, so an exact match was not possible.
+Positions (all accounts) showed exactly the API's −₹78 / −₹6 / +₹195 from a read a few seconds earlier, and Accounts
+showed the earlier read's +₹53. Realised (−₹96) matched everywhere. Risk shows VaR and exposure, not P&L.
+
+| # | Page | Was | Now |
+|---|---|---|---|
+| 42 | Orders › Triggers | "Cancel this gtt?", "Cancelled the gtt on …". | "GTT" keeps its capitals (`kindPhrase`). |
+| 43 | Orders › Cancel all | The question said "2 paper: cancelled." before anything was sent. | "Cancelled when you confirm: 2 paper." (`cancelAllBridgeLine`). |
+| 44 | Journal, Watchlists | A bare `<small>` in a table drew 10.4 to 11.7 px. | `:where(small)` floors at 12 px; authored sizes still win. |
+| 45 | Orders › Statement | Ledger balances read "₹2500000". | "₹25,00,000", as Funds. |
+| 46 | Statement .xlsx | Cells carried float tails (STT 48.751163424999994). | Money to the paisa (`statementSheets`). |
+| 47 | Watchlists | A refused price refresh showed "Loading prices": `draw()` overwrote the error. | "Prices unavailable: …", with the last update time when there was one. |
+
+### Left (not fixed here)
+
+- **Event vol:** the event date is still the browser's own date field.
+- **Algo:** "Start live" is enabled when no account allows live orders; the Bridge refuses the start, so it is safe,
+  but the button could say why up front.
+- **Daily limit on exits:** unchanged (an open owner decision).
