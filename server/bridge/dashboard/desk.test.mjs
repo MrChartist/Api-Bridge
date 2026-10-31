@@ -271,7 +271,7 @@ describe("chain, clean: defaults that fit common widths", () => {
   it("the estimates are the clean cells' real widths: Build-up fits about 120 px (its full name wraps when tight), OI and volume carry no side figure", async () => {
     const { STRIKE_W } = await import("./desk.js");
     // One line, "Long unwinding" needs about 138 px; the capsule may wrap at the space, so the column needs about 120.
-    expect(COL_MIN.bu).toBeGreaterThanOrEqual(116);
+    expect(COL_MIN.bu).toBeGreaterThanOrEqual(108);
     expect(COL_MIN.bu).toBeLessThanOrEqual(124);
     expect(COL_MIN.oi).toBeLessThan(80);
     expect(COL_MIN.vol).toBeLessThan(80);

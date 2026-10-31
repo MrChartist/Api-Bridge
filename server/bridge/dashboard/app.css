@@ -865,6 +865,18 @@ button.sb-account > svg:last-child { width: 14px; height: 14px; flex: none; fill
   position: fixed; z-index: var(--z-chrome); top: calc(10px + var(--safe-t));
   left: max(var(--page-gutter), var(--safe-l)); right: max(var(--page-gutter), var(--safe-r)); height: calc(var(--ctl-h) + 4px);
   display: flex; align-items: center; gap: 10px; pointer-events: none;
+  container: tbar / inline-size;
+}
+/* The underlying / expiry / spot capsule is the one thing on the bar that never gives way. */
+.ctx-cap.ctx-chain { flex-shrink: 0; }
+/* A tight bar (a laptop with the sidebar open): the live control keeps its dot and drops its words (they stay in its
+   label), and the readiness badge uses its short word, before the chain capsule would be squeezed. */
+@container tbar (max-width: 1099px) {
+  button.live-ctl .live-txt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .toolbar-ready :is(.rd-long, .rd-short) { display: none; }
+  .toolbar-budget .bud-lbl { display: none; }
+  .ctx-tools .hidden-chip .hc-word { display: none; }
+  .ctx-tools .chain-tools { gap: 4px; }
 }
 .toolbar > * { pointer-events: auto; }
 @media (min-width: 1024px) {
@@ -2335,6 +2347,9 @@ table.chain { --chain-gx: 9px; }
    column. Sized by the panel, not the window, so the sidebar's state counts. */
 .chain-panel { container: chainp / inline-size; }
 @container chainp (min-width: 900px) and (max-width: 1099px) { table.chain { --chain-gx: 7px; } }
+/* A narrow panel drops the Calls / Puts words from the outer titles (about 40 px each, the room Build-up needs); the
+   side colours still say which is which, C / V still filter, and a one-side view keeps its "Calls ×" chip. */
+@container chainp (max-width: 1099px) { table.chain .side-btn:not(.on) { display: none; } }
 table.chain th:first-child, table.chain td:first-child { padding-left: 12px; }
 table.chain th:last-child, table.chain td:last-child { padding-right: 12px; }
 /* Every figure right-aligned on one tabular edge, calls and puts alike; the strike and the per-strike columns centred.

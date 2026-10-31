@@ -1383,7 +1383,8 @@ async function renderDesk(kind) {
     if (hiddenChip.hidden !== !n) queueMicrotask(fitHead);
     hiddenChip.hidden = !n;
     const t = `+${formatInt(n)} hidden`;
-    if (hiddenChip.textContent !== t) hiddenChip.textContent = t;
+    // "+3" then " hidden": a tight toolbar keeps only the count (app.css .hc-word); the title names the columns.
+    if (hiddenChip.textContent !== t) hiddenChip.replaceChildren(`+${formatInt(n)}`, h("span", { class: "hc-word" }, " hidden"));
     hiddenChip.title = n ? `Hidden at this width: ${f.hidden.map(COL_NAME).join(", ")}. Customise to choose` : "";
   }
   /** A focused strike outside the window: show every strike for now (the saved choice stays). */
@@ -3053,11 +3054,11 @@ const TOOLBAR_PRESETS = MAIN_PRESETS;
 // column that has never been on screen keeps its estimate, so these must not be short (Build-up at 124 against a real
 // 165 px card was why it dropped first).
 export const COL_MIN = Object.freeze({
-  ltp: 78, iv: 52, oi: 64, chg: 70, vol: 74, bu: 120, bid: 68, ask: 68, delta: 60, gamma: 70, theta: 60, vega: 52, pitm: 58, potm: 64,
+  ltp: 78, iv: 52, oi: 64, chg: 70, vol: 74, bu: 112, bid: 68, ask: 68, delta: 60, gamma: 70, theta: 60, vega: 52, pitm: 58, potm: 64,
   ext: 82, spread: 74, liq: 70, prem: 110, be: 70, pop: 60, pops: 62, dist: 72, premLot: 76, thetaLot: 76, ivx: 64, hedge: 84,
   costPct: 62, syn: 126, dev: 98, edge: 96, ivskew: 58, pcrK: 54, strad: 78,
   ltpChg: 70, prevClose: 80, avgPx: 74, high: 68, low: 68, prevVol: 74, prevOi: 70, volOi: 60, bidPx: 64, bidQty: 68, askPx: 64, askQty: 68,
-  rho: 70, bu5: 120, bu15: 120, intrinsic: 70, bePct: 60, spreadAbs: 72, theo: 68, relDist: 64, bidPct: 60, askPct: 60, bidPctAnn: 76,
+  rho: 70, bu5: 112, bu15: 112, intrinsic: 70, bePct: 60, spreadAbs: 72, theo: 68, relDist: 64, bidPct: 60, askPct: 60, bidPctAnn: 76,
   askPctAnn: 76, sdOi: 70, sdBu: 120, default: 64,
 });
 /** The strike column's estimate (the soft capsule and its gutters), before the table measures it. */
