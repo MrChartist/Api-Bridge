@@ -10962,6 +10962,9 @@ select.ws-int { min-width: 72px; }
 .ws-tile-ctl { display: flex; align-items: center; gap: 6px; flex: none; }
 .ws-chart { min-width: 0; flex: 1 1 auto; }
 .ws-chart .lc-slot { padding: 2px 12px 12px; }
+/* The tile's head already names the contract and the workspace picks the interval: the chart keeps its tools and the
+   hovered candle's figures, without a second title or a second interval control. */
+.ws-chart :is(.lcp-title, .lcp-ranges, .lcp-ivbtn) { display: none; }
 
 /* The strike picker: − strike + in one capsule. */
 .ws-strike { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 999px; background: var(--mat-fill-1); }

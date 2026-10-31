@@ -285,7 +285,7 @@ export function createPro({ box, head, chart, opts, reload, expandBtn = null }) 
   const live = h("span", { class: "sr-only", "aria-live": "polite" });
   const rangeBtns = P.RANGES.map((r) => h("button", { type: "button", class: "chip-btn lcp-chip", "aria-pressed": "false", "aria-label": `Show ${r.name}`, "data-range": r.id, onclick: () => setTimeframe({ range: r.id }, true) }, r.id));
   const ranges = h("div", { class: "lcp-ranges", role: "group", "aria-label": "Quick ranges" }, rangeBtns);
-  const ivBtn = h("button", { type: "button", class: "small lcp-btn", "aria-haspopup": "menu", "aria-label": "Interval and range" }, h("span", { class: "lcp-btn-text" }, "5m"), glyph("chev"));
+  const ivBtn = h("button", { type: "button", class: "small lcp-btn lcp-ivbtn", "aria-haspopup": "menu", "aria-label": "Interval and range" }, h("span", { class: "lcp-btn-text" }, "5m"), glyph("chev"));
   const typeBtn = h("button", { type: "button", class: "small lcp-btn lcp-icon", "aria-haspopup": "menu", "aria-label": "Chart type", title: "Chart type" }, glyph("candles"));
   const indCount = h("span", { class: "lc-count", hidden: true });
   const indBtn = h("button", { type: "button", class: "small lcp-btn", "aria-haspopup": "dialog", title: "Indicators (/)" }, glyph("fx"), h("span", { class: "lcp-btn-text lcp-ind-text" }, "Indicators"), indCount);
