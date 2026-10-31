@@ -249,6 +249,8 @@ async function renderDesk(kind) {
   modeSeg.classList.add("mode-seg");
   modeSeg.title = "Simple prints plain figures; Advanced adds bars, the market line's extras, the straddle table and pinning";
   const gearBtn = h("button", { type: "button", class: "small gear-btn", "aria-haspopup": "dialog", "aria-label": "Customise the chain", title: "Customise the chain: view, strikes, market line, columns" }, icon("sliders"), h("span", { class: "gear-label" }, "Customise"));
+  // Highlights: each side's top strikes (OI, volume, OI added / cut, build-up) and the positioning on screen, in one sheet.
+  const hlBtn = h("button", { type: "button", class: "small gear-btn hl-btn", "aria-haspopup": "dialog", "aria-label": "Highlights", title: "Highlights: each side's top strikes by OI, volume, OI change and build-up" }, icon("radar"), h("span", { class: "gear-label" }, "Highlights"));
   const staleText = document.createTextNode("Stale");
   const stalePill = h("span", { class: "pill warn chain-stale", role: "status", hidden: true }, h("span", { class: "pdot", "aria-hidden": "true" }), staleText);
   // Multi-select: tick contracts, then open them in the Strategy Builder (m).
@@ -961,7 +963,13 @@ async function renderDesk(kind) {
     const devMax = devs.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
     let bestEdge = null;
     for (const [k, e] of edge) if (e && isFigure(e.edge) && (!bestEdge || e.edge > bestEdge.edge)) bestEdge = { strike: k, edge: e.edge };
-    const tops = (side) => new Map(O.topOi(c.rows, side, 3).map((t) => [t.strike, t.rank]));
+    // The build-up meter's scale: the largest |OI change| on each side (each window has its own).
+    const maxChg = { ce: c.rows.reduce((m, r) => Math.max(m, Math.abs(num(r.ce?.oiChange) ?? 0)), 0), pe: c.rows.reduce((m, r) => Math.max(m, Math.abs(num(r.pe?.oiChange) ?? 0)), 0) };
+    const winQ = w?.ref ? (q) => q && { ltp: q.ltp, oi: q.oi, change: q.winChange, oiChange: q.oiChange, close: null } : (q) => q;
+    const buWin = w?.ref ? "15" : "day";
+    // Highlights (chain-metrics.js chainHighlights): the #1 – #3 strikes per side by OI, volume, OI added / cut and
+    // build-up intensity, once per refresh; a live tick keeps them until the next one.
+    const hl = M.chainHighlights(c.rows, { buildup: (r, s) => M.buildupIntensity(M.dayBuildup(winQ(r[s]), buWin), maxChg[s]) });
     return {
       c,
       sm,
@@ -980,7 +988,9 @@ async function renderDesk(kind) {
       em1: { lo: near(b1?.lo), hi: near(b1?.hi) },
       em2: { lo: near(b2?.lo), hi: near(b2?.hi) },
       band1: b1,
-      topOi: { ce: tops("ce"), pe: tops("pe") },
+      // The OI ranks (the hover cards' "OI rank on this side") are the highlights' own.
+      topOi: { ce: hl.ce.oi, pe: hl.pe.oi },
+      hl,
       ref: ref ?? null,
       refKind: num(sameQ?.ltp) !== null ? "fut" : "F",
       medianDev: devs.length ? devs[Math.floor(devs.length / 2)] : null,
@@ -1000,16 +1010,18 @@ async function renderDesk(kind) {
       edgeRef,
       windowed: Boolean(w?.ref),
       // Build-up over the window reads the price change over the same window.
-      winQ: w?.ref ? (q) => q && { ltp: q.ltp, oi: q.oi, change: q.winChange, oiChange: q.oiChange, close: null } : (q) => q,
+      winQ,
       // The build-up rule's floors: the day's, or the 15 min ones over a recorded window.
-      buWin: w?.ref ? "15" : "day",
+      buWin,
       // Rho, Theoretical price and the annualised yields: calendar years to expiry (interest) and the discount factor.
       tcal,
       df: growth > 0 ? 1 / growth : 1,
       // 5 / 15 min build-up: the baseline snapshots, found once per refresh (only while a column needs them).
       ...minuteRefs(w, c.rows),
-      // The build-up meter's scale: the largest |OI change| on each side (each window has its own).
-      maxChg: { ce: c.rows.reduce((m, r) => Math.max(m, Math.abs(num(r.ce?.oiChange) ?? 0)), 0), pe: c.rows.reduce((m, r) => Math.max(m, Math.abs(num(r.pe?.oiChange) ?? 0)), 0) },
+      maxChg,
+      // High / Low with no day range from the data source: the range of this page's minute snapshots (today's key),
+      // once per refresh and only while one of those columns is chosen.
+      snapHL: (st.cfg.cols.includes("high") || st.cfg.cols.includes("low")) && w?.snaps?.length ? M.snapshotRanges(w.snaps) : null,
     };
   }
   /** The 5 / 15 min build-up baselines (chain-metrics.js windowRef). "Now" is this device's clock while the session is
@@ -1029,7 +1041,13 @@ async function renderDesk(kind) {
         const rd = M.windowBuildup(r[side], ref, r.strike, side);
         if (rd.state === "ok") max[side] = Math.max(max[side], Math.abs(rd.dOi));
       }
-      return { ...ref, max };
+      // The window's strongest build-ups (the highlights' marks on bu5 / bu15).
+      const strong = (s) => M.topRanks(rows, (r) => {
+        const v = M.buildupIntensity(M.windowBuildup(r[s], ref, r.strike, s), max[s]);
+        return v >= M.HL_BUILDUP_FLOOR ? v : null;
+      });
+      const top = { ce: strong("ce"), pe: strong("pe") };
+      return { ...ref, max, top };
     };
     return { bu5: want5 ? withMax(M.windowRef(snaps, now, "5", { live })) : null, bu15: want15 ? withMax(M.windowRef(snaps, now, "15", { live })) : null };
   }
@@ -1090,6 +1108,8 @@ async function renderDesk(kind) {
     chainEl.removeAttribute("aria-busy");
     if (kind === "chain") {
       chain.draw(x);
+      // An open Highlights sheet follows the refresh (its body is a few rows: rebuilt, not patched).
+      if (hlPop?.body?.isConnected) fillHighlights(x);
       // Bars grow on the first draw of each chain (underlying + expiry), then only resize.
       const enterKey = `${x.c.underlying}|${x.c.expiry}`;
       if (enteredKey !== enterKey) {
@@ -1162,7 +1182,7 @@ async function renderDesk(kind) {
   // The chain's tools as one row of capsules (stale pill, +N hidden, Select, Customise, Simple | Advanced): in the app
   // toolbar beside the page's capsule, or on a phone in the head row above the table beside Calls | Puts | Both.
   // createChain places them on each build. Select and Customise are icons; their names are their labels and titles.
-  const chainTools = h("div", { class: "chain-tools icons" }, stalePill, hiddenChip, selectBtn, gearBtn, kind === "chain" ? modeSeg : null);
+  const chainTools = h("div", { class: "chain-tools icons" }, stalePill, hiddenChip, selectBtn, kind === "chain" ? hlBtn : null, gearBtn, kind === "chain" ? modeSeg : null);
   const toolSlot = h("div", { class: "ctx-tools" });
   const headRow = h("div", { class: "chain-head panel-head" });
   /** The data's own date (IST) when there is one, else today: days to expiry count from it, not from this clock. */
@@ -1191,6 +1211,84 @@ async function renderDesk(kind) {
       e.preventDefault();
       openExpiryList();
     });
+  }
+  // ── Highlights sheet: each side's #1 – #3 by OI, volume, OI added, OI cut and build-up (context() x.hl), and how the
+  // day's OI change on the strikes on screen groups. A strike jumps the chain to it. ──
+  let hlPop = null;
+  const HL_ROWS = [
+    ["oi", "Open interest", "The side's largest OI; #1 is the wall"],
+    ["vol", "Volume", "Contracts traded today"],
+    ["add", "OI added", "The largest rises in OI"],
+    ["cut", "OI cut", "The largest falls in OI"],
+    ["bu", "Build-up", "The strongest readings: premium and OI moves read together"],
+  ];
+  function highlightsBody(x) {
+    const rows = new Map(x.c.rows.map((r) => [r.strike, r]));
+    const u = st.cfg.lots ? x.lot : 1;
+    const valueOf = (kind, q) => {
+      if (kind === "oi") return [formatCompact(num(q?.oi) === null ? null : q.oi / u), ""];
+      if (kind === "vol") return [formatCompact(num(q?.volume) === null ? null : q.volume / u), ""];
+      if (kind === "add" || kind === "cut") return [formatCompact(num(q?.oiChange) === null ? null : q.oiChange / u, { signed: true }), kind === "add" ? "up" : "down"];
+      const rd = M.dayBuildup(x.winQ(q), x.buWin);
+      const tone = rd.code === "LB" || rd.code === "SC" ? "up" : rd.code === "SB" || rd.code === "LU" ? "down" : "";
+      return [rd.state === "ok" ? M.BUILDUP_LABELS[rd.code] : DASH, tone];
+    };
+    const cell = (kind, side) => {
+      const ks = M.rankedStrikes(x.hl?.[side]?.[kind]);
+      if (!ks.length) return h("div", { class: "hl-cell none" }, h("span", { class: "muted" }, kind === "bu" ? "None strong" : DASH));
+      const [k1, ...rest] = ks;
+      const [v, tone] = valueOf(kind, rows.get(k1)?.[side]);
+      const go = (k) => () => {
+        hlPop?.close();
+        chain.jump(k, side);
+      };
+      const wall = kind === "oi" ? (side === "ce" ? "Call wall" : "Put wall") : null;
+      return h(
+        "div",
+        { class: "hl-cell" },
+        h("button", { type: "button", class: `hl-top ${kind} ${side}`, "data-k": `${kind}|${side}|${k1}`, title: `${M.rankText(kind, 1, side)}. Go to ${formatInt(k1)}`, onclick: go(k1) }, h("i", { class: `rk ${kind === "oi" ? "oi" : "vol"} ${side} r1`, "aria-hidden": "true" }, formatInt(1)), h("strong", {}, formatInt(k1)), h("span", { class: `hl-v${tone ? ` ${tone}` : ""}` }, v)),
+        h("span", { class: "hl-more" }, wall ? h("span", { class: `hl-wall ${side}` }, wall) : null, rest.map((k, i) => h("button", { type: "button", class: "hl-alt", "data-k": `${kind}|${side}|${k}`, title: `${M.rankText(kind, i + 2, side)}. Go to ${formatInt(k)}`, onclick: go(k) }, `#${formatInt(i + 2)} ${formatInt(k)}`))),
+      );
+    };
+    const grid = h(
+      "div",
+      { class: "hl-grid", role: "table", "aria-label": "Top strikes per side" },
+      h("div", { class: "hl-row hl-headrow", role: "row" }, h("span", { role: "columnheader" }), h("span", { class: "hl-side ce", role: "columnheader" }, "Calls"), h("span", { class: "hl-side pe", role: "columnheader" }, "Puts")),
+      HL_ROWS.map(([kind, label, hint]) => h("div", { class: "hl-row", role: "row" }, h("span", { class: "hl-label", role: "rowheader", title: hint }, label), h("div", { role: "cell" }, cell(kind, "ce")), h("div", { role: "cell" }, cell(kind, "pe")))),
+    );
+    // Positioning over the strikes on screen (chain-metrics.js positioning): a grouping of today's moves, not a forecast.
+    const n = st.strikesView === "all" ? Infinity : Number(st.strikesView) || 10;
+    const p = M.positioning(O.rowsAroundAtm(x.c, n));
+    const share = p ? Math.round(p.upShare) : null;
+    const meter = h("span", { class: "hl-meter", "aria-hidden": "true" }, h("i", { class: "up" }), h("i", { class: "down" }));
+    if (p) {
+      meter.firstChild.style.flexGrow = String(p.up);
+      meter.lastChild.style.flexGrow = String(p.down);
+    }
+    const pos = h(
+      "div",
+      { class: "hl-pos" },
+      h("div", { class: "hl-pos-head" }, h("span", { class: "hl-label" }, "Positioning on screen"), p ? h("span", { class: "hl-pos-v" }, h("span", { class: "up" }, `${formatInt(share)}% leans up`), " · ", h("span", { class: "down" }, `${formatInt(100 - share)}% leans down`)) : h("span", { class: "muted" }, "No leg moved both ways yet")),
+      p ? meter : null,
+      h("p", { class: "hl-note" }, p ? `${formatInt(p.voted)} legs, weighted by OI change; ${formatInt(Math.round(p.opening))}% of it new positions. Call premium up or put premium down leans up. A grouping of today's moves, not a forecast.` : "Each leg whose premium and OI both moved today counts, weighted by the size of its OI change."),
+    );
+    return [grid, pos];
+  }
+  /** Fill the open sheet, keeping the keyboard on the same strike button when it is still listed. */
+  function fillHighlights(x) {
+    const body = hlPop?.body;
+    if (!body) return;
+    const at = body.contains(document.activeElement) ? document.activeElement?.dataset?.k : null;
+    body.replaceChildren(...highlightsBody(x));
+    if (at) body.querySelector(`[data-k="${at}"]`)?.focus({ preventScroll: true });
+  }
+  function openHighlights() {
+    if (hlPop) return hlPop.close();
+    if (!lastX) return;
+    const body = h("div", { class: "pop-body hl-sheet" });
+    hlPop = sheetPopover({ trigger: hlBtn, title: `${st.underlying} highlights`, body, cls: "hl-pop", onClose: () => (hlPop = null) });
+    if (hlPop) hlPop.body = body;
+    fillHighlights(lastX);
   }
   function openExpiryList() {
     const ex = st.expiries;
@@ -2353,6 +2451,20 @@ async function renderDesk(kind) {
         ];
         return [caption("Display"), group(...main.filter(Boolean)), h("h4", { class: "cz-sub" }, "More"), group(...extra.filter(Boolean))];
       },
+      // The marks on each side's top strikes (desk.js hlRank). Advanced only: Simple prints plain figures.
+      highlights() {
+        if (!adv()) return [];
+        const hlSw = (text, key, hint) => sw(text, () => st.cfg.hl[key], (v) => setCfg({ hl: { ...st.cfg.hl, [key]: v } }), { hint });
+        return [
+          caption("Highlights", "Each side ranked on its own"),
+          group(
+            hlSw("Most open interest", "oi", "#1 to #3 beside the OI; #1 is the call or put wall"),
+            hlSw("Most volume", "vol", "#1 to #3 beside the volume"),
+            hlSw("Largest OI added & cut", "chg", "The top three changes each way, on a green or red capsule"),
+            hlSw("Strongest build-ups", "bu", "The top three readings fill fuller; quiet ones stay quiet"),
+          ),
+        ];
+      },
       columns() {
         const enabled = st.cfg.cols;
         const fit = chain.fitInfo();
@@ -2708,6 +2820,7 @@ async function renderDesk(kind) {
     loadChain();
   });
   gearBtn.addEventListener("click", () => openCustomise());
+  hlBtn.addEventListener("click", () => openHighlights());
   modeSeg.addEventListener("change", () => modeSeg.value !== st.cfg.mode && setMode(modeSeg.value));
   selectBtn.addEventListener("click", () => chain.toggleSelect());
   aSel.addEventListener("change", () => {
@@ -2871,7 +2984,7 @@ export const CHAIN_COLUMNS = [
   ["ltpChg", "LTP change"], ["prevClose", "Previous close"], ["avgPx", "Average price"], ["high", "Today's high"], ["low", "Today's low"],
   ["prevVol", "Previous volume"], ["volOi", "Volume / OI"],
   ["bidPx", "Bid"], ["bidQty", "Bid quantity"], ["askPx", "Ask"], ["askQty", "Ask quantity"],
-  ["rho", "Rho"], ["bu5", "5 min build-up"], ["bu15", "15 min build-up"],
+  ["rho", "Rho"], ["bu5", "5 min build-up"], ["bu15", "15 min build-up"], ["prevOi", "Previous OI"],
   ["intrinsic", "Intrinsic value"], ["bePct", "Breakeven %"], ["spreadAbs", "Bid-ask spread"], ["theo", "Theoretical price"],
   ["relDist", "Relative distance"], ["bidPct", "Bid %"], ["askPct", "Ask %"], ["bidPctAnn", "Annualised bid %"], ["askPctAnn", "Annualised ask %"],
 ];
@@ -2919,7 +3032,7 @@ export const COLUMN_GROUPS = Object.freeze([
   { id: "price", label: "Price & volume", keys: ["ltp", "ltpChg", "prevClose", "avgPx", "high", "low", "vol", "prevVol", "volOi", "prem", "premLot"] },
   { id: "depth", label: "Market depth", keys: ["bidPx", "bidQty", "askPx", "askQty", "spread", "liq"] },
   { id: "greeks", label: "Greeks", keys: ["iv", "delta", "gamma", "theta", "vega", "rho", "thetaLot", "ivx", "ivskew"] },
-  { id: "oi", label: "Open interest signals", keys: ["oi", "chg", "bu", "bu5", "bu15", "pcrK"] },
+  { id: "oi", label: "Open interest signals", keys: ["oi", "prevOi", "chg", "bu", "bu5", "bu15", "pcrK"] },
   {
     id: "other",
     label: "Other metrics",
@@ -2943,7 +3056,7 @@ export const COL_MIN = Object.freeze({
   ltp: 78, iv: 52, oi: 64, chg: 70, vol: 74, bu: 120, bid: 68, ask: 68, delta: 60, gamma: 70, theta: 60, vega: 52, pitm: 58, potm: 64,
   ext: 82, spread: 74, liq: 70, prem: 110, be: 70, pop: 60, pops: 62, dist: 72, premLot: 76, thetaLot: 76, ivx: 64, hedge: 84,
   costPct: 62, syn: 126, dev: 98, edge: 96, ivskew: 58, pcrK: 54, strad: 78,
-  ltpChg: 70, prevClose: 80, avgPx: 74, high: 68, low: 68, prevVol: 74, volOi: 60, bidPx: 64, bidQty: 68, askPx: 64, askQty: 68,
+  ltpChg: 70, prevClose: 80, avgPx: 74, high: 68, low: 68, prevVol: 74, prevOi: 70, volOi: 60, bidPx: 64, bidQty: 68, askPx: 64, askQty: 68,
   rho: 70, bu5: 120, bu15: 120, intrinsic: 70, bePct: 60, spreadAbs: 72, theo: 68, relDist: 64, bidPct: 60, askPct: 60, bidPctAnn: 76,
   askPctAnn: 76, sdOi: 70, sdBu: 120, default: 64,
 });
@@ -3042,6 +3155,9 @@ export const CHAIN_DEFAULTS = Object.freeze({
   greeks: false,
   pinLtp: false,
   insight: true,
+  // Customise → Highlights: the #1 – #3 strikes per side marked on the cells (OI and volume rank chips, the largest OI
+  // added / cut, the strongest build-ups). On by default; Simple draws none.
+  hl: { oi: true, vol: true, chg: true, bu: true },
   // The settings' revision: 2 turned Bid / Ask off in the Core view (a Core chain saved before then is moved once).
   rev: 2,
 });
@@ -3077,6 +3193,7 @@ export function chainConfig(saved) {
     greeks: bool(c.greeks, d.greeks),
     pinLtp: bool(c.pinLtp, d.pinLtp),
     insight: bool(c.insight, d.insight),
+    hl: { oi: bool(c.hl?.oi, d.hl.oi), vol: bool(c.hl?.vol, d.hl.vol), chg: bool(c.hl?.chg, d.hl.chg), bu: bool(c.hl?.bu, d.hl.bu) },
     rev: d.rev,
   };
   out.preset = presetOf(out.cols);
@@ -3108,7 +3225,7 @@ export const GREEK_KEYS = Object.freeze(["iv", "delta", "gamma", "theta", "vega"
  */
 export function viewCfg(c) {
   if (c?.mode !== "simple") return c;
-  return { ...c, bars: { oi: false, chg: false, vol: false }, barStyle: "bar", straddle: false, pinLtp: false, line: Object.fromEntries(Object.keys(c.line ?? {}).map((k) => [k, false])) };
+  return { ...c, bars: { oi: false, chg: false, vol: false }, hl: { oi: false, vol: false, chg: false, bu: false }, barStyle: "bar", straddle: false, pinLtp: false, line: Object.fromEntries(Object.keys(c.line ?? {}).map((k) => [k, false])) };
 }
 /**
  * The columns the chain lays out for a config: the chosen ones, then every Greek not already chosen (Show all
@@ -3339,8 +3456,19 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     layers.forEach(([, f], i) => el.childNodes[i].style.setProperty("--f", String(barLen(f))));
     return el;
   };
-  /** A quiet sub figure in a direction's ink (OI change, volume change): green when it rose, red when it fell. */
-  const chgSub = (v) => sub(v === null ? "" : formatCompact(v, { signed: true }), v > 0 ? "up" : v < 0 ? "down" : "");
+  /** A quiet sub figure in a direction's ink (OI change, volume change): green when it rose, red when it fell. `mk` (a
+   *  highlight rank, 1-3) sets it on a soft capsule of its own colour: one of the largest additions or cuts. */
+  const chgSub = (v, mk = 0) => sub(v === null ? "" : formatCompact(v, { signed: true }), `${v > 0 ? "up" : v < 0 ? "down" : ""}${mk ? ` mk m${mk}` : ""}`.trim());
+  // ── Highlights (Customise → Highlights; chain-metrics.js chainHighlights, ranked once per refresh in context()) ──
+  /** This cell's highlight rank of `kind` (1-3), 0 when it has none or its switch is off. add / cut share "chg". */
+  const hlRank = (x, kind, side, strike) => (cfg().hl?.[kind === "add" || kind === "cut" ? "chg" : kind] ? (x.hl?.[side]?.[kind]?.get(strike) ?? 0) : 0);
+  /** The OI change's mark: its rank among the largest additions (a rise) or cuts (a fall) on this side, else 0. */
+  const chgRank = (x, side, strike, v) => (v > 0 ? hlRank(x, "add", side, strike) : v < 0 ? hlRank(x, "cut", side, strike) : 0);
+  /** A rank capsule beside a figure: #1 filled, #2 and #3 tinted (OI in the side's colour, volume in plain ink). */
+  const rankChip = (rank, kind, side) => {
+    const t = M.rankText(kind, rank, side);
+    return h("i", { class: `rk ${kind} ${side} r${rank}`, title: t, "aria-label": t }, formatInt(rank));
+  };
   /**
    * The build-up cell (bu, bu5, bu15) for one reading (chain-metrics.js dayBuildup / windowBuildup): one small tinted
    * capsule with the reading's name ("Long build-up"), green when the premium rose (LB, SC), red when it fell (SB, LU),
@@ -3349,7 +3477,7 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
    * cell's foot; the OI change, its % and the premium move are in the title and the hover card. No reading: a dash
    * whose title names the cause; a window still warming up counts down instead.
    */
-  const buCard = (rd, max, x, winLabel) => {
+  const buCard = (rd, max, x, winLabel, top = 0) => {
     if (!rd || rd.state !== "ok") {
       const why = M.BUILDUP_STATE_TEXT[rd?.state] ?? "";
       if (rd?.state === "warming" && isFigure(rd.waitMs)) return cg(h("span", { class: "muted", title: why }, `in ${waitText(rd.waitMs)}`));
@@ -3359,10 +3487,13 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     const code = rd.code === "NT" ? "CH" : rd.code;
     const tone = code === "LB" || code === "SC" ? "pos" : code === "SB" || code === "LU" ? "neg" : "";
     const title = `${M.BUILDUP_LABELS[rd.code]} ${winLabel}: premium ${formatSignedPercent(rd.pxPct, 2)} (${formatSigned(rd.dPx, 2)}), OI ${rd.isNew ? "new at this strike" : formatSignedPercent(rd.oiPct, 1)} (${formatCompact(rd.dOi / unit(x), { signed: true })}). ${rd.code === "NT" ? "One move is inside its floor, so neither side is named. " : ""}Premium up and OI up = Long build-up; down and up = Short build-up; up and down = Short covering; down and down = Long unwinding. The line under it = OI change as a share of the largest on this side (${formatInt(ticks)} of 10)`;
-    const el = cgBar(h("span", { class: `bu-pill bu-${code}` }, M.BUILDUP_LABELS[rd.code]), null, bar(ticks / 10, `bu-m${tone ? ` ${tone}` : ""}`), "bu-l1");
+    // One of the side's strongest readings (Highlights): a fuller capsule; the strongest also a soft halo.
+    const bw = M.buildupIntensity(rd, max);
+    const strong = top && code !== "CH" ? ` top t${top}` : cfg().hl?.bu && code !== "CH" && bw < M.HL_BUILDUP_FLOOR ? " weak" : "";
+    const el = cgBar(h("span", { class: `bu-pill bu-${code}${strong}` }, M.BUILDUP_LABELS[rd.code]), null, bar(ticks / 10, `bu-m${tone ? ` ${tone}` : ""}`), "bu-l1");
     el.classList.add("bu-cell");
-    el.title = title;
-    el.style.setProperty("--bw", String(r1(M.buildupIntensity(rd, max) * 100) / 100));
+    el.title = top && strong ? `#${formatInt(top)} strongest build-up on this side. ${title}` : title;
+    el.style.setProperty("--bw", String(r1(bw * 100) / 100));
     return el;
   };
   /** "2m 30s", "48s", "4m": a wait on the build-up windows. */
@@ -3381,15 +3512,19 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     if (s === "zero") return cg(h("span", { title: "Exactly zero" }, DASH));
     return cg(h("span", { class: "muted", title: `Greek unavailable: ${CF.ivSourceText(q)}` }, DASH));
   };
+  /** A minute window's strongest-build-up rank for a cell (desk minuteRefs `top`), 0 when none or switched off. */
+  const buTop = (top, side, strike) => (cfg().hl?.bu ? (top?.[side]?.get(strike) ?? 0) : 0);
   /** The window build-up columns' cell and dependencies (bu5 / bu15). */
   const buWinCol = (win, label) => ({
     v: (q, row, side, x) => {
       const rd = M.windowBuildup(q, x[`bu${win}`], row.strike, side);
-      return [rd.state, rd.code, rd.dOi, rd.pxPct, isFigure(rd.waitMs) ? Math.ceil(rd.waitMs / 1000) : null, x[`bu${win}`]?.max?.[side], unit(x)];
+      return [rd.state, rd.code, rd.dOi, rd.pxPct, isFigure(rd.waitMs) ? Math.ceil(rd.waitMs / 1000) : null, x[`bu${win}`]?.max?.[side], unit(x), buTop(x[`bu${win}`]?.top, side, row.strike)];
     },
-    r: (q, row, side, x) => buCard(M.windowBuildup(q, x[`bu${win}`], row.strike, side), x[`bu${win}`]?.max?.[side], x, `over the last ${label}`),
+    r: (q, row, side, x) => buCard(M.windowBuildup(q, x[`bu${win}`], row.strike, side), x[`bu${win}`]?.max?.[side], x, `over the last ${label}`, buTop(x[`bu${win}`]?.top, side, row.strike)),
   });
   const R = (side) => (side === "ce" ? "CE" : "PE");
+  /** A day high / low (M.dayHighOr / dayLowOr): the feed's figure plain; the snapshots' in a quieter ink, titled. */
+  const rangeCell = (r, which) => (!r ? DASH : r.from === "feed" ? g(r.value, 2) : cg(h("span", { class: "muted", title: `From this page's minute snapshots (the data source sent no day ${which}): it can miss a move between two snapshots` }, g(r.value, 2))));
   const prem = (q) => O.mid(q);
   const picked = new Map();
   let selecting = false;
@@ -3401,32 +3536,38 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
       title: "Build-up since the previous close: the premium's move and the OI move read together. Both must clear a floor (OI 2 %, premium 0.5 %; 1 % and 0.5 % over a recorded window), else Neutral. Green = premium rose, red = premium fell. Meter = OI change as a share of the largest on this side; then the OI change and its % of OI",
       v: (q, row, side, x) => {
         const rd = M.dayBuildup(x.winQ(q, row, side), x.buWin);
-        return [rd.state, rd.code, rd.dOi, rd.pxPct, x.maxChg[side], unit(x)];
+        return [rd.state, rd.code, rd.dOi, rd.pxPct, x.maxChg[side], unit(x), hlRank(x, "bu", side, row.strike)];
       },
-      r: (q, row, side, x) => buCard(M.dayBuildup(x.winQ(q, row, side), x.buWin), x.maxChg[side], x, x.winLabel ? `over the last ${x.winLabel}` : "since the previous close"),
+      r: (q, row, side, x) => buCard(M.dayBuildup(x.winQ(q, row, side), x.buWin), x.maxChg[side], x, x.winLabel ? `over the last ${x.winLabel}` : "since the previous close", hlRank(x, "bu", side, row.strike)),
     },
     oi: {
       label: "OI",
       title: "Open interest; under it, the change today (or over the OI window). Bar = share of the largest OI on the chain (both sides): solid = the previous OI, striped = OI added today, red striped ghost = OI cut today. Brightest = OI wall",
-      v: (q, row, side, x) => [q?.oi, q?.oiChange, x.sm.maxOi, x.topOi[side].get(row.strike) ?? 0, heat(), cfg().bars.oi, unit(x)],
+      v: (q, row, side, x) => [q?.oi, q?.oiChange, x.sm.maxOi, x.topOi[side].get(row.strike) ?? 0, heat(), cfg().bars.oi, unit(x), hlRank(x, "oi", side, row.strike), chgRank(x, side, row.strike, num(q?.oiChange))],
       r: (q, row, side, x) => {
         const rank = x.topOi[side].get(row.strike);
         const d = num(q?.oiChange);
+        // Highlights: a #1 – #3 capsule before the figure, a thicker bar for the top three, and the change on a soft
+        // capsule when it is one of the side's largest additions or cuts.
+        const rk = hlRank(x, "oi", side, row.strike);
         // Line 1 the OI, line 2 its change (green added, red cut), the bar a hairline at the cell's foot.
         const s = cfg().bars.oi && !heat() ? M.oiBarSplit(q?.oi, d, x.sm.maxOi) : null;
-        const b = s ? layered(`oi ${side}${rank === 1 ? " r1" : rank ? " r2" : ""}${s.kind ? ` ${s.kind}` : ""}`, [[s.kind === "cut" ? "seg-cut" : "seg-add", s.outer], ["seg-solid", s.solid]]) : null;
-        return cgBar(formatCompact(num(q?.oi) === null ? null : q.oi / unit(x)), chgSub(d === null ? null : d / unit(x)), b, rank === 1 ? "wall" : "");
+        const b = s ? layered(`oi ${side}${rank === 1 ? " r1" : rank ? " r2" : ""}${rk ? " top" : ""}${s.kind ? ` ${s.kind}` : ""}`, [[s.kind === "cut" ? "seg-cut" : "seg-add", s.outer], ["seg-solid", s.solid]]) : null;
+        const fig = formatCompact(num(q?.oi) === null ? null : q.oi / unit(x));
+        return cgBar(rk ? [rankChip(rk, "oi", side), fig] : fig, chgSub(d === null ? null : d / unit(x), chgRank(x, side, row.strike, d)), b, rank === 1 ? "wall" : "");
       },
       heat: (q, row, side, x) => [side === "ce" ? "call" : "put", x.sm.maxOi ? (num(q?.oi) ?? 0) / x.sm.maxOi : 0],
     },
     chg: {
       label: "OI chg",
       title: "OI added (green) or cut (red). Bar = share of the largest change on the chain",
-      v: (q, row, side, x) => [q?.oiChange, q?.oi, x.sm.maxOiChange, heat(), cfg().bars.chg, cfg().pct],
+      v: (q, row, side, x) => [q?.oiChange, q?.oi, x.sm.maxOiChange, heat(), cfg().bars.chg, cfg().pct, chgRank(x, side, row.strike, num(q?.oiChange))],
       r: (q, row, side, x) => {
         const v = num(q?.oiChange);
         const pct = O.oiChangePct(q);
-        const text = h("span", { title: pct === null ? undefined : `${formatPercent(pct, 1)} of OI` }, formatCompact(v === null ? null : v / unit(x), { signed: true }));
+        // One of the side's largest additions or cuts: the figure on a soft capsule of its colour (Highlights).
+        const mk = chgRank(x, side, row.strike, v);
+        const text = h("span", { class: mk ? `mk m${mk}` : undefined, title: [mk ? M.rankText(v > 0 ? "add" : "cut", mk, side) : "", pct === null ? "" : `${formatPercent(pct, 1)} of OI`].filter(Boolean).join(". ") || undefined }, formatCompact(v === null ? null : v / unit(x), { signed: true }));
         const ink = v > 0 ? "up" : v < 0 ? "down" : "";
         // Line 2 the % of OI (Percentage changes); with bars on, the bar is a hairline at the cell's foot.
         const b = cfg().bars.chg && !heat() ? bar(x.sm.maxOiChange ? Math.abs(v ?? 0) / x.sm.maxOiChange : 0, v < 0 ? "neg" : "pos") : null;
@@ -3440,21 +3581,29 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     vol: {
       label: "Volume",
       title: "Contracts traded today; under it, the change from the previous session's volume (when the data source sends it). Bar = share of the largest volume (both sides, both days): dark = today, light = the previous session; amber = unusual for its OI",
-      v: (q, row, side, x) => [q?.volume, q?.prevVolume, x.hot.has(q?.symbol), x.maxVolAll, cfg().bars.vol, heat(), unit(x)],
+      v: (q, row, side, x) => [q?.volume, q?.prevVolume, x.hot.has(q?.symbol), x.maxVolAll, cfg().bars.vol, heat(), unit(x), hlRank(x, "vol", side, row.strike)],
       r: (q, row, side, x) => {
         const hot = x.hot.has(q?.symbol);
         const dv = M.volumeChange(q?.volume, q?.prevVolume);
+        // Highlights: the side's three busiest strikes carry a #1 – #3 capsule and a firmer bar.
+        const rk = hlRank(x, "vol", side, row.strike);
         const main = h("span", { title: hot ? "Unusual: volume ÷ OI well above the rest of the chain" : undefined }, formatCompact(num(q?.volume) === null ? null : q.volume / unit(x)));
         const s = cfg().bars.vol && !heat() ? M.volBarSplit(q?.volume, q?.prevVolume, x.maxVolAll) : null;
-        const b = s ? layered("vol", [["seg-prev", s.prev ?? 0], ["seg-today", s.today]]) : null;
-        return cgBar(main, chgSub(dv === null ? null : dv / unit(x)), b, hot ? "hot" : "");
+        const b = s ? layered(`vol${rk ? ` top${rk === 1 ? " r1" : ""}` : ""}`, [["seg-prev", s.prev ?? 0], ["seg-today", s.today]]) : null;
+        return cgBar(rk ? [rankChip(rk, "vol", side), main] : main, chgSub(dv === null ? null : dv / unit(x)), b, hot ? "hot" : "");
       },
     },
     iv: {
       label: "IV",
       title: "Implied volatility: the yearly volatility (%) at which Black-76 on the forward gives the option's price. Hover a dash for why there is none",
-      v: (q) => [g(q?.iv, 1), q?.ivReason ?? "", q?.greeksSource ?? ""],
-      r: (q) => (num(q?.iv) > 0 ? g(q.iv, 1) : cg(h("span", { class: "muted", title: CF.ivSourceText(q) }, DASH))),
+      v: (q, row, side, x) => [g(q?.iv, 1), q?.ivReason ?? "", q?.greeksSource ?? "", g(M.mirroredIv(row, side, x.F), 1)],
+      r: (q, row, side, x) => {
+        if (num(q?.iv) > 0) return g(q.iv, 1);
+        // No IV of its own (deep in the money, a tick): the out-of-the-money leg's at this strike, in a quieter ink.
+        const m = M.mirroredIv(row, side, x.F);
+        if (m !== null) return cg(h("span", { class: "muted", title: `${CF.ivSourceText(q)}. Shown: the ${side === "ce" ? "put" : "call"}'s IV at this strike (put-call parity gives both legs one volatility)` }, g(m, 1)));
+        return cg(h("span", { class: "muted", title: CF.ivSourceText(q) }, DASH));
+      },
     },
     ltp: {
       label: "LTP",
@@ -3560,12 +3709,12 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     dist: {
       label: "Distance",
       short: "Dist",
-      title: "Distance from spot, out of the money positive (%); under it, in standard deviations to expiry at ATM IV",
+      title: "Points from spot, a whole number (|strike − spot|); under it, the gap in standard deviations to expiry at ATM IV, out of the money positive. Relative distance gives it as a % of spot",
       v: (q, row, side, x) => [Math.round(x.spot ?? 0), Math.round(x.F ?? 0), x.sm.atmIv],
       r: (q, row, side, x) => {
         const d = O.distance(row.strike, R(side), x.spot);
         const sd = O.sigmaDistance(row.strike, R(side), x.F, x.sm.atmIv, x.years);
-        return two(d ? pct1(d.pct) : DASH, { text: sd === null ? "" : `${formatSigned(sd, 1)}σ`, force: true });
+        return two(d ? h("span", { title: `${pct1(d.pct)} of spot, out of the money positive` }, formatInt(Math.round(Math.abs(d.pts)))) : DASH, { text: sd === null ? "" : `${formatSigned(sd, 1)}σ`, force: true });
       },
     },
     premLot: { label: "Prem/lot", title: "Premium for one lot (mid × lot size)", v: (q, row, side, x) => [prem(q), x.lot], r: (q, row, side, x) => rupees(prem(q) === null ? null : prem(q) * x.lot) },
@@ -3671,8 +3820,28 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     },
     prevClose: { label: "Prev close", title: "Previous close: the option's closing price in the last session", v: (q) => q?.close, r: (q) => g(M.quotePrice(q?.close), 2) },
     avgPx: { label: "Avg price", short: "ATP", title: "Average traded price today (volume-weighted, as the broker sends it). A dash when the data source does not send it", v: (q) => q?.avgPrice, r: (q) => g(M.quotePrice(q?.avgPrice), 2) },
-    high: { label: "High", title: "Today's high: the highest premium this contract traded at today, never below the live LTP (max of the day high and LTP). A dash when the data source sends no day high", v: (q) => [q?.high, q?.ltp], r: (q) => g(M.dayHigh(q), 2) },
-    low: { label: "Low", title: "Today's low: the lowest premium this contract traded at today, never above the live LTP (min of the day low and LTP). A dash when the data source sends no day low", v: (q) => [q?.low, q?.ltp], r: (q) => g(M.dayLow(q), 2) },
+    high: {
+      label: "High",
+      title: "Today's high: the highest premium this contract traded at today, never below the live LTP (max of the day high and LTP). With no day high from the data source, the highest of this page's minute snapshots (quieter ink); a dash when there are none",
+      v: (q, row, side, x) => [q?.high, q?.ltp, x.snapHL?.[side]?.get(row.strike)?.hi ?? null],
+      r: (q, row, side, x) => rangeCell(M.dayHighOr(q, x.snapHL?.[side]?.get(row.strike)), "high"),
+    },
+    low: {
+      label: "Low",
+      title: "Today's low: the lowest premium this contract traded at today, never above the live LTP (min of the day low and LTP). With no day low from the data source, the lowest of this page's minute snapshots (quieter ink); a dash when there are none",
+      v: (q, row, side, x) => [q?.low, q?.ltp, x.snapHL?.[side]?.get(row.strike)?.lo ?? null],
+      r: (q, row, side, x) => rangeCell(M.dayLowOr(q, x.snapHL?.[side]?.get(row.strike)), "low"),
+    },
+    prevOi: {
+      label: "Prev OI",
+      head: () => (cfg().lots ? "Prev OI (lots)" : "Prev OI"),
+      title: "Open interest at the previous close (OI − its change): the baseline the OI change and the build-up read from. A dash without a baseline",
+      v: (q, row, side, x) => [q?.oi, q?.oiChange, unit(x)],
+      r: (q, row, side, x) => {
+        const p = M.prevOi(q);
+        return formatCompact(p === null ? null : p / unit(x));
+      },
+    },
     prevVol: {
       label: "Prev vol",
       head: () => (cfg().lots ? "Prev vol (lots)" : "Prev vol"),
@@ -3915,7 +4084,7 @@ function createChain({ st, host, tools = null, headRow = null, toolSlot = null, 
     const ce = pin ? [...sideCols2.slice(1)].reverse().concat(near, ["ltp"]) : [...sideCols2].reverse().concat(near);
     return { ...base, order: ["ce", "strike", "mid", "pe"], ce, pe: out };
   };
-  const layoutSig = (L) => JSON.stringify([L.side, L.order, L.ce, L.pe, L.mid, L.phone, L.narrow, L.coarse, cfg().dense, cfg().lots, cfg().pct, cfg().bars, cfg().barStyle, cfg().tags, cfg().itm, cfg().positions, cfg().contracts]);
+  const layoutSig = (L) => JSON.stringify([L.side, L.order, L.ce, L.pe, L.mid, L.phone, L.narrow, L.coarse, cfg().dense, cfg().lots, cfg().pct, cfg().bars, cfg().hl, cfg().barStyle, cfg().tags, cfg().itm, cfg().positions, cfg().contracts]);
 
   function tradeButton(q, row, side, trade) {
     const price = trade === "BUY" ? q?.ask : q?.bid;

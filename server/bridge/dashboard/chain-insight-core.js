@@ -377,8 +377,28 @@ const moneyness = (K, right, F) => {
 export const ivSource = (leg) => (num(leg?.iv) === null ? null : leg?.greeksSource === "broker" ? "feed" : leg?.greeksSource === "computed" ? "solved" : null);
 const ivSourceText = (leg) => ({ feed: "Broker feed", solved: "Solved from the price" })[ivSource(leg)] ?? DASH;
 
+/** Which highlight ranks each cell speaks for (desk.js context x.hl); LTP, the leg's own figure, names them all. */
+const RANK_KINDS = Object.freeze({ oi: ["oi", "add", "cut"], chg: ["add", "cut"], vol: ["vol"], bu: ["bu"], bu5: ["bu"], bu15: ["bu"], ltp: ["oi", "vol", "add", "cut", "bu"] });
+
 /**
- * The card for one cell: { title, sub, headline, tone, visual, facts, how }. `facts` comes from cellFacts when the
+ * The highlight ranks of one cell, for the card's rank capsules: [{ kind, rank, text }] ("#1 most open interest on the
+ * call side: the call wall"). The minute build-ups read their own window's ranks (x.bu5.top / x.bu15.top). Empty when
+ * the cell holds none.
+ */
+export function cellRanks(key, row, side, x) {
+  const K = num(row?.strike);
+  if (K === null || (side !== "ce" && side !== "pe")) return [];
+  const out = [];
+  for (const kind of RANK_KINDS[key] ?? []) {
+    const map = kind === "bu" && (key === "bu5" || key === "bu15") ? x?.[key]?.top?.[side] : x?.hl?.[side]?.[kind];
+    const rank = map?.get?.(K) ?? null;
+    if (rank) out.push({ kind, rank, text: M.rankText(kind, rank, side) });
+  }
+  return out;
+}
+
+/**
+ * The card for one cell: { title, sub, headline, tone, visual, facts, how, ranks, side }. `facts` comes from cellFacts when the
  * columns' module supplies them, else factsFor. `label` names a column the help index does not know yet.
  */
 export function cardModel(key, q, row, side, x, { facts = null, label = null } = {}) {
@@ -388,7 +408,7 @@ export function cardModel(key, q, row, side, x, { facts = null, label = null } =
   const leg = side === "ce" || side === "pe" ? SIDE_NAME[side] : null;
   const name = help?.label ?? label ?? key;
   const title = key === "strike" ? `${formatInt(K)} strike` : leg ? `${formatInt(K)} ${leg} · ${name}` : `${formatInt(K)} · ${name}`;
-  const out = { key, title, sub: help?.name && help.name !== name ? help.name : "", headline: "", tone: null, visual: null, facts: facts ?? factsFor(key, q, row, side, x), how: help?.how ?? "" };
+  const out = { key, title, sub: help?.name && help.name !== name ? help.name : "", headline: "", tone: null, visual: null, facts: facts ?? factsFor(key, q, row, side, x), how: help?.how ?? "", ranks: cellRanks(key, row, side, x), side: leg ? side : null };
   const P = q ? O.mid(q) : null;
   const iv = num(q?.iv);
   const atmIv = num(x?.sm?.atmIv);
@@ -491,6 +511,7 @@ export function cardModel(key, q, row, side, x, { facts = null, label = null } =
     case "high":
     case "low":
     case "prevVol":
+    case "prevOi":
     case "volOi":
     case "bidPx":
     case "askPx":
@@ -577,7 +598,7 @@ export function cardModel(key, q, row, side, x, { facts = null, label = null } =
     case "dist": {
       const d = O.distance(K, RIGHT[side], num(x?.spot));
       if (!d) return no("No spot to measure from.");
-      out.headline = `The strike is ${g(Math.abs(d.pts), 1)} points (${pc(Math.abs(d.pct), 2)}) ${d.pts > 0 ? "out of" : d.pts < 0 ? "in" : "at"} the money for this ${leg?.toLowerCase() ?? "leg"}.`;
+      out.headline = `The strike is ${formatInt(Math.round(Math.abs(d.pts)))} points (${pc(Math.abs(d.pct), 2)}) ${d.pts > 0 ? "out of" : d.pts < 0 ? "in" : "at"} the money for this ${leg?.toLowerCase() ?? "leg"}.`;
       return out;
     }
     case "pitm":

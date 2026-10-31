@@ -192,3 +192,76 @@ describe("Greek dashes", () => {
     expect(M.greekState("theta", null)).toBe("unavailable");
   });
 });
+
+describe("snapshot fallbacks", () => {
+  const snaps = [
+    { t: 1, k: [100, 200], cl: [10, 0], pl: [5, null] },
+    { t: 2, k: [100, 200], cl: [14, 3], pl: [4, 7] },
+    { t: 3, k: [200], cl: [2], pl: [9] },
+  ];
+  it("day range from the minute snapshots, a 0 or missing price skipped, the live LTP folded in", () => {
+    const r = M.snapshotRanges(snaps);
+    expect(r.ce.get(100)).toEqual({ hi: 14, lo: 10, n: 2 });
+    expect(r.ce.get(200)).toEqual({ hi: 3, lo: 2, n: 2 });
+    expect(r.pe.get(200)).toEqual({ hi: 9, lo: 7, n: 2 });
+    expect(M.dayHighOr({ high: 20, ltp: 12 }, r.ce.get(100))).toEqual({ value: 20, from: "feed" });
+    expect(M.dayHighOr({ ltp: 15 }, r.ce.get(100))).toEqual({ value: 15, from: "snapshots" });
+    expect(M.dayLowOr({ ltp: 12 }, r.ce.get(100))).toEqual({ value: 10, from: "snapshots" });
+    expect(M.dayLowOr({ ltp: 12 }, undefined)).toBeNull();
+    expect(M.snapshotRanges(null).ce.size).toBe(0);
+  });
+  it("mirrored IV: a deep ITM leg with no IV borrows the OTM leg's at the same strike", () => {
+    const row = { strike: 22000, ce: { iv: null, ivReason: "INTRINSIC" }, pe: { iv: 18.2 } };
+    expect(M.mirroredIv(row, "ce", 23000)).toBe(18.2);
+    // The put is in the money above the forward: no mirror from it.
+    expect(M.mirroredIv({ strike: 24000, ce: { iv: null, ivReason: "INTRINSIC" }, pe: { iv: 15 } }, "ce", 23000)).toBeNull();
+    expect(M.mirroredIv({ strike: 24000, ce: { iv: 14 }, pe: { iv: null, ivReason: "TICK" } }, "pe", 23000)).toBe(14);
+    expect(M.mirroredIv({ ...row, ce: { iv: null, ivReason: "SETTLED" } }, "ce", 23000)).toBeNull();
+    expect(M.mirroredIv({ ...row, ce: { iv: 12 } }, "ce", 23000)).toBeNull();
+    expect(M.mirroredIv(row, "ce", null)).toBeNull();
+  });
+});
+
+describe("highlights", () => {
+  const leg = (oi, oiChange, volume, ltp = 100, close = 100) => ({ oi, oiChange, volume, ltp, close });
+  const rows = [
+    { strike: 100, ce: leg(500, 50, 10, 110), pe: leg(900, -300, 40, 90) },
+    { strike: 200, ce: leg(800, 200, 30, 90), pe: leg(900, 100, 0) },
+    { strike: 300, ce: leg(800, -20, 20), pe: leg(null, null, null) },
+    { strike: 400, ce: leg(100, 0, 50), pe: leg(200, 150, 5, 120) },
+  ];
+  it("ranks the top three per side above 0; ties go to the lower strike; no figure is never ranked", () => {
+    const hl = M.chainHighlights(rows);
+    expect([...hl.ce.oi]).toEqual([[200, 1], [300, 2], [100, 3]]);
+    expect([...hl.pe.oi]).toEqual([[100, 1], [200, 2], [400, 3]]);
+    expect([...hl.ce.vol]).toEqual([[400, 1], [200, 2], [300, 3]]);
+    expect([...hl.pe.vol]).toEqual([[100, 1], [400, 2]]);
+    expect([...hl.ce.add]).toEqual([[200, 1], [100, 2]]);
+    expect([...hl.ce.cut]).toEqual([[300, 1]]);
+    expect([...hl.pe.cut]).toEqual([[100, 1]]);
+    expect(hl.ce.bu.size).toBe(0);
+    expect(M.rankedStrikes(hl.ce.oi)).toEqual([200, 300, 100]);
+  });
+  it("build-ups: only readings at or above the floor are marked", () => {
+    const hl = M.chainHighlights(rows, { buildup: (r, s) => (s === "ce" ? ({ 100: 0.9, 200: 0.29, 300: 0.5 })[r.strike] ?? null : null) });
+    expect([...hl.ce.bu]).toEqual([[100, 1], [300, 2]]);
+    expect(hl.pe.bu.size).toBe(0);
+  });
+  it("rank text names the wall at #1 OI", () => {
+    expect(M.rankText("oi", 1, "ce")).toBe("#1 open interest on the call side: the call wall");
+    expect(M.rankText("vol", 2, "pe")).toBe("#2 volume on the put side");
+    expect(M.rankText("cut", 3, "pe")).toBe("#3 OI cut on the put side");
+    expect(M.rankText("bu", 1, "ce")).toBe("#1 build-up strength on the call side");
+    expect(M.rankText("oi", null, "ce")).toBeNull();
+  });
+  it("positioning: OI-change weighted, call premium up and put premium down lean up", () => {
+    // ce 100 up/+50 leans up, ce 200 down/+200 leans down, pe 100 down/-300 leans up (closing), pe 400 up/+150 leans down; flat legs cast no vote.
+    const p = M.positioning(rows);
+    expect(p.up).toBe(350);
+    expect(p.down).toBe(350);
+    expect(p.upShare).toBe(50);
+    expect(p.opening).toBeCloseTo((400 / 700) * 100, 9);
+    expect(p.voted).toBe(4);
+    expect(M.positioning([{ strike: 1, ce: leg(10, 0, 1) }])).toBeNull();
+  });
+});
