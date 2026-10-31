@@ -223,6 +223,13 @@ Acceptance: a webhook acknowledged within 50 ms under load; a replayed or stale 
 
 ---
 
+## S31 — Studies (ChartistScript core)
+
+- **Owns:** `server/bridge/studies/` (`GET /v1/studies`, `POST /v1/studies/compute`, the worker pool) and the vendored,
+  compiled core in `server/vendor/chartist-core/` (regenerated only by `scripts/vendor-chartist-core.mjs`, never edited).
+- **Consumes:** marketData (history) only. **Rules:** read scope; nothing under `studies/` or the vendored core reaches
+  `orders/`, `paper/`, `safety/` or a broker (`studies/noOrders.test.mjs`). Guide: `docs/guides/studies.md`.
+
 ## Stream checklist (copy into your PR description)
 
 ```

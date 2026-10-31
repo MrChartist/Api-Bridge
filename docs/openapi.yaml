@@ -149,6 +149,8 @@ tags:
   - name: Options data
     description: Recorded option-chain snapshots (every minute in session), daily derived statistics and the recorder's status (stream S17). Stored only on this computer.
 
+  - name: Studies
+    description: Chart studies (`ind.*`) and candlestick patterns from the ChartistScript core, computed on this computer over the Bridge's own candles (docs/guides/studies.md). Read only; nothing here can reach orders.
   - name: Analytics
     description: Options analytics from the Bridge's own chain and quotes (OI, gamma exposure, skew, basis, Greeks, payoff, position size). Computed from the Bridge's own data; saved alert rules are the only thing it stores.
 paths:
@@ -8171,6 +8173,96 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/studies:
+    get:
+      tags: [Studies]
+      operationId: getStudies
+      summary: The chart studies and candlestick patterns on offer, with their settings and outputs
+      description: |
+        From the ChartistScript core (vendored, compiled unchanged; docs/guides/studies.md). Each study has an `id` (the
+        `ind.<id>` of the language), a `pane` (`price` to draw on the candles, `panel` for its own pane), `params` with their
+        type, range and default, `outputs` (one series per output; `int` and `bool` outputs are states such as a direction),
+        and `causality` (`causal`, `noncausal` for studies whose earlier values change as candles arrive, or null with a
+        `reason` when the study is not available yet). `patterns` lists the 24 candlestick patterns and where their markers
+        sit. `limits` are the request limits of POST /v1/studies/compute; `core` the engine and library versions.
+      x-stream: S31
+      x-scope: read
+      responses:
+        "200":
+          description: The catalogue.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/StudyCatalogue" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/studies/compute:
+    post:
+      tags: [Studies]
+      operationId: postStudiesCompute
+      summary: Compute studies, candlestick patterns or a ChartistScript indicator over a symbol's candles
+      description: |
+        Reads candles through the market data service exactly as GET /v1/history does (same symbol forms, same account
+        rules: `?account=` pins the read and is checked against the key), then runs the ChartistScript core on them in a
+        worker thread. Give `studies` and/or `patterns`, or a `script` (an indicator: `@indicator(...)` or bare `plot(...)`
+        / `mark(...)` lines, checked as the chart host). Every series is aligned to `data.time` (epoch seconds, one per
+        candle); a value that is not known yet (warm-up, missing data) is null. Patterns and `mark(...)` give `markers`.
+
+        Studies read one candle per session, so `interval` is `1d`, `1w` or `1M` (intraday candles are refused, as on the
+        owner's chart). By default earlier candles are fetched so the first value shown is already warmed up
+        (`data.warmup`); `warmup: false` turns that off.
+
+        Limits: at most 16 studies, 5000 candles shown (the newest are kept; `truncated` says so), a script of at most
+        12,000 characters and 300 lines and the core's other static limits, the core's run budget (25,000,000 values
+        touched per request; `COMPUTE_LIMIT`), a time limit (10 s by default, config `studies.timeoutMs`; `COMPUTE_TIMEOUT`)
+        and a 64 KiB body (`PAYLOAD_TOO_LARGE`). When every worker is busy and the queue is full the call is refused with
+        `RATE_LIMITED`. A script's problems come back as `VALIDATION_FAILED` with one entry per problem in `errors`, each
+        with the core's code, line and column.
+      x-stream: S31
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StudyComputeRequest" }
+            example:
+              symbol: NSE:RELIANCE
+              interval: 1d
+              countback: 250
+              studies:
+                - { id: sma, params: { length: 50 } }
+                - { id: bb, params: { length: 20, k: 2 } }
+                - { id: rsi }
+                - { id: supertrend, params: { period: 10, mult: 3 } }
+              patterns: [hammer, bullish_engulfing, bearish_engulfing]
+      responses:
+        "200":
+          description: Series aligned to `time`, and markers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/StudyComputeResult" }
+                  meta:
+                    allOf:
+                      - { $ref: "#/components/schemas/Meta" }
+                      - type: object
+                        properties:
+                          freshness: { $ref: "#/components/schemas/Freshness" }
+                          core: { type: object, description: "Engine and library versions (version, stdlib, ir, stdlibFrozen)." }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -8639,6 +8731,7 @@ components:
         - CAPACITY_EXCEEDED
         - ALERT_LIMIT
         - STATE_CONFLICT
+        - COMPUTE_LIMIT
         - PAPER_ONLY
         - ORDER_GATE_CLOSED
         - DAILY_LIMIT_REACHED
@@ -8655,6 +8748,7 @@ components:
         - UPSTREAM_ERROR
         - BROKER_UNAVAILABLE
         - UPSTREAM_TIMEOUT
+        - COMPUTE_TIMEOUT
         - OUTCOME_UNKNOWN
     Meta:
       type: object
@@ -9086,6 +9180,150 @@ components:
         close: { type: number }
         volume: { type: number }
         oi: { type: number }
+    StudyParam:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [int, number, choice, source] }
+        min: { type: number }
+        max: { type: number }
+        values: { type: array, items: { type: string }, description: "choice and source: the allowed values." }
+        default: { oneOf: [{ type: number }, { type: string }] }
+    StudyCatalogue:
+      type: object
+      required: [studies, patterns, intervals, limits, core]
+      properties:
+        studies:
+          type: array
+          items:
+            type: object
+            required: [id, summary, pane, available, causality, params, outputs]
+            properties:
+              id: { type: string, example: bb }
+              summary: { type: string }
+              pane: { type: string, enum: [price, panel] }
+              available: { type: boolean }
+              reason: { type: string, description: "Why an unavailable study cannot be used yet." }
+              causality: { type: [string, "null"], enum: [causal, noncausal, null] }
+              params: { type: array, items: { $ref: "#/components/schemas/StudyParam" } }
+              outputs:
+                type: array
+                items:
+                  type: object
+                  required: [name, type]
+                  properties:
+                    name: { type: string, example: upper }
+                    type: { type: string, enum: [float, int, bool] }
+        patterns:
+          type: array
+          items:
+            type: object
+            required: [id, bias, position]
+            properties:
+              id: { type: string, example: bullish_engulfing }
+              bias: { type: string, enum: [bullish, bearish, neutral] }
+              position: { type: string, enum: [above, below] }
+        intervals: { type: array, items: { type: string, enum: ["1d", "1w", "1M"] } }
+        limits: { type: object, description: "maxStudies, maxBars, maxLookback, scriptMaxChars, scriptMaxLines, maxPlotsPerScript, budgetElements." }
+        core: { type: object, description: "version, stdlib, ir, stdlibFrozen." }
+    StudyComputeRequest:
+      type: object
+      additionalProperties: false
+      required: [symbol, interval]
+      properties:
+        symbol: { type: string, maxLength: 64, example: "NSE:RELIANCE" }
+        interval: { type: string, enum: ["1d", "1w", "1M"] }
+        from: { oneOf: [{ type: string, maxLength: 40 }, { type: number }], description: "First candle shown: ISO date or date-time (IST if no offset), or epoch seconds. Not with countback." }
+        to: { oneOf: [{ type: string, maxLength: 40 }, { type: number }], description: "Last candle (default now)." }
+        countback: { type: integer, minimum: 1, maximum: 5000, description: "Candles shown, ending at to. Default 500 when from is not given." }
+        studies:
+          type: array
+          maxItems: 16
+          items:
+            type: object
+            additionalProperties: false
+            required: [id]
+            properties:
+              id: { type: string, description: "A study id from GET /v1/studies.", example: supertrend }
+              params: { type: object, additionalProperties: { oneOf: [{ type: number }, { type: string }] }, description: "Settings by name; each within its range. Left out: the default." }
+              key: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_.-]{0,39}$", description: "Names the study's series (`<key>.<output>`). Default `<id><index>`." }
+        patterns:
+          oneOf:
+            - { type: array, maxItems: 24, items: { type: string } }
+            - { type: string, enum: [all] }
+          description: Candlestick pattern ids from GET /v1/studies, or "all".
+        script: { type: string, maxLength: 12000, description: "A ChartistScript indicator. Not with studies or patterns." }
+        inputs: { type: object, additionalProperties: { oneOf: [{ type: number }, { type: boolean }, { type: string }] }, description: "The script's settings by name." }
+        warmup: { type: boolean, default: true, description: "Fetch earlier candles so the first value shown is warmed up." }
+    StudySeries:
+      type: object
+      required: [key, study, field, label, pane, style, type, values]
+      properties:
+        key: { type: string, example: bb1.upper, description: "`<study key>.<output>` for studies; `p1`, `p2`, ... (plots) and `b1`, ... (backgrounds) for a script." }
+        study: { type: string, description: "The study key, or `script`." }
+        field: { type: string }
+        label: { type: string }
+        pane: { type: string, enum: [price, panel] }
+        style: { type: string, enum: [line, hist, area, step, background] }
+        type: { type: string, enum: [float, int, bool], description: "int and bool are states (supertrend direction, SAR up), not prices." }
+        values: { type: array, items: { type: [number, "null"] }, description: "One per entry of data.time; null where unknown." }
+        level: { type: number, description: "Script plots of one fixed number: a reference level." }
+        width: { type: integer }
+        color: { type: string, enum: [up, down, neutral, blue, teal, amber, gray] }
+        colors: { type: array, items: { type: [string, "null"] }, description: "Script plots coloured per candle." }
+    StudyMarker:
+      type: object
+      required: [key, time, price, position, shape, text]
+      properties:
+        key: { type: string, example: pattern.hammer }
+        time: { type: integer, description: "Epoch seconds of the candle." }
+        price: { type: [number, "null"], description: "The candle's low (below) or high (above)." }
+        position: { type: string, enum: [above, below] }
+        shape: { type: string, enum: [dot, triangle_up, triangle_down, square, diamond] }
+        text: { type: string }
+        pattern: { type: string }
+        bias: { type: string, enum: [bullish, bearish, neutral] }
+        color: { type: string }
+    StudyComputeResult:
+      type: object
+      required: [symbol, interval, partial, truncated, warmup, time, series, markers, fills, studies, usage]
+      properties:
+        symbol: { type: string }
+        interval: { type: string }
+        partial: { type: boolean, description: "Some history chunks failed (as /v1/history)." }
+        truncated: { type: boolean, description: "More than 5000 candles were in range; the newest 5000 are shown." }
+        warmup:
+          type: object
+          properties:
+            needed: { type: integer, description: "Earlier candles the request needs (the core's plan)." }
+            used: { type: integer, description: "Earlier candles there were." }
+            short: { type: integer, description: "How many were missing; the first values shown may then be null." }
+        time: { type: array, items: { type: integer }, description: "Epoch seconds, ascending, one per candle shown." }
+        series: { type: array, items: { $ref: "#/components/schemas/StudySeries" } }
+        markers: { type: array, items: { $ref: "#/components/schemas/StudyMarker" } }
+        fills:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              between: { type: array, items: { type: string }, minItems: 2, maxItems: 2 }
+              color: { type: string }
+        studies:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              id: { type: string }
+              params: { type: object }
+              pane: { type: string, enum: [price, panel] }
+              causality: { type: string }
+              outputs: { type: array, items: { type: string } }
+              warmBars: { type: integer }
+        script: { type: object, description: "Script mode: name, overlay, irHash, scriptHash, inputs, warmBars." }
+        usage: { type: object, description: "scripts run, estimatedElements, budgetElements." }
     HistoryResult:
       type: object
       required: [symbol, interval, candles, freshness, partial]

@@ -4,6 +4,18 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Studies from the ChartistScript core
+
+- **`GET /v1/studies` and `POST /v1/studies/compute`.** 80 chart studies (`ind.*`: averages, bands, Supertrend, RSI,
+  MACD, VWAPs, volume studies and more), the 24 candlestick patterns and ChartistScript indicators, computed on the
+  server over any symbol's daily, weekly or monthly candles (read scope; `docs/guides/studies.md`). Series come back
+  aligned to the candle times, warmed up, with pattern and `mark()` markers.
+- **Vendored core.** The owner's ChartistScript core (scanner `packages/chartist-core`, commit `c2ac504`, all rights
+  reserved, not under this repository's MIT licence) compiled unchanged to ES modules in `server/vendor/chartist-core/`
+  by `scripts/vendor-chartist-core.mjs`. It runs in worker threads with a time limit, a heap limit and its own budget,
+  and cannot reach orders.
+- **Error codes.** `COMPUTE_LIMIT` (422) and `COMPUTE_TIMEOUT` (504).
+
 ### Analytics from PR 17, in this dashboard's design
 
 - **Analytics pages.** Exposure, Flow, Futures, Strategy lab and Risk, plus PR 17 tabs inside OI Analysis and
