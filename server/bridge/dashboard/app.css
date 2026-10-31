@@ -10253,3 +10253,145 @@ a.pm-n-title:hover { text-decoration: underline; }
 .an-page .pill.sm.info { color: hsl(var(--info-ink-strong)); }
 .an-page .pill.sm.warn { color: hsl(var(--warn-ink-strong)); }
 
+
+/* ───────────────────────── 15e · OI SUITE (analyticsOi.js: OI change, Spurts, PCR, Max pain, OI heatmap) ─────────────────────────
+   One hero reading per view (a coloured word, one sentence, a scope line, up to four figures), capsules in the head,
+   everything optional behind Customise. Side = hue (calls --dv-call, puts --dv-put); direction = --pos / --neg. */
+.an-page .oix-hero > .card-body { padding: 14px 16px 16px; }
+.an-page .oix-read { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 28px; }
+.an-page .oix-lead { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.an-page .oix-word { margin: 0; font: 600 26px/1.15 var(--font-display); letter-spacing: -0.02em; color: hsl(var(--foreground)); overflow-wrap: anywhere; }
+.an-page .oix-word[data-tone="pos"] { color: hsl(var(--pos-ink)); }
+.an-page .oix-word[data-tone="neg"] { color: hsl(var(--neg-ink)); }
+.an-page .oix-detail { margin: 0; max-width: 72ch; font: 400 14px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-scope { margin: 0; font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); overflow-wrap: anywhere; }
+.an-page .oix-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; margin: 0; flex: 1 1 520px; }
+.an-page .oix-fig { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--mat-fill-1); min-width: 0; }
+.an-page .oix-fig dt { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-fig dd { margin: 0; font: 600 18px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.an-page .oix-fig-sub, .an-page .oix-hint { font: 400 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page .oix-tools { flex-wrap: wrap; justify-content: flex-end; }
+.an-page .ink-zero { color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-num { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.an-page .oix-quiet { color: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page .oix-big { font-weight: 600; color: hsl(var(--foreground)); }
+.an-page .oix-leg { font: 600 13px/1.3 var(--font-numeric); white-space: nowrap; }
+.an-page .oix-leg.ce { color: hsl(var(--dv-call-ink)); }
+.an-page .oix-leg.pe { color: hsl(var(--dv-put-ink)); }
+
+/* The reading's working, folded. */
+.an-page .oix-more { margin-top: 12px; }
+.an-page .oix-more > summary { cursor: pointer; font: 500 13px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-more-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 10px 24px; padding-top: 10px; }
+.an-page .oix-more-body > .oix-hint { grid-column: 1 / -1; margin: 0; }
+.an-page .oix-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.an-page .oix-checks li { display: grid; grid-template-columns: 20px auto; gap: 0 6px; font: 400 13px/1.4 var(--font-body); }
+.an-page .oix-checks li > span:last-child { grid-column: 2; color: hsl(var(--foreground) / var(--a-quiet)); font-size: 12px; }
+.an-page .oix-checks li[data-pass="true"] .oix-tick { color: hsl(var(--pos-ink)); }
+.an-page .oix-checks li[data-pass="false"] .oix-tick { color: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page .oix-levels { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.an-page .oix-levels dt { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-levels dd { margin: 0; font: 600 14px/1.3 var(--font-numeric); }
+
+/* OI change: the mirrored ladder (calls left, puts right; added green, cut red and hatched). */
+.an-page .oix-ladder { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+.an-page .oix-chead, .an-page .oix-crow { display: grid; grid-template-columns: 1fr minmax(96px, auto) 1fr; align-items: center; gap: 10px; }
+.an-page .oix-chead { padding: 0 4px 6px; font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-chead .ce { text-align: right; color: hsl(var(--dv-call-ink)); }
+.an-page .oix-chead .pe { color: hsl(var(--dv-put-ink)); }
+.an-page .oix-chead > span:nth-child(2) { text-align: center; }
+.an-page .oix-crow { min-height: 26px; padding: 0 4px; border-radius: var(--r-xs); }
+.an-page .oix-crow.atm { background: var(--mat-fill-1); }
+.an-page .oix-ck { display: inline-flex; align-items: center; justify-content: center; gap: 4px; font: 600 13px/1 var(--font-numeric); }
+.an-page .oix-cbar { position: relative; display: flex; align-items: center; gap: 6px; height: 20px; min-width: 0; }
+.an-page .oix-cbar.ce { flex-direction: row-reverse; }
+.an-page .oix-cfill { display: block; height: 14px; width: calc(var(--v, 0) * 78%); min-width: 2px; border-radius: 4px; }
+.an-page .oix-cfill.add { background: hsl(var(--pos) / 0.75); }
+.an-page .oix-cfill.cut { background: repeating-linear-gradient(135deg, hsl(var(--neg) / 0.7) 0 2px, hsl(var(--neg) / 0.18) 2px 5px); }
+.an-page .oix-cbar.peak .oix-cfill { box-shadow: 0 0 0 2px hsl(var(--foreground) / 0.55); }
+.an-page .oix-cfig { font: 500 12px/1 var(--font-numeric); white-space: nowrap; }
+.an-page .oix-spot { display: flex; align-items: center; height: 20px; }
+.an-page .oix-spot > span { margin: 0 auto; padding: 1px 8px; border-radius: 999px; background: hsl(var(--foreground)); color: hsl(var(--background)); font: 600 12px/1.4 var(--font-numeric); }
+.an-page .oix-movers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.an-page .oix-movers li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 8px 2px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); font-size: 13px; }
+.an-page .oix-movers li:last-child { box-shadow: none; }
+
+/* Spurts: four cards in the map's own corners. */
+.an-page .oix-quad { display: grid; grid-template-columns: repeat(auto-fit, minmax(max(min(100%, 360px), 40%), 1fr)); gap: 10px; }
+.an-page .oix-qcard { padding: 10px 12px; border-radius: var(--r-sm); background: var(--mat-fill-1); min-width: 0; }
+.an-page .oix-qhead { display: grid; grid-template-columns: auto auto 1fr auto; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.an-page .oix-qhead .oix-quiet { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.an-page .oix-qrows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.an-page .oix-qrows li { display: grid; grid-template-columns: minmax(84px, auto) minmax(40px, 1fr) auto auto auto; align-items: center; gap: 8px; font-size: 13px; }
+.an-page .oix-rail { display: block; height: 8px; border-radius: 4px; background: var(--mat-fill-2); overflow: hidden; }
+.an-page .oix-rfill { display: block; height: 100%; width: calc(var(--v, 0) * 100%); border-radius: 4px; }
+.an-page .oix-rfill.add { background: hsl(var(--pos) / 0.75); }
+.an-page .oix-rfill.cut { background: repeating-linear-gradient(135deg, hsl(var(--neg) / 0.7) 0 2px, hsl(var(--neg) / 0.18) 2px 5px); }
+
+/* Charts: the rotation map, lines through the day, pain columns. */
+.an-page .oix-chart .oix-band { fill: hsl(var(--foreground) / 0.04); }
+.an-page .oix-chart .oix-ref { stroke: hsl(var(--foreground) / 0.4); stroke-width: 1; stroke-dasharray: 3 4; }
+.an-page .oix-chart .oix-ref.bar { stroke: hsl(var(--foreground) / 0.3); stroke-dasharray: 6 5; }
+.an-page .oix-chart .oix-ref-label { font: 500 12px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-chart .oix-ref-label.lvl { fill: hsl(var(--foreground)); font-weight: 600; }
+.an-page .oix-chart .oix-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.an-page .oix-chart .oix-line.pcr, .an-page .oix-chart .oix-line.pain { stroke: hsl(var(--dv-iv)); }
+.an-page .oix-chart .oix-line.spot { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1.5; }
+.an-page .oix-chart .oix-dot.up { fill: hsl(var(--pos)); }
+.an-page .oix-chart .oix-dot.down { fill: hsl(var(--neg)); }
+.an-page .oix-chart .oix-cross { stroke: hsl(var(--foreground) / 0.45); stroke-width: 1; }
+.an-page .oix-chart .oix-readout { font: 500 12px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-chart .tick.strong { font-weight: 600; fill: hsl(var(--foreground)); }
+.an-page .oix-map .oix-corner { font: 500 12px/1 var(--font-body); fill: hsl(var(--foreground) / var(--a-quiet)); }
+.an-page .oix-map .oix-mk { stroke: hsl(var(--background)); stroke-width: 1; fill-opacity: 0.72; }
+.an-page .oix-map .oix-mk.up { fill: hsl(var(--pos)); }
+.an-page .oix-map .oix-mk.down { fill: hsl(var(--neg)); }
+.an-page .oix-map .oix-mk.flat { fill: hsl(var(--foreground) / 0.35); }
+.an-page .oix-map .oix-mk.big { fill-opacity: 0.92; stroke: hsl(var(--foreground)); }
+.an-page .oix-map .oix-mk.edge { fill-opacity: 0.4; }
+.an-page .oix-map .oix-mk:hover { fill-opacity: 1; stroke: hsl(var(--foreground)); stroke-width: 2; }
+.an-page .oix-map .oix-mlabel { font: 500 12px/1 var(--font-numeric); fill: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-pcol .ce { fill: hsl(var(--dv-call) / 0.5); }
+.an-page .oix-pcol .pe { fill: hsl(var(--dv-put) / 0.5); }
+.an-page .oix-pcol.lvl .ce { fill: hsl(var(--dv-call)); }
+.an-page .oix-pcol.lvl .pe { fill: hsl(var(--dv-put)); }
+.an-page .oix-chart .oix-spotline { stroke: hsl(var(--foreground)); stroke-width: 1.5; stroke-dasharray: 4 3; }
+
+/* PCR: by expiry and by strike. */
+.an-page .oix-xrows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.an-page .oix-xrows li { display: grid; grid-template-columns: 56px minmax(60px, 1fr) 48px minmax(0, auto); align-items: center; gap: 10px; padding: 8px 6px; border-radius: var(--r-xs); font-size: 13px; }
+.an-page .oix-xrows li.cur { background: var(--mat-fill-1); }
+.an-page .oix-xday { font: 600 13px/1 var(--font-numeric); }
+.an-page .oix-split { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--mat-fill-2); }
+.an-page .oix-split .ce { flex: 0 0 calc((1 - var(--v, 0.5)) * 100%); background: hsl(var(--dv-call) / 0.7); }
+.an-page .oix-split .pe { flex: 1 1 auto; background: hsl(var(--dv-put) / 0.7); }
+.an-page .oix-spcr { display: flex; flex-direction: column; gap: 2px; }
+.an-page .oix-sprow { display: grid; grid-template-columns: 64px 1fr 48px; align-items: center; gap: 10px; min-height: 22px; padding: 0 4px; border-radius: var(--r-xs); }
+.an-page .oix-sprow.atm { background: var(--mat-fill-1); }
+.an-page .oix-sptrack { position: relative; height: 10px; background: linear-gradient(90deg, transparent calc(50% - 0.5px), hsl(var(--foreground) / 0.3) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)); }
+.an-page .oix-spfill { position: absolute; top: 0; bottom: 0; width: calc(var(--v, 0) * 50%); border-radius: 3px; }
+.an-page .oix-spfill.pos { left: 50%; background: hsl(var(--pos) / 0.7); }
+.an-page .oix-spfill.neg { right: 50%; background: hsl(var(--neg) / 0.7); }
+
+/* OI heatmap through the day: tiles shaded by --a (0..1), each side on its own scale. */
+.an-page .oix-heat table { border-collapse: separate; border-spacing: 2px; font-variant-numeric: tabular-nums; }
+.an-page .oix-heat th.oix-th { padding: 4px 6px; font: 500 12px/1.2 var(--font-numeric); color: hsl(var(--foreground) / var(--a-quiet)); text-align: center; white-space: nowrap; }
+.an-page .oix-heat th.oix-th.now { font-weight: 600; }
+.an-page .oix-heat th.oix-th.ce.now { color: hsl(var(--dv-call-ink)); }
+.an-page .oix-heat th.oix-th.pe.now { color: hsl(var(--dv-put-ink)); }
+.an-page .oix-heat th.oix-tk { padding: 4px 10px; font: 600 13px/1.2 var(--font-numeric); text-align: center; white-space: nowrap; border-radius: var(--r-xs); }
+.an-page .oix-heat tr.atm th.oix-tk { background: hsl(var(--warn) / 0.16); }
+.an-page .oix-heat tr.above-spot > * { box-shadow: inset 0 -1px 0 hsl(var(--foreground) / 0.5); }
+.an-page .oix-tag { display: inline-block; margin-left: 4px; padding: 1px 5px; border-radius: 999px; font: 500 12px/1.2 var(--font-body); background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-label)); }
+.an-page .oix-tag.mp { color: hsl(var(--dv-iv-ink)); }
+.an-page .oix-tile { --a: 0; min-width: 54px; padding: 4px 6px; border-radius: 6px; text-align: right; vertical-align: middle; font: 500 12px/1.2 var(--font-numeric); white-space: nowrap; background: var(--mat-fill-1); }
+.an-page .oix-tile.h-ce { background: hsl(var(--dv-call) / calc(0.06 + var(--a) * 0.6)); }
+.an-page .oix-tile.h-pe { background: hsl(var(--dv-put) / calc(0.06 + var(--a) * 0.6)); }
+.an-page .oix-tile.h-pos { background: hsl(var(--pos) / calc(0.06 + var(--a) * 0.55)); }
+.an-page .oix-tile.h-neg { background: hsl(var(--neg) / calc(0.06 + var(--a) * 0.5)); }
+.an-page .oix-tile.lit { box-shadow: inset 0 0 0 2px hsl(var(--foreground) / 0.8); font-weight: 600; }
+.an-page .oix-tfig { display: block; }
+.an-page .oix-tcode { display: block; font: 500 12px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+@media (forced-colors: active) {
+  .an-page .oix-tile, .an-page .oix-cfill, .an-page .oix-rfill, .an-page .oix-spfill { forced-color-adjust: none; }
+}

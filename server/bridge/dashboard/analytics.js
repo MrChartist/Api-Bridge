@@ -18,6 +18,7 @@ import { analyticsFlowPages, filingsTabs, tabbedPage } from "./analyticsFlow.js"
 import { analyticsRiskPages } from "./analyticsRisk.js";
 import { analyticsTimePages } from "./analyticsTime.js";
 import { analyticsDepthPages } from "./analyticsDepth.js";
+import { analyticsOiPages } from "./analyticsOi.js";
 import { UNDERLYING_CHIPS, isFormPage, nowShowing, workspace } from "./workspace.js";
 import { errorBox, field, segField, segmented } from "./views.js";
 
@@ -28,7 +29,7 @@ export const VIEWS = Object.freeze({
   // Analytics › Exposure
   "an-gex": ["exposure", "strike", { expiry: true, strikes: true }],
   "an-gex-expiry": ["exposure", "expiry", { expiry: false, strikes: true }],
-  "an-oi-heatmap": ["exposure", "oi", { expiry: false, strikes: true }],
+  "an-oi-heatmap": ["oix-heatmap", null, { expiry: true, strikes: true }],
   greeksgrid: ["greeksgrid", "grid", { expiry: true, strikes: true }],
   "an-straddle": ["greeksgrid", "straddle", { expiry: true, strikes: false }],
   // Analytics › Flow
@@ -52,8 +53,11 @@ export const VIEWS = Object.freeze({
   skew: ["skew", "skew", { expiry: true, strikes: true }],
   "an-surface": ["skew", "surface", { expiry: false, strikes: true }],
   "an-volstats": ["screener", "vol", { expiry: false, strikes: false }],
-  oichange: ["oichange", "change", { expiry: true, strikes: true }],
-  "an-spurts": ["oichange", "spurts", { expiry: true, strikes: true }],
+  // OI suite (analyticsOi.js): the Bridge recorder's day for the chain in the top bar.
+  oichange: ["oix-change", null, { expiry: true, strikes: false }],
+  "an-spurts": ["oix-spurts", null, { expiry: true, strikes: false }],
+  "an-pcr": ["oix-pcr", null, { expiry: true, strikes: false }],
+  "an-maxpain": ["oix-maxpain", null, { expiry: true, strikes: false }],
   "an-strikehist": ["strikehist", null, { expiry: true, strikes: false }],
   "an-cone": ["cone", null, { expiry: false, strikes: false }],
   "an-forward": ["depth", "forward", { expiry: false, strikes: false }],
@@ -116,7 +120,7 @@ function newsTab(kind) {
 
 function sources(tab) {
   const H = () => helpers(tab);
-  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H), ...analyticsRiskPages(H), ...analyticsTimePages(H), ...analyticsDepthPages(H)];
+  const all = [...analyticsPages(H), ...analyticsMorePages(H), ...analyticsFlowPages(H), ...analyticsRiskPages(H), ...analyticsTimePages(H), ...analyticsDepthPages(H), ...analyticsOiPages(H)];
   const filings = [...filingsTabs(), { id: "announcements", label: "Announcements", build: newsTab("announcements") }, { id: "regulatory", label: "SEBI and RBI", build: newsTab("regulatory") }];
   all.push({ id: "filings", render: () => tabbedPage(H(), { label: "Filings", tabs: filings }) });
   return all;
