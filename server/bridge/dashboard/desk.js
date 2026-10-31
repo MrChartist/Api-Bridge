@@ -2798,9 +2798,9 @@ async function renderDesk(kind) {
   ageTimer = setInterval(() => (pageRoot.isConnected ? drawClock() : clearInterval(ageTimer)), 1000);
 
   if (kind === "chain") {
+    // No summary strip above the chain: ATM IV, max pain and the walls are in the toolbar and the chain's own tags.
     const out = [
       refBannersEl.el,
-      h("section", { class: "desk-panel", "data-panel": "summary", "data-fixed": "", "aria-label": "Chain summary" }, statsEl),
       h(
         "section",
         { class: "desk-panel chain-panel", "data-panel": "chain", "aria-label": "Option chain" },
