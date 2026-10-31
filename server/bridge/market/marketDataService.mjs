@@ -91,6 +91,11 @@ const readOptionsSchema = z
      * at once, labelled `stale: true` and `revalidating: true`, and refresh it in the background for the next read.
      */
     staleWhileRevalidate: z.boolean().optional(),
+    /**
+     * Depth reads only: the order-book depth asked for (5, 20 or 200 levels). A hint the adapter may honour; the answer
+     * holds the levels the broker has, so callers read its length rather than trusting the hint.
+     */
+    levels: z.union([z.literal(5), z.literal(20), z.literal(200)]).optional(),
   })
   .passthrough();
 
@@ -240,6 +245,7 @@ export function createMarketDataService(deps) {
       maxWaitMs: o.maxWaitMs,
       backgroundShare: priority === "background" ? o.backgroundShare : undefined,
       swr: o.staleWhileRevalidate === true,
+      levels: o.levels,
     };
   }
 
@@ -760,7 +766,8 @@ export function createMarketDataService(deps) {
     const pinned = o.accountId;
     checkPinned(pinned);
     const targetMs = o.maxAgeMs ?? cfg.freshness.depthMs;
-    const key = `d|${symbol}`;
+    // Deeper books are cached apart: a 5-level answer never stands in for a 20- or 200-level request.
+    const key = o.levels && o.levels > 5 ? `d|${symbol}|${o.levels}` : `d|${symbol}`;
     const hit = freshEntry(key, targetMs, pinned);
     if (hit) {
       saving("cache");
@@ -780,10 +787,10 @@ export function createMarketDataService(deps) {
       const ref = await brokerRef(symbol, broker);
       const res = await raceSignal(
         callBroker(
-          { accountId, broker, endpointClass: "depth", priority: o.priority, coalesceKey: `depth:${accountId}:${symbol}`, maxWaitMs: stale ? cfg.stale.waitMs : undefined },
+          { accountId, broker, endpointClass: "depth", priority: o.priority, coalesceKey: `depth:${accountId}:${symbol}${o.levels && o.levels > 5 ? `:${o.levels}` : ""}`, maxWaitMs: stale ? cfg.stale.waitMs : undefined },
           (adapter, creds) => {
             if (typeof adapter.fetchDepth !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no market depth API.`);
-            return adapter.fetchDepth(creds, ref);
+            return o.levels && o.levels > 5 ? adapter.fetchDepth(creds, ref, { levels: o.levels }) : adapter.fetchDepth(creds, ref);
           },
         ),
         o.signal,

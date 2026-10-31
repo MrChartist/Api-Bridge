@@ -1,8 +1,9 @@
 // Home as a trader's cockpit: the indices strip, your P&L today, open positions with their risk, the latest live
-// events, today's market calendar, and API and broker health. One compact grid that adds columns on wide screens
-// (3 at 1440 px, 4 at 1920 px, 5 at 2560 px) using the density tokens. Every figure becomes text through format.js;
-// the grouping maths is alert-core.js (pure, tested). Reads only: nothing here places an order.
+// events, today's market calendar, market movers, headlines, and API and broker health. One compact grid that adds
+// columns on wide screens (3 at 1440 px, 4 at 1920 px, 5 at 2560 px) using the density tokens. Every figure becomes
+// text through format.js; the grouping maths is alert-core.js (pure, tested). Reads only: nothing here places an order.
 import { api, app, card, emptyState, h, loadingState, optional, pill } from "./app.js";
+import { headlinesCard, moversCard } from "./pulse.js";
 import { DASH, formatCompact, formatFixed, formatGrouped, formatInt, formatPercent, formatSigned, formatSignedRupee, formatRupee, isFigure } from "./format.js";
 import { bookGroups } from "./alert-core.js";
 import { contractName, orderStatusText, sessionText, startupText } from "./flows.js";
@@ -371,7 +372,10 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
     ),
   });
 
-  const grid = h("div", { class: "cockpit" }, pnlCard, posCard, evCard, calCard, healthCard, wlCard);
+  // Market movers (NIFTY 50) and headlines: each reads on its own and refreshes on its own clock (30 s, 5 min).
+  const mv = moversCard();
+  const nw = headlinesCard();
+  const grid = h("div", { class: "cockpit" }, pnlCard, posCard, evCard, calCard, healthCard, wlCard, mv.el, nw.el);
 
   // Follow the seed: the progress line every half second; once the Bridge answers book reads, read the whole book and
   // put the two cards in place (and today's orders), all at once.
@@ -406,6 +410,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
     refresh: async () => {
       await strip.fill().catch(() => {});
       await fillWl().catch(() => {});
+      await Promise.all([mv.refresh(), nw.refresh()]).catch(() => {});
     },
   };
 }

@@ -90,6 +90,19 @@ const RSS = (title, items) =>
   `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${title}</title>${items.map((i) => `<item><title>${i.title}</title><link>${i.link}</link><guid>${i.link}</guid><description>${i.desc}</description><pubDate>${i.date}</pubDate></item>`).join("")}</channel></rss>`;
 const rfc = (iso, hh = "17:30:00") => new Date(`${iso}T${hh}+05:30`).toUTCString();
 
+/** Demo market-news feeds (newsFeeds.mjs MARKET_KINDS): [paper, host]. */
+const MARKET_DEMO = { etMarkets: ["The Economic Times", "economictimes.indiatimes.com"], mcMarkets: ["Moneycontrol", "www.moneycontrol.com"], bsMarkets: ["Business Standard", "www.business-standard.com"], mintMarkets: ["Mint", "www.livemint.com"] };
+const HEADLINE_PATTERNS = [
+  "{co} shares rise {pct}% after quarterly results",
+  "{co} slips {pct}% as volumes pick up",
+  "Nifty ends {pct}% higher; {co} among top movers",
+  "Sensex falls {pct}% in late trade, {co} weighs",
+  "{co} board approves fund raising plan",
+  "Bank Nifty options see heavy activity at the weekly expiry",
+  "FPIs turn net sellers for the week; {co} in focus",
+  "{co} to announce results next week",
+];
+
 /** SEBI and RBI RSS, NSE announcements, the results calendar and the F&O ban list (newsFeeds.mjs fetcher contract). */
 export async function demoNewsFeedsFetcher(kind, params = {}) {
   const today = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
@@ -117,6 +130,22 @@ export async function demoNewsFeedsFetcher(kind, params = {}) {
         data.push({ symbol: sym, sm_name: name, desc: subj, attchmntText: `${name}: ${subj.toLowerCase()} (demo).`, an_dt: `${d} ${String(9 + i * 2).padStart(2, "0")}:15:00`, seq_id: `demo-${d}-${i}`, attchmntFile: null });
       }
     return data;
+  }
+  if (MARKET_DEMO[kind]) {
+    // Market headlines: a few per paper per day over the last three sessions, some naming a demo company or an index.
+    const [paper, host] = MARKET_DEMO[kind];
+    const items = [];
+    for (const d of days.slice(0, 3))
+      for (let i = 0; i < 4; i++) {
+        const seed = `${kind}${d}${i}`;
+        const [, name] = pickSym(seed);
+        const short = name.replace(/\s+(Limited|Ltd)$/i, "");
+        const pattern = HEADLINE_PATTERNS[Math.floor(rand(`${seed}p`) * HEADLINE_PATTERNS.length)];
+        const title = `${pattern.replace("{co}", short).replace("{pct}", (0.4 + rand(`${seed}x`) * 3).toFixed(1))} (demo)`;
+        const hh = String(15 - i * 2).padStart(2, "0");
+        items.push({ title: title.replace(/&/g, "&amp;"), link: `https://${host}/demo/${d}-${i}`, desc: "", date: rfc(d, `${hh}:${String(Math.floor(rand(`${seed}m`) * 60)).padStart(2, "0")}:00`) });
+      }
+    return RSS(`${paper} markets (demo)`, items);
   }
   if (kind === "events") return demoMarketEventsFetcher("events", params);
   if (kind === "ban") {

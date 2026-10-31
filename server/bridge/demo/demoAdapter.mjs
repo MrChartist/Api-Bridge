@@ -932,16 +932,25 @@ export function createDemoAdapter({ now = () => Date.now(), tickMs = 1000 } = {}
       return ok(refs.map((r) => quoteOf(r.token, r.exchange, t)).filter(Boolean));
     },
 
-    async fetchDepth(_creds, ref) {
+    // 5 levels by default; { levels: 20 | 200 } gives a deeper book (as Dhan's 20- and 200-level feeds do), with an
+    // occasional large resting order a few ticks away so a depth ladder has something to show.
+    async fetchDepth(_creds, ref, opts = {}) {
       const q = quoteOf(ref.token, ref.exchange, now());
       if (!q) throw Object.assign(new Error(`Unknown demo instrument ${ref.token}.`), { code: "BROKER_INPUT_INVALID", statusCode: 422 });
+      const n = opts?.levels === 20 || opts?.levels === 200 ? opts.levels : 5;
       const step = Math.max(0.05, round2(q.ask - q.bid));
-      const level = (side, i) => ({
-        price: fix(side === "bid" ? q.bid - i * step : q.ask + i * step, 0.05),
-        qty: (5 + Math.round(40 * unit(`${ref.token}:${side}:${i}:${Math.floor(now() / 5000)}`))) * 25,
-        orders: 1 + Math.round(12 * unit(`${ref.token}:${side}:o${i}`)),
-      });
-      return ok({ bids: [0, 1, 2, 3, 4].map((i) => level("bid", i)), asks: [0, 1, 2, 3, 4].map((i) => level("ask", i)) });
+      const slot = Math.floor(now() / 5000);
+      const level = (side, i) => {
+        const base = (5 + Math.round(40 * unit(`${ref.token}:${side}:${i}:${slot}`))) * 25;
+        const big = i > 2 && unit(`${ref.token}:${side}:big${i}`) > 0.93 ? 4 + Math.round(6 * unit(`${ref.token}:${side}:bx${i}:${slot}`)) : 1;
+        return {
+          price: fix(side === "bid" ? q.bid - i * step : q.ask + i * step, 0.05),
+          qty: base * big,
+          orders: (1 + Math.round(12 * unit(`${ref.token}:${side}:o${i}`))) * (big > 1 ? 2 : 1),
+        };
+      };
+      const idx = Array.from({ length: n }, (_, i) => i);
+      return ok({ bids: idx.map((i) => level("bid", i)).filter((l) => l.price > 0), asks: idx.map((i) => level("ask", i)) });
     },
 
     async fetchHistorical(_creds, req) {

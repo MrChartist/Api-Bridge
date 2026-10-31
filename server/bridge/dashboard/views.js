@@ -70,6 +70,7 @@ const PAGE_MODULES = Object.freeze({
   scanner: () => import("./scanner.js"),
   analytics: () => import("./analytics.js"),
   algo: () => import("./algo.js"),
+  pulse: () => import("./pulse.js"),
 });
 /** A page renderer that loads its module first. `.module` names it, for preloading. */
 function lazyPage(mod, name) {
@@ -101,6 +102,10 @@ const renderStatementPage = lazyPage("statement", "renderStatementPage");
 const renderWatchlistsPage = lazyPage("watchlists", "renderWatchlistsPage");
 const renderScannerPage = lazyPage("scanner", "renderScannerPage");
 const renderAlgoPage = lazyPage("algo", "renderAlgoPage");
+const renderMoversPage = lazyPage("pulse", "renderMoversPage");
+const renderTechnicalsPage = lazyPage("pulse", "renderTechnicalsPage");
+const renderNewsPage = lazyPage("pulse", "renderNewsPage");
+const renderDepthPage = lazyPage("pulse", "renderDepthPage");
 
 /** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
@@ -361,12 +366,15 @@ export const PAGES = [
     ],
   },
   {
-    id: "screeners", label: "Screeners", icon: "radar", tint: "yellow", key: 8, group: "Markets", layout: "desk", title: "Screeners", sub: "Options, arbitrage, live events and stocks, ranked and scanned",
+    id: "screeners", label: "Screeners", icon: "radar", tint: "yellow", key: 8, group: "Markets", layout: "desk", title: "Screeners", sub: "Options, arbitrage, live events, movers, technicals and stocks, ranked and scanned",
     defaultTab: "options",
     tabs: [
       { id: "options", label: "Options", page: "screener", layout: "desk", command: "Option Screener", keywords: "screener unusual activity build-up rich cheap premium hedges", sub: "Scan every underlying and expiry for unusual activity, build-ups, rich or cheap premium, hedges and arbitrage", render: renderScreenerPage },
       { id: "arbitrage", label: "Arbitrage", page: "arb", layout: "desk", command: "Arbitrage scanner", icon: "scale", tint: "indigo", keywords: "arb parity box conversion reversal basis", sub: "Parity, boxes and futures basis at executable prices, after charges", render: renderArbPage },
       { id: "events", label: "Live events", page: "events", layout: "desk", command: "Live events", icon: "bolt", tint: "orange", keywords: "events event selector spider circuit only buyers only sellers volume surge gap day high breakout alerts live oi build-up iv spike wall", sub: "Circuits, volume surges, gaps, breakouts, F&O OI and option events as they happen", render: renderEventsPage },
+      { id: "movers", label: "Movers", page: "movers", layout: "desk", command: "Market movers", icon: "activity", tint: "green", keywords: "movers gainers losers top volume turnover open interest advance decline breadth nifty 50 f&o", sub: "Top gainers, losers, volume, turnover and open interest across F&O stocks, NIFTY 50 or your own list", render: renderMoversPage },
+      { id: "technicals", label: "Technicals", page: "technicals", layout: "desk", command: "Technical readouts", icon: "chart", tint: "purple", keywords: "technicals technical data indicators rsi macd ema sma moving average adx atr bollinger supertrend pivots 52-week high low", sub: "RSI, MACD, moving averages, Supertrend, pivots and the 52-week range for a watchlist or NIFTY 50", render: renderTechnicalsPage },
+      { id: "depth", label: "Depth ladder", page: "depth", layout: "desk", command: "Depth ladder", icon: "bars", tint: "indigo", keywords: "depth ladder market depth order book dom 20 level 200 level full depth bid ask imbalance heatmap large orders", sub: "One symbol's order book: 5, 20 or 200 levels, cumulative heat, imbalance and the largest levels", render: renderDepthPage },
       { id: "watchlists", label: "Watchlists", page: "watchlists", layout: "desk", command: "Watchlists", icon: "list", tint: "blue", keywords: "watchlist watch list quotes change oi iv favourites", sub: "Your lists with live quotes, % change, OI change for F&O and IV. One feeds Live events, one shows on Home", render: renderWatchlistsPage },
       { id: "stocks", label: "Stocks", page: "scanner", layout: "desk", command: "Stock scanner", icon: "scan", tint: "mint", keywords: "scanner scan condition rsi universe gap 52-week circuit nr7 inside day build-up oi spike ban pcr iv rank basis rollover max pain straddle skew", sub: "Price, F&O and option-chain scans in plain words, saved and scheduled", render: renderScannerPage },
     ],
@@ -384,12 +392,13 @@ export const PAGES = [
     ],
   },
   {
-    id: "flow", label: "Flow", icon: "activity", tint: "green", group: "Analytics", layout: "desk", title: "Flow", sub: "Unusual options activity, market tide, FII and DII cash flows and NSE filings",
+    id: "flow", label: "Flow", icon: "activity", tint: "green", group: "Analytics", layout: "desk", title: "Flow", sub: "Unusual options activity, market tide, FII and DII cash flows, headlines and NSE filings",
     defaultTab: "unusual",
     tabs: [
       anTab("unusual", "Unusual activity", "unusual", { command: "Unusual options activity", icon: "scan", tint: "red", keywords: "unusual options activity uoa volume oi premium sweep score whales", sub: "Contracts trading far above their open interest, ranked by a 0 to 100 score" }),
       anTab("tide", "Market tide", "tide", { command: "Market tide", keywords: "tide net premium call put flow sentiment bought sold", sub: "Net call against put premium through the session, and the sentiment it implies" }),
       anTab("fii", "FII and DII", "flows", { command: "FII and DII flows", icon: "inbox", keywords: "fii dii fpi institutional cash flows net buying selling streak", sub: "Cash-market buying and selling by foreign and domestic institutions, with streaks" }),
+      { id: "news", label: "Headlines", page: "news", layout: "desk", command: "Market headlines", icon: "inbox", tint: "orange", keywords: "news headlines feed economic times moneycontrol business standard mint filings announcements sebi rbi watchlist held", sub: "Market news, NSE filings and SEBI / RBI notices in one feed, filtered by your watchlist or what you hold", render: renderNewsPage },
       anTab("filings", "Filings", "an-filings", { command: "NSE filings", icon: "list", keywords: "nse block bulk deals insider trading results corporate events announcements sebi rbi", sub: "NSE block and bulk deals, insider trades and the results calendar (public pages, unverified)" }),
     ],
   },
@@ -457,6 +466,10 @@ export const LEGACY = {
   participants: "oi/participants",
   journal: "orders/journal",
   watchlists: "screeners/watchlists",
+  movers: "screeners/movers",
+  technicals: "screeners/technicals",
+  depth: "screeners/depth",
+  news: "flow/news",
   // PR 17's page ids (docs/design/pr17-integration.md).
   "an-gex": "exposure/strike",
   "an-gex-expiry": "exposure/expiry",

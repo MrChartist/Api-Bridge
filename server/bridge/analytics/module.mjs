@@ -2,7 +2,8 @@
  * analytics module — stream S15: options analytics computed from the Bridge's own chain, quotes and Black-Scholes
  * (OI and PCR, OI change, max pain, gamma exposure, IV skew and term structure, Greeks grid, synthetics, straddle,
  * futures chain and basis, FII/DII flows, expiry-day digest, strategy templates and finder, Greeks calculator,
- * payoff, position sizing, lot-split plans, position Greeks). Nothing here can place an order: lot-split only plans.
+ * payoff, position sizing, lot-split plans, position Greeks, technical readouts, order-book profile). Nothing here can
+ * place an order: lot-split only plans.
  * Alert rules on these metrics are served by the alerts module (one alert system; /v1/alerts/market, with
  * /v1/analytics/alert-rules as an alias), and watchlists by the watchlists module (/v1/analytics/watchlists is an
  * alias there); docs/design/pr17-integration.md.
@@ -30,6 +31,8 @@ import { derivDepthRoutes } from "./derivDepth.mjs";
 import { riskRoutes } from "./risk.mjs";
 import { fieldsRoutes } from "./fields.mjs";
 import { marketsRoutes } from "./markets.mjs";
+import { technicalsRoutes } from "./technicals.mjs";
+import { depthProfileRoutes } from "./depthProfile.mjs";
 import { demoMarketEventsFetcher, demoNewsFeedsFetcher } from "./demoFeeds.mjs";
 
 /** [method, path, route options, handler name] for the routes in routes.mjs. */
@@ -48,7 +51,7 @@ export const ROUTES = Object.freeze([
 export const USED_SERVICES = Object.freeze(["marketData", "orders", "accounts", "backupData", "symbols", "participants"]);
 
 /** Feature files that build their own [method, path, options, handler] entries. */
-const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, marketsRoutes, fieldsRoutes, riskRoutes, derivDepthRoutes, newsFeedsRoutes]);
+const FEATURE_ROUTES = Object.freeze([oiTrackerRoutes, greeksGridRoutes, strategyRoutes, futuresChainRoutes, flowsRoutes, expiryDayRoutes, positionRoutes, unusualRoutes, tideRoutes, exposureRoutes, volStatsRoutes, marketEventsRoutes, screenerRoutes, backtestRoutes, participantsRoutes, optimizerRoutes, marketsRoutes, fieldsRoutes, riskRoutes, derivDepthRoutes, newsFeedsRoutes, technicalsRoutes, depthProfileRoutes]);
 
 export default defineModule({
   name: "analytics",
