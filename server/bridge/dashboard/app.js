@@ -1666,11 +1666,29 @@ export async function confirmEngageKillSwitch() {
 
 // ── Theme ──
 
+/** Appearance order of the rail's one theme button: each press moves to the next. */
+const THEME_CYCLE = ["light", "dark", "auto"];
+const THEME_NAME = { light: "Light", dark: "Dark", auto: "Auto" };
+const THEME_ICON = { light: "sun", dark: "moon", auto: "monitor" };
 export function applyTheme(choice) {
   const root = document.documentElement;
   if (choice === "light" || choice === "dark") root.setAttribute("data-theme", choice);
   else root.removeAttribute("data-theme");
-  for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (choice ?? "auto")));
+  const c = choice === "light" || choice === "dark" ? choice : "auto";
+  for (const b of document.querySelectorAll("[data-theme-choice]")) b.setAttribute("aria-pressed", String(b.dataset.themeChoice === c));
+  // The icon rail's theme button shows the current appearance and says what a press does.
+  const t = document.getElementById("sb-theme");
+  if (t) {
+    const next = THEME_CYCLE[(THEME_CYCLE.indexOf(c) + 1) % THEME_CYCLE.length];
+    t.dataset.cycle = next;
+    t.dataset.tip = `Appearance: ${THEME_NAME[c]}`;
+    t.dataset.tipKey = `Switch to ${THEME_NAME[next]}`;
+    t.setAttribute("aria-label", `Appearance: ${THEME_NAME[c]}. Switch to ${THEME_NAME[next]}`);
+    if (t.dataset.icon !== c) {
+      t.dataset.icon = c;
+      t.replaceChildren(icon(THEME_ICON[c]));
+    }
+  }
 }
 
 // ── Space: the sidebar (full or icon rail) and the density (compact or comfortable), layout-prefs.js ──
@@ -1692,7 +1710,10 @@ export function applyLayout() {
     const label = rail ? "Expand the sidebar" : "Collapse the sidebar to icons";
     t.setAttribute("aria-expanded", String(!rail));
     t.setAttribute("aria-label", label);
-    t.title = label;
+    // On the rail the sidebar's own tooltip names it (views.js sidebarTips); the full sidebar keeps the native one.
+    t.dataset.tip = label;
+    if (rail) t.removeAttribute("title");
+    else t.title = label;
     if (t.dataset.icon !== sb) {
       t.dataset.icon = sb;
       t.replaceChildren(icon(rail ? "rail" : "sidebar"));
@@ -1712,13 +1733,29 @@ export function chooseDensity(choice) {
   local.set(DENSITY_SLOT, c === "auto" ? null : c);
   relayout();
 }
-/** The sidebar's toggle: the icon rail or the full sidebar, remembered in this browser. */
+/**
+ * The sidebar's toggle: the icon rail or the full sidebar, remembered in this browser. The card's width, the page's
+ * left edge and the toolbar move together (app.css section 16, only while data-sb-anim is set, so a window resize
+ * never lags); what measures itself is re-fitted once they have settled.
+ */
+let sbAnimTimer = 0;
 export function toggleSidebarRail() {
-  const cur = document.documentElement.dataset.sb;
+  const root = document.documentElement;
+  const cur = root.dataset.sb;
   if (cur !== "rail" && cur !== "full") return;
   const next = toggleSidebar(cur, innerWidth);
   local.set(SIDEBAR_SLOT, next === "auto" ? null : next);
-  relayout();
+  const instant = reducedMotion();
+  if (!instant) root.dataset.sbAnim = "";
+  if (!applyLayout()) return;
+  clearTimeout(sbAnimTimer);
+  sbAnimTimer = setTimeout(
+    () => {
+      root.removeAttribute("data-sb-anim");
+      if (typeof dispatchEvent === "function") dispatchEvent(new Event("resize"));
+    },
+    instant ? 0 : 340,
+  );
 }
 
 /** Apply an appearance (auto, light or dark) and remember it in this browser. */
@@ -1827,6 +1864,7 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     if (choice) chooseTheme(/** @type {HTMLElement} */ (choice).dataset.themeChoice);
     else if (dens) chooseDensity(/** @type {HTMLElement} */ (dens).dataset.densityChoice);
     else if (t?.closest?.("#sb-toggle")) toggleSidebarRail();
+    else if (t?.closest?.("#sb-theme")) chooseTheme(/** @type {HTMLElement} */ (t.closest("#sb-theme")).dataset.cycle);
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
     revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
   });

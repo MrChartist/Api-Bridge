@@ -119,6 +119,8 @@ html { font-synthesis-weight: none; }
   --mat-blur-soft: blur(18px) saturate(150%);
   --seg-track: hsl(240 6% 10% / 0.06);
   --surface-raised: hsl(0 0% 100%);
+  /* The sidebar's current page: a soft blue capsule (IPO Decode), never the contrast selection pair. */
+  --nav-current-bg: hsl(var(--ios-blue) / 0.12);
   /* A switch's knob: white in both themes (iOS). */
   --switch-knob: hsl(0 0% 100%);
   /* Selection: the contrast state. Selected = black capsule, white text (white / black in dark). */
@@ -218,10 +220,13 @@ html { font-synthesis-weight: none; }
   --ease-press: cubic-bezier(0.3, 1.25, 0.5, 1);
 
   /* Shell */
-  /* The sidebar is flush on the left edge (216 px, or the 56 px icon rail); --sb-w is the one drawn (section 15). The
-     page fills the rest of the window: no centred column, a 12 to 16 px gutter. */
-  --sidebar-w: 216px;
-  --rail-w: 56px;
+  /* The sidebar is a floating card one gutter in from the window edges (260 px, or the 72 px icon rail): --sb-card is
+     the card drawn and --sb-w the room it takes beside the page, inset included (section 2, "Sidebar"). The page fills
+     the rest of the window: no centred column, a 12 to 16 px gutter, so the card and the page sit one gutter apart. */
+  --sidebar-w: 260px;
+  --rail-w: 72px;
+  --sb-inset: var(--page-gutter);
+  --sb-card: 0px;
   --sb-w: 0px;
   --toolbar-h: 56px;
   --tabbar-h: 68px;
@@ -386,6 +391,7 @@ html { font-synthesis-weight: none; }
     --mat-blur-soft: blur(20px) saturate(130%);
     --seg-track: hsl(0 0% 100% / 0.06);
     --surface-raised: hsl(240 2.2% 17.6%);
+    --nav-current-bg: hsl(var(--ios-blue) / 0.22);
     --sel-bg: 0 0% 100%;
     --sel-fg: 0 0% 0%;
     --sel-ring: hsl(211 100% 62%);
@@ -508,6 +514,7 @@ html { font-synthesis-weight: none; }
   --mat-blur-soft: blur(20px) saturate(130%);
   --seg-track: hsl(0 0% 100% / 0.06);
   --surface-raised: hsl(240 2.2% 17.6%);
+  --nav-current-bg: hsl(var(--ios-blue) / 0.22);
   --sel-bg: 0 0% 100%;
   --sel-fg: 0 0% 0%;
   --sel-ring: hsl(211 100% 62%);
@@ -717,58 +724,133 @@ code { font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(
 .lockup-name { font: 600 17px/1.08 var(--font-display); letter-spacing: -0.03em; white-space: nowrap; }
 .lockup-sub { font: 500 12px/1.1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; }
 
-/* Sidebar (1024px and up): floating glass, grouped source list, search, appearance. */
+/* Sidebar (1024px and up): a floating card one gutter in from the window edges (IPO Decode's sidebar). The brand and
+   the collapse button, search (⌘K), the pages in quiet groups, each with its own tinted glyph, then Light / Dark / Auto,
+   the key line and the paper note. The icon rail (72 px) keeps the glyphs, a thin divider between groups, the search
+   and one theme button; app.js applyLayout sets data-sb, and data-sb-anim while the toggle animates. */
 .sidebar {
-  position: fixed; z-index: var(--z-chrome); top: 14px; left: 14px; bottom: 14px; width: var(--sidebar-w);
-  border-radius: var(--r-panel); padding: 14px 10px 12px;
-  display: none; flex-direction: column; gap: 4px;
+  position: fixed; z-index: var(--z-chrome); top: var(--sb-inset); left: var(--sb-inset); bottom: var(--sb-inset); width: var(--sb-card);
+  border-radius: var(--r-xl); padding: 14px 10px 12px;
+  display: none; flex-direction: column; gap: 4px; overflow: hidden;
+  background: var(--mat-grouped-solid); box-shadow: var(--edge-1), var(--shadow-2);
 }
 @media (min-width: 1024px) {
-  :root { --sb-w: var(--sidebar-w); }
-  :root[data-sb="rail"] { --sb-w: var(--rail-w); }
+  :root { --sb-card: var(--sidebar-w); --sb-w: calc(var(--sb-card) + var(--sb-inset)); }
+  :root[data-sb="rail"] { --sb-card: var(--rail-w); }
   .sidebar { display: flex; }
   .app-shell { padding-left: var(--sb-w); }
   .app-main { padding-top: calc(var(--toolbar-h) + 24px); }
   .scroll-edge { left: var(--sb-w); }
   .scroll-edge-b { display: none; }
 }
-.sb-brand { padding: 6px 8px 12px; }
+/* Expanded and rail: the card, the page's left edge and the toolbar move together, only while the toggle animates (a
+   window resize never lags behind). Inside the card the labels fade and the glyphs glide to the rail's centre line. */
+:root[data-sb-anim] .sidebar { transition: width var(--dur-3) var(--ease-std); }
+:root[data-sb-anim] .app-shell { transition: padding-left var(--dur-3) var(--ease-std); }
+:root[data-sb-anim] .toolbar, :root[data-sb-anim] .scroll-edge { transition: left var(--dur-3) var(--ease-std); }
+.sb-head { position: relative; flex: none; padding-bottom: 6px; transition: padding var(--dur-3) var(--ease-std); }
+.sb-brand { display: flex; padding: 6px; margin-right: 40px; border-radius: var(--r-ctl); }
+.sb-brand .lockup-text, .sb-search-label, .sb-search .kbd-group, .nav a .lbl, .nav-group > span, button.sb-account #who, button.sb-account > svg:last-child {
+  transition: opacity var(--dur-2) var(--ease-std) 80ms;
+}
+button.sb-toggle {
+  position: absolute; top: 8px; left: calc(100% - 36px); width: 36px;
+  --btn-bg: transparent; --btn-line: transparent; --btn-h: 36px; --btn-px: 0; --fin: 0; border-radius: var(--r-ctl);
+  color: hsl(var(--foreground) / var(--a-quiet));
+  transition: top var(--dur-3) var(--ease-std), left var(--dur-3) var(--ease-std), background-color var(--dur-hover) var(--ease-out);
+}
+button.sb-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: hover) { button.sb-toggle:hover { --btn-bg: var(--mat-fill-2); color: hsl(var(--foreground)); } }
 .sb-search {
-  display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; min-height: 36px; padding: 0 10px; margin: 0 0 8px;
-  border-radius: var(--r-ctl); box-shadow: none;
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; flex: none; width: 100%; height: 36px; padding: 0 10px; margin: 0 0 8px;
+  border-radius: var(--r-ctl); box-shadow: none; overflow: hidden; white-space: nowrap;
   background: var(--mat-fill-2); color: hsl(var(--foreground) / var(--a-quiet)); font: 400 14px/1 var(--font-body);
+  transition: padding var(--dur-3) var(--ease-std), background-color var(--dur-hover) var(--ease-out);
 }
-.sb-search:hover { background: var(--mat-fill-3); }
-.sb-search svg { width: 15px; height: 15px; }
+@media (hover: hover) { .sb-search:hover { background: var(--mat-fill-3); } }
+.sb-search svg { width: 16px; height: 16px; flex: none; }
 .sb-search .kbd-group { margin-left: auto; }
-.sidebar-scroll { flex: 1; overflow-y: auto; margin: 0 -4px; padding: 0 4px; scrollbar-width: none; }
+.sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; margin: 0 -4px; padding: 0 4px 4px; scrollbar-width: none; }
 .sidebar-scroll::-webkit-scrollbar { display: none; }
-.nav { display: flex; flex-direction: column; gap: 1px; }
-.nav-group { padding: 16px 10px 4px; font: var(--t-label); line-height: 1; letter-spacing: 0.01em; color: hsl(var(--foreground) / var(--a-quiet)); }
-.nav a {
-  position: relative; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 10px; border-radius: var(--r-ctl); text-decoration: none;
-  font: 500 14px/1 var(--font-body); letter-spacing: -0.008em; color: hsl(var(--foreground) / 0.86);
-  transition: background-color var(--dur-fast) var(--ease-out);
+.nav { display: flex; flex-direction: column; }
+.nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+/* Group labels: quiet, sentence case, 12 px. On the rail each becomes a short divider (the words stay for screen readers). */
+.nav-group {
+  position: relative; flex: none; height: 32px; display: flex; align-items: flex-end; padding: 0 10px 7px; overflow: hidden; white-space: nowrap;
+  font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet));
+  transition: height var(--dur-3) var(--ease-std);
 }
-@media (hover: hover) { .nav a:hover { background: var(--mat-fill-1); } }
-/* The current page: a stronger fill and full contrast, never a leading bar (ui-pass-3.md §1.1). */
-.nav a[aria-current="page"] { color: hsl(var(--foreground)); font-weight: 600; background: var(--mat-fill-3); }
-.nav a[aria-current="page"] svg { stroke-width: 2.4; }
-.nav a svg { width: 18px; height: 18px; flex: none; fill: none; stroke: hsl(var(--tint)); stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+.nav-group::after {
+  content: ""; position: absolute; left: calc(50% - 16px); top: calc(50% - 0.5px); width: 32px; height: var(--hl);
+  background: var(--mat-separator); opacity: 0; transition: opacity var(--dur-2) var(--ease-std);
+}
+.nav a {
+  position: relative; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 10px; text-decoration: none;
+  overflow: hidden; white-space: nowrap;
+  font: 500 14px/1 var(--font-body); letter-spacing: -0.008em; color: hsl(var(--foreground) / 0.86);
+  transition: background-color var(--dur-fast) var(--ease-out), padding var(--dur-3) var(--ease-std);
+}
+.nav a:focus-visible, .sb-brand:focus-visible { outline-offset: -3px; }
+/* Hover: a faint fill capsule. The current page: a soft blue capsule with blue text and glyph, never a leading bar and
+   never the contrast selection pair (ui-pass-3.md §1.1; a place, not a choice). */
+@media (hover: hover) { .nav a:hover { background: var(--mat-fill-2); } }
+.nav a[aria-current="page"] { color: hsl(var(--ios-blue-ink)); font-weight: 600; background: var(--nav-current-bg); }
+.nav a[aria-current="page"] svg { stroke: hsl(var(--ios-blue)); }
+.nav a svg { width: 18px; height: 18px; flex: none; fill: none; stroke: hsl(var(--tint)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .nav a .lbl { flex: 1; min-width: 0; }
+/* The foot: Light / Dark / Auto, the key line (it opens Appearance, Density, Keyboard shortcuts, About and Forget key,
+   views.js accountPopover) and the paper note. The rail swaps the capsule for one theme button pinned at the bottom. */
+.sb-foot { flex: none; display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
+.sb-appearance .segmented { display: flex; width: 100%; min-width: calc(var(--sidebar-w) - 20px); }
+.sb-appearance .segmented button { flex: 1 1 0; }
+@starting-style { .sb-appearance, .sb-note { opacity: 0; } }
+.sb-appearance, .sb-note { transition: opacity var(--dur-2) var(--ease-std) 80ms; }
+button.sb-theme {
+  display: none; align-self: center; width: 40px; flex: none;
+  --btn-bg: var(--mat-fill-2); --btn-line: transparent; --btn-h: 40px; --btn-px: 0; --fin: 0; border-radius: var(--r-ctl);
+  color: hsl(var(--foreground) / var(--a-label));
+}
+@media (hover: hover) { button.sb-theme:hover { --btn-bg: var(--mat-fill-3); color: hsl(var(--foreground)); } }
+button.sb-theme svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+button.sb-account {
+  --btn-bg: transparent; --btn-line: transparent; --btn-h: 32px; --btn-px: 10px; --fin: 0; width: 100%; justify-content: flex-start; gap: 8px; margin-top: 4px;
+  border-radius: var(--r-ctl); overflow: hidden; white-space: nowrap; font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label));
+  transition: padding var(--dur-3) var(--ease-std), background-color var(--dur-hover) var(--ease-out);
+}
+@media (hover: hover) { button.sb-account:hover { --btn-bg: var(--mat-fill-2); } }
+button.sb-account[aria-expanded="true"] { --btn-bg: var(--mat-fill-2); }
+button.sb-account #who { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.sb-account > svg:last-child { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.5; transform: rotate(-90deg); }
+.sb-note { margin: 0; padding: 0 10px; font: 400 12px/1.35 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+/* The icon rail: everything keeps its place on the 72 px card's centre line; labels fade (fast going out). */
+:root[data-sb="rail"] .sb-head { padding-bottom: 50px; }
+:root[data-sb="rail"] button.sb-toggle { top: 58px; left: calc(50% - 18px); }
+:root[data-sb="rail"] :is(.sb-brand .lockup-text, .sb-search-label, .sb-search .kbd-group, .nav a .lbl, .nav-group > span, button.sb-account #who, button.sb-account > svg:last-child) {
+  opacity: 0; transition: opacity var(--dur-1) var(--ease-std);
+}
+:root[data-sb="rail"] .sb-search { padding-left: 18px; }
+:root[data-sb="rail"] .nav a { padding-left: 17px; }
+:root[data-sb="rail"] .nav a .count { position: absolute; top: 2px; right: 4px; min-width: 16px; height: 16px; padding: 0 4px; }
+:root[data-sb="rail"] .nav-group { height: 18px; }
+:root[data-sb="rail"] .nav-group::after { opacity: 1; }
+:root[data-sb="rail"] :is(.sb-appearance, .sb-note) { display: none; }
+:root[data-sb="rail"] button.sb-theme { display: inline-flex; order: 2; }
+:root[data-sb="rail"] button.sb-account { padding-left: 22px; }
+/* The rail's labels: one tooltip beside the hovered or focused icon (views.js sidebarTips). */
+.sb-tip {
+  position: fixed; z-index: var(--z-popover); left: 0; top: 0; translate: -4px -50%; opacity: 0; pointer-events: none;
+  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: var(--r-xs); white-space: nowrap;
+  background: var(--surface-raised); color: hsl(var(--foreground)); box-shadow: var(--edge-1), var(--shadow-2);
+  font: 500 13px/1 var(--font-body);
+  transition: opacity var(--dur-1) var(--ease-out), translate var(--dur-1) var(--ease-out);
+}
+.sb-tip.on { opacity: 1; translate: 0 -50%; }
+.sb-tip kbd { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .count {
   margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; display: inline-grid; place-items: center;
   font: 500 12px/1 var(--font-numeric); background: hsl(var(--ios-orange) / 0.18); color: hsl(var(--ios-orange-ink));
 }
-/* The sidebar's foot: one 44 px account row (status dot, key id, chevron) that opens Appearance, Keyboard shortcuts,
-   About and Forget key in a popover (views.js accountPopover). */
-.sb-foot { padding-top: 8px; display: grid; }
 .sidebar-scroll.fade-b { -webkit-mask-image: linear-gradient(to top, transparent, #000 28px); mask-image: linear-gradient(to top, transparent, #000 28px); }
-button.sb-account { --btn-bg: transparent; --btn-line: transparent; --btn-h: 44px; --btn-px: 10px; --fin: 0; width: 100%; justify-content: flex-start; gap: 10px; border-radius: var(--r-ctl); font: 500 13px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
-@media (hover: hover) { button.sb-account:hover { --btn-bg: var(--mat-fill-1); } }
-button.sb-account[aria-expanded="true"] { --btn-bg: var(--mat-fill-2); }
-button.sb-account #who { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.sb-account > svg:last-child { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.5; transform: rotate(-90deg); }
 .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .acct-pop { display: flex; flex-direction: column; gap: 12px; padding: 4px 16px 16px; min-width: 300px; }
 .acct-pop .segmented { width: 100%; }
@@ -8468,6 +8550,8 @@ svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; str
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  /* The sidebar's labels wait 80 ms before fading in; with reduced motion they are simply there. */
+  .sidebar *, .sidebar *::after { transition-delay: 0s !important; }
   /* Buttons answer at once (the press, the hover fade, the thumb); a loading ring holds still, its gap still says busy. */
   button[aria-busy="true"]::before, .btn[aria-busy="true"]::before { animation: none; }
 }
@@ -8666,40 +8750,12 @@ svg .wl-spark-prev { stroke: hsl(var(--foreground) / 0.35); stroke-width: 1; str
 .bk-card-g > span { white-space: nowrap; }
 
 /* ───────────────────────── 16 · SPACE AND DENSITY ─────────────────────────
-   docs/design/ui-pass-3.md §12. The page fills the window beside a flush sidebar (or its icon rail), and the density
+   docs/design/ui-pass-3.md §12. The page fills the window beside the floating sidebar (or its icon rail), and the density
    (compact on a desktop with a mouse, comfortable on touch) sets row heights, cell padding, the top bar, the KPI strip
    and panel padding through tokens. Wide screens add detail (columns, tiles, side-by-side panels), never whitespace. */
 
-/* Sidebar, wide screens: flush on the left edge, one separator hairline on its right; the icon rail (56 px) from 1024 to
-   1279 px or when collapsed (app.js applyLayout sets data-sb; the choice is kept in this browser). */
-@media (min-width: 1024px) {
-  .sidebar.glass {
-    top: 0; left: 0; bottom: 0; width: var(--sb-w); border-radius: 0; padding: 10px 8px 8px; gap: 2px;
-    background: var(--mat-grouped-solid); -webkit-backdrop-filter: none; backdrop-filter: none;
-    box-shadow: inset calc(-1 * var(--hl)) 0 0 var(--mat-separator);
-    transition: width var(--dur-2) var(--ease-std);
-  }
-  .sidebar.glass::before { display: none; }
-  .sb-brand { padding: 4px 6px 10px; }
-  .sb-foot { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px; padding-top: 6px; }
-  button.sb-toggle { --btn-bg: transparent; --btn-line: transparent; --btn-h: 36px; --btn-px: 0; --fin: 0; width: 36px; flex: none; border-radius: var(--r-ctl); color: hsl(var(--foreground) / var(--a-label)); }
-  button.sb-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  @media (hover: hover) { button.sb-toggle:hover { --btn-bg: var(--mat-fill-1); color: hsl(var(--foreground)); } }
-  :root[data-sb="rail"] .sidebar { padding-inline: 8px; }
-  :root[data-sb="rail"] .sb-brand { justify-content: center; padding: 4px 0 10px; }
-  :root[data-sb="rail"] :is(.sidebar .lockup-text, .sb-search-label, .sb-search .kbd-group, .nav a .lbl, button.sb-account #who) {
-    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
-  }
-  :root[data-sb="rail"] .sb-search { justify-content: center; padding: 0; }
-  :root[data-sb="rail"] .nav a { justify-content: center; padding: 0; }
-  :root[data-sb="rail"] .nav a .count { position: absolute; top: 1px; right: 1px; min-width: 18px; height: 18px; padding: 0 4px; }
-  /* Group labels become a short separator (the words stay for screen readers). */
-  :root[data-sb="rail"] .nav-group { height: 17px; padding: 0; overflow: hidden; color: transparent; background: linear-gradient(var(--mat-separator), var(--mat-separator)) center / 24px var(--hl) no-repeat; }
-  :root[data-sb="rail"] .sb-foot { grid-template-columns: minmax(0, 1fr); justify-items: center; }
-  :root[data-sb="rail"] .sb-foot button.sb-toggle { order: -1; }
-  :root[data-sb="rail"] button.sb-account { width: 40px; justify-content: center; --btn-px: 0; }
-  :root[data-sb="rail"] button.sb-account > svg:last-child { display: none; }
-}
+/* Sidebar, wide screens: the floating card and its icon rail are drawn in section 2 ("Sidebar"), from --sidebar-w,
+   --rail-w and --sb-inset; --sb-w is the room they take beside the page. */
 
 /* Density: compact (a fine pointer on a desktop, or chosen) tightens every token below. Touch is never compact
    (layout-prefs.js), and the coarse-pointer rules keep 44 px targets in any case. */

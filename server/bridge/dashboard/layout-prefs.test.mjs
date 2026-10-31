@@ -80,21 +80,32 @@ describe("app.css: the space and density tokens", () => {
   const css = readFileSync(new URL("./app.css", import.meta.url), "utf8");
   const firstRoot = css.slice(css.indexOf(":root {"), css.indexOf("color-scheme: light;"));
   it("declares the shell and density tokens in the first :root", () => {
-    for (const t of ["--sidebar-w", "--rail-w", "--sb-w", "--page-gutter", "--th-py", "--td-py", "--cell-px", "--desk-top", "--chain-row", "--chain-row-1", "--list-row-h"]) expect(firstRoot, t).toContain(`${t}:`);
+    for (const t of ["--sidebar-w", "--rail-w", "--sb-inset", "--sb-card", "--sb-w", "--page-gutter", "--th-py", "--td-py", "--cell-px", "--desk-top", "--chain-row", "--chain-row-1", "--list-row-h"]) expect(firstRoot, t).toContain(`${t}:`);
     expect(firstRoot).toMatch(/--content-max: none;/);
   });
   it("tightens them for compact and draws the rail from --rail-w", () => {
     const compact = css.slice(css.indexOf(':root[data-density="compact"] {'));
     expect(compact).toMatch(/--chain-row: 30px/);
     expect(compact).toMatch(/--td-py: 6px/);
-    expect(css).toMatch(/:root\[data-sb="rail"\] \{ --sb-w: var\(--rail-w\); \}/);
+    expect(css).toMatch(/:root\[data-sb="rail"\] \{ --sb-card: var\(--rail-w\); \}/);
+    expect(css).toMatch(/--sb-w: calc\(var\(--sb-card\) \+ var\(--sb-inset\)\)/);
   });
-  it("keeps the sidebar flush: no offset, no radius, one separator hairline", () => {
-    const at = css.indexOf("  .sidebar.glass {");
+  it("floats the sidebar: a card one gutter in from the window edges, rounded, on a raised surface", () => {
+    const first = css.slice(css.indexOf(":root {"), css.indexOf("color-scheme: light;"));
+    expect(first).toMatch(/--sidebar-w: 260px;/);
+    expect(first).toMatch(/--rail-w: 72px;/);
+    expect(first).toMatch(/--sb-inset: var\(--page-gutter\);/);
+    const at = css.indexOf("\n.sidebar {");
     const rule = css.slice(at, css.indexOf("}", at));
-    expect(rule).toMatch(/top: 0; left: 0; bottom: 0;/);
-    expect(rule).toMatch(/border-radius: 0/);
-    expect(rule).toMatch(/inset calc\(-1 \* var\(--hl\)\) 0 0 var\(--mat-separator\)/);
+    expect(rule).toMatch(/top: var\(--sb-inset\); left: var\(--sb-inset\); bottom: var\(--sb-inset\); width: var\(--sb-card\)/);
+    expect(rule).toMatch(/border-radius: var\(--r-xl\)/);
+    expect(rule).toMatch(/box-shadow: var\(--edge-1\), var\(--shadow-2\)/);
+    expect(css).not.toMatch(/\.sidebar\.glass/);
+  });
+  it("animates the rail toggle only while it runs, and the reduced-motion rule covers it", () => {
+    expect(css).toMatch(/:root\[data-sb-anim\] \.sidebar \{ transition: width/);
+    expect(css).toMatch(/:root\[data-sb-anim\] \.app-shell \{ transition: padding-left/);
+    expect(css).not.toMatch(/^\.sidebar \{[^}]*transition/m);
   });
   it("closes every block it opens (a merge that drops a brace swallows every rule after it)", () => {
     for (const f of ["./app.css", "./palette.css"]) {

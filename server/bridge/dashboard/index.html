@@ -73,20 +73,29 @@
     <div class="scroll-edge" aria-hidden="true"></div>
     <div class="scroll-edge-b" aria-hidden="true"></div>
 
-    <!-- Wide screens (1024px and up): the sidebar, flush on the left edge; the icon rail from 1024 to 1279 px or when collapsed. -->
-    <aside id="sidebar" class="sidebar glass glass-strong" aria-label="Sidebar">
-      <a class="sb-brand lockup" href="#/home" aria-label="API Bridge home">
-        <svg class="lockup-symbol" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><use href="#mc-symbol"/></svg>
-        <span class="lockup-text"><span class="lockup-name">API Bridge</span><span class="lockup-sub">by Mr. Chartist</span></span>
-      </a>
+    <!-- Wide screens (1024px and up): the sidebar, a floating card inset from the window edges (app.css section 16); the
+         icon rail from 1024 to 1279 px or when collapsed (app.js applyLayout sets data-sb on <html>). -->
+    <aside id="sidebar" class="sidebar" aria-label="Sidebar">
+      <div class="sb-head">
+        <a class="sb-brand lockup" href="#/home" aria-label="API Bridge home" data-tip="Home">
+          <svg class="lockup-symbol" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><use href="#mc-symbol"/></svg>
+          <span class="lockup-text"><span class="lockup-name">API Bridge</span><span class="lockup-sub">by Mr. Chartist</span></span>
+        </a>
+        <button type="button" id="sb-toggle" class="sb-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="Collapse the sidebar to icons"></button>
+      </div>
       <button type="button" id="sb-search" class="sb-search"><span class="sb-search-label">Search</span></button>
       <nav id="nav" class="nav sidebar-scroll" aria-label="Pages"></nav>
-      <!-- One account row: it opens Appearance, Density, Keyboard shortcuts, About and Forget key (views.js accountPopover); then the rail toggle. -->
+      <!-- The foot: Light / Dark / Auto (the rail shows one button that cycles them), then the key line, which opens
+           Appearance, Density, Keyboard shortcuts, About and Forget key (views.js accountPopover), and the paper note. -->
       <div class="sb-foot">
-        <button type="button" id="sb-account" class="sb-account who" aria-haspopup="dialog" aria-expanded="false" title="Appearance, shortcuts and your key"><span class="dot" aria-hidden="true"></span><span id="who">Signed in</span></button>
-        <button type="button" id="sb-toggle" class="sb-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="Collapse the sidebar to icons" title="Collapse the sidebar to icons"></button>
+        <div id="sb-appearance" class="sb-appearance"></div>
+        <button type="button" id="sb-theme" class="sb-theme" aria-label="Appearance"></button>
+        <button type="button" id="sb-account" class="sb-account who" aria-haspopup="dialog" aria-expanded="false" data-tip="Appearance, shortcuts and your key"><span class="dot" aria-hidden="true"></span><span id="who">Signed in</span></button>
+        <p class="sb-note">Paper trading by default · live orders need explicit opt-ins</p>
       </div>
     </aside>
+    <!-- The icon rail's labels: one tooltip, placed beside the hovered or focused icon (views.js sidebarTips). -->
+    <div id="sb-tip" class="sb-tip" aria-hidden="true" hidden></div>
 
     <!-- The floating toolbar: the page's name, the page's context (Options pages: underlying, expiry, spot, lot, account
          and the live control, mounted into #toolbar-ctx by desk.js), the one demo indicator, the IST clock, search and
