@@ -10672,6 +10672,204 @@ input.bx-act-search { width: 240px; max-width: 100%; }
   .bx-summary-note { text-align: left; }
 }
 
+/* ───────────────────────── 15r · RIGHT RAIL (right-rail.js, right-rail-core.js) ─────────────────────────
+   Wide screens only (1024 px and up). The rail is the sidebar's twin on the right: a floating card (the same material,
+   edge and shadow) holding one tinted glyph per tool, under the toolbar. A tool opens in a panel beside it, which
+   narrows the page when the window has room for both (data-rr-panel="push") and floats over the page's right side when
+   it has not ("overlay"). When the page is tight (data-rr="edge", a 1280 px laptop beside the sidebar) the rail folds
+   to a thin handle on the right edge and shows over the page while it is used (data-rr-peek), so the option chain keeps
+   every column. right-rail-core.js railLayout decides; app.js-style data attributes on <html> carry the result. */
+:root { --rr-card: 52px; --rr-panel-w: 360px; --rr-w: 0px; --rr-top: calc(10px + var(--ctl-h) + 4px + var(--page-gutter)); }
+.rrail, .rr-panel, .rr-edge { display: none; }
+@media (min-width: 1024px) {
+  :root[data-rr="full"] { --rr-w: calc(var(--rr-card) + var(--sb-inset)); }
+  :root[data-rr="full"][data-rr-panel="push"] { --rr-w: calc(var(--rr-card) + var(--rr-panel-w) + 2 * var(--sb-inset)); }
+  :root[data-rr] .app-shell { padding-right: var(--rr-w); }
+  :root[data-rr="full"] .rrail, :root[data-rr="edge"][data-rr-peek] .rrail { display: flex; }
+  :root:is([data-rr="full"], [data-rr="edge"]) .rr-panel:not([hidden]) { display: flex; }
+  :root[data-rr="edge"] button.rr-edge:not([hidden]) { display: inline-grid; }
+}
+/* The page's right edge moves with the panel only while it opens or closes (a window resize never lags behind). */
+:root[data-rr-anim] .app-shell { transition: padding-right var(--dur-3) var(--ease-std); }
+
+.rrail {
+  position: fixed; z-index: var(--z-chrome); top: var(--rr-top); right: var(--sb-inset); width: var(--rr-card);
+  max-height: calc(100vh - var(--rr-top) - var(--sb-inset)); flex-direction: column; padding: 6px; border-radius: 26px;
+  overflow-y: auto; scrollbar-width: none; background: var(--mat-grouped-solid); box-shadow: var(--edge-1), var(--shadow-2);
+}
+.rrail::-webkit-scrollbar { display: none; }
+:root[data-rr="edge"] .rrail { box-shadow: var(--edge-1), var(--shadow-3); }
+.rr-bar { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+button.rr-btn {
+  width: 40px; flex: none; --btn-bg: transparent; --btn-line: transparent; --btn-h: 40px; --btn-px: 0; --fin: 0; border-radius: var(--r-ctl);
+  color: hsl(var(--tint)); transition: background-color var(--dur-hover) var(--ease-out);
+}
+button.rr-btn svg, .rr-head-glyph svg, .rr-cz-glyph svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: hover) { button.rr-btn:hover { --btn-bg: var(--mat-fill-2); } }
+/* The open tool: a soft fill under its glyph (a place, like the sidebar's current page; never the contrast pair). */
+button.rr-btn[aria-expanded="true"] { --btn-bg: var(--mat-fill-3); }
+.rr-sep { flex: none; width: 24px; height: var(--hl); margin: 4px 0; background: var(--mat-separator); }
+button.rr-btn-cz { color: hsl(var(--foreground) / var(--a-label)); }
+/* The rail's labels: the sidebar's tooltip, to the left of the rail. */
+.sb-tip.rr-tip { translate: 4px -50%; }
+.sb-tip.rr-tip.on { translate: 0 -50%; }
+
+/* The thin edge: a slim capsule in the window's right gutter; hover or focus widens it and shows the rail. */
+button.rr-edge {
+  position: fixed; z-index: var(--z-chrome); right: 3px; top: 50%; translate: 0 -50%; width: 8px; place-items: center; overflow: hidden;
+  --btn-bg: var(--mat-fill-3); --btn-line: transparent; --btn-h: 72px; --btn-px: 0; --fin: 0; border-radius: 99px; color: transparent;
+  transition: width var(--dur-2) var(--ease-std), color var(--dur-2) var(--ease-std), background-color var(--dur-hover) var(--ease-out);
+}
+button.rr-edge svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: hover) { button.rr-edge:hover { width: 20px; color: hsl(var(--foreground) / var(--a-label)); } }
+button.rr-edge:focus-visible, :root[data-rr-peek] button.rr-edge { width: 20px; color: hsl(var(--foreground) / var(--a-label)); }
+
+/* The panel: the same floating card, one gutter from the rail; it floats (a deeper shadow) when it covers the page. */
+.rr-panel {
+  position: fixed; z-index: var(--z-chrome); top: var(--rr-top); bottom: var(--sb-inset); right: calc(2 * var(--sb-inset) + var(--rr-card));
+  width: var(--rr-panel-w); max-width: calc(100vw - var(--rr-card) - 3 * var(--sb-inset)); flex-direction: column; overflow: hidden;
+  border-radius: var(--r-xl); background: var(--mat-grouped-solid); box-shadow: var(--edge-1), var(--shadow-2);
+  transition: opacity var(--dur-2) var(--ease-out), translate var(--dur-2) var(--ease-out);
+}
+@starting-style { .rr-panel { opacity: 0; translate: 12px 0; } }
+:root[data-rr-panel="overlay"] .rr-panel { box-shadow: var(--edge-1), var(--shadow-3); }
+.rr-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 12px 10px 14px; }
+.rr-head-glyph { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: hsl(var(--tint)); background: hsl(var(--tint) / 0.14); }
+.rr-head-glyph svg { width: 17px; height: 17px; }
+.rr-title { flex: 1; min-width: 0; margin: 0; font: 600 17px/1.2 var(--font-display); letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.rr-close { width: 32px; flex: none; --btn-bg: var(--mat-fill-2); --btn-line: transparent; --btn-h: 32px; --btn-px: 0; --fin: 0; border-radius: 99px; color: hsl(var(--foreground) / var(--a-label)); }
+button.rr-close svg { width: 14px; height: 14px; }
+@media (hover: hover) { button.rr-close:hover { --btn-bg: var(--mat-fill-3); color: hsl(var(--foreground)); } }
+.rr-acts { flex: none; padding: 0 14px 10px; }
+.rr-acts:empty { display: none; }
+.rr-row-acts { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rr-acts-l { flex: none; font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.rr-panel :is(select.rr-sel, input.rr-in) { flex: 1 1 0; min-width: 0; min-height: 36px; height: 36px; padding-top: 0; padding-bottom: 0; border-radius: 999px; font: 500 14px/1 var(--font-body); }
+.rr-panel input.rr-in { padding-inline: 14px; }
+.rr-panel input.rr-in[type="number"] { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+.rr-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 10px 16px; scrollbar-width: thin; }
+.rr-note { margin: 10px 6px 0; font: 500 12px/1.45 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.rr-h { margin: 16px 6px 6px; font: 600 13px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.rr-foot-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--mat-fill-1); font: 600 13px/1 var(--font-body); color: hsl(var(--foreground)); text-decoration: none; }
+@media (hover: hover) { .rr-foot-link:hover { background: var(--mat-fill-2); text-decoration: none; } }
+.rr-foot-link svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; opacity: 0.6; }
+.rr-panel .up { color: hsl(var(--pos-ink)); }
+.rr-panel .down { color: hsl(var(--neg-ink)); }
+.rr-panel .flat { color: hsl(var(--foreground) / var(--a-quiet)); }
+
+/* Lists (Watchlist, Positions, Alerts, sectors): name on the left, figures on the right, hairlines between. */
+.rr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rr-list > li + li { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.rr-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 6px 8px;
+  border-radius: 12px; text-align: left; color: inherit; text-decoration: none; font: inherit;
+}
+button.rr-item { --btn-bg: transparent; --btn-line: transparent; --btn-h: 48px; --btn-px: 8px; --fin: 0; justify-content: stretch; height: auto; }
+a.rr-item { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+@media (hover: hover) { button.rr-item:hover { --btn-bg: var(--mat-fill-1); } a.rr-item:hover { background: var(--mat-fill-1); text-decoration: none; } }
+.rr-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rr-name strong { font: 600 14px/1.2 var(--font-body); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rr-name small { font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rr-num { font: 500 14px/1 var(--font-numeric); font-variant-numeric: tabular-nums; text-align: right; }
+.rr-chg { min-width: 62px; font: 600 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; text-align: right; }
+.rr-qty { font: 600 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.rr-hero { display: flex; align-items: baseline; gap: 10px; padding: 4px 8px 12px; }
+.rr-hero-l { font: 600 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.rr-hero-v { font: 600 26px/1 var(--font-numeric); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.rr-hero small { margin-left: auto; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.rr-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 10px; }
+
+/* Option chain (mini): OI · Calls · Strike · Puts · OI, ATM ±5. OI bars in the chain's call / put hues, grown from the
+   strike outward; in-the-money cells a neutral fill; the ATM strike a blue capsule. A price opens its order ticket. */
+.rr-spot { display: flex; align-items: baseline; gap: 8px; padding: 0 6px 10px; font: 600 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.rr-spot strong { font: 600 20px/1 var(--font-numeric); color: hsl(var(--foreground)); letter-spacing: -0.02em; }
+.rr-spot small { margin-left: auto; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.rr-chain-wrap { border-radius: 14px; overflow: hidden; box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); }
+table.rr-chain { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+table.rr-chain :is(th, td) { height: 32px; padding: 0 4px; text-align: center; }
+table.rr-chain thead th { height: 30px; font: 600 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); background: var(--mat-fill-1); }
+table.rr-chain thead th.call { color: hsl(var(--c-call-ink)); }
+table.rr-chain thead th.put { color: hsl(var(--c-put-ink)); }
+table.rr-chain .rr-k { width: 74px; }
+table.rr-chain tbody tr + tr > * { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+table.rr-chain td.itm { background: var(--mat-fill-1); }
+table.rr-chain th.rr-k { font: 600 13px/1 var(--font-numeric); }
+table.rr-chain tr.atm th.rr-k span { display: inline-block; padding: 5px 8px; border-radius: 99px; color: hsl(var(--c-atm-ink)); background: hsl(var(--c-atm) / 0.14); }
+td.rr-oi { position: relative; font-size: 12px; color: hsl(var(--foreground) / var(--a-label)); }
+.rr-oi-v { position: relative; }
+.rr-oi-bar { position: absolute; top: 6px; bottom: 6px; width: calc(var(--w, 0) * 100%); border-radius: 6px; opacity: 0.2; transition: width var(--dur-3) var(--ease-std); }
+tr > td.rr-oi:first-child .rr-oi-bar { right: 0; }
+tr > td.rr-oi:last-child .rr-oi-bar { left: 0; }
+.rr-oi-bar.call { background: hsl(var(--c-call)); }
+.rr-oi-bar.put { background: hsl(var(--c-put)); }
+button.rr-ltp { width: 100%; --btn-bg: transparent; --btn-line: transparent; --btn-h: 26px; --btn-px: 4px; --fin: 0; border-radius: 8px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--foreground)); }
+@media (hover: hover) { button.rr-ltp:not(:disabled):hover { --btn-bg: var(--mat-fill-3); } }
+
+/* Market depth: the ticket's ladder, Bid red and Ask green, the bid / ask totals on one meter. */
+.rr-depth-sum { display: flex; align-items: center; gap: 10px; padding: 0 6px 10px; font: 600 15px/1 var(--font-body); }
+.rr-depth-tot { margin-left: auto; display: flex; align-items: center; gap: 8px; font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.rr-depth-tot .bid { color: hsl(var(--neg-ink)); }
+.rr-depth-tot .ask { color: hsl(var(--pos-ink)); }
+.rr-depth-tot .bk-depth-share { width: 52px; background: hsl(var(--pos) / 0.5); }
+.rr-depth-tot .bk-depth-share::before { background: hsl(var(--neg)); }
+.rr-depth span.bk-depth-lvl { cursor: default; }
+.rr-depth .bk-depth-lvl.bid .bk-depth-p { color: hsl(var(--neg-ink)); }
+.rr-depth .bk-depth-lvl.ask .bk-depth-p { color: hsl(var(--pos-ink)); }
+.rr-depth .bk-depth-bar.bid { background: hsl(var(--neg)); }
+.rr-depth .bk-depth-bar.ask { background: hsl(var(--pos)); }
+
+/* Super Alerts: the quick form on a quiet fill (type, underlying, its fields, a plain sentence), then every alert. */
+.rr-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 16px; background: var(--mat-fill-1); }
+.rr-seg { width: 100%; }
+.rr-seg button { flex: 1 1 0; }
+.rr-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rr-fields[hidden] { display: none; }
+.rr-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; font: 500 12px/1.2 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.rr-field :is(input, select) { min-height: 36px; height: 36px; padding-top: 0; padding-bottom: 0; font: 500 14px/1 var(--font-body); }
+.rr-field input[type="number"] { font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+.rr-preview { margin: 0; font: 500 13px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
+.rr-preview:empty { display: none; }
+.rr-form-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.rr-alert { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 4px; }
+.rr-alert .rr-name { flex: 1; }
+.rr-alert.off .rr-name { opacity: 0.55; }
+
+/* Sector heatmap: sectors as blocks sized by turnover (or equal), each stock a tile on the diverging red / green scale
+   (viz.js heatCell, data-div), tiles parted by the panel's own surface. */
+.rr-breadth { display: flex; align-items: baseline; gap: 12px; padding: 0 6px 10px; font: 600 14px/1 var(--font-numeric); }
+.rr-breadth small { margin-left: auto; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.rr-heat { position: relative; width: 100%; }
+.rr-block { position: absolute; overflow: hidden; border-radius: 10px; background: var(--mat-fill-1); }
+.rr-block-l { position: absolute; left: 0; right: 0; top: 0; height: 20px; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 0 6px; white-space: nowrap; overflow: hidden; font: 600 12px/1 var(--font-body); }
+.rr-block-l > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rr-block-l > span:last-child { font-family: var(--font-numeric); }
+button.rr-tile {
+  position: absolute; --btn-line: transparent; --btn-h: 0px; --btn-px: 0; --fin: 0; min-height: 0; padding: 2px; border-radius: 5px; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; box-shadow: inset 0 0 0 1px var(--mat-grouped-solid);
+}
+@media (hover: hover) { button.rr-tile:hover { box-shadow: inset 0 0 0 2px hsl(var(--foreground) / 0.75); } }
+.rr-tile-t { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 12px/1 var(--font-body); }
+.rr-tile-v { font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; opacity: 0.85; }
+.rr-legend { display: flex; align-items: center; gap: 3px; margin: 10px 4px 4px; font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
+.rr-legend i { width: 20px; height: 8px; border-radius: 3px; }
+.rr-legend span:first-child { margin-right: 4px; }
+.rr-legend span:last-child { margin-left: 4px; }
+.rr-sector { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; padding: 4px 6px; }
+
+/* Customise: each tool with its glyph, Move up / down and a Show switch; then where the rail goes and the keys. */
+.rr-cz { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rr-cz-row { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px; }
+.rr-cz-row + .rr-cz-row { box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.rr-cz-row .rr-name { flex: 1; }
+.rr-cz-row.off :is(.rr-name, .rr-cz-glyph) { opacity: 0.5; }
+.rr-cz-glyph { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: hsl(var(--tint)); background: hsl(var(--tint) / 0.14); }
+.rr-cz-glyph svg { width: 17px; height: 17px; }
+.rr-keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; margin: 0 6px; font: 500 13px/1.3 var(--font-body); }
+.rr-keys dd { margin: 0; color: hsl(var(--foreground) / var(--a-label)); }
+@media (prefers-reduced-motion: reduce) {
+  .rr-panel, button.rr-edge, .rr-oi-bar, :root[data-rr-anim] .app-shell { transition: none; }
+}
+
 /* ───────────────────────── 15 · ANALYTICS (analyticsViews.js) ─────────────────────────
    Inline-SVG charts: every colour is a theme token (so light and dark both work), every size is an SVG attribute
    (no style attributes: the dashboard CSP is style-src 'self'). Series are told apart by colour AND dash or position. */

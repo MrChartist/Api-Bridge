@@ -401,6 +401,7 @@ export function shortcutList() {
     { keys: ["↵"], what: "Open the selected result" },
     { keys: ["esc"], what: "Close search or a dialog" },
     { keys: ["Tab"], what: "Move to the next control (Shift+Tab goes back)" },
+    { keys: ["Shift", "O"], what: "Open or close the option chain panel (right rail, wide screens)" },
   ];
 }
 

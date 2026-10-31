@@ -1846,6 +1846,8 @@ async function signIn({ retried = false } = {}) {
   import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
   // Position alerts: the bell (unread fires, every alert) once there is an alert (alerts.js).
   import("./alerts.js").then((m) => m.mountAlertBell()).catch(() => {});
+  // The right rail on wide screens: Watchlist, Option chain, Depth, Positions, Alerts, Sector heatmap (right-rail.js).
+  import("./right-rail.js").then((m) => m.mountRightRail()).catch(() => {});
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
