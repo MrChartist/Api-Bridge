@@ -26,6 +26,7 @@ import { autoBackupFor, readOptionsBase } from "../market/routes.mjs";
 import { computeGreeks, daysBetween, DEFAULT_RATE } from "../../lib/blackScholes.mjs";
 import { CHAIN_READS, gammaExposure, nowMsOf, unitMultiplier, upcomingExpiries } from "./math.mjs";
 import { mapSettledLimit } from "../../lib/batch.mjs";
+import { gexProfile } from "./gexProfile.mjs";
 
 const fin = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const round = (v, d = 0) => (Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : 0);
@@ -275,7 +276,11 @@ export function exposureRoutes(deps) {
         if (strikes !== undefined) params.strikes = strikes;
         const opts = readOptions(ctx);
         const chain = await md().optionChain(params, opts);
-        return { data: greekExposure(chain, { days: daysTo(expiry) }), meta: meta(ctx, opts, chain.freshness) };
+        const days = daysTo(expiry);
+        const data = greekExposure(chain, { days });
+        // The solved gamma flip, the sign-change curve, walls either side of spot and the lean (gexProfile.mjs).
+        data.profile = gexProfile(chain, { days, strikes: data.strikes });
+        return { data, meta: meta(ctx, opts, chain.freshness) };
       },
     ],
     [
@@ -285,7 +290,14 @@ export function exposureRoutes(deps) {
       async (ctx) => {
         const { underlying, charts, opts, freshness } = await multi(ctx, 3, 6, true);
         const items = charts.map(({ expiry, chain }) => greekExposure(chain, { days: daysTo(expiry) }));
-        return { data: { underlying, ...exposureAcrossExpiries(items) }, meta: meta(ctx, opts, freshness) };
+        const out = exposureAcrossExpiries(items);
+        // Each expiry's own solved flip, walls either side of spot, lean and verdict (no curve: the page draws none here).
+        out.expiries.forEach((e, i) => {
+          const p = gexProfile(charts[i].chain, { days: items[i].daysToExpiry, strikes: items[i].strikes });
+          delete p.curve;
+          e.profile = p;
+        });
+        return { data: { underlying, ...out }, meta: meta(ctx, opts, freshness) };
       },
     ],
     [
