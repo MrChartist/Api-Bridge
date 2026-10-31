@@ -29,6 +29,9 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   "journal.js": ["buy", "sell"], // the side-tag class names
   "journal-core.js": ["BUY", "SELL"],
   "explain-core.js": [],
+  // The OI suite (OI change, Spurts, PCR, Max pain, OI heatmap): build-up names and plain words, never advice.
+  "oi-suite-core.js": [],
+  "analyticsOi.js": [],
   "explain.js": [],
   // Screeners › Stocks: the scan library, the builder's values and the results describe numbers, never advice.
   "scanner.js": ["BUY"], // the ATM straddle handed to Strategy Builder names its legs' side
