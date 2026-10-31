@@ -14,6 +14,7 @@ import { badgeModel, lastReadiness } from "./readiness.js";
 import { badgeLanes } from "./vol-suite-core.js";
 import { dataLine, dayText, eventSplit, homeSummary, keyLevels, levelAxis, marketClock, pnlBars, readinessChecks, upcomingExpiries } from "./today-core.js";
 import { segmented } from "./views.js";
+import { briefStrip } from "./brief.js";
 
 const INDICES = ["NSE:NIFTY", "NSE:BANKNIFTY", "NSE:FINNIFTY", "NSE:MIDCPNIFTY", "BSE:SENSEX", "NSE:INDIAVIX"];
 const NAMES = { NIFTY: "NIFTY 50", BANKNIFTY: "BANK NIFTY", FINNIFTY: "FIN NIFTY", MIDCPNIFTY: "MIDCAP SELECT", SENSEX: "SENSEX", INDIAVIX: "INDIA VIX" };
@@ -635,6 +636,9 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
   // Market movers (NIFTY 50) and headlines: each reads on its own and refreshes on its own clock (30 s, 5 min).
   const mv = moversCard();
   const nw = headlinesCard();
+  // The Market brief in one line (trend, breadth, PCR, RSI, MACD, VWAP) for Key levels' underlying; the levels stay in
+  // that card, the full brief opens from here or with Shift+Y.
+  const brief = briefStrip();
   const grid = h("div", { class: "cockpit" }, lvl.el, posCard, evCard, healthCard, wlCard, mv.el, nw.el);
   saySummary();
 
@@ -676,7 +680,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
   // The book again every 30 s (P&L moves with prices); the clock and safety on every tick (cheap, text only).
   let bookAt = Date.now();
   return {
-    nodes: [heroes, strip.el, grid],
+    nodes: [heroes, strip.el, brief.el, grid],
     refresh: async () => {
       paintClock();
       paintSafety();
@@ -688,7 +692,7 @@ export async function cockpit({ accs, orders, streams, usage, safety, keys, read
         const b = await readBook().catch(() => null);
         if (b && grid.isConnected) putBook(b);
       }
-      await Promise.all([fillWl(), lvl.refresh(), mv.refresh(), nw.refresh()]).catch(() => {});
+      await Promise.all([fillWl(), lvl.refresh(), mv.refresh(), nw.refresh(), brief.refresh()]).catch(() => {});
     },
   };
 }

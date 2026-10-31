@@ -1386,6 +1386,8 @@ export async function startRouter() {
   setupA11y();
   setupChrome();
   initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }), codes: paletteCodes });
+  // The Market brief (Shift+Y from any page): the key handler only; the brief reads nothing until it is opened.
+  import("./brief.js").then((m) => m.initBrief()).catch(() => {});
   try {
     motionHooks = await import("./motion.js");
   } catch {
@@ -3332,7 +3334,19 @@ async function renderIntegrations() {
       h("ol", { class: "bx-steps" }, info.steps.map((t, i) => bxStep(i + 1, t))),
       h("p", { class: "bx-foot" }, "Your Bridge address: ", h("code", {}, location.origin), " ", copyButton(location.origin, { label: "Copy", toastLabel: "Address copied", ariaLabel: "Copy your Bridge address" })),
     );
-    const parts = [head, createdKeys[active] ? alertBox({ title: "Your new key is in the code below.", detail: "It is shown only on this page and only until you leave it." }, "info") : null, steps];
+    // AI assistants: the Market brief's questions, asked in plain words over MCP (no chat is built into the dashboard).
+    const askNote =
+      active === "claude" || active === "chatgpt"
+        ? h(
+            "div",
+            { class: "bx-ask" },
+            h("h3", {}, "Ask your Bridge in plain words"),
+            h("p", {}, "Through MCP an assistant reads the same data as the Market brief (Shift+Y), so it can answer questions such as these from your Bridge's own figures:"),
+            h("ul", {}, ["Is NIFTY trending or sideways today, and since when?", "Where are the call and put walls, and how far is max pain from spot?", "What changed in BANKNIFTY open interest in the last 15 minutes?"].map((t) => h("li", {}, t))),
+            h("p", { class: "muted small" }, active === "chatgpt" ? "The same tools work from your own script; the Claude setup is under " : "It answers with facts, not advice. Orders are only prepared for you to confirm. ", active === "chatgpt" ? h("a", { class: "lk", href: "#/api/integrations?tool=claude" }, "Claude (MCP)") : h("button", { type: "button", class: "small", onclick: () => import("./brief.js").then((m) => m.openBrief()) }, "Open the Market brief")),
+          )
+        : null;
+    const parts = [head, createdKeys[active] ? alertBox({ title: "Your new key is in the code below.", detail: "It is shown only on this page and only until you leave it." }, "info") : null, steps, askNote];
     if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
     if (s.length) parts.push(h("div", { class: "bx-integ-code stack" }, h("h3", {}, "Code to paste"), s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
     panel.replaceChildren(...parts.filter(Boolean));

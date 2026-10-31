@@ -38,6 +38,8 @@ const NEUTRAL_COPY_FILES = Object.freeze({
   "scan-builder.js": [],
   "scan-library.js": [],
   "option-scans.js": [],
+  "brief-core.js": [],
+  "brief.js": [],
   // The option chain's insight cards and help: column names that carry an order side are the only exceptions.
   "chain-help.js": ["POP buy", "POP sell"],
   "chain-insight-core.js": [],
