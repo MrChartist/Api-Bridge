@@ -38,7 +38,7 @@ import {
   onRevalidated,
   prefetchPage,
 } from "./app.js";
-import { STATE_TEXT, STATE_TONE, homeSafetyLine, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
+import { STATE_TEXT, STATE_TONE, homeSafetyLine, limitUse, limitsHeadline, readinessCard, readinessPill, refreshReadiness } from "./readiness.js";
 import { DASH, formatFixed, formatGrouped, formatInt, formatRupee, formatRupeeGrouped, formatSigned, formatSignedRupee, isFigure } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
@@ -2787,13 +2787,55 @@ async function renderSafety() {
   const verifyBtn = h("button", { type: "button", class: "small" }, "Verify audit log");
   verifyBtn.addEventListener("click", () => verify(verifyBtn));
 
+  // The hero: the kill switch's state in one glance (red when orders are stopped, green while they flow).
   const killCard = h(
     "section",
-    { class: `card kill${ks.engaged ? " engaged" : ""}` },
+    { class: `card kill${ks.engaged ? " engaged" : " clear"}` },
     iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
-    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."])),
+    h(
+      "div",
+      { class: "stack" },
+      h("span", { class: `kill-cap ${ks.engaged ? "stopped" : "flowing"}` }, h("i", { "aria-hidden": "true" }), ks.engaged ? "All orders stopped" : "Orders flowing"),
+      h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"),
+      h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}${ks.reason ? `: ${ks.reason}` : ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."]),
+    ),
     h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
   );
+  // Headroom: how much of each account's daily order cap and loss limit is used, the one nearest its cap called out.
+  const nameOf = (a) => names.get(a.accountId) || a.accountId;
+  const meter = (label, p, text, title) => {
+    const fill = h("span", { class: "sf-fill" });
+    fill.style.width = `${p.tone === "none" ? 0 : Math.max(p.frac * 100, p.used > 0 ? 3 : 0)}%`;
+    return h("div", { class: `sf-meter t-${p.tone}`, title }, h("span", { class: "sf-ml" }, label), h("span", { class: "sf-track", role: "img", "aria-label": title }, fill), h("span", { class: "sf-mv" }, text));
+  };
+  const TONE_WORD = { breach: ["At limit", "bad"], near: ["Near limit", "warn"], ok: ["Clear", "ok"] };
+  const headroomTile = (a) => {
+    const u = limitUse(a);
+    const tones = [u.orders.tone, u.loss.tone];
+    const worst = tones.includes("breach") ? "breach" : tones.includes("near") ? "near" : "ok";
+    const [word, tone] = TONE_WORD[worst];
+    const ordersText = `${u.orders.used === null ? DASH : formatInt(u.orders.used)} / ${formatInt(u.orders.max)}`;
+    const lossText = u.loss.used === null ? DASH : `${formatRupeeGrouped(u.loss.used, 0)} / ${formatRupeeGrouped(u.loss.max, 0)}`;
+    return h(
+      "article",
+      { class: `sf-acct t-${worst}` },
+      h("div", { class: "sf-acct-head" }, h("strong", { title: `Account id ${a.accountId}` }, nameOf(a)), pill(word, tone)),
+      meter("Orders", u.orders, ordersText, `Orders today ${ordersText}, paper and live together`),
+      meter("Loss", u.loss, lossText, `Loss today against the daily loss limit: ${lossText}`),
+      h("span", { class: "sf-pnl muted small" }, "P&L today ", pnl(u.pnl, 0)),
+    );
+  };
+  const head = limitsHeadline(s.accounts ?? [], names);
+  const headroom = (s.accounts ?? []).length
+    ? card({
+        glyph: "limits",
+        tint: head.tone === "breach" ? "red" : head.tone === "near" ? "orange" : "green",
+        title: "Headroom today",
+        sub: `IST day ${s.day ?? ""}. Paper and live counted together; a profit uses none of the loss limit.`,
+        cls: "sf-headroom",
+        body: h("div", { class: "stack" }, h("p", { class: `sf-headline t-${head.tone}` }, head.text), h("div", { class: "sf-grid" }, (s.accounts ?? []).map(headroomTile))),
+      })
+    : null;
   const live = card({
     glyph: "bolt",
     tint: s.liveTrading ? "red" : "gray",
@@ -2821,13 +2863,12 @@ async function renderSafety() {
     glyph: "limits",
     tint: "orange",
     title: "Daily limits per account",
-    sub: `IST day ${s.day ?? ""}. Paper and live are counted separately.`,
+    sub: "The caps every order is checked against, from bridge.config.json. Use today is under Headroom.",
     flush: true,
     body: table(
       [
         { label: "Account", cell: (a) => h("strong", { title: `Account id ${a.accountId}` }, names.get(a.accountId) || a.accountId) },
-        { label: "Orders today", num: true, cell: (a) => `${formatInt((a.ordersToday ?? 0) + (a.paperOrdersToday ?? 0))} / ${formatInt(a.limits?.dailyMaxOrders)}` },
-        { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null, 0) },
+        { label: "Orders a day", num: true, cell: (a) => formatInt(a.limits?.dailyMaxOrders) },
         // Limits are whole rupees: no paise.
         { label: "Max loss", num: true, cell: (a) => formatRupeeGrouped(a.limits?.dailyMaxLoss, 0) },
         { label: "Max order value", num: true, cell: (a) => formatRupeeGrouped(a.limits?.maxOrderValue, 0) },
@@ -2848,7 +2889,7 @@ async function renderSafety() {
   });
   // Trading readiness (docs/spec/p1-05-readiness.md §6.4): between the kill switch and live trading.
   const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
-  return [killCard, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
+  return [killCard, headroom, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
 }
 
 // ── Keys ──

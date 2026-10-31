@@ -295,6 +295,56 @@ export const DEMO_ACTIONS = Object.freeze([
   ["restore", "Restore"],
 ]);
 
+// ── Safety page: daily-limit headroom (views.js renderSafety) ──
+
+/** How close a used/max pair is to its cap: "breach" at or past it, "near" from 80 %, else "ok"; "none" with no cap. */
+export function limitTone(used, max) {
+  if (!isFigure(max) || Number(max) <= 0 || !isFigure(used)) return "none";
+  const f = Number(used) / Number(max);
+  return f >= 1 ? "breach" : f >= 0.8 ? "near" : "ok";
+}
+
+/**
+ * One account's use of its daily limits from a /v1/safety row (pure): orders (paper and live together, as the table
+ * counts them) and loss (only a loss uses the loss limit; a profit is 0 used). `frac` is 0..1 for the meter, the tone
+ * from limitTone. A missing figure stays missing (null), never 0.
+ */
+export function limitUse(a) {
+  const lim = a?.limits ?? {};
+  const orders = isFigure(a?.ordersToday) || isFigure(a?.paperOrdersToday) ? (Number(a.ordersToday) || 0) + (Number(a.paperOrdersToday) || 0) : null;
+  const pnl = isFigure(a?.realisedPnlToday) || isFigure(a?.paperRealisedPnlToday) ? (Number(a.realisedPnlToday) || 0) + (Number(a.paperRealisedPnlToday) || 0) : null;
+  const loss = pnl === null ? null : Math.max(0, -pnl);
+  const part = (used, max) => {
+    const tone = limitTone(used, max);
+    return { used, max: isFigure(max) ? Number(max) : null, frac: tone === "none" ? 0 : Math.min(1, Number(used) / Number(max)), tone };
+  };
+  return { orders: part(orders, lim.dailyMaxOrders), loss: part(loss, lim.dailyMaxLoss), pnl };
+}
+
+const TONE_RANK = { breach: 3, near: 2, ok: 1, none: 0 };
+
+/**
+ * The one line over the limits: the account and limit nearest its cap, or that every account is well inside (pure).
+ * `names`: account id -> label. Returns { tone, text }.
+ */
+export function limitsHeadline(accounts, names = new Map()) {
+  let top = null;
+  for (const a of accounts ?? []) {
+    const u = limitUse(a);
+    for (const [kind, p] of [["orders", u.orders], ["loss", u.loss]]) {
+      if (p.tone === "none") continue;
+      if (!top || TONE_RANK[p.tone] > TONE_RANK[top.p.tone] || (TONE_RANK[p.tone] === TONE_RANK[top.p.tone] && p.frac > top.p.frac)) top = { a, kind, p };
+    }
+  }
+  if (!top) return { tone: "none", text: "No daily limits to measure yet." };
+  const who = names.get(top.a.accountId) || top.a.accountId;
+  const pct = `${formatInt(Math.round(top.p.frac * 100))}%`;
+  const what = top.kind === "orders" ? "of its daily orders" : "of its daily loss limit";
+  if (top.p.tone === "breach") return { tone: "breach", text: `${who} has reached ${top.kind === "orders" ? "its daily order cap" : "its daily loss limit"}: new orders are refused.` };
+  if (top.p.tone === "near") return { tone: "near", text: `${who} has used ${pct} ${what}.` };
+  return { tone: "ok", text: top.p.frac > 0 ? `Every account is well inside its limits. Most used: ${who}, ${pct} ${what}.` : "Every account is well inside its limits. Nothing used yet today." };
+}
+
 // ── DOM (browser only) ──
 
 const state = { snap: null, failedAt: null, timer: 0, mounted: false, stopped: false, tick: null, listeners: new Set() };

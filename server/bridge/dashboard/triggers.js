@@ -4,7 +4,7 @@ import { alertBox, api, card, emptyState, h, istDateTime, modal, optional, pill,
 import { contractName, fieldError } from "./flows.js";
 import { DASH, formatFixed, formatInput, formatInt, formatPercent, formatSignedRupee, isFigure } from "./format.js";
 import { whatToDo } from "./reasons-core.js";
-import { OPEN_TRIGGER, amoWhenText, distancePct, exitChipText, kindPhrase, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
+import { OPEN_TRIGGER, amoWhenText, distancePct, distanceTone, exitChipText, kindPhrase, kindText, legText, outcomeText, pnlAt, statusText, triggerBody, triggerProblem } from "./trigger-core.js";
 
 export { exitChipText };
 
@@ -135,7 +135,16 @@ function legsCell(t) {
     { class: "bk-legs" },
     (t.legs ?? []).map((l) => {
       const d = OPEN_TRIGGER.has(t.status) && t.status !== "waiting" ? distancePct(l, t.lastLtp) : null;
-      return h("div", { class: "bk-leg", "data-role": l.role }, h("span", {}, legText(l, t.lotSize)), d !== null ? h("span", { class: "muted small" }, ` · ${formatPercent(d, 1)} away`) : null);
+      // The side word in its direction colour; the distance becomes a capsule once the price is close to the trigger.
+      const text = legText(l, t.lotSize);
+      const [side, ...rest] = text.split(" ");
+      const near = distanceTone(d);
+      return h(
+        "div",
+        { class: "bk-leg", "data-role": l.role },
+        h("span", {}, h("span", { class: side === "Buy" ? "up" : "down" }, side), ` ${rest.join(" ")}`),
+        d !== null ? (near ? h("span", { class: `trg-near ${near}`, title: "Distance from the last price to the trigger" }, `${formatPercent(d, 1)} away`) : h("span", { class: "muted small" }, ` · ${formatPercent(d, 1)} away`)) : null,
+      );
     }),
     // An after-market order: when it goes and where it is held (this Bridge must be running at 09:15).
     t.origin === "amo" && OPEN_TRIGGER.has(t.status) ? h("div", { class: "muted small" }, amoWhenText(t)) : null,

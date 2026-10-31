@@ -46,16 +46,18 @@ export async function renderAlgoPage() {
   const kRunning = h("strong", { class: "algo-kv" });
   const kPnl = h("strong", { class: "algo-kv" });
   const kOrders = h("strong", { class: "algo-kv" });
-  const kFolder = h("code", { class: "algo-path", title: "" });
   const killPill = h("a", { href: "#/safety", class: "algo-kill" });
   const addBtn = h("button", { type: "button", class: "small", onclick: () => addExamples() }, icon("plus"), h("span", {}, "Add the examples"));
   const stopAllBtn = h("button", { type: "button", class: "small", onclick: () => stopAll() }, icon("stop"), h("span", {}, "Stop all"));
-  const kpi = (label, value, extra = null) => h("div", { class: "algo-kpi" }, h("span", { class: "algo-kl" }, label), value, extra);
+  // The folder's long path stays out of the strip: one capsule copies it, the path itself is its tooltip.
+  const folderBtn = copyButton(() => st.data.dir, { label: "Folder path", ariaLabel: "Copy the strategies folder path", toastLabel: "Folder path copied" });
+  const kpi = (label, value, cls = "") => h("div", { class: `algo-kpi ${cls}`.trim() }, h("span", { class: "algo-kl" }, label), value);
   const bar = h(
     "section",
     { class: "card algo-bar" },
-    h("div", { class: "algo-kpis" }, kpi("Running", kRunning), kpi("P&L today", kPnl), kpi("Orders today", kOrders), kpi("Strategies folder", kFolder, copyButton(() => st.data.dir, { label: "Copy", ariaLabel: "Copy the folder path", toastLabel: "Folder path copied" }))),
-    h("div", { class: "algo-bar-acts" }, killPill, addBtn, stopAllBtn),
+    // P&L today is the strip's one hero figure.
+    h("div", { class: "algo-kpis" }, kpi("P&L today", kPnl, "hero"), kpi("Running", kRunning), kpi("Orders today", kOrders)),
+    h("div", { class: "algo-bar-acts" }, killPill, folderBtn, addBtn, stopAllBtn),
   );
 
   // ── the list ──
@@ -71,7 +73,7 @@ export async function renderAlgoPage() {
     h(
       "ol",
       { class: "algo-steps" },
-      h("li", {}, "Copy the template into a new ", h("code", {}, "name.py"), " in the strategies folder above."),
+      h("li", {}, "Copy the template into a new ", h("code", {}, "name.py"), " in the strategies folder (Folder path, at the top, copies where it is)."),
       h("li", {}, "Declare your settings in ", h("code", {}, "params"), ": this page draws the form from them."),
       h("li", {}, "Trade with ", h("code", {}, "self.buy"), ", ", h("code", {}, "self.sell"), " and ", h("code", {}, "self.exit"), ". Every order goes through the Bridge: kill switch, limits, paper unless you start it live."),
       h("li", {}, "Press Start. Python 3.9 or newer runs it; the log shows here."),
@@ -165,8 +167,8 @@ export async function renderAlgoPage() {
     kRunning.textContent = `${formatInt(t.running)} of ${formatInt(t.count)}`;
     kPnl.replaceChildren(money(t.pnl));
     kOrders.textContent = formatInt(t.orders);
-    kFolder.textContent = st.data.dir;
-    kFolder.title = st.data.dir;
+    folderBtn.title = st.data.dir ?? "";
+    bar.classList.toggle("killed", Boolean(st.data.killSwitch));
     killPill.replaceChildren(st.data.killSwitch ? pill("Kill switch on", "bad") : pill("Kill switch off", "ok"));
     killPill.title = st.data.killSwitch ? "No strategy can start until the kill switch is released on Safety" : "The kill switch stops every strategy at once (Safety)";
     stopAllBtn.disabled = t.running === 0;
