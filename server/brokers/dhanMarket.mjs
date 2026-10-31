@@ -9,6 +9,7 @@
  *    INSTRUMENT_TYPE, LOT_SIZE, SM_EXPIRY_DATE, STRIKE_PRICE, OPTION_TYPE, TICK_SIZE.
  *    TICK_SIZE is in paise on every tradeable row (NIFTY options read 5.0000 = Rs 0.05); index rows
  *    already carry rupees (0.0500). We convert to rupees.
+ *  - Full market depth (20/200 levels): https://dhanhq.co/docs/v2/full-market-depth/ — see dhanDepth.mjs.
  *  - Market quote: https://dhanhq.co/docs/v2/market-quote/ — POST /marketfeed/quote, body
  *    { "<SEGMENT>": [securityId, ...] }, up to 1000 instruments per call, 1 request per second.
  *  - Historical: https://dhanhq.co/docs/v2/historical-data/ — POST /charts/historical (daily,
@@ -26,6 +27,7 @@ import { brokerFetch, BrokerInputError, CANONICAL_UNDERLYINGS } from "./contract
 import { dhanFetch } from "./dhan.mjs";
 import { getCachedOrFetch, ONE_DAY_MS } from "../lib/instrumentCache.mjs";
 import { sleep } from "../lib/batch.mjs";
+import { DEPTH_SEGMENTS, dhanDepthPool } from "./dhanDepth.mjs";
 
 export const DHAN_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master-detailed.csv";
 const QUOTE_BATCH = 1000;
@@ -210,8 +212,25 @@ export async function fetchQuotes(creds, refs = []) {
 
 const level = (l) => ({ price: Number(l?.price) || 0, qty: Number(l?.quantity) || 0, orders: numOrNull(l?.orders) });
 
-/** Five-level depth from /marketfeed/quote. */
-export async function fetchDepth(creds, ref) {
+/**
+ * Depth. `levels: 20 | 200` asks for Dhan's full-depth WebSocket (dhanDepth.mjs; NSE_EQ and NSE_FNO only);
+ * any failure there (other segment, socket limit, refusal, no data in time) falls back to the five levels from
+ * /marketfeed/quote. Callers read the answer's length, not the hint.
+ */
+export async function fetchDepth(creds, ref, opts = {}) {
+  const want = Number(opts?.levels);
+  if (want === 20 || want === 200) {
+    const { segment, securityId } = dhanRef(ref);
+    const pool = DEPTH_SEGMENTS.has(segment) ? dhanDepthPool() : null;
+    if (pool) {
+      try {
+        const book = await pool.book(creds, { segment, securityId }, want);
+        if (book.bids.length || book.asks.length) return { status: "success", data: book };
+      } catch {
+        /* fall back to the five-level REST quote below */
+      }
+    }
+  }
   const raw = await quoteRaw(creds, [ref]);
   const hit = [...raw.values()][0];
   const depth = hit?.q?.depth ?? {};
