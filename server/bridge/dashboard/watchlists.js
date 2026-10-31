@@ -7,7 +7,7 @@ import { api, app, emptyState, errorState, h, icon, istTime, modal, optional, to
 import { setBar, svgEl } from "./viz.js";
 import { DASH, formatCompact, formatDayMonth, formatFixed, formatInt, formatSigned, isFigure } from "./format.js";
 import { clearFieldError, fieldError } from "./flows.js";
-import { normaliseSymbol, sessionCloses, sortRows } from "./watchlist-core.js";
+import { normaliseSymbol, quoteStatus, sessionCloses, sortRows } from "./watchlist-core.js";
 import { watch } from "./live.js";
 
 const SLOT = "mcb.dashboard.watchlists";
@@ -47,6 +47,7 @@ export async function renderWatchlistsPage() {
   let lists = res.data.data.items;
   if (!lists.some((l) => l.id === st.id)) st.id = lists[0]?.id ?? null;
   let quotes = null;
+  let quoteError = null; // the last refresh's refusal: draw() repaints the status, so it is kept here
   let timer = 0;
   // symbol -> { at, closes }: the intraday line (the live price is added as its last point on each draw).
   const sparks = new Map();
@@ -97,6 +98,7 @@ export async function renderWatchlistsPage() {
     st.id = listSel.value;
     save();
     quotes = null;
+    quoteError = null;
     draw();
     load();
   });
@@ -199,6 +201,7 @@ export async function renderWatchlistsPage() {
       st.id = lists[0]?.id ?? null;
       save();
       quotes = null;
+      quoteError = null;
       draw();
       load();
       return;
@@ -207,6 +210,7 @@ export async function renderWatchlistsPage() {
     if (l) return draw();
     save();
     quotes = null;
+    quoteError = null;
     draw();
     addIn.focus();
   }
@@ -336,7 +340,7 @@ export async function renderWatchlistsPage() {
     follow(l);
   }
   function paintStatus() {
-    status.textContent = quotes ? `Updated ${istTime(quotes.at)} · every ${formatInt(REFRESH_MS / 1000)} s${quotes.errors?.length ? ` · ${formatInt(quotes.errors.length)} not priced` : ""}` : "Loading prices";
+    status.textContent = quoteStatus(quotes, quoteError, REFRESH_MS, istTime);
   }
   function setDeskUnderlying(u) {
     try {
@@ -353,7 +357,7 @@ export async function renderWatchlistsPage() {
     const r = await optional(api(`/v1/watchlists/${encodeURIComponent(l.id)}/quotes`, { fresh: true }));
     if (st.id !== l.id) return;
     if (!r.error) quotes = r.data.data;
-    else status.textContent = `Prices unavailable: ${r.error.message}`;
+    quoteError = r.error ? r.error.message ?? "refused" : null;
     draw();
     loadSparks();
     timer = setTimeout(() => tableHost.isConnected && load(), REFRESH_MS);

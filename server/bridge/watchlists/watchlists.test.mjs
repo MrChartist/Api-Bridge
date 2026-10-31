@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createNullLogger } from "../core/logger.mjs";
 import { createWatchlistService } from "./watchlistService.mjs";
 import { ROUTES } from "./module.mjs";
-import { frontExpiry, nearFuture, normaliseSymbol, oiChange, prevFutureOi, sessionCloses, sortRows, watchRow } from "../dashboard/watchlist-core.js";
+import { frontExpiry, nearFuture, normaliseSymbol, oiChange, quoteStatus, prevFutureOi, sessionCloses, sortRows, watchRow } from "../dashboard/watchlist-core.js";
 
 const NOW = Date.parse("2026-10-30T11:00:00+05:30");
 
@@ -196,5 +196,14 @@ describe("the intraday sparkline's closes", () => {
     expect(sessionCloses(candles)).toEqual([101, 103]);
     expect(sessionCloses([])).toEqual([]);
     expect(sessionCloses(null)).toEqual([]);
+  });
+});
+
+describe("the watchlist's price line", () => {
+  it("says why prices are missing instead of 'Loading prices' after a refused refresh", () => {
+    expect(quoteStatus(null, null, 5000)).toBe("Loading prices");
+    expect(quoteStatus(null, "Too many requests from this API key", 5000)).toBe("Prices unavailable: Too many requests from this API key");
+    expect(quoteStatus({ at: "10:15", errors: [] }, "Too many requests", 5000)).toBe("Prices unavailable: Too many requests · last 10:15");
+    expect(quoteStatus({ at: "10:15", errors: [{}, {}] }, null, 5000)).toBe("Updated 10:15 · every 5 s · 2 not priced");
   });
 });

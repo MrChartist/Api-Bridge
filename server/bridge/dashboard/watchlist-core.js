@@ -117,3 +117,14 @@ export function sessionCloses(candles) {
   const last = day(list[list.length - 1]);
   return list.filter((c) => day(c) === last).map((c) => Number(c.close));
 }
+
+/**
+ * The watchlist's price line: "Updated 10:15:02 · every 5 s", or the last refresh's refusal ("Prices unavailable: …")
+ * while there are no prices, or "Loading prices" before the first answer. `timeText` formats the quotes' time.
+ */
+export function quoteStatus(quotes, error, refreshMs, timeText = String) {
+  if (error) return `Prices unavailable: ${error}${quotes ? ` · last ${timeText(quotes.at)}` : ""}`;
+  if (!quotes) return "Loading prices";
+  const missing = quotes.errors?.length ?? 0;
+  return `Updated ${timeText(quotes.at)} · every ${Math.round(refreshMs / 1000)} s${missing ? ` · ${missing} not priced` : ""}`;
+}
