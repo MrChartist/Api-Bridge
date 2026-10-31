@@ -21,6 +21,7 @@ import * as O from "./options.js";
 import { refCalendar, refSession } from "./reference.js";
 import { fromServerSnapshot, oiStore, serverCoverageFor, serverCoverageText, snapKey } from "./oi-store.js";
 import { oiParticipantLine } from "./participants.js";
+import { createStrikePcr } from "./oi-strike-pcr.js";
 import { segmented } from "./views.js";
 import { legend, scrubber, setBar, spotPill, svgEl } from "./viz.js";
 import { explainBox } from "./explain.js";
@@ -404,7 +405,13 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const sig = `${metric}`;
     if (legendSig === sig) return;
     legendSig = sig;
-    legendHost.replaceChildren(h("div", { class: "oi-legend-full" }, legendList(metric, true)), h("div", { class: "oi-legend-compact" }, legendList(metric, false)), profile.head, infoBtn);
+    legendHost.replaceChildren(spcr.toggle, h("div", { class: "oi-legend-full" }, legendList(metric, true)), h("div", { class: "oi-legend-compact" }, legendList(metric, false)), spcr.legend, profile.head, infoBtn);
+  }
+  // The chart slot shows the OI bars or the Strike PCR (oi-strike-pcr.js); the switch sits at the head of the legend.
+  const spcr = createStrikePcr({ onPick: (k) => selectStrike(k, "chart"), onView: () => syncChartView() });
+  function syncChartView() {
+    legendHost.dataset.view = spcr.on ? "pcr" : "bars";
+    profile.el.hidden = spcr.on;
   }
 
   // ── Profile chart + ladder ──
@@ -418,6 +425,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     onOpenChain: (strike, side) => openInChain(strike, side),
     onSelect: (k) => selectStrike(k, "ladder"),
   });
+  syncChartView();
   // Strikes each side of ATM the ladder's box holds when it has a fixed height (wide panels): a band that leaves the
   // box half empty shows the neighbouring strikes too, quieter, so the column is never a block of blank rows. The
   // band's figures (PCR, walls, build-up) still read only the band.
@@ -466,6 +474,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     errBar,
     legendHost,
     profile.el,
+    spcr.el,
     h("div", { class: "oi-body" }, ladderCol, sideEl),
   );
 
@@ -514,6 +523,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     selK = k;
     if (from !== "ladder") ladder.select(k, true, false);
     if (from !== "chart") profile.pin(k);
+    spcr.select(k);
     paintLinked();
   }
   function clearSel() {
@@ -521,6 +531,7 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     selK = null;
     ladder.unselect();
     profile.clear();
+    spcr.select(null);
     paintLinked();
     return true;
   }
@@ -891,6 +902,12 @@ export function createOiPage({ st, save, retry, openInChain, demo }) {
     const inView = (i) => inBand(i) || Math.abs(i - ai) <= fitN;
     const lm = ladderModel({ x, rows, inBand: inView, inBandStrict: inBand, atm, spot, mp, wallMap, combined, unit, fq, fd, winLabel, em });
     profile.draw(profileModel({ rows, inBand, ai, atm, spot, mp, wallMap, em, lm, fq, fd, div, combined, unit, winLabel, R1, S1, chartOn: cfg().chart }), moved);
+    {
+      // Strike PCR: the profile's band (phones ±10, desktop up to ±20); stored every draw, built only while shown.
+      const n = Math.min(cfg().band === "all" ? Infinity : Number(cfg().band), isPhone() ? 10 : 20);
+      const side = (r, s) => ({ oi: num(r[s]?.oi), ref: combined ? null : num(r[s]?.oiRef) });
+      spcr.draw({ rows: rows.filter((_, i) => ai < 0 || Math.abs(i - ai) <= n).map((r) => ({ strike: r.strike, ce: side(r, "ce"), pe: side(r, "pe") })), atm, spot, winLabel: combined ? "" : winLabel, fmt: fq, unit });
+    }
     ladder.draw(lm, moved, { snap: live });
     paintLinked();
 

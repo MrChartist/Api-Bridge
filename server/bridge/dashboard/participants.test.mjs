@@ -146,3 +146,17 @@ describe("participant page view-models", () => {
     P.resetParticipantSummaryCache();
   });
 });
+
+describe("participant hero reading", () => {
+  it("leads with FII index futures' long share, red when more short than long, and names the biggest shift", () => {
+    const r = P.heroReading(summary);
+    expect(r).toMatchObject({ word: "FIIs 31.1% long in index futures", tone: "neg" });
+    expect(r.detail).toMatch(/^Down 2\.04 pts against 27 Oct\. Their net position is −1\.37L contracts \(net short\), −15\.6K on the day\./);
+    const biggest = Math.max(...summary.table.filter((x) => x.participant !== "TOTAL" && Number.isFinite(x.netChange)).map((x) => Math.abs(x.netChange)));
+    expect(Math.abs(r.shift.change)).toBe(biggest);
+    expect(r.detail).toContain("The day's biggest shift:");
+  });
+  it("says so when the day has no headline", () => {
+    expect(P.heroReading({ table: [] })).toMatchObject({ word: "FII index futures", tone: "zero", detail: "No headline figures in this day's file.", shift: null });
+  });
+});

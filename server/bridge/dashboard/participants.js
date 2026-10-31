@@ -163,6 +163,33 @@ export function tilesModel(summary) {
   ];
 }
 
+/** Instruments as the hero's sentence says them. */
+const HERO_INSTRUMENTS = Object.freeze({ IDX_FUT: "index futures", IDX_CE: "index calls", IDX_PE: "index puts", STK_FUT: "stock futures", STK_CE: "stock calls", STK_PE: "stock puts" });
+/**
+ * The day in one reading (the page's hero): FII index futures' long share as the word (green when more long than
+ * short, red when more short), one sentence on how it moved, and the day's biggest shift in net position across
+ * Client, DII, FII and Pro and every instrument. Descriptive only: who held what, never a market view.
+ * @returns {{ word: string, tone: "pos"|"neg"|"zero", detail: string, shift: { name: string, instrument: string, change: number } | null }}
+ */
+export function heroReading(summary) {
+  const lp = summary?.headline?.fiiIndexFutLongPct;
+  const dlp = summary?.headline?.fiiIndexFutLongPctChange;
+  const prev = summary?.previousDate ? shortDate(summary.previousDate) : "the previous day";
+  const fii = rowOf(summary, "FII", "IDX_FUT");
+  const word = isFigure(lp) ? `FIIs ${formatPercent(lp, 1)} long in index futures` : "FII index futures";
+  const tone = !isFigure(lp) || Number(lp) === 50 ? "zero" : Number(lp) > 50 ? "pos" : "neg";
+  let shift = null;
+  for (const r of summary?.table ?? []) {
+    if (r.participant === "TOTAL" || !isFigure(r.netChange) || Number(r.netChange) === 0) continue;
+    if (!shift || Math.abs(r.netChange) > Math.abs(shift.change)) shift = { name: PT_NAMES[r.participant] ?? r.participant, instrument: HERO_INSTRUMENTS[r.instrument] ?? r.instrument, change: Number(r.netChange) };
+  }
+  const parts = [];
+  if (isFigure(dlp)) parts.push(`${Number(dlp) === 0 ? "Unchanged" : Number(dlp) > 0 ? "Up" : "Down"} ${formatFixed(Math.abs(dlp), 2)} pts against ${prev}.`);
+  if (fii && isFigure(fii.net)) parts.push(`Their net position is ${signedCount(fii.net)} contracts (${netWord(fii.net)})${isFigure(fii.netChange) ? `, ${signedCount(fii.netChange)} on the day` : ""}.`);
+  if (shift) parts.push(`The day's biggest shift: ${shift.name} ${shift.instrument}, net ${signedCount(shift.change)}.`);
+  return { word, tone, detail: parts.join(" ") || "No headline figures in this day's file.", shift };
+}
+
 /** One cell's display: long, short, net, Δ net, long %, shares, with tones. */
 export function cellModel(r) {
   if (!r) return { long: DASH, short: DASH, net: DASH, dnet: DASH, netTone: "", dTone: "", longPct: null, longPctText: DASH, share: "" };
@@ -630,6 +657,10 @@ export async function renderParticipantsPage() {
     "section",
     { class: "desk-panel pt-kpi", "data-panel": "pt-kpi", "data-fixed": "", "aria-label": "Participant OI headline" },
     h("p", { class: "pt-top" }, h("span", {}, topLine(summary)), stale ? h("span", { class: "pt-chip warn" }, stale) : null, qualityChip),
+    (() => {
+      const r = heroReading(summary);
+      return h("div", { class: "pt-hero" }, h("p", { class: "pt-hero-word", "data-tone": r.tone }, r.word), h("p", { class: "pt-hero-detail" }, r.detail));
+    })(),
     h("div", { class: "desk-stats pt-tiles" }, tiles.map(tileEl)),
   );
 
