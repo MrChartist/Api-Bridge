@@ -3,7 +3,7 @@
 // prices, the hero figures, the payoff paths and the table cells change in place, so sliders, focus and scroll never
 // reset. Legs on the left, the answer (hero + payoff + what-if) on the right. The maths is in options.js (pure,
 // tested), drawing in payoff.js, placement in strategy-place.js. Numbers become text only through format.js.
-import { api, app, chartSlot, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
+import { api, app, errorState, h, icon, modal, optional, sheetPopover, toast } from "./app.js";
 import { candlesOf, spotSymbol, strategySpec } from "./chart-specs.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatSigned, isFigure } from "./format.js";
 import * as O from "./options.js";
@@ -634,13 +634,11 @@ export function createBuilder({ st, save, account, acctPicker = null, refresh, s
   // levels and the ±1σ / ±2σ expected move at the payoff's horizon as bands (chart-specs.js strategySpec).
   function openPriceChart() {
     const o = window.__mcbStrategyOverlay();
-    const box = chartSlot("Price chart with your strikes, breakevens and ±σ", {
-      id: "strategy",
+    app.chartEngine?.open("Price chart", {
+      label: "Price chart with your strikes, breakevens and ±σ",
       studies: { symbol: () => spotSymbol(o.underlying) },
       load: async () => strategySpec({ ...o, candles: candlesOf((await api(`/v1/history?symbol=${encodeURIComponent(spotSymbol(o.underlying))}&interval=1d&countback=120`)).data?.data) }),
     });
-    if (!box) return;
-    modal({ title: "Price chart", body: h("div", { class: "strat-price-chart" }, box), buttons: [{ label: "Close", value: false }] }).finally(() => box.chart.destroy());
   }
   window.__mcbStrategyOverlay = () => ({
     underlying: st.underlying,

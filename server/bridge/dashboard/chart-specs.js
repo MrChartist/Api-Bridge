@@ -235,18 +235,13 @@ export function screenerSpec({ underlying, candles, ivHistory }) {
 
 // ── Arbitrage: implied forward and box rate through the day ──
 
-/** Close of an expiry day (15:30 IST) in epoch ms. */
-const expiryCloseMs = (expiry) => {
-  const d = istDayMs(expiry);
-  return d === null ? null : d + (15 * 60 + 30) * 60_000;
-};
-
 /**
  * From one recorded snapshot { t, spot, k, cl, pl } (oi-store.js fromServerSnapshot): the implied forward (median of
  * K + C − P over the five strikes nearest spot with both last prices) and the box rate of the strikes either side of
- * spot (annualised % from (K2 − K1) ÷ box − 1 over the days left). Last prices, so a guide, not a fill.
+ * spot (annualised % from (K2 − K1) ÷ box − 1 over `daysLeft`, the calendar days to the expiry's close: the page
+ * works them out from the reference store's session close). Last prices, so a guide, not a fill.
  */
-export function parityPoint(snap, expiry) {
+export function parityPoint(snap, daysLeft) {
   const spot = num(snap?.spot);
   const k = snap?.k ?? [];
   const both = k.map((K, i) => ({ K: Number(K), c: num(snap.cl?.[i]), p: num(snap.pl?.[i]) })).filter((r) => Number.isFinite(r.K) && r.c !== null && r.p !== null && r.c > 0 && r.p > 0);
@@ -257,18 +252,18 @@ export function parityPoint(snap, expiry) {
   const lo = [...both].filter((r) => r.K <= spot).sort((a, b) => b.K - a.K)[0];
   const hi = [...both].filter((r) => r.K > spot).sort((a, b) => a.K - b.K)[0];
   let rate = null;
-  const close = expiryCloseMs(expiry);
-  if (lo && hi && close !== null) {
+  const days = num(daysLeft);
+  if (lo && hi && days !== null) {
     const box = lo.c - lo.p - (hi.c - hi.p);
-    const days = (close - snap.t) / 86_400_000;
     if (box > 0 && days > 0.5) rate = (((hi.K - lo.K) / box - 1) * 365 * 100) / days;
   }
   return { t: snap.t, spot, forward: Math.round(forward * 100) / 100, rate: rate === null || Math.abs(rate) > 200 ? null : Math.round(rate * 100) / 100 };
 }
 
 /** Implied forward against spot, and the box rate, over the recorded minutes of one chain. */
-export function arbSpec(snaps, { underlying = "", expiry = "", hurdle = null } = {}) {
-  const pts = (snaps ?? []).map((s) => parityPoint(s, expiry)).filter(Boolean).sort((a, b) => a.t - b.t);
+/** `daysAt(t)`: calendar days from instant t to the expiry's close (the page's options.js timeToExpiry). */
+export function arbSpec(snaps, { underlying = "", hurdle = null, daysAt = () => null } = {}) {
+  const pts = (snaps ?? []).map((s) => parityPoint(s, daysAt(s?.t))).filter(Boolean).sort((a, b) => a.t - b.t);
   if (pts.length < 2) return empty("No recorded minutes for this chain yet", "This chart reads the Bridge recorder's per-strike prices. Turn the recorder on for this chain (Data recorder) and the minutes fill in during the session.");
   const series = [
     { id: "spot", type: "line", pane: "fwd", label: "Spot", tone: "spot", data: pts.map((p) => ({ t: p.t, v: p.spot })), format: price2 },
@@ -365,5 +360,7 @@ export function withStudies(spec, result) {
     series.push({ id: `st:mk:${m.key ?? t}`, type: "marker", t, label: m.text ? String(m.text).slice(0, 24) : undefined, tone: m.bias === "bullish" ? "pos" : m.bias === "bearish" ? "neg" : "muted" });
   }
   const notes = [spec.note, result.partial ? "Indicators: not enough history to warm every study up; its first values are left out." : ""].filter(Boolean);
-  return { ...spec, panes: [...(spec.panes ?? [{ id: pricePane }]), ...panes], series: [...spec.series, ...series], note: notes.join(" ") };
+  // The candles keep the most room: at least twice a study pane's.
+  const own = (spec.panes ?? [{ id: pricePane }]).map((p) => (p.id === pricePane && panes.length ? { ...p, weight: Math.max(Number(p.weight) || 1, 2) } : p));
+  return { ...spec, panes: [...own, ...panes], series: [...spec.series, ...series], note: notes.join(" ") };
 }

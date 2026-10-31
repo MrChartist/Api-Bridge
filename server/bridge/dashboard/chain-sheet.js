@@ -130,7 +130,7 @@ export function openChainSheet({ strike, side, read, onTrade, onLeg, onExit, onC
   // The contract's 5-minute candles (GET /v1/history), reloaded when CE / PE switches the contract; every 60 s while open.
   // With indicators on, daily candles (studies read one candle per session).
   let chartSym = null;
-  const chartSlotEl = chartSlot("Price chart of this contract", { id: "contract", refreshMs: 60_000, studies: { symbol: () => chartSym } });
+  const chartSlotEl = chartSlot("Price chart of this contract", { id: "contract", refreshMs: 60_000, expand: true, studies: { symbol: () => chartSym } });
   const loadContract = (sym, name) => async ({ studies }) =>
     contractSpec({ name, daily: studies, candles: candlesOf((await bridgeApi(`/v1/history?symbol=${encodeURIComponent(sym)}&interval=${studies ? "1d" : "5m"}&countback=${studies ? 120 : 150}`)).data?.data) });
   const grid = h("div", { class: "cs-groups" });

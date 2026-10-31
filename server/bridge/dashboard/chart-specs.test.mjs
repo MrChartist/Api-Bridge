@@ -197,25 +197,30 @@ describe("screener: price and IV", () => {
 describe("arbitrage: implied forward and box rate", () => {
   const snap = (t, spot, adj = 0) => ({ t, spot, k: [25900, 26000, 26100, 26200], cl: [160 + adj, 100 + adj, 55 + adj, 25 + adj], pl: [50, 85, 140, 210] });
   it("forward by parity over the strikes nearest spot; box of the strikes either side, annualised", () => {
-    const p = S.parityPoint(snap(ist(2026, 11, 3, 15, 30) - 30 * 86_400_000, 26010), "2026-11-03");
+    const p = S.parityPoint(snap(1, 26010), 30);
     // K + C − P: 26010, 26015, 26015, 26015 → median 26015.
     expect(p.forward).toBe(26015);
     // Box 26000 / 26100: (100 − 85) − (55 − 140) = 100 for a 100-point spread → 0 % a year.
     expect(p.rate).toBe(0);
+    // A box bought at 99 for 100 over 30 days: (100 / 99 − 1) × 365 / 30 ≈ 12.29 %.
+    expect(S.parityPoint({ ...snap(1, 26010), pl: [50, 86, 140, 210] }, 30).rate).toBeCloseTo(12.29, 1);
   });
-  it("no rate on expiry day or without a strike above spot; null without two priced strikes", () => {
-    expect(S.parityPoint(snap(ist(2026, 11, 3, 15, 0), 26010), "2026-11-03").rate).toBeNull();
-    expect(S.parityPoint(snap(ist(2026, 10, 1), 30000), "2026-11-03").rate).toBeNull();
-    expect(S.parityPoint({ t: 1, spot: 100, k: [100], cl: [1], pl: [1] }, "2026-11-03")).toBeNull();
-    expect(S.parityPoint({ t: 1, spot: null, k: [], cl: [], pl: [] }, "2026-11-03")).toBeNull();
+  it("no rate on expiry day, without the days, or without a strike above spot; null without two priced strikes", () => {
+    expect(S.parityPoint(snap(1, 26010), 0.2).rate).toBeNull();
+    expect(S.parityPoint(snap(1, 26010), null).rate).toBeNull();
+    expect(S.parityPoint(snap(1, 30000), 30).rate).toBeNull();
+    expect(S.parityPoint({ t: 1, spot: 100, k: [100], cl: [1], pl: [1] }, 30)).toBeNull();
+    expect(S.parityPoint({ t: 1, spot: null, k: [], cl: [], pl: [] }, 30)).toBeNull();
   });
-  it("two panes and the hurdle as a level; an honest empty state without recorder minutes", () => {
+  it("two panes and the hurdle as a level; days come from the page; an honest empty state without recorder minutes", () => {
     const t0 = ist(2026, 10, 30, 9, 15);
-    const spec = S.arbSpec([snap(t0 + 60_000, 26012), snap(t0, 26010)], { underlying: "NIFTY", expiry: "2026-11-03", hurdle: 6.5 });
+    const seen = [];
+    const spec = S.arbSpec([snap(t0 + 60_000, 26012), snap(t0, 26010)], { underlying: "NIFTY", hurdle: 6.5, daysAt: (t) => (seen.push(t), 4) });
+    expect(seen.sort()).toEqual([t0, t0 + 60_000]);
     expect(spec.panes.map((p) => p.id)).toEqual(["fwd", "rate"]);
     expect(byId(spec, "fwd").data.map((p) => p.t)).toEqual([t0, t0 + 60_000]);
     expect(byId(spec, "hurdle")).toMatchObject({ value: 6.5, label: "Hurdle 6.5%" });
-    expect(S.arbSpec([], { underlying: "NIFTY", expiry: "2026-11-03" }).empty.text).toMatch(/recorder/);
+    expect(S.arbSpec([], { underlying: "NIFTY" }).empty.text).toMatch(/recorder/);
   });
 });
 
@@ -239,7 +244,7 @@ describe("indicators: studies from the ChartistScript core", () => {
   };
   const out = S.withStudies(spec, result);
   it("overlays price studies on the candles' pane and gives each panel study its own pane", () => {
-    expect(out.panes.map((p) => [p.id, p.label ?? null])).toEqual([["price", null], ["study:macd1", "macd(12, 26, 9)"]]);
+    expect(out.panes.map((p) => [p.id, p.label ?? null, p.weight])).toEqual([["price", null, 2], ["study:macd1", "macd(12, 26, 9)", 0.75]]);
     expect(byId(out, "st:bb0.upper")).toMatchObject({ type: "line", pane: "price" });
     expect(byId(out, "st:bb0.upper").data.map((p) => p.t)).toEqual(days);
     expect(byId(out, "st:bb0.lower").data[1].v).toBeNull();
@@ -290,6 +295,15 @@ describe("house rules", () => {
       expect(src, f).not.toMatch(/Intl\.NumberFormat|\.toLocaleString\(|toFixed\(|innerHTML|setAttribute\(\s*["']style|\.style\./);
       expect(src.match(/https?:\/\//g) ?? [], f).toEqual([]);
     }
+  });
+  it("the chart modal is wide on a desktop and the whole screen on a phone, its plot filling the room left", () => {
+    const css = readFileSync(new URL("./app.css", import.meta.url), "utf8");
+    expect(css).toContain("dialog.sheet.lc-chart-sheet { height: 100dvh; max-height: 100dvh; border-radius: 0; }");
+    expect(css).toMatch(/dialog\.sheet\.lc-chart-sheet \{ width: min\(1100px, 92vw\); max-width: none; height: 80vh;/);
+    expect(css).toContain(".lc-expanded .lc-chart .lc-plot { flex: 1 1 0; height: auto; min-height: 220px; }");
+    const js = readFileSync(new URL("./chart-lite.js", import.meta.url), "utf8");
+    expect(js).toMatch(/export function openChartModal/);
+    expect(js).toMatch(/expand: false, refreshMs: 0/);
   });
   it("every ported file carries its provenance", () => {
     for (const f of ["chart-lite.js", "chart-lite-core.js", "chart-lite-core.test.mjs"]) {

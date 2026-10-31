@@ -15,7 +15,7 @@
 // Cleanup (docs/perf/baseline.md, route-change leaks): one ResizeObserver per chart, disconnected when the chart is
 // destroyed; a chart whose box has left the document destroys itself (its observer fires on removal, and every route
 // change sweeps). The device pixel ratio has ONE listener for the whole page.
-import { api, emptyState, errorState, h, icon, store, toast } from "./app.js";
+import { api, emptyState, errorState, h, icon, modal, store, toast } from "./app.js";
 import * as C from "./chart-lite-core.js";
 import { MAX_STUDIES, studyList, studyRequest, withStudies } from "./chart-specs.js";
 import { DASH, formatCompactTick, formatFixed, isFigure } from "./format.js";
@@ -481,9 +481,15 @@ export function mountSlot(box, opts = {}) {
   let dead = false;
   let pending = opts.data ?? null;
   const host = h("div", { class: "lc-host" });
-  const status = h("div", { class: "lc-status" }, h("div", { class: "lc-skel skel", role: "status", "aria-label": `Loading ${opts.label ?? "chart"}` }));
+  // A static placeholder at the chart's height until it loads (no layout shift); it shimmers (.skel) only while a load
+  // is in flight, so a chart still below the fold neither animates nor reads as a page that is loading.
+  const skel = h("div", { class: "lc-skel", "aria-hidden": "true" });
+  const status = h("div", { class: "lc-status" }, skel);
   const control = opts.studies ? studiesControl(opts.label ?? "chart", () => run()) : null;
-  box.replaceChildren(...(control ? [h("div", { class: "lc-tools" }, control.el), control.panel] : []), status, host);
+  // A chart in a narrow panel (the chain's sheet, the screener's pane) opens full size in the chart modal.
+  const expand = opts.expand ? h("button", { type: "button", class: "small lc-expand", "aria-label": `Open ${opts.label ?? "the chart"} full size`, onclick: () => loader && openChartModal(opts.label ?? "Chart", { ...opts, load: loader }) }, icon("external"), h("span", {}, "Expand")) : null;
+  const tools = control || expand ? [h("div", { class: "lc-tools" }, expand, control?.el), ...(control ? [control.panel] : [])] : [];
+  box.replaceChildren(...tools, status, host);
   host.hidden = true;
   /** The loader's spec with the indicators on laid over it (a failed compute keeps the chart and says so). */
   async function studied(spec) {
@@ -515,6 +521,7 @@ export function mountSlot(box, opts = {}) {
     if (dead || !loader) return;
     if (!box.isConnected && seq > 0) return ctl.destroy();
     const my = ++seq;
+    if (!status.hidden) skel.classList.add("skel");
     try {
       const base = await loader({ label: opts.label, studies: Boolean(control) && activeStudies().length > 0 });
       const spec = await studied(base);
@@ -522,6 +529,7 @@ export function mountSlot(box, opts = {}) {
       show(spec ?? { empty: { title: "No data", text: "" } });
     } catch (err) {
       if (dead || my !== seq) return;
+      skel.classList.remove("skel");
       if (chart?.alive && chart.model.hasData) return; // keep the last good drawing; the next refresh tries again
       host.hidden = true;
       status.hidden = false;
@@ -589,3 +597,23 @@ export function mountSlot(box, opts = {}) {
 
 /** A label value as text for callers that build level labels: "Strike 26000". Kept here so callers share one rule. */
 export const levelText = (name, v, dp = 0) => (isFigure(v) ? `${name} ${formatFixed(v, dp)}` : `${name} ${DASH}`);
+
+/**
+ * The chart modal: min(1100px, 92vw) by 80vh on a desktop, the whole screen on a phone, the plot filling what the
+ * legend and the Indicators control leave, so the time axis under the last pane is always in view. Every pane shares
+ * that one time axis and one crosshair (one SVG, one x scale). Returns the modal's promise.
+ * @param {string} title
+ * @param {object} opts  mountSlot options (load, studies, label); no refresh while it is open
+ */
+export function openChartModal(title, opts) {
+  const wrap = h("div", { class: "lc-wrap" });
+  const box = h("div", { class: "lc-slot", role: "group", "aria-label": opts.label ?? title }, wrap);
+  const ctl = mountSlot(wrap, { ...opts, expand: false, refreshMs: 0 });
+  const done = modal({ title, body: h("div", { class: "lc-expanded" }, box), buttons: [{ label: "Close", value: false }] });
+  const d = typeof document !== "undefined" ? document.getElementById("dialog") : null;
+  d?.classList.add("lc-chart-sheet");
+  return done.finally(() => {
+    d?.classList.remove("lc-chart-sheet");
+    ctl.destroy();
+  });
+}

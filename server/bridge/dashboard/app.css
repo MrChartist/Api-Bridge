@@ -9048,7 +9048,7 @@ p.bk-fix { font-size: 13px; }
 .lc-sub { margin: 0 0 6px; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 .lc-wrap, .lc-host, .lc-status { display: block; min-width: 0; }
 :is(.lc-host, .lc-status, .lc-plot, .lc-legend, .lc-empty, .lc-note)[hidden] { display: none; }
-.lc-skel { display: block; height: var(--lc-h); border-radius: var(--r-inner); }
+.lc-skel { display: block; height: var(--lc-h); border-radius: var(--r-inner); background: var(--mat-fill-1); }
 .lc-chart { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .lc-legend { min-height: 20px; }
 .lc-legend:empty { display: none; }
@@ -9145,8 +9145,20 @@ p.bk-fix { font-size: 13px; }
 .lc-ind-item:disabled { opacity: 0.45; }
 .lc-ind-note { margin: 0; font: 400 12.5px/1.4 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 
+/* The chart modal (openChartModal): wide on a desktop, the whole screen on a phone; the plot takes the room the legend
+   and the Indicators control leave, so the shared time axis under the last pane is always in view. */
+dialog.sheet.lc-chart-sheet { height: 100dvh; max-height: 100dvh; border-radius: 0; }
+@media (min-width: 720px) {
+  dialog.sheet.lc-chart-sheet { width: min(1100px, 92vw); max-width: none; height: 80vh; max-height: 80vh; border-radius: var(--r-sheet); }
+}
+.lc-chart-sheet .lc-expanded, .lc-expanded :is(.lc-slot, .lc-wrap, .lc-host, .lc-chart):not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.lc-expanded .lc-slot { --lc-h: 260px; padding: 0; }
+.lc-expanded .lc-chart .lc-plot { flex: 1 1 0; height: auto; min-height: 220px; }
+.lc-expanded .lc-ind-list { max-height: min(240px, 30vh); }
+.lc-expand { display: inline-flex; align-items: center; gap: 6px; }
+.lc-tools { gap: 8px; }
+
 /* Where each page puts its chart. */
-.strat-price-chart .lc-slot { --lc-h: min(360px, 48vh); padding: 0; }
 .cs-body .lc-slot { --lc-h: 200px; padding: 4px 0 0; }
 .oi-tslot { --lc-h: 240px; }
 .vol-history .lc-slot { --lc-h: 250px; }

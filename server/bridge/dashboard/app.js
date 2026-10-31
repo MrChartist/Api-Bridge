@@ -936,6 +936,10 @@ function chartEngine() {
         },
       };
     },
+    /** Open a chart full size (chart-lite.js openChartModal): { label, load, studies? }. */
+    async open(title, opts) {
+      return (await load()).openChartModal(title, opts);
+    },
     /** Create a chart directly in `host` (no loader or states): resolves to chart-lite.js createChart's chart. */
     async create(host, spec) {
       return (await load()).createChart(host, spec);

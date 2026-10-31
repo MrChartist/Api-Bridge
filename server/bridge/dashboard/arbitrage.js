@@ -444,7 +444,8 @@ export function arbPanels(ctx) {
         cursor = d?.nextCursor ?? null;
         if (!cursor) break;
       }
-      return arbSpec(snaps, { underlying, expiry, hurdle: cfg().hurdle });
+      const close = refSession(st.ref).close;
+      return arbSpec(snaps, { underlying, hurdle: cfg().hurdle, daysAt: (t) => O.timeToExpiry(expiry, t, close).days });
     });
   }
 
