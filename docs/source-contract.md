@@ -230,7 +230,7 @@ restriction.
 | `capabilities` | A non-empty subset of `quotes`, `history`, `expiries`, `optionChain`. Any other name (orders, portfolio, accounts, funds) is rejected: there is nothing to ask for |
 | `class`, `delaySec` | `delayed` (with `delaySec`, 1 to 604800) or `eod`. `realtime` is rejected: a plugin is never real-time |
 | `official` | Optional; must be `false` |
-| `network.allowHosts` | Up to 10 entries. `host.example.com` or `*.example.com` (one leading wildcard, at least two labels after it). No IP addresses, `localhost`, `.local` or `.internal` names, ports, paths, schemes or credentials, and **no broker domains** |
+| `network.allowHosts` | Up to 10 entries. `host.example.com` or `*.example.com` (one leading wildcard, at least two labels after it, and not over a public suffix such as `*.co.uk` or a shared-hosting domain such as `*.herokuapp.com`, `*.vercel.app`, `*.github.io`: name the vendor's own domain, e.g. `*.vendor.co.uk` or `*.vendor.vercel.app`). No IP addresses, `localhost`, `.local` or `.internal` names, ports, paths, schemes or credentials, and **no broker domains** (a maintained list that covers every host the in-tree adapters use; a test scans the adapters and fails when a new adapter host is missing) |
 | `network.allowPost` | Optional; lets the plugin send POST requests. Default: GET and HEAD only |
 | `limits` | At least one of `perSecond`, `perMinute`, `perDay`; optional `callTimeoutMs`, `maxInFlight`, `maxResponseBytes` within the caps in section 5 |
 | `terms` | `url` (https) and `note`, required |
