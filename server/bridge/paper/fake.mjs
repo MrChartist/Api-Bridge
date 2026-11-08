@@ -20,6 +20,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { createEventBus } from "../core/eventBus.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
+import { freshness } from "../market/normalise.mjs";
 import { paperConfig } from "./config.mjs";
 import { createPaperEngine } from "./paperEngine.mjs";
 import { createMemoryStore } from "./paperStore.mjs";
@@ -44,7 +45,7 @@ export function createFakePaperEngine({ prices = {}, clock = { now: () => Date.n
       const errors = [];
       for (const s of list) {
         const p = quotes.get(s);
-        if (p) items.push({ symbol: s, ltp: p, freshness: { source: "paper", asOf: new Date(clock.now()).toISOString(), ageMs: 0, stale: false, accountId: null, broker: null } });
+        if (p) items.push({ symbol: s, ltp: p, freshness: freshness({ source: "paper", at: clock.now(), now: clock.now(), targetMs: 1000, stale: false }) });
         else errors.push({ symbol: s, code: "SYMBOL_NOT_FOUND", message: `No fake price for ${s}.` });
       }
       return { items, errors };

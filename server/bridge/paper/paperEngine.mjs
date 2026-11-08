@@ -33,6 +33,7 @@ import { isStub } from "../core/contracts.mjs";
 import { applyFill, brokerageFor, evaluate, isTickMultiple, marginFor, marketFillPrice, round2, round4, stopTriggered } from "./fillModel.mjs";
 import { ACCOUNT_ID_RE, STATE_VERSION, createFileStore } from "./paperStore.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
+import { isTrustedRealtime } from "../market/trusted.mjs";
 import { SPAN_METHOD, SPAN_PARAMS, marginRequired, portfolioMargin, standaloneMargin } from "../calc/span-margin.js";
 import { istDay, istDayCompact, istTimeOnDay, toIstIso } from "./time.mjs";
 
@@ -432,10 +433,10 @@ export function createPaperEngine(deps, options = {}) {
     }
     if (!want.size) return;
     try {
-      const r = await deps.marketData.ltp([...want.keys()], { maxAgeMs: cfg.pollIntervalMs, priority: "interactive" });
+      const r = await deps.marketData.ltp([...want.keys()], { maxAgeMs: cfg.pollIntervalMs, priority: "interactive", purpose: "paper" });
       for (const item of r?.items ?? []) {
         const u = want.get(item?.symbol);
-        if (u && positiveNumber(item.ltp)) spots.set(u, { ltp: item.ltp, at: now() });
+        if (u && positiveNumber(item.ltp) && isTrustedRealtime(item)) spots.set(u, { ltp: item.ltp, at: now() });
       }
     } catch (err) {
       log?.debug?.("paper margin spot fetch failed", { code: err?.code });
@@ -561,9 +562,10 @@ export function createPaperEngine(deps, options = {}) {
     if (usableNow(lp, maxAgeMs)) market = { ...lp };
     if (!market) {
       try {
-        const r = await deps.marketData.ltp([symbol], { maxAgeMs, priority: "interactive" });
+        const r = await deps.marketData.ltp([symbol], { maxAgeMs, priority: "interactive", purpose: "paper" });
         const item = r?.items?.find((i) => i.symbol === symbol) ?? r?.items?.[0];
-        const entry = item ? notePrice(symbol, item) : null;
+        // Only a trusted real-time value is a basis for a fill: never a stale, delayed, end-of-day, unofficial or plugin one.
+        const entry = item && isTrustedRealtime(item) ? notePrice(symbol, item) : null;
         // A stale-labelled or old value (served from cache under budget pressure) is no basis for a fill.
         if (usableNow(entry, Math.max(maxAgeMs, FRESH_MS))) market = { ...entry };
         else if (entry) log?.debug?.("paper price too old to use", { symbol, ageMs: now() - entry.at, stale: entry.stale });
@@ -573,8 +575,8 @@ export function createPaperEngine(deps, options = {}) {
     }
     if (market && depth && cfg.useDepth) {
       try {
-        const d = await deps.marketData.depth(symbol, { maxAgeMs, priority: "interactive" });
-        if (d) market.depth = d;
+        const d = await deps.marketData.depth(symbol, { maxAgeMs, priority: "interactive", purpose: "paper" });
+        if (d && isTrustedRealtime(d)) market.depth = d;
       } catch (err) {
         log?.debug?.("paper depth fetch failed", { symbol, code: err?.code });
       }
@@ -590,8 +592,8 @@ export function createPaperEngine(deps, options = {}) {
     });
     if (!stale.length) return;
     try {
-      const r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive" });
-      for (const item of r?.items ?? []) notePrice(item.symbol, item);
+      const r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive", purpose: "paper" });
+      for (const item of r?.items ?? []) if (isTrustedRealtime(item)) notePrice(item.symbol, item);
     } catch (err) {
       log?.debug?.("paper mark-to-market fetch failed", { code: err?.code });
     }
@@ -847,12 +849,13 @@ export function createPaperEngine(deps, options = {}) {
     if (!stale.length) return;
     let r;
     try {
-      r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive" });
+      r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive", purpose: "paper" });
     } catch (err) {
       log?.debug?.("paper poll failed", { code: err?.code });
       return;
     }
     for (const item of r?.items ?? []) {
+      if (!isTrustedRealtime(item)) continue;
       const entry = notePrice(item.symbol, item);
       // Pending orders trigger and fill only on a current price, never on a stale-labelled cached one.
       if (entry && !entry.stale && lastPrice.get(item.symbol) === entry) evaluateSymbol(item.symbol, entry);

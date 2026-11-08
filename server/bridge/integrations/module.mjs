@@ -12,7 +12,6 @@
  */
 import { defineModule } from "../core/modules.mjs";
 import { INTEGRATIONS_CONFIG_SCHEMA, parseIntegrationsConfig } from "./config.mjs";
-import { autoBackupFromConfig } from "./params.mjs";
 import { createXlRoutes, xlError } from "./xl.mjs";
 
 /**
@@ -43,7 +42,7 @@ export default defineModule({
   register(app, deps) {
     // Core has already validated and defaulted config.integrations; parsing again is cheap and keeps register()
     // usable with a hand-built facade in tests.
-    const cfg = { ...parseIntegrationsConfig(app.config?.integrations), autoBackup: autoBackupFromConfig(app.config) };
+    const cfg = parseIntegrationsConfig(app.config?.integrations);
     const handlers = { xl: createXlRoutes(deps, cfg) };
     for (const [method, path, options, group, name] of ROUTES) app.route(method, path, handlers[group][name], { ...options, formatError: formatterFor(group, name) });
   },

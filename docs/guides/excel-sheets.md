@@ -23,6 +23,10 @@ Put the key in a cell on a hidden sheet and name it `BridgeKey`. With a symbol i
   `NUMBERVALUE(WEBSERVICE(...), ".")`.
 - Any problem (unknown symbol, bad key, rate limit, Bridge not running) returns `#N/A` with an error status, so
   `IFERROR` catches it; the reason is in the `X-Error-Code` header (`curl -i`).
+- These routes never use a backup data source (Yahoo, a plugin, ...), whatever `sources.autoFallback` says. A bare number or a
+  fixed table has no room to say "this is 15 minutes old", and `WEBSERVICE` cannot see headers, so a delayed value would pass
+  for a live one. `?backup=true` is refused with a message; for a labelled backup answer use the `/v1` routes. The freshness
+  headers (`X-Data-Source`, `X-Data-Age-Ms`, `X-Data-Stale`) say when a cached value that has aged was served.
 - Press F9 to refresh. Hundreds of cells are fine: repeated reads are served from the Bridge's stream or cache, and the
   broker only sees what is really needed.
 

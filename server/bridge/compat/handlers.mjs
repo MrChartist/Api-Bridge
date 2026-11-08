@@ -56,20 +56,21 @@ export function createCompatHandlers(deps, cfg) {
     return pick.id;
   }
 
-  /** Read options. forOrder: the result picks or prices an order, so backup (public, possibly delayed) data is never used. */
+  /**
+   * Read options. A compat answer has no field that says how current a price is, so it must never be built from a data
+   * source: backup is always off here, whatever sources.autoFallback says (the /v1 routes label every answer; this shape cannot).
+   * forOrder: the result picks or prices an order (strike choice), so the read says purpose "order" and the market service
+   * answers it only from trusted real-time data. Every read states its purpose; there is no default to fall back on.
+   */
   const readOpts = (ctx, { forOrder = false } = {}) => {
-    const o = { signal: ctx.signal, allowBackup: !forOrder && autoBackup() };
+    const o = { signal: ctx.signal, allowBackup: false, purpose: forOrder ? "order" : "display" };
     const allowed = allowedAccountsFor(ctx);
     if (allowed) o.allowedAccounts = allowed;
     return o;
   };
-  const autoBackup = () => {
-    try {
-      return Boolean(deps.backupData?.autoFallback?.());
-    } catch {
-      return false;
-    }
-  };
+
+  /** The one thing a compat answer can still say about freshness: this value came from a cache entry that has aged (stale). Absent otherwise. */
+  const staleNote = (q) => (q?.freshness?.stale === true ? { stale: true } : {});
 
   // ── orders ──
 
@@ -396,7 +397,7 @@ export function createCompatHandlers(deps, cfg) {
       const r = await deps.marketData.quotes([sym], readOpts(ctx));
       if (!r.items.length) throw new BridgeError(r.errors[0]?.code ?? "UPSTREAM_ERROR", r.errors[0]?.message ?? `No quote for ${body.symbol}.`);
       const q = r.items[0];
-      return ok(ctx, { data: { open: q.open ?? 0, high: q.high ?? 0, low: q.low ?? 0, ltp: q.ltp, ask: q.ask ?? 0, bid: q.bid ?? 0, prev_close: q.close ?? 0, volume: q.volume ?? 0, oi: q.oi ?? 0 } });
+      return ok(ctx, { data: { open: q.open ?? 0, high: q.high ?? 0, low: q.low ?? 0, ltp: q.ltp, ask: q.ask ?? 0, bid: q.bid ?? 0, prev_close: q.close ?? 0, volume: q.volume ?? 0, oi: q.oi ?? 0, ...staleNote(q) } });
     },
 
     async multiquotes(ctx, body) {
@@ -417,7 +418,7 @@ export function createCompatHandlers(deps, cfg) {
       for (const p of pairs) {
         const q = p.canonical ? byId.get(p.canonical) : null;
         if (!q) failed.push({ symbol: p.s?.symbol, exchange: p.s?.exchange, error: p.error ?? errById.get(p.canonical) ?? "No quote." });
-        else good.push({ symbol: p.s.symbol, exchange: p.s.exchange, data: { open: q.open ?? 0, high: q.high ?? 0, low: q.low ?? 0, ltp: q.ltp, ask: q.ask ?? 0, bid: q.bid ?? 0, prev_close: q.close ?? 0, volume: q.volume ?? 0, oi: q.oi ?? 0 } });
+        else good.push({ symbol: p.s.symbol, exchange: p.s.exchange, data: { open: q.open ?? 0, high: q.high ?? 0, low: q.low ?? 0, ltp: q.ltp, ask: q.ask ?? 0, bid: q.bid ?? 0, prev_close: q.close ?? 0, volume: q.volume ?? 0, oi: q.oi ?? 0, ...staleNote(q) } });
       }
       return ok(ctx, { results: [...failed, ...good] });
     },
@@ -439,6 +440,7 @@ export function createCompatHandlers(deps, cfg) {
           prev_close: qi.close ?? 0,
           volume: qi.volume ?? 0,
           oi: qi.oi ?? 0,
+          ...staleNote(qi),
           totalbuyqty: d.bids.reduce((s, l) => s + n2(l.qty), 0),
           totalsellqty: d.asks.reduce((s, l) => s + n2(l.qty), 0),
         },
@@ -483,9 +485,8 @@ export function createCompatHandlers(deps, cfg) {
     async expiry(ctx, body) {
       const underlying = String(body.symbol ?? "").toUpperCase();
       if (!underlying) throw bad("symbol is required, for example NIFTY.", "symbol");
-      const opts = readOpts(ctx);
-      if (body.exchange) opts.exchange = String(body.exchange).toUpperCase();
-      const r = await deps.marketData.expiries(underlying, opts);
+      const exchange = body.exchange ? String(body.exchange).toUpperCase() : undefined;
+      const r = await deps.marketData.expiries(underlying, { ...readOpts(ctx), ...(exchange ? { exchange } : {}) });
       return ok(ctx, { data: r.expiries.map(isoToDashed) });
     },
 

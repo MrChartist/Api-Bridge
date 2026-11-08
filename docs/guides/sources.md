@@ -114,7 +114,15 @@ For a read that is not pinned to one account, the Bridge looks at the candidates
 
 **Purposes.** A read may say what it is for with `purpose`: `display` (default), `analysis`, `alert`, `paper`, `risk` or
 `order`. The last four accept only real-time data from your own broker. A delayed or end-of-day source is never used for
-them, whatever you configured. Orders go through the account they belong to; no source ever influences that.
+them, whatever you configured, and neither is a cached value that has gone stale. Orders go through the account they belong to;
+no source ever influences that.
+
+The default, `display`, is for the public market routes: a `display` read may be answered from a cached value that is older
+than its freshness target (labelled `stale: true`) when your broker's budget is used up, and from a backup source if the read
+allows one. So code inside the Bridge never relies on the default. The order service (price band, market protection, strike
+choice) reads with `purpose: "order"`, the paper engine with `"paper"`, and both check the label on what comes back: a value
+that is stale, delayed, end of day, unofficial, from a source or unlabelled is not used as a price. A test scans the order,
+paper, safety and compat code and fails if a market-data call there does not state its purpose.
 
 **`maxAgeMs`.** If you ask for data no older than 2 seconds, a 15-minute source cannot answer, and you get your broker's
 answer or an error, not a delayed price pretending to be fresh.
