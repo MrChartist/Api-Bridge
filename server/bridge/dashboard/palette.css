@@ -1,6 +1,7 @@
 /* Command palette (Spotlight style) and the keyboard-shortcut sheet. Uses the app.css tokens.
    Markup is written by palette.js: dialog.palette > .palette-search (icon, .palette-input, .palette-x) + ul.palette-list
-   (.palette-group, .palette-option[aria-selected], .palette-empty) + .palette-foot. The selected option is the accent fill. */
+   (.palette-group: Recent, Pages, Actions, Settings; .palette-option[aria-selected] with its matched text in mark.pal-mark;
+   .palette-empty) + .palette-foot. The selected option is the accent fill. */
 dialog.palette {
   position: fixed;
   inset: max(12vh, 64px) 0 auto 0;
@@ -36,20 +37,23 @@ dialog.palette .palette-input:focus {
 .palette-input::placeholder { color: var(--label-3); }
 button.palette-x { --btn-h: 28px; --btn-ic: 14px; --btn-r: 50%; --btn-bg: var(--fill-2); width: 28px; padding: 0; color: var(--label-2); }
 .palette-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0; }
-.palette-group { padding: 10px 12px 4px; font: 600 12px/1 var(--font-body); color: var(--label-3); }
+.palette-group { padding: 12px 12px 4px; font: 600 12px/1 var(--font-body); color: var(--label-2); }
+.palette-group:first-child { padding-top: 6px; }
 .palette-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; border-radius: var(--r-ctl); cursor: pointer; font: 500 15px/1.25 var(--font-body); letter-spacing: -0.01em; }
 @media (hover: hover) { .palette-option:hover:not([aria-selected="true"]) { background: var(--fill-1); } }
 .palette-option .icon-tile { width: 32px; height: 32px; border-radius: 9px; }
 .palette-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-sub { font: var(--t-subhead); color: var(--label-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-kind { margin-left: 8px; padding: 3px 7px; border-radius: var(--radius-sm); background: var(--fill-2); font: 500 12px/1 var(--font-body); color: var(--label-2); }
+mark.pal-mark { background: none; color: hsl(var(--accent-ink)); font-weight: 700; }
+.palette-option[aria-selected="true"] mark.pal-mark { color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
 .palette-option[aria-selected="true"] { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); }
 .palette-option[aria-selected="true"] .palette-sub { color: hsl(var(--sel-fg) / 0.78); }
-.palette-option[aria-selected="true"] .palette-kind { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--sel-fg) / 0.5); color: hsl(var(--sel-fg)); }
 .palette-option[aria-selected="true"] .kbd { background: hsl(var(--sel-fg) / 0.16); color: hsl(var(--sel-fg)); }
 .palette-right { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 8px; }
-.palette-empty { padding: 28px 12px; text-align: center; color: var(--label-2); }
+.palette-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 16px 36px; text-align: center; color: var(--label-2); font: var(--t-callout); text-wrap: balance; }
+.palette-empty svg { width: 28px; height: 28px; color: var(--label-3); }
+.palette-empty strong { font: var(--t-headline); color: hsl(var(--foreground)); overflow-wrap: anywhere; }
 .palette-foot { display: flex; gap: 16px; padding: 10px 18px; box-shadow: inset 0 var(--hl) 0 var(--separator); font: 500 12px/1 var(--font-body); color: var(--label-3); flex: none; }
 .palette-foot > span { display: inline-flex; align-items: center; gap: 4px; }
 .palette-foot .kbd-group { gap: 2px; }

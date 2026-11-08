@@ -18,6 +18,17 @@ export function shareTone(used, limit) {
 export const windowText = (w) => (w && w.limit > 0 ? `${formatInt(w.used)}/${formatInt(w.limit)}` : DASH);
 
 /**
+ * A window as "3/10 s" with the used count in a box as wide as the limit's digits (tabular figures, right-aligned), so
+ * the chip and the rows never change width as the count moves from 9 to 10 to 100.
+ */
+function windowNode(w, unit = "") {
+  if (!(w && w.limit > 0)) return DASH;
+  const used = h("span", { class: "bud-used" }, formatInt(w.used));
+  used.style.setProperty("--d", String(formatInt(w.limit).length));
+  return h("span", { class: "bud-win-text" }, used, `/${formatInt(w.limit)}`, unit ? ` ${unit}` : "");
+}
+
+/**
  * What the indicator shows for one budget message (pure): the fullest second and minute window across accounts, the
  * overall tone, and the stream state ("live" when a broker feed is up, "off" when none is open, "down" otherwise).
  * @param {{ accounts?: object[], savedToday?: number, callsToday?: number, stream?: { feeds: number, up: number } } | null} msg
@@ -74,7 +85,7 @@ const STREAM_TEXT = { live: "Stream live", off: "No stream open", down: "Stream 
 export function mountBudget(host, live) {
   let msg = null;
   const dot = h("span", { class: "bud-dot", "aria-hidden": "true" });
-  const sec = h("span", { class: "bud-num" }, DASH);
+  const sec = h("span", { class: "bud-num bud-sec" }, DASH);
   const min = h("span", { class: "bud-num bud-min" }, DASH);
   const btn = h(
     "button",
@@ -92,11 +103,12 @@ export function mountBudget(host, live) {
     host.hidden = !v.hasBrokers;
     host.dataset.tone = v.tone;
     host.dataset.stream = v.stream;
-    sec.textContent = v.second ? `${windowText(v.second)} s` : DASH;
-    min.textContent = v.minute ? `${windowText(v.minute)} min` : DASH;
+    sec.replaceChildren(windowNode(v.second, "s"));
+    min.replaceChildren(windowNode(v.minute, "min"));
     const job = (msg?.jobs ?? [])[0];
     host.dataset.job = job ? "1" : "";
-    btn.setAttribute("aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} this minute` : "no per-minute limit"}. ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
+    const fill = v.tone === "bad" ? " Near the limit." : v.tone === "warn" ? " Getting full." : "";
+    btn.setAttribute("aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
     if (popBody?.isConnected) popBody.replaceChildren(...popContent(msg, v).filter(Boolean));
   };
   btn.addEventListener("click", () => {
@@ -128,7 +140,7 @@ function popContent(msg, v) {
         { class: "bud-wins" },
         winRow("This second", a.second),
         winRow("This minute", a.minute),
-        h("div", { class: "bud-win" }, h("span", { class: "muted" }, "Today"), h("span", { class: "bud-num" }, `${formatInt(a.callsToday)} calls`)),
+        h("div", { class: "bud-win bud-today" }, h("span", { class: "muted" }, "Today"), h("span", { class: "bud-num" }, `${formatInt(a.callsToday)} calls`)),
       ),
     ),
   );
@@ -219,5 +231,5 @@ function winRow(label, w) {
   const pct = w && w.limit > 0 ? Math.min(100, Math.round((w.used / w.limit) * 100)) : 0;
   const bar = h("span", { class: `bud-bar ${tone}`, "aria-hidden": "true" }, h("i"));
   bar.firstChild.style.setProperty("--w", `${pct}%`);
-  return h("div", { class: "bud-win" }, h("span", { class: "muted" }, label), bar, h("span", { class: "bud-num" }, w ? windowText(w) : DASH));
+  return h("div", { class: "bud-win" }, h("span", { class: "muted" }, label), bar, h("span", { class: "bud-num" }, windowNode(w)));
 }
