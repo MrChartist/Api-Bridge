@@ -36,6 +36,7 @@ import { z } from "zod";
 import { PRIORITIES, isStub } from "../core/contracts.mjs";
 import { BridgeError, fromBrokerError, fromValidation } from "../core/errors.mjs";
 import { EXCHANGES, parseSymbol } from "../core/symbolFormat.mjs";
+import { currentConsumerInfo } from "../ratelimit/consumer.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { DEFAULT_RATE } from "../reference/defaults.mjs";
 import { PURPOSES, classRank, dataQuality } from "../sources/contract.mjs";
@@ -648,6 +649,7 @@ export function createMarketDataService(deps) {
 
   /** Batch flush: one account, one priority; fetch every id through fetchQuotes in maxQuoteBatch chunks. */
   async function runQuoteBatch(group, ids) {
+    // The sixth part (the opener's fair key) only keeps consumers' batches apart; the run is already credited to it.
     const [accountId, priority, staleFlag, waitRaw, shareRaw] = group.split("|");
     // A background caller's short wait and dispatch floor travel in the group key.
     const callerWait = waitRaw ? Number(waitRaw) : undefined;
@@ -743,7 +745,12 @@ export function createMarketDataService(deps) {
       return running;
     }
     const share = priority === "background" && backgroundShare !== undefined ? backgroundShare : "";
-    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}|${maxWaitMs ?? ""}|${share}`, symbol).finally(() => inflight.delete(key));
+    // The batch is per consumer (the last part of the key): a batch is credited to whoever opened it, so a light reader
+    // that joined a heavy reader's batch would wait in the heavy reader's place in the fair queue. The cost is that two
+    // consumers asking for different symbols in the same window make two calls, not one. The same symbol asked by both
+    // still joins the call already in flight (the `inflight` check above).
+    const fair = currentConsumerInfo()?.fairKey ?? "";
+    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}|${maxWaitMs ?? ""}|${share}|${fair}`, symbol).finally(() => inflight.delete(key));
     inflight.set(key, p);
     return p;
   }
