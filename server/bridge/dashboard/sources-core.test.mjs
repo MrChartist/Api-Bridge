@@ -243,6 +243,15 @@ describe("rows from the Bridge's answers", () => {
     expect(r.map((x) => x.key)).toEqual(["acct:dhan-main", "acct:zerodha-main", "src:demo", "src:demo-delayed"]);
   });
 
+  it("names an account by its label, and takes its data class from the descriptor when the Bridge lists one", () => {
+    const r = C.buildRows({ sources: F.sources(), usage: F.usage(), labels: { "dhan-main": "Dhan (main)" } });
+    expect(r[0].name).toBe("Dhan (main)");
+    expect(r[1].name).toBe("zerodha-main");
+    expect(r[0]).toMatchObject({ cls: "realtime", official: true, delaySec: 0 });
+    const delayed = C.buildRows({ sources: [{ id: "dhan-main", kind: "broker", class: "delayed", delaySec: 900, official: false }], usage: F.usage() });
+    expect(delayed[0]).toMatchObject({ cls: "delayed", official: false, delaySec: 900 });
+  });
+
   it("can include the sources that are off", () => {
     const r = C.buildRows({ sources: F.sources(), usage: null, onlyEnabled: false });
     expect(r.map((x) => x.id)).toEqual(["demo", "demo-delayed", "demo-eod", "yahoo", "ext-plugin"]);

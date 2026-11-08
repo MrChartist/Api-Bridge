@@ -198,6 +198,8 @@ export function createKeyedList(container, { key, create, update }) {
     sync(items, { reorder = true } = {}) {
       const want = items.map((it) => key(it));
       const wantSet = new Set(want);
+      // The first rows come in with their page (its own entrance); only rows that appear later fade in themselves.
+      const populated = nodes.size > 0;
       for (const [k, el] of [...nodes]) {
         if (!wantSet.has(k)) {
           el.remove();
@@ -211,8 +213,10 @@ export function createKeyedList(container, { key, create, update }) {
           el = create(it);
           el.dataset.key = k;
           nodes.set(k, el);
-          el.dataset.fresh = "1";
-          setTimeout(() => delete el.dataset.fresh, 400);
+          if (populated) {
+            el.dataset.fresh = "1";
+            setTimeout(() => delete el.dataset.fresh, 400);
+          }
         }
         update(el, it);
       });

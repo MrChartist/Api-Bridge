@@ -722,7 +722,7 @@ export async function renderOverview() {
     const slow = pollCount === 1 || pollCount % BROKER_POLICY_EVERY === 0;
     // A Bridge without the route is asked again only now and then, not every poll.
     const skipSources = got.sources?.error && isMissing(got.sources.error) && pollCount % 30 !== 0;
-    const [s, u, r, l, acc] = await Promise.all([skipSources ? Promise.resolve(got.sources) : optional(api("/v1/sources", { fresh: true })), optional(api("/v1/usage", { fresh: true })), optional(api("/v1/requests?limit=60", { fresh: true })), slow && !policyBox.dataset.done ? optional(api("/v1/limits", { fresh: true })) : Promise.resolve(null), slow ? optional(api("/v1/accounts")) : Promise.resolve(null)]);
+    const [s, u, r, l, acc] = await Promise.all([skipSources ? Promise.resolve(got.sources) : optional(api("/v1/sources", { fresh: true })), optional(api("/v1/usage", { fresh: true })), optional(api("/v1/requests?limit=60", { fresh: true })), slow && !policyBox.dataset.done ? optional(api("/v1/limits", { fresh: true })) : Promise.resolve(null), slow ? optional(api("/v1/accounts", { fresh: true })) : Promise.resolve(null)]);
     if (!root.isConnected && pollCount > 1) return;
     got.sources = s;
     got.usage = u;

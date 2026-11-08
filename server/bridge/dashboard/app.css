@@ -1120,7 +1120,11 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
 .app-foot { margin-top: auto; padding: var(--space-8) 4px var(--space-4); font: var(--t-footnote); color: var(--label-3); }
 /* Until the first page is drawn the title and footer are placeholders: hide them so they cannot shift. */
 :root:not([data-page]) :is(.page-head, .app-foot) { visibility: hidden; }
-.content[aria-busy="true"] ~ .app-foot { visibility: hidden; }
+/* Hidden by opacity, not visibility: a footer that vanishes and returns counts as a layout shift. */
+.content[aria-busy="true"] ~ .app-foot { opacity: 0; }
+/* It returns after the page has settled (a new page is a frame or two shorter than it ends up), so it never sits in view while the page grows past it. */
+.content:not([aria-busy="true"]) ~ .app-foot { animation: foot-in var(--dur-3) var(--ease-out) 260ms backwards; }
+@keyframes foot-in { from { opacity: 0; } }
 @media (max-width: 1023px) {
   .app-main { padding-bottom: calc(var(--tabbar-h) + 32px + var(--safe-b) + var(--bottom-extra, 0px)); }
   .app-foot { padding-bottom: 0; }
