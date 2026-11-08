@@ -52,7 +52,7 @@ describe("dashboard ticket view", () => {
 });
 
 describe("dashboard helpers", async () => {
-  const { checklistState, friendlyError, highlightJson } = await import("./app.js");
+  const { friendlyError, highlightJson } = await import("./app.js");
   const { KEY_PRESETS, genericAlert, snippets } = await import("./snippets.js");
 
   it("explains errors in plain words", () => {
@@ -62,22 +62,6 @@ describe("dashboard helpers", async () => {
     expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/Accounts page.*demo mode/);
     expect(friendlyError({ code: "UPSTREAM_ERROR", message: "Dhan: invalid token" })).toEqual({ title: "The broker did not accept this", detail: "Dhan: invalid token" });
     expect(friendlyError({ status: 418, message: "teapot" })).toEqual({ title: "The Bridge answered 418", detail: "teapot" });
-  });
-
-  it("works out the welcome checklist (broker or demo, a key for a tool, the chain, a paper trade)", () => {
-    // Init's admin key and a revoked key are not keys for a tool.
-    const keys = [{ id: "a", scopes: ["admin", "paper"] }, { id: "b", scopes: ["read"], revokedAt: "2026-01-01" }];
-    expect(checklistState({ demo: true, keys }).map((s) => s.id)).toEqual(["broker", "key", "chain", "trade"]);
-    expect(checklistState({ demo: true, keys }).map((s) => s.done)).toEqual([true, false, false, false]);
-    const accounts = [{ broker: "dhan", session: { state: "connected" } }];
-    expect(checklistState({ accounts, keys: [{ id: "c", scopes: ["read"] }], chainOpened: "1", traded: "1" }).every((s) => s.done)).toBe(true);
-    expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
-    // A key made by a sign-in link is not a key for a tool.
-    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)", scopes: ["admin"] }, { id: "b", clientKind: "ui", label: "Dashboard sign-in", scopes: ["read"] }];
-    expect(checklistState({ keys: signedIn })[1].done).toBe(false);
-    // Demo's own seeded orders do not tick the trade step; one placed by the person does.
-    expect(checklistState({ orders: [{ mode: "paper", tag: "DEMOSEED" }] })[3].done).toBe(false);
-    expect(checklistState({ orders: [{ mode: "paper", tag: null }] })[3].done).toBe(true);
   });
 
   it("escapes data before highlighting JSON", () => {
@@ -134,11 +118,9 @@ describe("dashboard sign-in links", async () => {
     expect(await redeemSignIn(code, async () => { throw new TypeError("offline"); })).toEqual({ error: { network: true } });
   });
 
-  it("matches what the Bridge says and the label of the key it makes", async () => {
-    const { SIGN_IN_KEY_LABEL } = await import("./app.js");
-    const { SIGN_IN_FAILED: serverText, SIGN_IN_KEY_LABEL: serverLabel } = await import("../auth/module.mjs");
+  it("matches what the Bridge says", async () => {
+    const { SIGN_IN_FAILED: serverText } = await import("../auth/module.mjs");
     expect(SIGN_IN_FAILED.detail).toBe(serverText);
-    expect(SIGN_IN_KEY_LABEL).toBe(serverLabel);
   });
 });
 
@@ -288,10 +270,10 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
     }
   });
 
-  it("each tab sets its own layout and data-page; plain pages are untouched", () => {
-    expect(route("#/api/console?endpoint=order")).toMatchObject({ view: "console", layout: "", query: "endpoint=order", redirect: null });
+  it("each tab sets its own data-page; plain pages are untouched", () => {
+    expect(route("#/api/console?endpoint=order")).toMatchObject({ view: "console", query: "endpoint=order", redirect: null });
     expect(route("#/orders/trades")).toMatchObject({ view: "trades", redirect: null });
-    expect(route("#/accounts?add=1")).toMatchObject({ view: "accounts", query: "add=1" });
+    expect(route("#/accounts")).toMatchObject({ view: "accounts", query: "", redirect: null });
   });
 
   it("an unknown page is Accounts (the first page); an unknown or missing tab is the last tab used, then the default", () => {

@@ -1,5 +1,5 @@
 /**
- * The Mr. Chartist type system (docs/theme/TYPE-SYSTEM.md): only the three Chartist fonts, self-hosted, renamed and
+ * The type system: only the three Chartist fonts, self-hosted, renamed and
  * licensed. Reads files as text only: no DOM, no server.
  */
 import { readFileSync, readdirSync } from "node:fs";

@@ -12,7 +12,6 @@ import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { atmIvAt, greeks76, parityForward, smilePoints, volTime } from "../dashboard/pricing.js";
-import { repriceLeg } from "../dashboard/options.js";
 import { pricingContext } from "../vol/context.mjs";
 import { applyB76 } from "./chain.mjs";
 import { buildMarket } from "./__fixtures__/helpers.mjs";
@@ -77,32 +76,6 @@ describe("ivModel on the service", () => {
       expect(row.pe.brokerIv).toBeNull();
     }
     expect(atmIvAt(pts, F)).not.toBeNull();
-  });
-
-  it("the dashboard's live-tick reprice (options.js repriceLeg) gives the chain's own figures from its pricing block", async () => {
-    const { md } = buildMarket();
-    const c = await md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", ivModel: "b76-forward" });
-    let solved = 0;
-    for (const row of c.rows) {
-      for (const side of ["ce", "pe"]) {
-        const leg = row[side];
-        const again = repriceLeg(leg, row.strike, side.toUpperCase(), c.pricing);
-        if (leg.iv === null) {
-          expect(again.iv).toBeNull();
-          continue;
-        }
-        solved += 1;
-        // The forward in `pricing` is rounded to 4 decimals: the same IV and Greeks to well under a display digit.
-        expect(Math.abs(again.iv - leg.iv)).toBeLessThan(1e-3);
-        for (const k of ["delta", "gamma", "theta", "vega"]) expect(Math.abs(again[k] - leg[k])).toBeLessThan(1e-3 * Math.max(1, Math.abs(leg[k])));
-      }
-    }
-    expect(solved).toBeGreaterThan(4);
-    // A dearer call (bid and ask up) solves to a higher IV; no b76 pricing block leaves the leg as it was.
-    const row = c.rows.find((r) => r.ce?.iv !== null && r.ce?.bid > 0);
-    const up = repriceLeg({ ...row.ce, bid: row.ce.bid + 5, ask: row.ce.ask + 5 }, row.strike, "CE", c.pricing);
-    expect(up.iv).toBeGreaterThan(row.ce.iv);
-    expect(repriceLeg(row.ce, row.strike, "CE", null)).toBe(row.ce);
   });
 
   it("greeks=false stays without Greeks under either model", async () => {

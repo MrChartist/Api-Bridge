@@ -1,6 +1,5 @@
 /**
- * Expiry and delivery maths (docs/spec/p1-06-stocks.md §6.2–6.7, §9.1). Reference values from the spec's worked
- * examples: RELIANCE monthly expiry Mon 23 Nov 2026 (shifted from Tue 24 Nov), lot 500, step 20, today Thu 19 Nov
+ * Expiry and delivery maths. Worked examples: RELIANCE monthly expiry Mon 23 Nov 2026 (shifted from Tue 24 Nov), lot 500, step 20, today Thu 19 Nov
  * (E-2), spot 1,452.30. Rates are the shipped charge table (unverified).
  */
 import { describe, expect, it } from "vitest";
@@ -15,7 +14,7 @@ const EXPIRY = "2026-11-23";
 const S = 1452.3;
 const r2 = (x) => Math.round(x * 100) / 100;
 
-describe("moneyness and the close-to-money band (§6.2)", () => {
+describe("moneyness and the close-to-money band", () => {
   it.each([
     [1420, "CE", "ITM", 32.3],
     [1460, "CE", "CTM", 0],
@@ -37,7 +36,7 @@ describe("moneyness and the close-to-money band (§6.2)", () => {
   });
 });
 
-describe("E-n days and the window (§6.3)", () => {
+describe("E-n days and the window", () => {
   it("the shifted 23 Nov expiry: E-4 17 Nov … E-1 20 Nov", () => {
     const items = deliveryMarginDates(EXPIRY, SHIPPED_DELIVERY_MARGIN.schedule, cal);
     expect(items.map((i) => [i.day, i.date, i.pct])).toEqual([
@@ -60,7 +59,7 @@ describe("E-n days and the window (§6.3)", () => {
   });
 });
 
-describe("delivery obligation (§6.4)", () => {
+describe("delivery obligation", () => {
   it.each([
     [500, "CE", "receive-shares", -710000],
     [-500, "CE", "deliver-shares", 710000],
@@ -82,7 +81,7 @@ describe("delivery obligation (§6.4)", () => {
   });
 });
 
-describe("delivery margin (§6.5)", () => {
+describe("delivery margin", () => {
   const schedule = SHIPPED_DELIVERY_MARGIN.schedule;
   it("E-2 at 45 % × 20 % VaR+ELM → ₹65,353.50; E-1 → ₹1,01,661", () => {
     expect(r2(deliveryMarginOf({ day: "E-2", schedule, spot: S, qty: 500, varElmPct: 20 }).indicative)).toBe(65353.5);
@@ -94,7 +93,7 @@ describe("delivery margin (§6.5)", () => {
   });
 });
 
-describe("settle vs square off (§6.6, §6.7)", () => {
+describe("settle vs square off", () => {
   it("stock: +500 × 1420 CE settles for ₹842.22", () => {
     const s = settleStockCost({ strike: 1420, right: "CE", qty: 500 }, rates);
     expect(r2(s.total)).toBe(842.22);

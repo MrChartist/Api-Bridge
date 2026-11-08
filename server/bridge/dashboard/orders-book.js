@@ -4,7 +4,7 @@ import { alertBox, api, card, emptyState, h, istTime, modal, optional, table, to
 import { contractName } from "./flows.js";
 import { DASH, formatDayMonth, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped } from "./format.js";
 import { DRY_RUN_REUSE_MS, ORDER_FILTERS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, filterTrades, fundsView, openByMode, orderCounts, shortMemo } from "./orders-core.js";
-import { fillTotals } from "./statement-core.js";
+import { fillCharges, fillTotals } from "./charges.js";
 
 const KEY = "mcb.orders.filters";
 /**
@@ -159,8 +159,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
 
 /** Orders › Trades: every fill on the accounts this key may use, newest first, with buy, sell and turnover totals. */
 export async function renderTradesPage() {
-  // Charges come from the ticket's model (statement.js, loaded with this tab), so they add up with the Statement.
-  const [trades, accounts, model] = await Promise.all([optional(api("/v1/trades?limit=500")), optional(api("/v1/accounts")), import("./statement.js").then((m) => m.chargesModel())]);
+  const [trades, accounts] = await Promise.all([optional(api("/v1/trades?limit=500")), optional(api("/v1/accounts"))]);
   const byId = new Map((accounts.data?.data ?? []).map((a) => [a.id, a]));
   const labelOf = (id) => byId.get(id)?.label ?? id;
   const list = [...(trades.data?.data ?? [])].sort((a, b) => Date.parse(b.tradedAt) - Date.parse(a.tradedAt));
@@ -178,16 +177,16 @@ export async function renderTradesPage() {
     { label: "Qty", num: true, cell: (t) => formatInt(t.qty ?? t.quantity) },
     { label: "Price", num: true, cell: (t) => formatFixed(t.price, 2) },
     { label: "Value", num: true, cell: (t) => formatRupee((Number(t.qty ?? t.quantity) || 0) * (Number(t.price) || 0), 0) },
-    { label: "Charges ≈", num: true, cell: (t) => formatRupee(model.chargesOf(t)?.total, 2) },
+    { label: "Charges ≈", num: true, cell: (t) => formatRupee(fillCharges(t)?.total, 2) },
     { label: "Order", cell: (t) => h("span", { class: "mono muted small" }, t.orderId) },
   ];
   const fig = (label, value) => h("div", {}, h("small", {}, label), value);
   function draw() {
     side.draw(f.side);
     const rows = filterTrades(list, { ...f, labelOf });
-    const t = fillTotals(rows, { chargesOf: model.chargesOf });
+    const t = fillTotals(rows);
     totalsEl.replaceChildren(fig("Trades", formatInt(t.count)), fig("Bought", formatRupee(t.buyValue, 0)), fig("Sold", formatRupee(t.sellValue, 0)), fig("Traded value", formatRupee(t.turnoverValue, 0)), fig("Charges ≈", formatRupee(t.charges.total, 2)));
-    body.replaceChildren(table(columns, rows, emptyState("orders", list.length ? "No trades match" : "No trades yet", list.length ? "Change the side or clear the search." : "Fills from the chain, your scripts, triggers and webhooks show up here.", null, { compact: true })));
+    body.replaceChildren(table(columns, rows, emptyState("orders", list.length ? "No trades match" : "No trades yet", list.length ? "Change the side or clear the search." : "Fills from your scripts, webhooks and AI assistants show up here.", null, { compact: true })));
   }
   draw();
   return [
@@ -195,7 +194,7 @@ export async function renderTradesPage() {
       glyph: "list",
       tint: "teal",
       title: "Trade book",
-      sub: "Every fill, newest first. Charges are estimated with the ticket's model (brokerage, STT, exchange, SEBI, stamp, GST); Orders › Statement itemises them.",
+      sub: "Every fill, newest first. Charges are estimated for futures and options (brokerage, STT, exchange, SEBI, stamp, GST); your broker's contract note is final.",
       flush: true,
       body: trades.error ? h("div", { class: "card-body" }, alertBox(trades.error)) : h("div", {}, h("div", { class: "bk-ob-bar" }, side.el, search), totalsEl, body),
     }),

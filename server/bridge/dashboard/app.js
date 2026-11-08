@@ -4,13 +4,10 @@
 // (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
-import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
-import { DASH, ageText, formatRupee } from "./format.js";
+import { bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
+import { DASH, formatRupee } from "./format.js";
 import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
 import { watch as liveWatch } from "./live.js";
-
-// Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
-export { animateNav, animatePage };
 
 const KEY_SLOT = "mcb.dashboard.key";
 
@@ -31,8 +28,6 @@ export function signInCodeFromHash(hash) {
   }
 }
 
-/** Label of the keys POST /v1/sign-in creates (server/bridge/auth/module.mjs). */
-export const SIGN_IN_KEY_LABEL = "Dashboard sign-in";
 /** The message shown when a sign-in link does not work (the Bridge says the same). */
 export const SIGN_IN_FAILED = { title: "This sign-in link did not work", detail: "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open." };
 
@@ -104,23 +99,6 @@ export function store(kind = "local") {
 const session = store("session");
 const local = store("local");
 let memoryKey = session.get(KEY_SLOT);
-
-/**
- * The page module the address opens with (pure): the Options desk, screeners, calendar, recorder or live events load
- * on demand (views.js); fetching the one this tab opens on alongside views.js saves a round of loading on a cold start.
- */
-export function bootModuleFor(hash) {
-  const page = String(hash ?? "").replace(/^#\/?/, "").split(/[/?]/)[0].toLowerCase();
-  if (["chain", "strategy", "positions", "oi", "vol"].includes(page)) return "./desk.js";
-  if (page === "screeners") return /^#\/?screeners\/events/.test(hash) ? "./events.js" : /^#\/?screeners\/stocks/.test(hash) ? null : /^#\/?screeners\/arbitrage/.test(hash) ? "./desk.js" : "./screener.js";
-  if (page === "calendar") return "./calendar.js";
-  if (page === "recorder") return "./recorder.js";
-  return null;
-}
-if (typeof location !== "undefined" && memoryKey) {
-  const mod = bootModuleFor(location.hash);
-  if (mod) import(mod).catch(() => {});
-}
 
 export function setKey(k) {
   memoryKey = k || null;
@@ -375,7 +353,7 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
   if (!fresh && cacheable(path)) {
     const hit = answers.get(path);
     const age = hit ? Date.now() - hit.at : NaN;
-    // A prefetched answer (the expiry chip under the pointer) serves the click that follows it for a few seconds.
+    // A prefetched answer (a menu item under the pointer) serves the click that follows it for a few seconds.
     const use = hit ? cacheUse(age, navigating || paintOld) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
     if (use) {
       hit.prefetched = false; // a prefetch serves one ask; the page's own refreshes go to the Bridge
@@ -394,7 +372,7 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
 // ── Polls become stream subscriptions ──
 // A page that reads the same /v1/quotes or /v1/ltp URL again within AUTO_WATCH_MS is polling: its symbols are then
 // watched on the shared live connection (live.js) until it stops, so the Bridge answers the next polls from ticks
-// instead of the broker. Positions, Home, Strategy and the screeners get this without knowing about it.
+// instead of the broker. Pages get this without knowing about it.
 export const AUTO_WATCH_MS = 15_000;
 const AUTO_WATCH_MAX = 400;
 const AUTO_WATCH_RE = /^\/v1\/(quotes|ltp)\?(?:[^#]*&)?symbols=([^&#]+)/;
@@ -416,9 +394,8 @@ export function pollTarget(path) {
 }
 
 /**
- * The open positions' symbols in a /v1/positions answer (pure): a page polling positions (the chain, OI and Strategy
- * read them every few seconds for held lots and delta) has them watched too, so the Bridge marks them to market from
- * ticks instead of a broker read per poll. Null for any other path.
+ * The open positions' symbols in a /v1/positions answer (pure): a page polling positions has them watched too, so the
+ * Bridge marks them to market from ticks instead of a broker read per poll. Null for any other path.
  */
 export function positionSymbols(path, body) {
   if (!/^\/v1\/positions(?:\?|$)/.test(String(path))) return null;
@@ -469,7 +446,7 @@ export function prefetchPage(page) {
 }
 
 /**
- * Warm one GET a person is about to ask for (an expiry chip under the pointer): fetched once at background priority
+ * Warm one GET a person is about to ask for (a menu item under the pointer): fetched once at background priority
  * unless an answer under 5 s old is remembered; a click on it then paints from memory (the page-switch window) or joins
  * the request already on its way.
  */
@@ -505,7 +482,6 @@ export const ICONS = {
   home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/>',
   accounts: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
   console: '<rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="m6.5 9 3 3-3 3"/><path d="M12 15h5"/>',
-  scan: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><path d="M8 11h6"/><path d="M11 8v6"/>',
   limits: '<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/><circle cx="12" cy="14" r="1.5"/>',
   orders: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   keys: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m15 8 2 2"/>',
@@ -530,33 +506,25 @@ export const ICONS = {
   monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
   more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
-  pause: '<path d="M8.5 5v14M15.5 5v14"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
-  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
   chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
   wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><circle cx="16" cy="15" r="1.2"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
-  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
   up: '<path d="m6 15 6-6 6 6"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
-  strategy: '<path d="M3 17h5l4-10 4 10h5"/><path d="M3 21h18"/>',
-  bars: '<path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/>',
-  wave: '<path d="M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0"/><path d="M3 20h18"/>',
   scale: '<path d="M12 4v16M5 20h14M4 8h16"/><path d="m4 8-2.5 6h5zM20 8l-2.5 6h5z"/>',
   columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
   people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.3c3 .2 5.5 2.3 5.5 5.7"/>',
   download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
-  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m15 10-2 2 2 2"/>',
   rail: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m13 10 2 2-2 2"/>',
   density: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
-  radar: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 18.4 5.6"/><circle cx="15.5" cy="9.5" r="1.1"/>',
 };
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -568,14 +536,14 @@ export function icon(name) {
 }
 
 /**
- * The coloured squircle behind an icon (IPO Decode's IconTile, Settings-style). `tint` is an iOS system colour name
+ * The coloured squircle behind an icon (Settings-style). `tint` is an iOS system colour name
  * (blue, green, red, orange, indigo, purple, pink, teal, mint, gray); `size` is "sm" (28), "md" (32) or "lg" (44).
  */
 export function iconTile(name, tint = "blue", size = "md") {
   return h("span", { class: `icon-tile tint-${tint} tile-${size}`, "aria-hidden": "true" }, icon(name));
 }
 
-/** A HUD confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
+/** A confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
 export function toast(text, { tone = "ok" } = {}) {
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
@@ -623,8 +591,7 @@ function toastCovers(t) {
 }
 
 /**
- * The control the person used last (pointer or key), so a toast never lands on it: a slider dragged on Strategy, the
- * button just pressed. Kept for 4s; after that only the count of covered controls decides.
+ * The control the person used last (pointer or key), so a toast never lands on it: the button just pressed. Kept for 4s; after that only the count of covered controls decides.
  */
 let lastUsed = null;
 let lastUsedAt = 0;
@@ -696,12 +663,11 @@ export async function copyText(text, label = "Copied") {
 }
 
 /** A Copy button that answers on itself too: "Copied" with a check for a moment, then back to its label. */
-export function copyButton(getText, { label = "Copy", done = "Copied", toastLabel = "Copied", cls = "small copy", onCopy, ariaLabel } = {}) {
+export function copyButton(getText, { label = "Copy", done = "Copied", toastLabel = "Copied", cls = "small copy", ariaLabel } = {}) {
   const b = h("button", { type: "button", class: cls, ...(ariaLabel ? { "aria-label": ariaLabel } : {}) }, icon("copy"), label);
   b.addEventListener("click", async () => {
     const ok = await copyText(typeof getText === "function" ? getText() : getText, toastLabel);
     if (!ok) return;
-    onCopy?.();
     clearTimeout(b._copiedTimer);
     b.dataset.copied = "true";
     b.replaceChildren(icon("check"), done);
@@ -725,13 +691,13 @@ export function highlightJson(text) {
 
 /**
  * A code block: a head row (title, Copy) above the code, so Copy never covers it; the code scrolls sideways instead of
- * wrapping mid-token. `onCopy` runs after copying (the welcome checklist listens).
+ * wrapping mid-token.
  */
-export function codeBlock(code, { title, json = false, onCopy } = {}) {
+export function codeBlock(code, { title, json = false } = {}) {
   const pre = h("pre", { tabindex: "0" });
   if (json) pre.innerHTML = highlightJson(code);
   else pre.textContent = code;
-  const btn = copyButton(code, { onCopy, ariaLabel: title ? `Copy: ${title}` : "Copy" });
+  const btn = copyButton(code, { ariaLabel: title ? `Copy: ${title}` : "Copy" });
   return h("div", { class: "code-block" }, h("div", { class: "code-head" }, h("div", { class: "code-title" }, title ?? ""), btn), h("div", { class: "code" }, pre));
 }
 
@@ -746,7 +712,7 @@ export function pill(text, cls = "") {
 
 /**
  * The one empty state: icon tile, title, one line and an action (a node or a list). `compact: true` is the in-card
- * variant (no icon tile, 16 px padding) for Options panels.
+ * variant (no icon tile, 16 px padding).
  */
 export function emptyState(iconName, title, text, action, { compact = false } = {}) {
   return h(
@@ -759,296 +725,10 @@ export function emptyState(iconName, title, text, action, { compact = false } = 
   );
 }
 
-// ── Shared states for the Options pages (PRD 08 §5): one look for loading, error, freshness ──
-
 const mm = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
-/** True when the only pointer is a finger (no mouse or trackpad as well). */
-export const touchOnly = () => mm("(pointer: coarse)") && !mm("(any-pointer: fine)");
-/** "Tap" on touch-only screens, "Click" elsewhere (P4: phones never read "press B"). */
-export const touchWord = () => (touchOnly() ? "Tap" : "Click");
-/** A keyboard hint, only where there is a keyboard-class pointer: "" on touch-only screens. */
-export const keyHint = (text) => (touchOnly() ? "" : text);
-
-/**
- * Skeleton rows at the final row height (no layout shift when the data lands), with one screen-reader line. The
- * host panel should carry aria-busy while it shows. Static DOM: no timers.
- */
-export function loadingState({ rows = 8, cols = 4, label = "Loading", height = null } = {}) {
-  const el = h(
-    "div",
-    { class: "skel-state", role: "status" },
-    h("span", { class: "sr-only" }, label),
-    Array.from({ length: rows }, () => h("div", { class: "skel-row", "aria-hidden": "true" }, Array.from({ length: cols }, () => h("i")))),
-  );
-  if (height) el.style.setProperty("--skel-h", `${height}px`);
-  return el;
-}
-
-/**
- * An error in plain words with Retry. Without data it sits in the panel body; with data kept (`lastGood`, an ISO
- * time) it is a slim bar at the top of the panel saying what is still shown.
- */
-export function errorState(err, { onRetry = null, lastGood = null } = {}) {
-  const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err ?? "Something went wrong"), detail: err?.detail ?? "" };
-  const auth = ["SESSION_EXPIRED", "UNAUTHENTICATED", "NO_ACCOUNT", "BROKER_UNAVAILABLE", "SYMBOL_NOT_FOUND"].includes(err?.code);
-  const retry = onRetry ? h("button", { type: "button", class: "small err-retry", onclick: () => onRetry() }, icon("refresh"), "Retry") : null;
-  if (lastGood) {
-    // An answer without a known code: say what the server said ("Broker feed unavailable (503)"), not just its status.
-    const said = typeof err?.message === "string" && err.message && !/^HTTP \d+$/.test(err.message) ? err.message.replace(/\.$/, "") : "";
-    const what = said && f.title.startsWith("The Bridge answered") ? `${said} (${err.status})` : f.title;
-    return h(
-      "div",
-      { class: "err-bar", role: "alert" },
-      icon("warn"),
-      h("span", { class: "err-text" }, h("strong", {}, `Couldn't refresh: ${what}.`), ` Showing ${istTime(lastGood)}.`),
-      retry,
-    );
-  }
-  return h(
-    "div",
-    { class: "err-state", role: "alert" },
-    h("strong", {}, f.title),
-    f.detail ? h("p", {}, f.detail) : null,
-    h("div", { class: "empty-acts" }, retry, auth ? h("a", { href: "#/accounts", class: "err-link" }, "Log in on Accounts") : null),
-  );
-}
-
-/**
- * The Options top bar's one live control: Live / Pause and data freshness in a single button (docs/design/foundation.md
- * §5.1). "● 08:52:24" while live, "Paused · 12 s old", "Stale · 45 s old", "Not updating · 2 min old",
- * "Market closed · 15:29:59". update() patches text nodes only; tick() pulses the dot once (one successful refresh).
- */
-export function liveControl({ onToggle, refreshMs = 3000 } = {}) {
-  const text = document.createTextNode("Waiting");
-  const dot = h("span", { class: "live-dot", "aria-hidden": "true" });
-  const glyph = h("span", { class: "live-glyph", "aria-hidden": "true" });
-  const el = h("button", { type: "button", class: "live-ctl", "aria-keyshortcuts": "P", onclick: () => onToggle?.() }, dot, glyph, h("span", { class: "live-txt" }, text));
-  let sig = "";
-  let flip = false;
-  return {
-    el,
-    update({ kind = "live", asOf = null, ageMs = null, source = null, live = true } = {}) {
-      const t = istTime(asOf);
-      const age = ageMs === null ? "" : ageText(ageMs);
-      const words =
-        kind === "error"
-          ? `Not updating${age ? ` · ${age}` : ""}`
-          : kind === "paused"
-            ? `Paused${age ? ` · ${age}` : ""}`
-            : kind === "stale"
-              ? `Stale${age ? ` · ${age}` : ""}`
-              : kind === "closed"
-                ? `Market closed · ${t}`
-                : asOf
-                  ? t
-                  : "Waiting";
-      const s = `${kind}|${words}|${source}|${asOf}|${live}`;
-      if (s === sig) return;
-      sig = s;
-      if (text.data !== words) text.data = words;
-      // Live with no data yet: "Waiting" with a neutral dot (green would claim a live feed before the first load).
-      el.dataset.kind = kind === "live" && !asOf ? "waiting" : kind;
-      el.setAttribute("aria-pressed", String(live));
-      glyph.replaceChildren(live ? "" : icon("pause"));
-      const what = live ? `Live: refreshing every ${refreshMs / 1000} s. ${touchWord()} to pause${keyHint(" (P)")}` : `Paused. ${touchWord()} to resume${keyHint(" (P)")}`;
-      el.title = [what, source ? `Data from ${source}` : "", asOf ? `${istDateTime(asOf)} IST` : ""].filter(Boolean).join(" · ");
-      // The state word comes first, then what the data is, then the action: "Not updating, data 15 s old. Pause updates".
-      const state = kind === "error" ? "Not updating" : kind === "stale" ? "Stale" : kind === "closed" ? "Market closed" : live ? "Live" : "Paused";
-      const data = kind === "live" || kind === "closed" ? (asOf ? `data as of ${t}` : "waiting for data") : age ? `data ${age}` : "no data yet";
-      el.setAttribute("aria-label", `${state}, ${data}. ${live ? "Pause" : "Resume"} updates`);
-    },
-    /** One ring pulse on the dot (re-added per successful refresh, never an endless loop). */
-    tick() {
-      flip = !flip;
-      dot.classList.toggle("tick-a", flip);
-      dot.classList.toggle("tick-b", !flip);
-    },
-  };
-}
-
-/**
- * Put the page's context (underlying, expiry, spot, account, live control) into the app toolbar's #toolbar-ctx slot.
- * `page` is the route that owns it: a render that finishes after the visitor has moved on mounts nothing.
- */
-export function mountToolbarCtx(page, ...nodes) {
-  const slot = typeof document !== "undefined" ? document.getElementById("toolbar-ctx") : null;
-  if (!slot || document.documentElement.dataset.page !== page) return false;
-  slot.replaceChildren(...nodes.flat().filter(Boolean));
-  slot.hidden = false;
-  return true;
-}
-
-/**
- * The toolbar pickers (underlying, expiry: a transparent native select over a `.ctx-pick` label) open a menu drawn
- * like the dashboard's popovers instead of the OS list, wherever a mouse or trackpad is used. Touch keeps the native
- * picker. The select stays the source of truth: a choice sets its value and fires "change", so pages need no wiring.
- */
-function installCtxPicker() {
-  const fine = () => typeof matchMedia !== "function" || matchMedia("(pointer: fine)").matches;
-  /** @type {{ el: HTMLElement, sel: HTMLSelectElement, label: Element, close: (refocus?: boolean) => void } | null} */
-  let open = null;
-  const pickOf = (t) => {
-    const sel = t?.closest?.(".ctx-pick")?.querySelector("select");
-    return sel && !sel.disabled ? /** @type {HTMLSelectElement} */ (sel) : null;
-  };
-  const show = (sel, viaKeyboard) => {
-    if (open) {
-      const same = open.sel === sel;
-      open.close(false);
-      if (same) return;
-    }
-    const label = sel.closest(".ctx-pick");
-    const items = [...sel.options].map((o) =>
-      h("button", { type: "button", role: "option", class: "ctx-menu-item", "aria-selected": String(o.selected), disabled: o.disabled, "data-value": o.value, tabindex: "-1" },
-        h("span", { class: "ctx-menu-text" }, o.textContent), h("span", { class: "ctx-menu-check", "aria-hidden": "true" })));
-    const el = h("div", { class: "ctx-menu", role: "listbox", "aria-label": sel.getAttribute("aria-label") ?? "" }, items);
-    document.body.append(el);
-    label.classList.add("open");
-    const place = () => {
-      const r = label.getBoundingClientRect();
-      el.style.minWidth = `${Math.max(r.width, 140)}px`;
-      const w = el.offsetWidth;
-      el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
-      el.style.top = `${r.bottom + 6}px`;
-      el.style.maxHeight = `${Math.max(160, innerHeight - r.bottom - 18)}px`;
-    };
-    place();
-    const focusAt = (i) => {
-      const live = items.filter((b) => !b.disabled);
-      if (!live.length) return;
-      const b = live[(i + live.length) % live.length];
-      b.focus({ preventScroll: true });
-      b.scrollIntoView({ block: "nearest" });
-    };
-    const current = items.find((b) => b.getAttribute("aria-selected") === "true");
-    current?.scrollIntoView({ block: "center" });
-    if (viaKeyboard) focusAt(Math.max(0, items.filter((b) => !b.disabled).indexOf(current)));
-    const outside = (e) => { if (!el.contains(e.target) && !label.contains(e.target)) close(false); };
-    const onScroll = (e) => { if (!el.contains(e.target)) close(false); };
-    const onHash = () => close(false);
-    function close(refocus) {
-      if (open?.el !== el) return;
-      open = null;
-      el.remove();
-      label.classList.remove("open");
-      document.removeEventListener("pointerdown", outside, true);
-      removeEventListener("scroll", onScroll, true);
-      removeEventListener("resize", onHash);
-      removeEventListener("hashchange", onHash);
-      if (refocus) sel.focus({ preventScroll: true });
-    }
-    const choose = (b, refocus) => {
-      close(refocus);
-      if (sel.value === b.dataset.value) return;
-      sel.value = b.dataset.value;
-      sel.dispatchEvent(new Event("input", { bubbles: true }));
-      sel.dispatchEvent(new Event("change", { bubbles: true }));
-    };
-    el.addEventListener("click", (e) => {
-      const b = /** @type {Element} */ (e.target).closest?.(".ctx-menu-item");
-      if (b && !(/** @type {HTMLButtonElement} */ (b).disabled)) choose(b, false);
-    });
-    el.addEventListener("keydown", (e) => {
-      const live = items.filter((b) => !b.disabled);
-      const i = live.indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
-      if (e.key === "ArrowDown") focusAt(i + 1);
-      else if (e.key === "ArrowUp") focusAt(i < 0 ? -1 : i - 1);
-      else if (e.key === "Home") focusAt(0);
-      else if (e.key === "End") focusAt(-1);
-      else if (e.key === "Escape" || e.key === "Tab") close(true);
-      else if ((e.key === "Enter" || e.key === " ") && i >= 0) choose(live[i], true);
-      else return;
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    setTimeout(() => open?.el === el && document.addEventListener("pointerdown", outside, true));
-    addEventListener("scroll", onScroll, true);
-    addEventListener("resize", onHash);
-    addEventListener("hashchange", onHash);
-    open = { el, sel, label, close };
-  };
-  document.addEventListener("pointerdown", (e) => {
-    const sel = e.button === 0 && fine() ? pickOf(e.target) : null;
-    if (!sel) return;
-    e.preventDefault(); // no OS list, and no focus ring for a mouse press
-    show(sel, false);
-  }, true);
-  document.addEventListener("keydown", (e) => {
-    const sel = fine() && /** @type {Element} */ (e.target)?.matches?.(".ctx-pick select") ? pickOf(e.target) : null;
-    if (!sel || !(e.key === "Enter" || e.key === " " || (e.key === "ArrowDown" && e.altKey) || e.key === "F4")) return;
-    e.preventDefault();
-    show(sel, true);
-  }, true);
-}
 
 /** The one demo indicator's explanation (the toolbar's "Demo" and the phone ⋯ badge). */
 export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not live market data. Orders are paper only.";
-
-/**
- * A chart slot: the light chart engine (chart-lite.js, registered as `app.chartEngine`) draws into it. The engine
- * module loads on the first slot, so a page without a chart never fetches it. Returns the slot element with
- * `el.chart`, a controller usable at once (calls made before the engine arrives are queued):
- *   el.chart.set(spec)     draw this data now (live data: one redraw per frame however often it is called)
- *   el.chart.load(loader)  load with `async () => spec` (a new contract or underlying), drawn when near the viewport
- *   el.chart.reload()      run the loader again
- *   el.chart.destroy()     stop it (charts also stop themselves when their box leaves the page)
- * `opts`: { data?: spec, load?: loader, refreshMs?, id? }. A spec is chart-lite-core.js `buildModel`'s; a loader may
- * return { empty: { title, text } } when no data source exists yet, and the slot says so plainly.
- * The second argument may be the options object (no sub-line). Null only if no engine is registered.
- */
-export function chartSlot(label, sub = "", opts = {}) {
-  if (!app.chartEngine) return null;
-  if (sub && typeof sub === "object") [opts, sub] = [sub, ""];
-  const box = h("div", { class: "lc-slot", "data-chart-slot": opts.id ?? undefined, "aria-label": label, role: "group" }, sub ? h("p", { class: "lc-sub" }, sub) : null);
-  box.chart = app.chartEngine.mount(box, { label, ...opts });
-  return box;
-}
-
-/** The engine behind `app.chartEngine`: chart-lite.js, imported on first use; a controller proxy until it arrives. */
-let chartModule = null;
-function chartEngine() {
-  const load = () => (chartModule ??= import("./chart-lite.js"));
-  return {
-    name: "chart-lite",
-    load,
-    /** Mount a chart slot in `box` (see chartSlot); the returned controller queues calls until the module is in. */
-    mount(box, opts) {
-      let real = null;
-      let dead = false;
-      let lastSet = null;
-      let lastLoad = null;
-      let reloads = 0;
-      const host = h("div", { class: "lc-wrap" });
-      box.append(host);
-      load()
-        .then((m) => {
-          if (dead) return;
-          real = m.mountSlot(host, opts);
-          if (lastLoad) real.load(lastLoad);
-          if (lastSet) real.set(lastSet);
-          if (reloads && !lastLoad) real.reload();
-        })
-        .catch(() => host.replaceChildren(emptyState("chart", "Chart unavailable", "The chart module did not load. Reload the page to try again.", null, { compact: true })));
-      return {
-        set: (spec) => (real ? real.set(spec) : (lastSet = spec)),
-        load: (fn) => (real ? real.load(fn) : (lastLoad = fn)),
-        reload: () => (real ? real.reload() : (reloads += 1)),
-        destroy: () => ((dead = true), real?.destroy()),
-        get chart() {
-          return real?.chart ?? null;
-        },
-      };
-    },
-    /** Open a chart full size (chart-lite.js openChartModal): { label, load, studies? }. */
-    async open(title, opts) {
-      return (await load()).openChartModal(title, opts);
-    },
-    /** Create a chart directly in `host` (no loader or states): resolves to chart-lite.js createChart's chart. */
-    async create(host, spec) {
-      return (await load()).createChart(host, spec);
-    },
-  };
-}
 
 /**
  * A popover that is a bottom sheet on phones (< 720 px, in #dialog with aria-modal) and a body-attached popover from
@@ -1213,7 +893,7 @@ export function table(columns, rows, empty, { mobile = "stack", caption = null }
   );
 }
 
-/** A grouped content card (IPO Decode's lg-card) with an optional tinted icon tile in its header. */
+/** A grouped content card with an optional tinted icon tile in its header. */
 export function card({ title, sub, actions, body, flush = false, cls = "", id, glyph, tint = "blue" }) {
   return h(
     "section",
@@ -1223,11 +903,6 @@ export function card({ title, sub, actions, body, flush = false, cls = "", id, g
       : null,
     h("div", { class: flush ? "card-body flush" : "card-body" }, body),
   );
-}
-
-/** A plain section label over a group that has no title of its own (Home's "Today" figures). No pill, no rule. */
-export function sectionEyebrow(label) {
-  return h("h2", { class: "sec-eyebrow" }, label);
 }
 
 export function meterRow(name, used, limit, valueText) {
@@ -1252,7 +927,7 @@ export function lockScroll(on) {
 }
 
 /**
- * Show a sheet: a bottom sheet on phones, a centred card from 720px up (IPO Decode's Sheet). The native modal
+ * Show a sheet: a bottom sheet on phones, a centred card from 720px up. The native modal
  * <dialog> keeps focus inside and returns it to the opener; Escape, the close button and a tap on the dimmed backdrop
  * close it; the page behind stops scrolling. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps
  * it open. `body` may be a function that receives close(value). Resolves with the value (undefined when dismissed).
@@ -1439,24 +1114,6 @@ export function confirmCodeNotice(ticketId, result) {
     token,
     text: `Ticket ${ticketId} confirmed. Give this single-use code to the client that prepared it${expiresAt ? `; it expires at ${istTime(expiresAt)} IST` : ""}. It is shown only once.`,
   };
-}
-
-/**
- * Welcome checklist state from what the Bridge reports plus what this browser remembers. Pure.
- * @returns {Array<{ id: string, done: boolean }>}
- */
-export function checklistState({ demo = false, accounts = [], keys = [], chainOpened = false, traded = false, orders = [] }) {
-  const brokerConnected = accounts.some((a) => a.broker !== "paper" && a.session?.state === "connected");
-  // A key for a tool: active, not the dashboard's own sign-in key and not an admin key (init makes one of those).
-  const toolKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL) && !(k.scopes ?? []).includes("admin"));
-  // A paper order the person placed (demo mode seeds a few of its own, tagged DEMOSEED).
-  const placed = orders.some((o) => o?.mode === "paper" && o.tag !== "DEMOSEED");
-  return [
-    { id: "broker", done: demo || brokerConnected },
-    { id: "key", done: toolKeys.length >= 1 },
-    { id: "chain", done: Boolean(chainOpened) },
-    { id: "trade", done: Boolean(traded) || placed },
-  ];
 }
 
 // ── Broker login form (pure; tested) ──
@@ -1671,7 +1328,7 @@ export function applyLayout() {
   for (const b of document.querySelectorAll("[data-density-choice]")) b.setAttribute("aria-pressed", String(b.dataset.densityChoice === choice));
   return changed;
 }
-/** Re-fit what measures itself (the chain's columns and height, charts) after the sidebar or density changed. */
+/** Re-fit what measures itself after the sidebar or density changed. */
 const relayout = () => {
   if (applyLayout() && typeof dispatchEvent === "function") requestAnimationFrame(() => dispatchEvent(new Event("resize")));
 };
@@ -1706,9 +1363,7 @@ export function forgetKey() {
 
 // ── App boot (browser only) ──
 
-export const app = { state: { demo: false, health: null, meta: null }, local, chartEngine: null };
-// The light chart engine (chart-lite.js) fills every chart slot; the module itself loads on the first slot.
-app.chartEngine = chartEngine();
+export const app = { state: { demo: false, health: null, meta: null }, local };
 
 async function signIn() {
   const login = document.getElementById("login");
@@ -1748,9 +1403,8 @@ async function signIn() {
   const { startRouter } = await import("./views.js");
   // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
   await startRouter();
-  // The trading-readiness badge in the toolbar (every page; docs/spec/p1-05-readiness.md §6.3).
+  // The trading-readiness badge in the toolbar (every page).
   import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
-  // v2 has no alert engine (no /v1/alerts routes), so the alert bell (alerts.js) is not mounted.
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
@@ -1760,7 +1414,6 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
   if (typeof matchMedia === "function") matchMedia("(pointer: fine)").addEventListener?.("change", relayout);
   // Motion: page / sidebar entrances on navigation (a button press is CSS: app.css 8a).
   installAutoAnimations();
-  installCtxPicker();
   // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
   document.addEventListener("click", (e) => {
     const t = /** @type {Element} */ (e.target);
@@ -1784,7 +1437,7 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
 }
 
 /**
- * A choice picked in a sideways-scrolling row (phone tab rows, chips, expiry strips) slides fully into view, so the
+ * A choice picked in a sideways-scrolling row (phone tab rows, chips) slides fully into view, so the
  * selected tab is never left half under the row's edge fade.
  */
 function revealInRow(el) {

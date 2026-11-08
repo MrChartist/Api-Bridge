@@ -185,40 +185,6 @@ export function afterDemoSaveSteps(r, brokerName = "your broker") {
 
 // ── Trade ticket: what one option order risks (pure) ──
 
-/**
- * Max loss, max profit and breakeven at expiry of one option order, before charges. `null` for max loss / profit means
- * unlimited (a short call loses without limit; a long call gains without limit). Null for futures or missing figures.
- * @param {{ side: "BUY"|"SELL", right: "CE"|"PE", strike: number, price: number, qty: number, kind?: string }} o
- */
-export function ticketRisk({ side, right, strike, price, qty, kind = "OPT" }) {
-  const k = Number(strike);
-  const p = Number(price);
-  const q = Number(qty);
-  if (kind === "FUT" || !(k > 0) || !(p > 0) || !(q > 0) || (right !== "CE" && right !== "PE")) return null;
-  const premium = p * q;
-  const breakeven = right === "CE" ? k + p : k - p;
-  // A put's other side is capped at the strike (the underlying cannot fall below zero); a call's is not.
-  const capped = right === "PE" ? Math.max(0, (k - p) * q) : null;
-  return side === "SELL" ? { maxLoss: capped, maxProfit: premium, breakeven, premium } : { maxLoss: premium, maxProfit: capped, breakeven, premium };
-}
-
-/**
- * The ticket's risk after charges. `entry` is the charges to open (brokerage, STT, exchange, SEBI, stamp, GST), `exit`
- * the charges to square off at the same premium. Max loss adds the entry charges (an option left to expire pays no
- * exit order); breakeven moves by the round trip per unit, against the trade: up for a call bought or a put sold,
- * down for a put bought or a call sold.
- * @param {{ maxLoss: number|null, breakeven: number } | null} risk  ticketRisk()
- * @returns {{ charges: number, entry: number, exit: number, maxLoss: number|null, breakeven: number } | null}
- */
-export function riskAfterCharges(risk, { side, right, qty, entry, exit = entry }) {
-  const q = Number(qty);
-  const e = Number(entry);
-  const x = Number(exit);
-  if (!risk || !(q > 0) || !Number.isFinite(e) || !Number.isFinite(x)) return null;
-  const up = (side === "SELL") === (right === "PE") ? 1 : -1;
-  return { charges: e + x, entry: e, exit: x, maxLoss: risk.maxLoss === null ? null : risk.maxLoss + e, breakeven: risk.breakeven + (up * (e + x)) / q };
-}
-
 // ── Excel: one live cell per contract (pure) ──
 
 /**
@@ -288,23 +254,6 @@ export function capabilitySummary(caps = []) {
   const data = caps.some((c) => DATA_CAPS.has(c));
   const orders = caps.includes("placeOrder");
   return data && orders ? "Data and orders" : orders ? "Orders only" : data ? "Data only" : "Account only";
-}
-
-/**
- * What the Bridge is still doing at start, in words, from GET /v1/health `startup` ({ ready: false, jobs: [{ name,
- * done, total }] }): "Setting up the demo book · 6 of 9 legs" while the demo seed runs (counts once the plan is
- * known), "Setting up the demo book" before that, "The Bridge is starting" for any other job. Null when nothing waits.
- * @param {{ ready?: boolean, jobs?: Array<{ name: string, done: number|null, total: number|null }> } | null | undefined} startup
- */
-export function startupText(startup) {
-  if (!startup || startup.ready !== false) return null;
-  const jobs = Array.isArray(startup.jobs) ? startup.jobs : [];
-  const seed = jobs.find((j) => j?.name === "demo book seed");
-  if (!seed) return "The Bridge is starting";
-  const total = Number(seed.total);
-  const done = Number(seed.done);
-  if (!(total > 0) || !Number.isFinite(done)) return "Setting up the demo book";
-  return `Setting up the demo book · ${formatInt(Math.min(done, total))} of ${formatInt(total)} legs`;
 }
 
 /** A broker session's state in plain words, with its tone (GET /v1/accounts session.state). */

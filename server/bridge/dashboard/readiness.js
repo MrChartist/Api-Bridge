@@ -1,15 +1,15 @@
-// Trading readiness on the dashboard (docs/spec/p1-05-readiness.md §6): the client side of /v1/readiness. One badge
+// Trading readiness on the dashboard: the client side of /v1/readiness. One badge
 // in the toolbar of every page, its popover (a bottom sheet on phones), the "Trading readiness" card on the Safety
-// page, the pill on the Home page's Safety card and the demo simulation controls.
+// page and the demo simulation controls.
 //
-// The view-model (badgeModel, rowsModel, scheduleLine, historyLine, egressModel ...) is pure and exported for
-// readiness.test.mjs; DOM code runs only in a browser. Numbers become text through format.js only. Copy is descriptive
-// (copyRules.mjs): what was checked and where the fact came from, never advice. Every reading is local: the badge polls
+// The view-model (badgeModel, rowsModel, scheduleLine, egressModel ...) is pure and exported for
+// readiness.test.mjs; DOM code runs only in a browser. Numbers become text through format.js only. Copy is descriptive:
+// what was checked and where the fact came from, never advice. Every reading is local: the badge polls
 // GET /v1/readiness, which answers from the monitor's cache and never calls a broker.
 import { api, app, codeBlock, confirmEngageKillSwitch, h, icon, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
 import { DASH, formatInt, formatRupeeGrouped, isFigure } from "./format.js";
 
-/** How often the badge reads /v1/readiness while the tab is visible (spec §6.3). */
+/** How often the badge reads /v1/readiness while the tab is visible. */
 export const POLL_MS = 30_000;
 /** Where the guides live (the dashboard does not serve docs). */
 export const GUIDE_URL = "https://github.com/MrChartist/api-bridge/blob/main/docs/guides/";
@@ -85,7 +85,7 @@ const plural = (n, one, many = `${one}s`) => `${formatInt(n)} ${n === 1 ? one : 
 const accountName = (a) => a?.label || a?.accountId || "this account";
 const visibleLive = (snap) => (snap?.accounts ?? []).filter((a) => a?.live?.allowedByConfig);
 
-// ── Badge (spec §6.2) ──
+// ── Badge ──
 
 /**
  * The toolbar badge. Pure.
@@ -120,14 +120,14 @@ export function badgeModel(snapshot, { demo = false, now = Date.now(), failedAt 
     const first = live.flatMap((a) => (a.state === "warn" ? a.reasons ?? [] : []))[0] ?? live.flatMap((a) => a.reasons ?? [])[0];
     return out("warn", "warn", first ? `Check: ${reasonShort(first.code)}` : "Check", "Check");
   }
-  // unknown: still checking, or every reading is stale (spec §7.9: "Not checked since 15:44", neutral).
+  // unknown: still checking, or every reading is stale.
   const stale = live.length > 0 && live.every((a) => a.stale);
   const last = live.map((a) => parse(a.checkedAt)).filter(finite).sort((x, y) => y - x)[0];
   if (stale && last) return out("unknown", "", `Not checked since ${istHm(new Date(last).toISOString())}`, "Not checked");
   return out("unknown", "", stale ? "Not checked" : "Checking…", stale ? "Not checked" : "Checking…");
 }
 
-// ── Account rows (spec §6.2) ──
+// ── Account rows ──
 
 /** "Until 06:00 tomorrow (broker's stated time) · read call OK at 10:12". Pure. */
 export function sessionFact(s, now = Date.now()) {
@@ -260,13 +260,8 @@ export function historyParts(item, labels = {}) {
   const why = (item.codes ?? []).map(reasonShort).join(", ");
   return { time: istHm(item.at), text: `${labels[item.accountId] ?? item.accountId}: ${st(item.from)} → ${st(item.to)}${why ? ` (${why})` : ""}` };
 }
-/** "10:12 Main: ready → cannot trade (IP mismatch)". Pure. */
-export function historyLine(item, labels = {}) {
-  const p = historyParts(item, labels);
-  return `${p.time} ${p.text}`;
-}
 
-/** The egress settings note and copyable config snippet (spec §6.4). Pure. */
+/** The egress settings note and copyable config snippet. Pure. */
 export function egressModel(snapshot) {
   const mode = snapshot?.egress?.mode ?? "off";
   const sim = Boolean(snapshot?.egress?.simulated);
@@ -280,7 +275,7 @@ export function egressModel(snapshot) {
   return { mode, modeText: { off: "Off", lookup: "Lookup", manual: "Manual (as entered)" }[mode] ?? mode, note, snippet };
 }
 
-/** The demo simulation buttons (spec §4.4 scenarios; "restore" last). */
+/** The demo simulation buttons. */
 export const DEMO_ACTIONS = Object.freeze([
   ["session-expired", "Expire session"],
   ["session-expiring", "Session ends soon"],
@@ -294,9 +289,7 @@ export const DEMO_ACTIONS = Object.freeze([
 // ── DOM (browser only) ──
 
 const state = { snap: null, failedAt: null, timer: 0, mounted: false, stopped: false, tick: null, listeners: new Set() };
-/** The last snapshot the badge read (null before the first answer). */
-export const lastReadiness = () => state.snap;
-/** Called with every new snapshot (the Safety card and the Home pill redraw from it). Returns an unsubscribe. */
+/** Called with every new snapshot (the Safety card redraws from it). Returns an unsubscribe. */
 export function onReadiness(fn) {
   state.listeners.add(fn);
   return () => state.listeners.delete(fn);
@@ -457,7 +450,7 @@ function drawBadge() {
   slot.dataset.ready = m.dot;
   slot.dataset.state = m.state;
   slot.hidden = false;
-  // The Options pages fold the toolbar on tablets and phones; their ⋯ button shows the state dot instead (app.css).
+  // The toolbar folds on tablets and phones; the ⋯ button there shows the state dot instead (app.css).
   document.documentElement.dataset.ready = m.dot;
 }
 
@@ -483,39 +476,6 @@ export function mountReadinessBadge() {
   drawBadge();
   slot.hidden = false;
   tick();
-}
-
-/**
- * The Home Safety card's sentence when readiness has something to say: "1 of 1 live account cannot trade. Paper orders
- * are unaffected." (null when ready, paper only or not read yet, so the card keeps its usual line). Pure.
- */
-export function homeSafetyLine(snap) {
-  if (!snap || (snap.overall !== "cannot_trade" && snap.overall !== "warn") || !snap.summary) return null;
-  return `${String(snap.summary).replace(/\.$/, "")}. Paper orders are unaffected.`;
-}
-
-/** The readiness pill for the Home page's Safety card (next to the kill-switch pill). */
-export function readinessPill(snap = state.snap) {
-  const m = badgeModel(snap, { demo: app.state.demo });
-  const el = pill(`Readiness: ${m.short === "Checking…" ? "checking" : m.short.toLowerCase()}`, m.cls);
-  el.title = m.title;
-  return el;
-}
-
-/**
- * A row for the Options pages' ⋯ sheet on tablets and phones, where the toolbar badge does not fit. `opener` is the
- * ⋯ button: the readiness popover is placed under it and hands focus back to it, since the folded badge is not
- * rendered there (display: none has no position and cannot take focus).
- */
-export function readinessSheetRow(closeSheet, opener = null) {
-  const m = badgeModel(state.snap, { demo: app.state.demo, failedAt: state.failedAt });
-  const btn = h("button", { type: "button", class: "rd-sheet-row full", "aria-label": m.aria }, h("span", {}, "Trading readiness"), pill(m.short, m.cls), icon("chevron"));
-  btn.addEventListener("click", () => {
-    const badge = document.querySelector("#toolbar-ready button");
-    const trigger = badge && badge.offsetParent !== null ? badge : opener?.isConnected ? opener : badge;
-    afterClose(closeSheet, () => openPopover(trigger ?? null));
-  });
-  return btn;
 }
 
 /** The desktop table (≥ 1024 px): one row per live account. */
@@ -552,7 +512,7 @@ function accountsTable(rows) {
 }
 
 /**
- * The Safety page card "Trading readiness" (spec §6.4). Reads /v1/readiness and its history; redraws on every new
+ * The Safety page card "Trading readiness". Reads /v1/readiness and its history; redraws on every new
  * reading while it is on screen.
  */
 export async function readinessCard({ cardFn, demo = false } = {}) {

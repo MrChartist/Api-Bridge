@@ -1,10 +1,6 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
-import { api, app, chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
-import { intentHandoff, intentLabel, parseTradeIntent, pickExpiry } from "./trade-intent.js";
-import { parseCommand } from "./terminal.js";
-import { helpFor } from "./help.js";
-import { PAGE_CODES, createSequencer, goKeyTable, workspace } from "./workspace.js";
+import { chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
 
 /** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
 export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
@@ -98,8 +94,8 @@ function currentTheme() {
   return document.documentElement.getAttribute("data-theme") ?? "auto";
 }
 
-/** The group a page sits under in the palette: its sidebar group, "Home" for the first (unlabelled) one. */
-const groupOf = (p) => p.group || "Home";
+/** The group a page sits under in the palette: its sidebar group. */
+const groupOf = (p) => p.group;
 
 /**
  * The palette's commands: one per page, one per tab of a tabbed page (API › Keys …), the extra destinations a tab
@@ -122,55 +118,9 @@ export function pageCommands(pages, mod = modKey()) {
   return out;
 }
 
-/**
- * A typed command line as a palette result (pure apart from `codes`): "banknifty oc" opens the Option Chain on
- * BANKNIFTY, "help oc" explains the page, "help" lists the codes. `codes` is [{ id, label }] for the page ids that
- * open a page here (PR 17's codes, workspace.js PAGE_CODES). Returns null when the text is not a command.
- */
-export function commandResult(text, codes) {
-  const cmd = parseCommand(text, codes.map((c) => c.id));
-  if (!cmd) return null;
-  const name = (id) => codes.find((c) => c.id === id)?.label ?? id;
-  if (cmd.kind === "help") {
-    return cmd.id
-      ? { id: "cmd-help", label: `Help: ${name(cmd.id)}`, sub: `What ${cmd.code} shows and what its figures mean`, kind: "help", page: cmd.id }
-      : { id: "cmd-help", label: "Page codes", sub: "Type a code, with an underlying if you like: banknifty oc", kind: "codes" };
-  }
-  return { id: "cmd-go", label: cmd.symbol ? `${name(cmd.id)} for ${cmd.symbol}` : name(cmd.id), sub: [`Typed ${cmd.code}${cmd.symbol ? ` ${cmd.symbol}` : ""}`, ...cmd.hints].join(". "), kind: "go", page: cmd.id, route: codes.find((c) => c.id === cmd.id)?.route ?? cmd.id, symbol: cmd.symbol };
-}
-
-const DESK_SLOT = "mcb.dashboard.desk";
-/** Run a typed command: point the pages at the underlying (the workspace and the desk), then open the page. */
-function runCommand(r) {
-  if (r.kind === "go") {
-    if (r.symbol) {
-      workspace.set({ underlying: r.symbol });
-      try {
-        const desk = JSON.parse(app.local.get(DESK_SLOT) ?? "{}") ?? {};
-        if (desk.underlying !== r.symbol) app.local.set(DESK_SLOT, JSON.stringify({ ...desk, underlying: r.symbol, expiry: null }));
-      } catch {
-        // No desk prefs yet: the workspace carries the underlying.
-      }
-    }
-    return ctx.go(r.route);
-  }
-  const codes = ctx.codes?.() ?? [];
-  if (r.kind === "codes") {
-    return modal({ title: "Page codes", body: h("dl", { class: "pal-codes" }, codes.map((c) => h("div", {}, h("dt", {}, PAGE_CODES[c.id]), h("dd", {}, c.label)))), buttons: [{ label: "Close", value: true }] });
-  }
-  const help = helpFor(r.page);
-  const label = codes.find((c) => c.id === r.page)?.label ?? r.page;
-  return modal({
-    title: label,
-    body: h("div", { class: "stack" }, h("p", {}, help?.what ?? "No help for this page yet."), help?.fields?.length ? h("dl", { class: "pal-codes" }, help.fields.map(([k, v]) => h("div", {}, h("dt", {}, k), h("dd", {}, v)))) : null, help?.doc ? h("p", { class: "muted small" }, `More in ${help.doc}`) : null),
-    buttons: [{ label: "Open the page", value: true, cls: "primary", onClick: () => (ctx.go(codes.find((c) => c.id === r.page)?.route ?? r.page), true) }, { label: "Close", value: false }],
-  });
-}
-
 function commands() {
   const pageCmds = pageCommands(ctx.pages()).map((c) => ({ ...c, run: () => ctx.go(c.route) }));
   const actions = [
-    { id: "scan", label: "Run a scan", sub: "Write a condition in Screeners › Stocks", keywords: "scanner screener condition rsi", icon: "scan", tint: "mint", run: () => ctx.go("screeners/stocks", "#scan-condition") },
     { id: "kill", label: "Engage kill switch", sub: "Stop every new order, from every tool", keywords: "stop all orders safety emergency halt", icon: "power", tint: "red", run: () => ctx.go("safety", "#kill-action") },
     { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", run: () => ctx.go("api/keys", "#key-label") },
     { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", run: () => ctx.go("api/console") },
@@ -237,16 +187,7 @@ function build() {
 
 function draw() {
   const q = input.value.trim();
-  // A typed trade ("buy 2 nifty 26000 ce", "sell nifty straddle 3 nov") comes first: it opens a filled ticket or the
-  // Strategy Builder, where the normal confirm applies. Nothing is sent from the palette.
-  const intent = q ? parseTradeIntent(q) : null;
-  const trade = intent
-    ? [{ id: "trade", group: "Actions", label: intentLabel(intent), sub: intent.kind === "leg" ? "Opens the order ticket filled in. Nothing is sent until you confirm it (paper by default)" : "Opens the Strategy Builder with these legs. Place asks before anything is sent", icon: "orders", tint: "green", run: () => openIntent(intent) }]
-    : [];
-  // A typed command line ("banknifty oc", "help gx") comes next: page codes from the terminal-style command bar.
-  const cmd = q && !intent ? commandResult(q, ctx.codes?.() ?? []) : null;
-  const typed = cmd ? [{ ...cmd, group: "Pages", icon: cmd.kind === "go" ? "chevron" : "info", tint: "blue", run: () => runCommand(cmd) }] : [];
-  results = [...trade, ...typed, ...rank(q ? commands() : commands().filter((c) => !c.searchOnly), input.value)];
+  results = rank(q ? commands() : commands().filter((c) => !c.searchOnly), q);
   if (activeIndex >= results.length) activeIndex = Math.max(0, results.length - 1);
   const items = [];
   let group = null;
@@ -255,7 +196,7 @@ function draw() {
       group = c.group;
       items.push(h("li", { class: "palette-group", role: "presentation" }, group));
     }
-    const hint = c.hint ? kbd(...c.hint) : c.hintText ? h("span", { class: "palette-hint" }, c.hintText) : null;
+    const hint = c.hint ? kbd(...c.hint) : null;
     const li = h(
       "li",
       { id: `palette-opt-${c.id}`, class: "palette-option", role: "option", "aria-selected": String(i === activeIndex) },
@@ -280,39 +221,6 @@ function draw() {
   if (!results.length) items.push(h("li", { class: "palette-empty", role: "presentation" }, `No page or action matches “${input.value.trim()}”.`));
   list.replaceChildren(...items);
   markActive();
-}
-
-/** Open a typed trade: a filled ticket on the chain (one leg) or the Strategy Builder (a structure). Never sends. */
-async function openIntent(x) {
-  const DESK = "mcb.dashboard.desk";
-  const today = new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
-  const ex = await api(`/v1/expiries?underlying=${encodeURIComponent(x.underlying)}`).catch((err) => ({ error: err }));
-  const expiry = pickExpiry(ex?.data?.data?.expiries ?? [], x.date, today);
-  if (!expiry) return toast(ex?.error ? `Couldn't read ${x.underlying} expiries: ${ex.error.message}` : `No ${x.underlying} expiry on that date`, { tone: "warn" });
-  let desk = {};
-  try {
-    desk = JSON.parse(app.local.get(DESK) ?? "{}") ?? {};
-  } catch {
-    desk = {};
-  }
-  if (x.kind === "leg") {
-    const go = intentHandoff(x, { expiry, desk, nowHash: location.hash });
-    app.local.set(DESK, JSON.stringify(go.prefs));
-    app.local.set("mcb.dashboard.tradeHandoff", JSON.stringify({ underlying: go.prefs.underlying, expiry: go.prefs.expiry, jump: go.prefs.jump, ticket: go.prefs.ticket }));
-    location.hash = go.hash;
-    return;
-  }
-  const r = await api(`/v1/optionchain?underlying=${encodeURIComponent(x.underlying)}&expiry=${encodeURIComponent(expiry)}&strikes=40`).catch((err) => ({ error: err }));
-  const chain = r?.data?.data;
-  if (!chain?.rows?.length) return toast(`Couldn't load the ${x.underlying} chain`, { tone: "error" });
-  const O = await import("./options.js");
-  const legs = O.presetLegs(x.preset, chain).map((l) => ({ ...l, lots: (l.lots ?? 1) * x.lots }));
-  if (!legs.length) return toast("That structure needs more strikes than the chain lists", { tone: "warn" });
-  const go = intentHandoff(x, { expiry, desk, legs, nowHash: location.hash });
-  app.local.set(DESK, JSON.stringify(go.prefs));
-  app.local.set("mcb.dashboard.tradeHandoff", JSON.stringify({ underlying: go.prefs.underlying, expiry: go.prefs.expiry, baskets: go.prefs.baskets }));
-  location.hash = go.hash;
-  toast(`${intentLabel(x)} is in the Strategy Builder. Review, then Place`);
 }
 
 function markActive() {
@@ -358,7 +266,7 @@ function onKey(e) {
 function runAt(i) {
   const c = results[i];
   if (!c) return;
-  const navigates = c.group !== "Actions" || ["scan", "kill", "key", "console", "paper", "trade"].includes(c.id);
+  const navigates = c.group !== "Actions" || ["kill", "key", "console", "paper"].includes(c.id);
   closePalette({ restore: !navigates });
   c.run();
 }
@@ -436,32 +344,8 @@ export function pageShortcut(pageOrKey) {
   return { label: isMac() ? `⌘${k}` : `Ctrl+${k}`, aria: `${ariaMod()}+${k}` };
 }
 
-let seq = null;
-/** g then a page's go-key ("g c" the chain, "g o" OI): the go-keys of the pages that open here. */
-function goSequencer() {
-  if (!seq) seq = createSequencer({ table: () => goKeyTable((ctx.codes?.() ?? []).map((c) => c.id)) });
-  return seq;
-}
-/** The route a go-key's page id opens (PR 17 ids such as gex open their tab here). */
-function routeOf(id) {
-  return (ctx.codes?.() ?? []).find((c) => c.id === id)?.route ?? id;
-}
 function onGlobalKey(e) {
   if (e.defaultPrevented || e.isComposing) return;
-  // Pages that use g themselves (the chain, OI and the Strategy Builder go back to ATM with g) keep it.
-  const ownG = ["chain", "strategy", "positions", "oi", "vol", "arb"].includes(document.documentElement.dataset.page ?? "");
-  if (ctx.codes && !ownG) {
-    const r = goSequencer().feed(e.key, { typing: isTyping(e.target) || Boolean(dlg?.open) || otherDialogOpen(), modifier: e.ctrlKey || e.metaKey || e.altKey, shift: e.shiftKey, repeat: e.repeat });
-    if (r.kind === "go") {
-      e.preventDefault();
-      ctx.go(routeOf(r.id));
-      return;
-    }
-    if (r.kind === "pending") {
-      e.preventDefault();
-      return;
-    }
-  }
   const mod = isMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
   const key = e.key.toLowerCase();
   if (mod && !e.altKey && !e.shiftKey && key === "k") {

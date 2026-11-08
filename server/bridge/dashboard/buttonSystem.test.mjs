@@ -1,6 +1,6 @@
 /**
- * The Mr Chartist button system (docs/theme/BUTTON-SYSTEM.md, "Dashboard adaptation"): six intents, no outer focus
- * ring, nothing moves on hover, one line per seam in a connected bar. Reads files as text only: no DOM, no server.
+ * The button system: six intents, no outer focus
+ * ring, nothing moves on hover. Reads files as text only: no DOM, no server.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -54,15 +54,15 @@ function splitTop(s, at) {
 }
 /** The compound a selector styles: what follows its last combinator. */
 const subject = (part) => splitTop(part, /[\s>+~]/).pop() ?? "";
-/** A pressable thing of the button system: <button>, .btn, an icon or chip button (.…-btn), a tab or a connected bar. */
-const BUTTONISH = /(^|[^\w-])button\b|\.btn\b|\.[\w-]+-btn\b|\[role="?(button|tab)"?\]|\.join\b/;
+/** A pressable thing of the button system: <button>, .btn, an icon or chip button (.…-btn), or a tab. */
+const BUTTONISH = /(^|[^\w-])button\b|\.btn\b|\.[\w-]+-btn\b|\[role="?(button|tab)"?\]/;
 /** The selector parts of a rule that style a button itself (not a pseudo-element, not a descendant of one). */
 const positive = (s) => s.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, "");
 const buttonParts = (r) => splitTop(r.selector, /,/).filter((p) => !p.includes("::") && BUTTONISH.test(positive(subject(p))));
 const all = rules(css + palette).filter((r) => !r.media.includes("forced-colors"));
 // Rows and cards pressable as a whole (a screener card, a menu row) are list and card styling, not buttons: their
 // leading edge may carry the row's side or tone, as a table row's does.
-const ROWS = /\b(cal-tile|scr-card|pos-card|preset-card|sg-card|list-row|menu-item|oi-wrow|oi-mrow)\b/;
+const ROWS = /\b(list-row|menu-item)\b/;
 const buttonRules = all.filter((r) => buttonParts(r).length && !buttonParts(r).every((p) => ROWS.test(p)));
 const decls = (body, prop) => [...body.matchAll(new RegExp(`(?:^|[;\\s{])(${prop})\\s*:\\s*([^;]+)`, "g"))].map((m) => [m[1], m[2].trim()]);
 
@@ -78,8 +78,8 @@ function strayColours(value) {
   return bad;
 }
 
-describe("BUTTON-SYSTEM §2: six intents, nothing else", () => {
-  it("finds the button rules", () => expect(buttonRules.length).toBeGreaterThan(100));
+describe("button system: six intents, nothing else", () => {
+  it("finds the button rules", () => expect(buttonRules.length).toBeGreaterThan(50));
   it("no button background or edge outside the six intents (no blue, tint, warn or call / put fill)", () => {
     const bad = [];
     for (const r of buttonRules) {
@@ -104,7 +104,7 @@ describe("BUTTON-SYSTEM §2: six intents, nothing else", () => {
   });
 });
 
-describe("BUTTON-SYSTEM §9: focus is a ring inside the shape", () => {
+describe("button system: focus is a ring inside the shape", () => {
   it("draws the ring in the button's own ink, inside (negative offset)", () => {
     const ring = all.find((r) => /^:where\(button, \.btn\):focus-visible$/.test(r.selector));
     expect(ring?.body).toMatch(/outline:\s*2px solid currentColor/);
@@ -120,7 +120,7 @@ describe("BUTTON-SYSTEM §9: focus is a ring inside the shape", () => {
   });
 });
 
-describe("BUTTON-SYSTEM §7: hover fades, nothing moves", () => {
+describe("button system: hover fades, nothing moves", () => {
   it("no hover rule on a button translates it or scales it up", () => {
     const bad = [];
     for (const r of buttonRules.filter((x) => buttonParts(x).some((p) => /:hover/.test(p)))) {
@@ -137,22 +137,5 @@ describe("BUTTON-SYSTEM §7: hover fades, nothing moves", () => {
     expect(css).toMatch(/:where\(button, \.btn, \.tab\):active:not\(:disabled\)[^{]*{\s*scale:\s*var\(--press/);
     expect(read("motion.js")).not.toMatch(/export function (pressFeedback|installPressFeedback)/);
     expect(read("app.js")).not.toMatch(/installPressFeedback/);
-  });
-});
-
-describe("BUTTON-SYSTEM §5: a connected bar has one line per seam", () => {
-  const joinRules = all.filter((r) => /\.join\b/.test(r.selector));
-  it("halves overlap by their 1 px edge and the bar has no gap", () => {
-    expect(joinRules.find((r) => r.selector === ".join > * + *")?.body).toMatch(/margin-inline-start:\s*-1px/);
-    expect(joinRules.find((r) => r.selector === ".join")?.body).toMatch(/gap:\s*0;/);
-  });
-  it("no half draws a second border, and nothing pushes the halves apart", () => {
-    const bad = [];
-    for (const r of joinRules) {
-      for (const [p, v] of decls(r.body, "border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?(?:-width)?")) if (!/^(0|none)(px)?$/.test(v)) bad.push(`${r.selector} → ${p}: ${v}`);
-      for (const [p, v] of decls(r.body, "gap|column-gap")) if (parseFloat(v) > 0) bad.push(`${r.selector} → ${p}: ${v}`);
-      for (const [p, v] of decls(r.body, "margin(?:-(?:left|right|inline|inline-start|inline-end))?")) if (v.split(/\s+/).some((x) => parseFloat(x) > 0)) bad.push(`${r.selector} → ${p}: ${v}`);
-    }
-    expect(bad).toEqual([]);
   });
 });

@@ -1,7 +1,6 @@
 /**
- * Portfolio margin, approximate (not the exchange's SPAN). Shared by the paper engine (server/bridge/paper), the order
- * ticket (desk.js), the Strategy Builder's margin line and the Positions margin bar, so all four show the same figure.
- * Pure: no DOM, no fetch, no clock. `nowMs` comes in as an argument.
+ * Portfolio margin, approximate (not the exchange's SPAN). Used by the paper engine (server/bridge/paper) for its order
+ * checks and margin preview, so every place that shows a paper margin shows the same figure. Pure: no DOM, no fetch, no clock. `nowMs` comes in as an argument.
  *
  * How it works, per underlying (docs/guides/paper-margin.md):
  *  1. Scan risk. Every leg is revalued one trading day ahead under 16 scenarios: the underlying moves 0, ±1/3, ±2/3
