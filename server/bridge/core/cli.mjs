@@ -36,6 +36,14 @@ Usage:
   mc-bridge kill release [--key <admin key>]
   mc-bridge mcp --key <key> [--url http://127.0.0.1:4300] [--config <file>]
   mc-bridge openai-tools [--scope read|paper] [--format responses|chat]
+  mc-bridge sources list [--json]
+  mc-bridge sources enable <id> [--acknowledge <notice version>]
+  mc-bridge sources disable <id>
+  mc-bridge sources set-key <id>   the key is read from stdin or a hidden prompt, never from the command line
+  mc-bridge sources test <id>
+  mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display] [--max-age <ms>]
+  mc-bridge sources plugins check <folder>   validate a plugin and run the conformance checks offline
+  mc-bridge sources plugins pin <folder>     print the sha256 to put in the config (review the plugin first)
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -520,6 +528,8 @@ export async function runCli(positionals, flags, io) {
         io.out(JSON.stringify(toOpenAITools({ config, scopes: [scope], format }), null, 2));
         return 0;
       }
+      case "sources":
+        return await sourcesCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
       default:
@@ -662,3 +672,223 @@ async function connectCommand(accountId, flags, io) {
   io.out(`Connected ${accountId}: session ${result?.state ?? result?.session?.state ?? "saved"}.`);
   return 0;
 }
+
+// === sources: `mc-bridge sources ...` ==========================================================================
+// A separate block: data sources are managed through the RUNNING Bridge's HTTP routes (GET /v1/sources, PATCH
+// /v1/sources/{id}, PUT /v1/sources/{id}/config, POST /v1/sources/{id}/test, GET /v1/sources/trace), the same way
+// `accounts connect` and `kill` do. `sources plugins check|pin` work offline on a plugin folder.
+
+const SOURCES_SUBCOMMANDS = ["list", "enable", "disable", "set-key", "test", "trace", "plugins"];
+/** Flags that would carry a secret on the command line; refused for set-key. */
+const SECRET_FLAGS = ["api-key", "apikey", "apiKey", "secret", "token", "password", "value"];
+
+/** "15 min", "2 h", "1 day" from seconds. */
+export function formatDelay(sec) {
+  if (!Number.isFinite(sec) || sec <= 0) return "";
+  if (sec < 3600) return `${Math.round(sec / 60)} min`;
+  if (sec < 86_400) return `${Math.round((sec / 3600) * 10) / 10} h`;
+  return `${Math.round(sec / 86_400)} day`;
+}
+
+/** How a source's data is described to a person: "real-time", "delayed 15 min", "end of day", plus "unofficial". */
+export function describeSourceClass(s) {
+  const base = s.class === "realtime" ? "real-time" : s.class === "delayed" ? `delayed ${formatDelay(s.delaySec)}`.trim() : s.class === "eod" ? "end of day" : String(s.class);
+  return s.official === false ? `${base}, unofficial` : base;
+}
+
+const pad = (v, n) => String(v ?? "").padEnd(n);
+
+/** Plain-text table for `sources list`. Exported for tests. @param {any[]} rows */
+export function formatSources(rows) {
+  if (!rows.length) return "No data sources are registered.";
+  const state = (s) => (s.enabled ? "on" : s.needsKey && !s.configured ? "needs key" : "off");
+  const health = (s) => `${s.health?.state ?? "unknown"}${s.health?.state && s.health.state !== "ok" && s.health.lastError ? ` (${String(s.health.lastError).slice(0, 60)})` : ""}`;
+  const lines = [`${pad("ID", 18)} ${pad("TIER", 8)} ${pad("STATE", 10)} ${pad("DATA", 28)} ${pad("HEALTH", 12)} NAME`];
+  for (const s of rows) lines.push(`${pad(s.id, 18)} ${pad(s.tier, 8)} ${pad(state(s), 10)} ${pad(describeSourceClass(s), 28)} ${pad(health(s), 12)} ${s.name}`.trimEnd());
+  lines.push("", "Your broker accounts are always used first for real-time data. Other sources are labelled on every answer.");
+  return lines.join("\n");
+}
+
+/** Plain-text routing trace. Exported for tests. @param {any} t */
+export function formatTrace(t) {
+  const req = t.request ?? {};
+  const lines = [`Request: ${req.capability ?? "?"}${req.symbols?.length ? ` ${req.symbols.join(",")}` : ""}, purpose ${req.purpose ?? "display"}${req.maxAgeMs !== undefined && req.maxAgeMs !== null ? `, max age ${req.maxAgeMs} ms` : ""}`, ""];
+  const considered = t.considered ?? [];
+  if (!considered.length) lines.push("No source was considered.");
+  for (const c of considered) {
+    const extra = [c.score !== undefined ? `score ${c.score}` : "", c.spareBudget !== undefined ? `spare ${c.spareBudget}` : "", c.health?.state && c.health.state !== "ok" ? `health ${c.health.state}` : ""].filter(Boolean).join(", ");
+    lines.push(`${pad(String(c.verdict ?? "").toUpperCase(), 9)} ${pad(c.id, 22)} ${c.reason ?? ""}${extra ? ` (${extra})` : ""}`.trimEnd());
+  }
+  lines.push("", `Class of the answer: ${t.class ?? "none"}${t.note ? `. ${t.note}` : ""}`, "This was a dry run: no source was called.");
+  return lines.join("\n");
+}
+
+/** The running Bridge's URL and the credential to use: --key, MCB_ADMIN_KEY, MCB_API_KEY, else the local control token. */
+async function sourcesClient(flags, io) {
+  const { config } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd });
+  const baseUrl = bridgeUrl(flags, io, config);
+  const alive = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
+  if (!alive) throw new BridgeError("UPSTREAM_ERROR", `The Bridge is not running at ${baseUrl}. Start it first (${cliCommand(io.env)} start), then run this again.`);
+  const explicit = typeof flags.key === "string" ? flags.key : (io.env.MCB_ADMIN_KEY ?? io.env.MCB_API_KEY);
+  const key = explicit ?? readControlToken(config.dataDir);
+  if (!key) throw new BridgeError("UNAUTHENTICATED", `This needs an admin key: pass --key (or set MCB_ADMIN_KEY). Create one with: ${cliCommand(io.env)} keys create --label cli --scope admin`);
+  const call = async (method, path, body) => {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${key}`, ...(body ? { "content-type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(30_000),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const hint = explicit === undefined && (res.status === 401 || res.status === 403) ? ` The control token in ${config.dataDir} was not accepted for this action; pass --key with an admin key.` : "";
+      const code = typeof json.code === "string" && json.code in ERROR_CODES_FOR_CLI ? json.code : "UPSTREAM_ERROR";
+      throw new BridgeError(code, `${json.detail ?? `the Bridge answered HTTP ${res.status}`}${hint}`);
+    }
+    return json;
+  };
+  return { baseUrl, call };
+}
+const ERROR_CODES_FOR_CLI = { UNAUTHENTICATED: 1, SCOPE_REQUIRED: 1, LOOPBACK_ONLY: 1, NOT_FOUND: 1, VALIDATION_FAILED: 1, CONFIRMATION_REQUIRED: 1, STATE_CONFLICT: 1 };
+
+async function sourcesCommand(args, flags, io) {
+  const [sub, arg, arg2] = args;
+  if (!SOURCES_SUBCOMMANDS.includes(sub)) {
+    io.err(USAGE);
+    return 1;
+  }
+  if (sub === "plugins") return await pluginsCommand(arg, arg2, flags, io);
+  if (["enable", "disable", "set-key", "test"].includes(sub) && !arg) throw new BridgeError("VALIDATION_FAILED", `sources ${sub} needs a source id. List them with: ${cliCommand(io.env)} sources list`);
+  if (sub === "set-key") for (const f of SECRET_FLAGS) if (flags[f] !== undefined) throw new BridgeError("VALIDATION_FAILED", "Keys are never taken from the command line (shell history and process lists would keep them). Run set-key without them: it reads the key from stdin or asks for it with hidden input.");
+  const { call } = await sourcesClient(flags, io);
+  const cli = cliCommand(io.env);
+  const listed = async () => (await call("GET", "/v1/sources")).data ?? [];
+  const find = async (id) => {
+    const s = (await listed()).find((x) => x.id === id);
+    if (!s) throw new BridgeError("NOT_FOUND", `No data source with id "${id}". List them with: ${cli} sources list`);
+    return s;
+  };
+  const path = (id) => `/v1/sources/${encodeURIComponent(id)}`;
+
+  switch (sub) {
+    case "list": {
+      const rows = await listed();
+      io.out(flags.json ? JSON.stringify(rows, null, 2) : formatSources(rows));
+      return 0;
+    }
+    case "enable": {
+      const s = await find(arg);
+      if (s.enabled) {
+        io.out(`${s.id} is already on.`);
+        return 0;
+      }
+      if (s.needsKey && !s.configured) throw new BridgeError("VALIDATION_FAILED", `${s.name} needs your own key first. Run: ${cli} sources set-key ${s.id}`);
+      const given = typeof flags.acknowledge === "string" ? flags.acknowledge : undefined;
+      if (s.noticeVersion) {
+        if (given === undefined) {
+          io.err(`${s.name} (${describeSourceClass(s)}) needs your acknowledgement before it is turned on.`);
+          if (s.terms?.note) io.err(`  ${s.terms.note}`);
+          if (s.terms?.url) io.err(`  Terms: ${s.terms.url}`);
+          io.err(`Read them, then run: ${cli} sources enable ${s.id} --acknowledge ${s.noticeVersion}`);
+          return 1;
+        }
+        if (given !== s.noticeVersion) throw new BridgeError("VALIDATION_FAILED", `The notice for ${s.name} is now version ${s.noticeVersion}, not ${given}. Read it again and pass --acknowledge ${s.noticeVersion}.`);
+      }
+      const { data } = await call("PATCH", path(s.id), { enabled: true, ...(given !== undefined ? { acknowledge: given } : {}) });
+      io.out(`Turned on ${s.name}. Its answers are labelled: ${describeSourceClass(data ?? s)}.`);
+      if (s.tier === "plugin") io.err("This is third-party code you granted. It runs in its own process and can only fetch from the hosts in its manifest.");
+      return 0;
+    }
+    case "disable": {
+      const s = await find(arg);
+      await call("PATCH", path(s.id), { enabled: false });
+      io.out(`Turned off ${s.name}.`);
+      return 0;
+    }
+    case "set-key": {
+      const s = await find(arg);
+      if (!s.needsKey) throw new BridgeError("VALIDATION_FAILED", `${s.name} does not use a key.`);
+      let value;
+      if (typeof io.readStdin === "function") value = await io.readStdin();
+      else if (!process.stdin.isTTY && typeof io.prompt !== "function") value = await new Promise((resolve) => {
+        let text = "";
+        process.stdin.setEncoding("utf8");
+        process.stdin.on("data", (c) => (text += c));
+        process.stdin.on("end", () => resolve(text));
+      });
+      if (value === undefined) {
+        io.err(`Paste the key for ${s.name}. What you type is not shown and goes only to the Bridge on this computer.`);
+        value = await (typeof io.prompt === "function" ? io.prompt : terminalPrompt)("Key", { hidden: true });
+      }
+      const apiKey = String(value ?? "").trim();
+      if (!apiKey) throw new BridgeError("VALIDATION_FAILED", "No key was given.");
+      if (apiKey.length > 500 || /\s/.test(apiKey)) throw new BridgeError("VALIDATION_FAILED", "That does not look like a single key (it has spaces or is far too long).");
+      await call("PUT", `${path(s.id)}/config`, { apiKey });
+      io.out(`Saved the key for ${s.name}. It is stored encrypted on this computer and is never shown again. Next: ${cli} sources test ${s.id}, then ${cli} sources enable ${s.id}.`);
+      return 0;
+    }
+    case "test": {
+      const s = await find(arg);
+      const { data } = await call("POST", `${path(s.id)}/test`);
+      if (flags.json) io.out(JSON.stringify(data, null, 2));
+      else io.out(data?.ok ? `OK: ${s.name} answered in ${data.latencyMs ?? "?"} ms${data.detail ? ` (${data.detail})` : ""}.` : `FAILED: ${s.name}${data?.detail ? `: ${data.detail}` : ""}.`);
+      return data?.ok ? 0 : 1;
+    }
+    case "trace": {
+      const { CAPABILITIES, PURPOSES } = await import("../sources/contract.mjs");
+      const capability = flags.capability === undefined ? "quotes" : String(flags.capability);
+      if (!CAPABILITIES.includes(capability)) throw new BridgeError("VALIDATION_FAILED", `--capability must be one of ${CAPABILITIES.join(", ")}.`);
+      if (typeof flags.symbols !== "string" || !flags.symbols.trim()) throw new BridgeError("VALIDATION_FAILED", "trace needs --symbols, for example --symbols NSE:RELIANCE.");
+      const purpose = flags.purpose === undefined ? "display" : String(flags.purpose);
+      if (!PURPOSES.includes(purpose)) throw new BridgeError("VALIDATION_FAILED", `--purpose must be one of ${PURPOSES.join(", ")}.`);
+      const q = new URLSearchParams({ capability, symbols: flags.symbols.trim(), purpose });
+      if (flags["max-age"] !== undefined) {
+        const n = Number(flags["max-age"]);
+        if (!Number.isFinite(n) || n < 0) throw new BridgeError("VALIDATION_FAILED", "--max-age must be a number of milliseconds.");
+        q.set("maxAgeMs", String(Math.round(n)));
+      }
+      const { data } = await call("GET", `/v1/sources/trace?${q}`);
+      io.out(flags.json ? JSON.stringify(data, null, 2) : formatTrace(data ?? {}));
+      return 0;
+    }
+    default:
+      io.err(USAGE);
+      return 1;
+  }
+}
+
+/** `mc-bridge sources plugins check|pin <folder>`: offline, nothing is started on the Bridge. */
+async function pluginsCommand(action, folder, flags, io) {
+  if (!["check", "pin"].includes(action)) {
+    io.err(USAGE);
+    return 1;
+  }
+  if (!folder) throw new BridgeError("VALIDATION_FAILED", `sources plugins ${action} needs the plugin folder, for example: ${cliCommand(io.env)} sources plugins ${action} ./my-plugin`);
+  const { inspectPluginFolder } = await import("../sources/plugin/loader.mjs");
+  if (action === "pin") {
+    const info = inspectPluginFolder(folder, { baseDir: io.cwd });
+    if (!info.ok) {
+      for (const p of info.problems) io.err(`Error: ${p}`);
+      return 1;
+    }
+    const m = info.manifest;
+    io.err(`Plugin ${m.id} ${m.version}: ${m.name}`);
+    io.err(`  Data: ${describeSourceClass(info.descriptor)}; can answer: ${m.capabilities.join(", ")}`);
+    io.err(`  May reach: ${m.network.allowHosts.join(", ") || "no hosts"}`);
+    io.err(`  Terms: ${m.terms.url} (${m.terms.note})`);
+    io.err("Review those, and the code in the entry file, before you grant it. Then add to \"sources\".\"plugins\" in bridge.config.json:");
+    io.err(`  { "path": ${JSON.stringify(folder)}, "sha256": "${info.pin}", "granted": true }`);
+    io.err("If you change either file later, the Bridge refuses it until you run this again and update the pin.");
+    io.out(info.pin);
+    return 0;
+  }
+  const { checkPluginFolder } = await import("../sources/plugin/check.mjs");
+  const report = await checkPluginFolder(folder, { baseDir: io.cwd });
+  if (flags.json) io.out(JSON.stringify(report, null, 2));
+  else {
+    for (const s of report.steps) io.out(`${s.ok ? "OK  " : "FAIL"}  ${s.name}${s.detail ? `: ${s.detail}` : ""}`);
+    io.out(report.ok ? `\nAll checks passed. Pin for the config: ${report.pin}` : "\nSome checks failed. Fix them and run this again.");
+  }
+  return report.ok ? 0 : 1;
+}
+// === end sources ===============================================================================================
