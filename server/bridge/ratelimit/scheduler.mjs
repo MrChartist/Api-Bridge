@@ -59,7 +59,7 @@ const MAX_RETRY_AFTER_MS = 3_600_000;
 const BACKOFF_JITTER_MS = 250;
 /** AIMD: multiplicative decrease, floor, additive step per clean minute, freeze rule. */
 const AIMD = Object.freeze({ decrease: 0.5, floor: 0.25, step: 0.05, periodMs: 60_000, episodesToFreeze: 3, episodeWindowMs: 3_600_000, freezeFactor: 0.8, freezeMs: 86_400_000 });
-/** Seconds of per-second call history kept per account (usage({ series: true }), the Rate limits chart). */
+/** Seconds of per-second call history kept per account (usage({ series: true }), the Sources page chart). */
 export const SERIES_SECONDS = 120;
 /** Distinct consumer names kept per day; later ones are counted under "Other". */
 const MAX_CONSUMERS = 200;

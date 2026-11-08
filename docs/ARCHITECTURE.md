@@ -6,13 +6,13 @@ Status: **v2 design**. The code contracts this document describes live in `serve
 
 One local service that holds a user's connections to **several brokers and several accounts at once**, and lets every tool share them: trading front ends, ChartInk/GoCharting and signed webhook alerts, AmiBroker, Python and Node scripts, Excel and Google Sheets, and AI assistants over MCP.
 
-The headline problem is **broker rate limits**. Ten tools each polling a broker that allows 1 quote request a second cannot work. The Bridge makes the broker see one careful client: it serves from live streams first, then a short freshness-labelled cache, then batched and coalesced calls inside per-account token buckets, with orders always ahead of reads, and it can spread read-only market data over the user's *own* accounts where the broker's terms allow it.
+The headline problem is **broker rate limits**. Ten tools each polling a broker that allows 1 quote request a second cannot work. The Bridge makes the broker see one careful client: it serves from live streams first, then a short freshness-labelled cache, then batched and coalesced calls inside per-account token buckets, with orders always ahead of reads, and it can spread read-only market data over the user's *own* accounts once the user has accepted a notice that names the risk. Beyond the brokers, it can read from optional free sources and plugins the owner switched on, and labels every such answer with its data class and delay.
 
 Design principles, in priority order:
 
 1. **Safe by default.** Paper mode, loopback only, read-only keys, no market orders without protection, live trading only after three separate opt-ins in the config file plus a per-request `"mode": "live"`.
 2. **Never exceed a documented limit.** Unknown limits get conservative defaults. Every number in the policy table carries a source and a `verified` flag.
-3. **Honest data.** Every market-data value says where it came from and how old it is (`freshness`). No silent fallbacks to another symbol, account or stale value.
+3. **Honest data.** Every market-data value says where it came from, how old it is and how far to trust it (`freshness`: source, `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`). No silent fallbacks to another symbol, account, source or stale value. A delayed or end-of-day value never reaches an order, a risk check, a paper fill or an alert.
 4. **One contract.** The 41 broker adapters (`server/brokers/`) already share a tested contract; the Bridge adds no second adapter model.
 5. **Personal use.** One user (and family, as SEBI allows) on their own machine. Never a multi-user or public data service.
 
@@ -63,15 +63,16 @@ data/
 | `core/` | core | config, logger, bus, clock, paths, brokers; router, pipeline, errors, contracts, symbol codec, CLI | `/v1/health`, `/v1/meta`, `/openapi.yaml` |
 | `accounts/` | S1 | `accounts` (AccountManager) | `/v1/brokers`, `/v1/accounts*` |
 | `auth/` | S2 | `secrets` (SecretStore), `keyStore` (KeyStore) | `/v1/keys*`, `/v1/stream/token` |
-| `ratelimit/` | S3 | `scheduler` (Scheduler) | `/v1/limits`, `/v1/usage` |
+| `ratelimit/` | S3 | `scheduler` (Scheduler) | `/v1/limits` (`?explain=1`), `/v1/usage`, `/v1/quotas*` |
 | `symbols/` | S4 | `symbols` (SymbolService) | `/v1/instruments/*`, `/v1/symbols/convert` |
-| `market/` | S5 | `marketData` (MarketDataService) | `/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain` |
+| `market/` | S5 | `marketData` (MarketDataService) | `/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain` (all take `purpose`) |
 | `stream/` | S6 | `streamHub` (StreamHub) | WS `/v1/stream`, `/v1/stream/sse`, `/v1/stream/stats` |
 | `orders/` | S7 | `orders` (OrderService) | `/v1/orders*`, `/v1/trades`, `/v1/positions`, `/v1/holdings`, `/v1/funds`, `/v1/tickets/*` |
 | `paper/` | S8 | `paper` (PaperEngine) | `/v1/paper/*` |
 | `safety/` | S9 | `safety` (SafetyGuard), `audit` (AuditLog) | `/v1/safety*`, `/v1/audit*` |
 | `integrations/` | S10 | (routes only) | `/xl/*` |
 | `hooks/`, `mcp/` | S11 | (routes only) | `/hooks/{source}/{token}`, `/v1/hooks*`, `/mcp`, `mc-bridge mcp` |
+| `sources/` | S12 | `backupData` (BackupDataService: the sources service, with its router, health and failure memory) | `/v1/sources*` (list, switch on or off, key, test, trace), `/v1/pooling*` (consent) |
 | `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
 | `readiness/` | S20 | `readiness` | `/v1/readiness*`: session, static IP, headroom, kill switch per live account; automated-send gate |
 | `demo/` | core | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
@@ -89,7 +90,7 @@ data/
 
 ```
 secrets ─► accounts ─► scheduler ─► symbols ─► streamHub ─► marketData ─► paper ─┐
-keyStore                                                                          ├─► orders
+keyStore                                  backupData (sources) ─┘                 ├─► orders
 audit ─────────────────────────────────────────────────────► safety ─────────────┘
 ```
 
@@ -104,7 +105,7 @@ Every HTTP request (`core/app.mjs`):
 5. Auth (`key` routes): `Authorization: Bearer`, `X-API-Key`, or `?key=` only where allowed and only for read-only URL keys → `keyStore.authenticate()` → scope check → per-key client limit (`scheduler.checkClient`).
 6. Body: size-capped, JSON (or text for webhooks), raw bytes kept for signature checks.
 7. Handler → JSON `{ data, meta }`, a typed `Reply` (text, CSV), 204, or a stream.
-8. Access log: method, path **without the query string**, status, ms, key id. Never bodies or keys.
+8. Access log: method, path **without the query string**, status, ms, key id. Never bodies or keys. The last 200 are also kept in memory for the dashboard (`GET /v1/requests`, this computer only); an entry for a market-data read also carries `route`, a short record of what answered it (stream, cache, a shared call, a live call or a stale value, with the source, its class and delay), built from the freshness labels the read already returned.
 
 **Market-data read** (`GET /v1/quotes?symbols=…`):
 
@@ -115,9 +116,13 @@ route (market) ─► symbols.resolve ─► streamHub.lastTick fresh enough? �
                                   freshness cache hit (≤ maxAgeMs)? ──yes──► item (source: cache)
                                         │ no
                                         ▼
-               accounts.marketDataCandidates ─► scheduler.pickAccount ─► batcher (≤ policy.maxQuoteBatch, ~25 ms window)
+               source router.select ─► candidates: broker accounts (accounts.marketDataCandidates: pooling consent, the key's accounts)
+                                        and, only when the read allows backup, enabled data sources
+                                        ─► at most two tried (failover is the retry)
+                                        ─► batcher (per consumer, ≤ policy.maxQuoteBatch, ~25 ms window)
                                         ─► scheduler.schedule({ class: "quote", priority: "interactive", coalesceKey })
                                         ─► adapter.fetchQuotes(creds, refs) ─► normalise ─► cache ─► item (source: broker)
+                                           or backupData.quotes(symbols, { sourceId }) ─► item (source: backup, class delayed or eod)
 ```
 
 **Order** (`POST /v1/orders`):
@@ -142,7 +147,7 @@ route (orders, scope paper) ─► validate body (zod) ─► idempotency check 
 
 - Accounts are declared in `bridge.config.json` (`accounts[]`): `id` (slug, the public handle), `broker` (adapter id or `paper`), `label`, `live`, `marketData.pooling`, `limits`. Credentials are **not** in the config: they are entered once (`POST /v1/accounts/{id}/session`, admin, loopback) and stored encrypted by SecretStore under `account:<id>`.
 - Many accounts of the same broker are fine (yours, your spouse's: SEBI's retail framework allows family use; each family member's account uses their own broker app and keys).
-- **Pinned vs pooled reads.** A request with `account=` is served only by that account. A request without it may be served by any account that has the capability, is connected, has `marketData.pooling: true`, names a `holder` (the same holder as the other pooled accounts), **and** whose broker policy says `pooling: "allowed"`. Default for both is off, so out of the box every read is served by the first connected capable account, and nothing is spread. Either way, only accounts the calling key may use are considered: a key limited to `["dhan-main"]` is served by `dhan-main` or not at all, never by another account's entitlement or rate budget.
+- **Pinned vs pooled reads.** A request with `account=` is served only by that account. A request without it may be served by any account that has the capability, is connected, has `marketData.pooling: true`, names a `holder` (the same holder as the other pooled accounts), whose broker policy says `pooling: "allowed"` (or `"unknown"` with the account's `poolingWhenTermsUnknown`), **and** that the owner has named in a pooling consent (`PUT /v1/pooling/consent`, admin, this computer only, versioned: a changed notice needs a new consent). Default is off, so out of the box every read is served by the first connected capable account, and nothing is spread. Either way, only accounts the calling key may use are considered: a key limited to `["dhan-main"]` is served by `dhan-main` or not at all, never by another account's entitlement or rate budget.
 - **Portfolio and orders are never pooled.** They always act on the named account.
 - **Keys can be limited to accounts** (`accounts: ["dhan-main"]`), so a key made for one tool cannot touch the family account.
 - **Paper.** Every account can trade paper (`mode: "paper"`, the default). A `broker: "paper"` account is a practice account with no broker of its own; it prices from pooled market data.
@@ -165,14 +170,18 @@ route (orders, scope paper) ─► validate body (zod) ─► idempotency check 
 
 - **Token buckets** per `(accountId, class)` with all three windows; a call needs a token from each window. Orders also pass SafetyGuard's own per-account cap (default 5/s, never above 10/s; place, modify and cancel all count), which is independent of the broker's limit.
 - **Priority queue** per account: `order` > `live` (stream recovery, OUTCOME_UNKNOWN reconciliation) > `interactive` (a client is waiting) > `background` (prefetch, masters). Waiting requests age upwards so background work is delayed, never starved. A request whose `signal` aborts leaves the queue.
+- **Fair queue.** Inside each lane, consumers (one per API key, one per background job) share the budget by weight (key kind: ui 4, mcp 2, excel 1, script 1, other 1; changeable per key) with start-time fair queueing, so a flood from one key waits behind other keys' requests. A consumer has a cap on queued requests and, while others wait, on in-flight calls; a full queue drops the newest request of the biggest consumer.
 - **Coalescing (singleflight).** Identical in-flight reads (`coalesceKey` = class + account + canonical args) share one broker call.
-- **Batching.** Quote and LTP requests arriving within a short window (about 25 ms) are merged up to `maxQuoteBatch` per adapter call.
+- **Batching.** Quote and LTP requests arriving within a short window (about 25 ms) are merged up to `maxQuoteBatch` per adapter call. A batch belongs to one consumer, because a batch is credited to whoever opened it: merging two consumers' symbols would make the light one wait in the heavy one's place. The cost is one extra call when two consumers ask for different symbols in the same window; the same symbol still shares the call in flight.
 - **Freshness cache.** Per-class targets (LTP 1 s, quotes 2 s, depth 1 s, chain 3 s, expiries 5 min, history 60 s for closed bars). Callers tighten with `maxAgeMs`. When the budget is exhausted the engine may serve the cached value **labelled `stale: true`** rather than queueing past the caller's deadline; portfolio and orders are never served stale.
 - **Streaming first.** If StreamHub has a live, fresh tick for a symbol, LTP and quotes come from it and cost no REST call. An option chain whose whole strike window is streamed is built from the ticks over the day's broker chain (previous OI from it), also with no REST call. Front ends and charts should subscribe rather than poll: the dashboard keeps one WebSocket per tab (`dashboard/live.js`) shared by every page.
 - **Pooled routing.** `pickAccount` chooses among eligible candidates by headroom, health and back-off state. Credentials never move between accounts; each call uses the chosen account's own session. A many-symbol unpinned quote read is split: `maxQuoteBatch` chunks go to the pooled account with the most spare quote budget (accounts in back-off or out of budget for longer than a second get none). Pooling at a broker whose policy is `unknown` needs the account's `marketData.poolingWhenTermsUnknown` as well; `not-allowed` is never pooled.
-- **Upstream back-off.** A broker 429 or rate-limit error (`UPSTREAM_RATE_LIMITED`) puts that `(account, class)` into back-off (Retry-After, else exponential from 1 s) and emits `limits.throttled`.
-- **Client limits.** Each API key has its own budget (default 50 requests/s, configurable in the `ratelimit` config section), reported in `RateLimit` / `RateLimit-Policy` headers and 429 + `Retry-After`.
-- **Observability.** `/v1/usage` shows used, queued and reset per class, every window (this second, this minute, today), two minutes of calls per second (`?series=1`), the calls saved by streaming, caching, coalescing and batching, and (admin keys) today's calls and saved calls per consumer: the dashboard page, API key label, MCP, compat or background job that caused them (`ratelimit/consumer.mjs`, AsyncLocalStorage).
+- **Upstream back-off and adaptive budget.** A broker 429 or rate-limit error (`UPSTREAM_RATE_LIMITED`) puts the whole budget pool of that account (the classes that share a bucket) into back-off (Retry-After, else exponential from 1 s, plus jitter) and emits `limits.throttled`. Each pool also has a scale below the policy ceiling that a throttle halves (floor 0.25) and clean minutes give back 5 percent at a time (additive increase, multiplicative decrease); three throttles in an hour hold it lower for a day. It never rises above the policy.
+- **Client quotas.** Each API key has a quota: a token bucket (default 50 requests/s), an optional daily cap, a weight and a cap on requests in flight. Defaults and per-key values are in the `ratelimit.client` config section; an admin can override one key at run time (`PUT /v1/quotas/{keyId}`, kept in `quotas.json`). Quotas are reported in `RateLimit` / `RateLimit-Policy` headers.
+- **Refusals say why.** Every 429 carries `scope` (`client`, `consumer-cap`, `queue`, `upstream`), `retryAfterMs` and `limit: { name, remaining, resetMs }`, so a client can tell its own quota from the broker's budget. `Retry-After` is the same wait in seconds with a little jitter.
+- **Observability.** `/v1/usage` shows used, queued and reset per class, every window (this second, this minute, today), two minutes of calls per second (`?series=1`), the calls saved by streaming, caching, coalescing and batching, and (admin keys) today's calls and saved calls per consumer: the dashboard page, API key label, MCP, compat or background job that caused them (`ratelimit/consumer.mjs`, AsyncLocalStorage). `GET /v1/limits?explain=1` adds the budget pools (spare room, scale, back-off) and the consumers in the queue with their shares, and `GET /v1/quotas` lists every key's quota and use. The dashboard's Sources page shows all of it.
+
+**Data sources and the router** (`sources/`, design in [sources-architecture.md](sources-architecture.md)). A source is a read-only provider with a descriptor (id, kind, tier, data class, delay, official, capabilities, limits, terms): the built-in free providers (Yahoo, Alpha Vantage, Twelve Data), the demo sources, and plugins the owner granted. All are off until the owner switches them on (`PATCH /v1/sources/{id}`; an opt-in source needs its notice acknowledged, a key-based one needs its key, which is kept in the secrets store and never returned). For a read that is not pinned, `router.select` builds candidates from the key's broker accounts and, only when the read allows backup (`?backup=true` or `sources.autoFallback`), the enabled sources. Hard filters come first: capability, data class against `purpose`, `maxAgeMs`, circuit breaker, deadline. Reads for `order`, `risk`, `paper` and `alert` accept only trusted real-time data. The rest are ordered by spare budget, error rate and latency, and at most two are tried. Streams and the cache always come first. Health is tracked per source with decaying averages; repeated hard failures eject a source for a cooldown that doubles up to five minutes, and a 429, an auth error or a not-found never trips it. `GET /v1/sources/trace` runs the same decision as a dry run. A plugin runs in its own process with brokered, allow-listed network access and a hash pin ([source-contract.md](source-contract.md)).
 
 **StreamHub.** One upstream feed per account (`adapter.createFeed`), reference-counted subscriptions across all local clients, upstream mode = the highest mode any client wants, broker caps enforced (a client gets `SUBSCRIPTION_LIMIT`, never a silent drop), reconnect with back-off, resubscribe after re-login. Downstream protocol (WS and SSE): `snapshot` on subscribe, then `tick` with a per-connection `seq`, `status` (upstream up, down or stale), `heartbeat` every 15 s, `go_away` before shutdown. Clients authenticate with a 60-second stream token from `POST /v1/stream/token` (so keys never sit in URLs) or an Authorization header. Message schemas are in `docs/asyncapi.yaml`.
 
@@ -278,7 +287,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 | Family use | A retail algo may be used by self, spouse, dependent children and dependent parents (CIR/2025/0000013, NSE/INVG/67858) **(needs verification: the exact family definition)** | Multi-account supports family accounts; no use by anyone else. Each account names its `holder`; market-data pooling never spreads reads across different holders, because each family member is a separate user under the brokers' personal-use terms |
 | Algo provider risk | Hosting the Bridge or strategies for other people, or selling signals, would likely make the operator an exchange-empanelled algo provider; black-box strategies may need Research Analyst registration | The Bridge ships no strategies, hosts nothing for others, and stays single-user **(legal review before any hosted offering)** |
 | AI-placed orders | No regulator or broker source covers AI agents placing orders; an AI order through the user's key is still an API algo order | Read-only by default; every AI order needs human confirmation; the audit log records the client (API key label and principal) and the exact order prepared and sent (`ticket.created`, `order.placed`). The Bridge never sees the user's prompt, so no prompt context is logged **(gray area)** |
-| Market data terms | Broker API terms generally forbid passing market data to others (Kite: personal use) | Personal-use notice; loopback; no multi-user or public data endpoints; pooling only across accounts with the same `holder`, only among accounts the calling key may use, and only where the broker policy allows **(needs verification per broker)** |
+| Market data terms | Broker API terms generally forbid passing market data to others (Kite: personal use) | Personal-use notice; loopback; no multi-user or public data endpoints; pooling only across accounts with the same `holder`, only among accounts the calling key may use, only where the broker policy allows, and only after the owner accepts a versioned notice that says no broker's published terms clearly allow or forbid it **(needs verification per broker)**. Free sources and plugins are labelled delayed or end of day, are never redistributed, and show the vendor's terms before they are switched on |
 
 ## 13. What we will not do
 
