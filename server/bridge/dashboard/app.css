@@ -41,17 +41,17 @@
   --on-status: 0 0% 100%;             /* text or glyph on a success, danger or warning fill */
   --on-danger: var(--on-status);
   --success: 145.7 67% 36.9%;
-  --success-ink: 145.5 70.2% 27.6%;
+  --success-ink: 145.5 70.2% 25%;
   --danger: 3.3 66.8% 51.6%;
   --danger-ink: 3.6 70.5% 41.2%;
   --warning: 35.5 71% 42%;
-  --warning-ink: 36.6 80.4% 30%;
+  --warning-ink: 36.6 85% 25%;
   --info: 229.4 81.4% 62%;
   --info-ink: 230.3 60.2% 51.8%;
 
   /* Label ladder over --foreground: --a-label (secondary, 5.5:1) and --a-quiet (tertiary, the 4.5:1 floor for text). */
   --a-label: 0.68;
-  --a-quiet: 0.6;
+  --a-quiet: 0.65;
   --label: hsl(var(--foreground));
   --label-2: hsl(var(--foreground) / var(--a-label));
   --label-3: hsl(var(--foreground) / var(--a-quiet));
@@ -218,7 +218,7 @@
 }
 @media (min-resolution: 2dppx) { :root { --hl: 0.5px; } }
 /* Touch and phones: bigger body text and 44px controls; wider gutters stay 16. */
-@media (pointer: coarse), (max-width: 759px) {
+@media (pointer: coarse), (max-width: 719px) {
   :root {
     --t-body: 400 17px/1.45 var(--font-body);
     --t-ui: var(--t-body);
@@ -227,11 +227,12 @@
     --t-table-head: 500 13px/1.3 var(--font-body);
     --field-h: 44px;
     --btn-h-default: 44px;
-    --btn-h-small: 36px;
-    --btn-h-xs: 30px;
+    --btn-h-small: 44px;
+    --btn-h-xs: 36px;
     --btn-h-lg: 52px;
     --btn-h-xl: 56px;
-    --ctl-h: 40px;
+    --ctl-h: 44px;
+    --page-tabs-h: 48px;
   }
 }
 @media (min-width: 720px) { :root { --card-pad: 20px; --panel-gap: 20px; } }
@@ -263,7 +264,7 @@
     --info: 231.3 100% 77.1%;
     --info-ink: 231.3 100% 80%;
     --a-label: 0.7;
-    --a-quiet: 0.58;
+    --a-quiet: 0.62;
     --fill-1: hsl(0 0% 100% / 0.05);
     --fill-2: hsl(0 0% 100% / 0.08);
     --fill-3: hsl(0 0% 100% / 0.13);
@@ -324,7 +325,7 @@
   --info: 231.3 100% 77.1%;
   --info-ink: 231.3 100% 80%;
   --a-label: 0.7;
-  --a-quiet: 0.58;
+  --a-quiet: 0.62;
   --fill-1: hsl(0 0% 100% / 0.05);
   --fill-2: hsl(0 0% 100% / 0.08);
   --fill-3: hsl(0 0% 100% / 0.13);
@@ -612,7 +613,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
   :where(button, .btn)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; }
 }
 :root[data-density="compact"] { --btn-h-default: 32px; --btn-h-small: 28px; --btn-h-xs: 24px; }
-@media (pointer: coarse) { :root[data-density="compact"] { --btn-h-default: 44px; --btn-h-small: 36px; --btn-h-xs: 30px; } }
+@media (pointer: coarse) { :root[data-density="compact"] { --btn-h-default: 44px; --btn-h-small: 44px; --btn-h-xs: 36px; } }
 
 /* ───────────────────────── 6 · FORMS ─────────────────────────
    input, select, textarea   gray-filled fields, radius 10, 40px (44 on touch). Focus: a 2px accent ring. Invalid:
@@ -662,6 +663,7 @@ label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; f
 .input-affix { position: relative; display: flex; align-items: center; min-width: 0; }
 .input-affix > input { padding-right: 44px; }
 .input-affix > .icon-btn { position: absolute; right: 6px; --btn-h: 28px; --btn-bg: transparent; color: var(--label-2); }
+@media (pointer: coarse), (max-width: 719px) { .input-affix > .icon-btn { right: 0; --btn-h: 44px; } .input-affix > input { padding-right: 48px; } }
 
 
 /* ───────────────────────── 7 · SEGMENTED CONTROLS, TABS, SWITCHES, CHECKS ─────────────────────────
@@ -710,7 +712,7 @@ label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; f
 .tabs button { flex: none; }
 div.field.seg-field .segmented { display: flex; width: 100%; }
 div.field.seg-field .segmented button { flex: 1 1 auto; min-width: 0; padding: 0 12px; white-space: nowrap; }
-@media (pointer: coarse) { .segmented button, .tabs button { min-height: 40px; } }
+@media (pointer: coarse), (max-width: 719px) { .segmented button, .tabs button { min-height: 44px; } }
 
 /* A page's tab strip: left-aligned, its panel gap below. */
 .page-tabs-row { display: flex; min-width: 0; }
@@ -725,7 +727,7 @@ button.chip-btn {
   --btn-h: 28px; --btn-px: 11px; --btn-fs: 12.5px; --btn-r: 999px; --btn-bg: transparent; --btn-bg-h: var(--fill-2); --btn-line: var(--separator); min-height: var(--btn-h); font-variant-numeric: tabular-nums; color: var(--label-2);
 }
 button.chip-btn[aria-pressed="true"][aria-pressed="true"] { --btn-bg: hsl(var(--accent) / 0.14); --btn-bg-h: hsl(var(--accent) / 0.2); --btn-line: hsl(var(--accent) / 0.35); color: hsl(var(--accent-ink)); font-weight: 600; }
-@media (pointer: coarse) { button.chip-btn { --btn-h: 36px; } }
+@media (pointer: coarse), (max-width: 719px) { button.chip-btn { --btn-h: 44px; } }
 
 /* Switch. */
 .switch { position: relative; flex: none; width: 44px; height: 26px; display: inline-block; }
@@ -1212,6 +1214,7 @@ html.title-collapsed .toolbar-title { opacity: 1; translate: 0 0; pointer-events
   --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 13px; --btn-bg: var(--fill-2); --btn-bg-h: var(--fill-3); --btn-r: 999px; --btn-fw: 500;
 }
 .toolbar .icon-btn { --btn-px: 0; }
+.toolbar button.toolbar-ready-btn { min-width: var(--ctl-h); }
 button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(var(--warning) / 0.14); --btn-bg-h: hsl(var(--warning) / 0.22); --btn-fw: 600; }
 .toolbar-demo i { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--warning)); }
 .toolbar-clock {
@@ -1227,10 +1230,14 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 @media (max-width: 420px) {
   .toolbar { gap: 6px; }
   .toolbar-actions { gap: 6px; }
+}
+/* The demo indicator keeps its word while the bar has room for it (390px and up). */
+@media (max-width: 389px) {
   button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; }
   .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-@media (max-width: 389px) {
+/* On a phone the compact bar is the page's icon and the controls; its name would be cut to "Acco…" beside them. */
+@media (max-width: 519px) {
   .toolbar-title > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 @media (max-width: 359px) {
@@ -1239,10 +1246,10 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
   .toolbar-actions { gap: 4px; }
   .toolbar-title { display: none; }
 }
-@media (pointer: coarse) { :root { --ctl-h: 40px; } .toolbar .icon-btn { --btn-h: 40px; } }
+@media (pointer: coarse) { :root { --ctl-h: 44px; } .toolbar .icon-btn { --btn-h: 44px; } }
 @media (pointer: coarse) and (max-width: 359px) { :root { --ctl-h: 36px; } .toolbar .icon-btn { --btn-h: 36px; } }
 :root[data-density="compact"] { --toolbar-h: 44px; --ctl-h: 32px; --page-tabs-h: 32px; --panel-head-h: 44px; --panel-gap: 14px; --card-pad: 14px; --th-py: 7px; --td-py: 7px; --cell-px: 12px; --list-row-h: 44px; --field-h: 36px; }
-@media (pointer: coarse) { :root[data-density="compact"] { --ctl-h: 40px; --toolbar-h: 52px; --field-h: 44px; } }
+@media (pointer: coarse) { :root[data-density="compact"] { --ctl-h: 44px; --toolbar-h: 56px; --field-h: 44px; } }
 
 /* Page header. */
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; margin: 0 0 20px; padding-top: 4px; }
@@ -1333,7 +1340,7 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 .login-note { margin: 0; font: var(--t-footnote); color: var(--label-3); text-align: center; text-wrap: balance; }
 .login-note code { font-size: 12px; }
 .skip-link {
-  position: fixed; top: max(10px, var(--safe-t)); left: 10px; z-index: var(--z-toast); padding: 10px 16px; border-radius: 999px;
+  position: fixed; top: max(10px, var(--safe-t)); left: 10px; z-index: var(--z-toast); display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 999px;
   background: hsl(var(--accent)); color: hsl(var(--on-accent)); font: 600 14px/1 var(--font-body); box-shadow: var(--shadow-3);
   transform: translateY(-160%); transition: transform 160ms var(--ease-out);
 }
@@ -1893,6 +1900,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ob-order .c-status, .ob-headrow .c-status, .ob-trade .c-order, .ob-headrow .c-order { padding-left: 14px; }
 .c-act { align-items: center; }
 .c-act .ob-more { --btn-bg: transparent; color: var(--label-2); }
+@media (pointer: coarse), (max-width: 719px) { .c-act .ob-more { --btn-h: 44px; } }
 .ob-why { grid-column: 2 / 7; display: flex; gap: 8px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--fill-1); font: var(--t-subhead); }
 .ob-why svg { width: 16px; height: 16px; margin-top: 1px; flex: none; color: var(--label-3); }
 .ob-why p { margin: 0; overflow-wrap: anywhere; }
