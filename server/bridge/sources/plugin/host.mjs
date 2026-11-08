@@ -335,9 +335,9 @@ export function createPluginHost({
       else if (errBytes - chunk.length <= MAX_STDERR_BYTES) log("warn", "stderr: further output dropped");
     });
 
-    send(c, proto.hello(hostVersion));
     c.readyTimer = setTimeout(() => kill("did not become ready in time"), readyTimeoutMs);
     c.readyTimer.unref?.();
+    send(c, proto.hello(hostVersion));
     c.heartbeat = setInterval(() => {
       if (!c.ready || c.exited) return;
       if (c.pingOutstanding) {
@@ -364,7 +364,7 @@ export function createPluginHost({
       await spawning;
     }
     const c = child;
-    if (!c) throw unavailable(`Plugin ${id} is not running`);
+    if (!c) throw unavailable(disabledReason ? `Plugin ${id} is disabled: ${disabledReason}` : `Plugin ${id} is not running`);
     await c.readyPromise;
     return c;
   }
