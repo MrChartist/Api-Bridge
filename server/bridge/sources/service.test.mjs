@@ -135,7 +135,7 @@ describe("management: enabling rules", () => {
 
   it("an opt-in source needs acknowledge equal to its noticeVersion and records the consent", async () => {
     const { svc, t, dataDir } = setup();
-    await expect(svc.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "CONFIRMATION_REQUIRED", status: 422 });
+    await expect(svc.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "VALIDATION_FAILED", status: 400 });
     await expect(svc.setEnabled("slow-src", true, { acknowledge: "other" })).rejects.toMatchObject({ code: "VALIDATION_FAILED", status: 400 });
     await expect(svc.setEnabled("slow-src", true)).rejects.toThrow(/acknowledge: "n-1"/);
     expect(svc.describe("slow-src").enabled).toBe(false);
@@ -161,7 +161,7 @@ describe("management: enabling rules", () => {
     await svc.setEnabled("slow-src", true, { acknowledge: "n-1" });
     registry.get("slow-src").descriptor.noticeVersion = "n-2";
     expect(svc.describe("slow-src").enabled).toBe(false);
-    await expect(svc.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "CONFIRMATION_REQUIRED" });
+    await expect(svc.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     expect((await svc.setEnabled("slow-src", true, { acknowledge: "n-2" })).enabled).toBe(true);
   });
 

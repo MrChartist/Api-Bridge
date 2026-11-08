@@ -720,8 +720,8 @@ paths:
       summary: Switch a data source on or off
       description: |
         Disabling always works. Enabling needs the source to be configured (a BYOK source needs its key first; 409
-        otherwise) and, for an opt-in source, `acknowledge` equal to its `noticeVersion` (422 `CONFIRMATION_REQUIRED`
-        without it, 400 when it does not match). The acknowledgement is stored with the time it was given.
+        otherwise) and, for an opt-in source, `acknowledge` equal to its `noticeVersion` (400 `VALIDATION_FAILED` naming the
+        notice version when it is missing or does not match). The acknowledgement is stored with the time it was given.
       x-stream: S12
       x-scope: admin
       x-loopback-only: true

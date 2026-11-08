@@ -112,8 +112,8 @@ describe("sources module in demo mode", () => {
 
   it("enabling an opt-in source without the acknowledgement is a 4xx with a clear message", async () => {
     const none = await env.call("/v1/sources/demo-delayed", { method: "PATCH", body: { enabled: true } });
-    expect(none.status).toBe(422);
-    expect(none.json).toMatchObject({ code: "CONFIRMATION_REQUIRED" });
+    expect(none.status).toBe(400);
+    expect(none.json).toMatchObject({ code: "VALIDATION_FAILED" });
     expect(none.json.detail).toMatch(/acknowledge: "demo-1"/);
     const wrong = await env.call("/v1/sources/demo-delayed", { method: "PATCH", body: { enabled: true, acknowledge: "nope" } });
     expect(wrong.status).toBe(400);

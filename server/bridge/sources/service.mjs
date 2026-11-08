@@ -212,7 +212,7 @@ export function createSourcesService(deps) {
         throw problem("VALIDATION_FAILED", `acknowledge must equal the notice version "${d.noticeVersion}" shown with ${d.name}.`, { errors: [{ path: "acknowledge", message: `must equal "${d.noticeVersion}"` }] });
       }
       if (acknowledge === undefined && !have) {
-        throw problem("CONFIRMATION_REQUIRED", `${d.name} needs your acknowledgement first: ${d.terms?.note ?? "it is unofficial or terms-sensitive"} Send acknowledge: "${d.noticeVersion}" once you have read the notice.`, { errors: [{ path: "acknowledge", message: `required: "${d.noticeVersion}"` }] });
+        throw problem("VALIDATION_FAILED", `${d.name} needs your acknowledgement first: ${d.terms?.note ?? "it is unofficial or terms-sensitive"} Send acknowledge: "${d.noticeVersion}" once you have read the notice.`, { errors: [{ path: "acknowledge", message: `required: "${d.noticeVersion}"` }] });
       }
       if (acknowledge === d.noticeVersion) patch.consent = { acceptedAt: new Date(nowMs()).toISOString(), noticeVersion: d.noticeVersion };
     }
