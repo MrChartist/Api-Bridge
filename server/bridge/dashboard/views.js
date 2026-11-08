@@ -276,6 +276,8 @@ export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {})
   }
   const [pageId, tabId] = path.split("/");
   const page = pages.find((p) => p.id === pageId) ?? pages[0];
+  // A page that does not exist shows the first page under its own address, not under the stale one.
+  if (pageId && !pages.some((p) => p.id === pageId)) redirect = `#/${pages[0].id}`;
   let tab = null;
   if (page.tabs?.length) {
     const find = (id) => (id ? page.tabs.find((t) => t.id === id) : undefined);
