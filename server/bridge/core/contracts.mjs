@@ -358,17 +358,20 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * BackupDataService. Free public market data (Yahoo Finance chart API, NSE India website JSON) for when no
-   * broker account can answer. Off unless config.backup.enabled; always off in demo mode. Per-provider pacing and a
-   * circuit breaker; every result names its provider and the provider's own timestamp.
-   *  quotes(symbols: string[], { maxAgeMs? }) -> Promise<{ items: Array<{ symbol, fields, at, provider }>, errors }>   cash and index only
-   *  history({ symbol, interval, fromMs, toMs }) -> Promise<{ symbol, interval, candles, partial, provider, at }>
-   *  expiries(underlying) -> Promise<{ underlying, expiries: string[], provider, at }>   NSE derivatives
-   *  optionChain(underlying, expiry) -> Promise<{ underlying, expiry, rows, underlyingLtp, provider, at }>   legs without greeks
+   * BackupDataService, provided by the sources module (server/bridge/sources/). Market data from sources other than the
+   * user's own broker accounts, for when no broker account can answer: the enabled, configured, non-broker sources in
+   * the source registry. Every answer names its source in `provider` and carries `class` (realtime|delayed|eod),
+   * `delaySec` and `official`, so callers label it honestly. Orders, risk checks, paper fills and alerts never get
+   * anything but a realtime source. The same service also has the management API (list, describe, setEnabled,
+   * setConfig, test, consentFor) used by the /v1/sources routes.
+   *  quotes(symbols: string[], { maxAgeMs?, purpose?, signal? }) -> Promise<{ items: Array<{ symbol, fields, at, provider, class, delaySec, official }>, errors: Array<{ symbol, code, message }> }>   cash and index only
+   *  history({ symbol, interval, fromMs, toMs }) -> Promise<{ symbol, interval, candles, partial, provider, at, class, delaySec, official }>
+   *  expiries(underlying) -> Promise<{ underlying, expiries: string[], provider, at, class, delaySec, official }>
+   *  optionChain(underlying, expiry) -> Promise<{ underlying, expiry, rows, underlyingLtp, provider, at, class, delaySec, official }>   legs without greeks
    *  status() -> { enabled, autoFallback, providers: [...], order, cacheMs }
-   *  Extra: autoFallback() -> boolean
+   *  autoFallback() -> boolean
    */
-  backupData: { iface: "BackupDataService", stream: "S12", requires: [], methods: ["quotes", "history", "expiries", "optionChain", "status"] },
+  backupData: { iface: "BackupDataService", stream: "S12", requires: ["secrets"], methods: ["quotes", "history", "expiries", "optionChain", "status", "autoFallback"] },
 
   /**
    * MarketDataService. Streaming-first, then freshness cache, then a scheduled broker call (batched and coalesced),
@@ -487,7 +490,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
  * API Bridge v2 has no provider for these contract services (they are not part of v2). Kept code may still list
  * them in `requires`; they resolve to stubs. Health, doctor and the module tests skip them.
  */
-export const SERVICES_NOT_IN_V2 = Object.freeze(["reference", "participants", "vol", "recorder", "backupData"]);
+export const SERVICES_NOT_IN_V2 = Object.freeze(["reference", "participants", "vol", "recorder"]);
 
 export const CORE_DEPS = Object.freeze(["config", "logger", "bus", "clock", "paths", "brokers"]);
 

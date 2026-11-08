@@ -109,6 +109,8 @@ tags:
     description: Python strategies from the strategies folder, run by the Bridge with a key per run. Paper by default; every order passes the Bridge's safety gates.
   - name: Limits
     description: Broker limits, budgets and usage.
+  - name: Sources
+    description: Market-data sources beyond your own broker accounts (free delayed or end-of-day data), their switches, keys, limits and health. Every answer from one is labelled with its data class.
   - name: Safety
     description: Kill switch, safety counters and the audit log.
   - name: Readiness
@@ -676,6 +678,150 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/LimitsReport" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources:
+    get:
+      tags: [Sources]
+      operationId: listSources
+      summary: Every data source with its state, limits, usage and health
+      description: |
+        Your broker accounts' own source (`kind: broker`) and every other source. `class` is realtime, delayed or eod;
+        `official` is true only for the data owner's or your broker's own documented API. `usage` counts calls this
+        minute and today. A source is `enabled` only when it is configured (a key saved, for a BYOK source) and, for an
+        opt-in source, its notice (`noticeVersion`) was acknowledged. No answer here ever holds an API key.
+      x-stream: S12
+      x-scope: read
+      responses:
+        "200":
+          description: The sources, in registration order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Source" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
+    patch:
+      tags: [Sources]
+      operationId: updateSource
+      summary: Switch a data source on or off
+      description: |
+        Disabling always works. Enabling needs the source to be configured (a BYOK source needs its key first; 409
+        otherwise) and, for an opt-in source, `acknowledge` equal to its `noticeVersion` (422 `CONFIRMATION_REQUIRED`
+        without it, 400 when it does not match). The acknowledgement is stored with the time it was given.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+                acknowledge: { type: string, description: "The noticeVersion of the source, once the person has read its notice." }
+      responses:
+        "200":
+          description: The source, as `data` (its fields are repeated at the top level).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Source" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/{id}/config:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
+    put:
+      tags: [Sources]
+      operationId: configureSource
+      summary: Save the API key of a data source (this computer only)
+      description: The key goes to the encrypted secrets store under `source:<id>`. It is never returned, logged or kept in the state file. `apiKey` null removes it and switches the source off.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apiKey]
+              additionalProperties: false
+              properties:
+                apiKey: { type: [string, "null"], minLength: 4, maxLength: 512 }
+      responses:
+        "200":
+          description: Whether the source is configured now. The key is never echoed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [configured]
+                    properties:
+                      configured: { type: boolean }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/{id}/test:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
+    post:
+      tags: [Sources]
+      operationId: testSource
+      summary: Ask a data source to prove it works
+      description: Calls the source's own test once, with the usual timeout. A failure is an answer (`ok` false with a short `detail`), not an error status.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The result, as `data` (its fields are repeated at the top level).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [ok, latencyMs]
+                    properties:
+                      ok: { type: boolean }
+                      latencyMs: { type: integer, minimum: 0 }
+                      detail: { type: string }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -5020,6 +5166,37 @@ components:
         ordersToday: { type: integer }
         funds: { $ref: "#/components/schemas/Funds" }
         fillModel: { type: string, description: "Short description of how paper fills are simulated." }
+
+    Source:
+      type: object
+      description: One market-data source. Never holds an API key.
+      required: [id, name, kind, tier, enabled, configured, class, delaySec, official, capabilities, limits, usage, health, needsKey, consent]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [broker, free, plugin] }
+        tier: { type: string, enum: [builtin, byok, opt-in, plugin], description: "builtin = your own broker accounts; byok = you hold the vendor key; opt-in = unofficial or terms-sensitive, needs an acknowledgement; plugin = third-party code you granted." }
+        enabled: { type: boolean, description: "On now: configured, acknowledged where needed, and switched on." }
+        configured: { type: boolean, description: "A BYOK source has its key." }
+        class: { type: string, enum: [realtime, delayed, eod] }
+        delaySec: { type: [integer, "null"] }
+        official: { type: boolean }
+        capabilities: { type: array, items: { type: string, enum: [quotes, history, expiries, optionChain] } }
+        limits: { type: object, properties: { perSecond: { type: number }, perMinute: { type: number }, perDay: { type: number } } }
+        usage: { type: object, required: [lastMinute, today], properties: { lastMinute: { type: integer }, today: { type: integer } } }
+        health:
+          type: object
+          required: [state, errorRate, p50Ms, lastError, nextTryAt]
+          properties:
+            state: { type: string, enum: [ok, degraded, open, disabled] }
+            errorRate: { type: number }
+            p50Ms: { type: [number, "null"] }
+            lastError: { type: [string, "null"] }
+            nextTryAt: { type: [string, integer, "null"] }
+        terms: { type: [object, "null"], properties: { url: { type: string }, note: { type: string } } }
+        noticeVersion: { type: string, description: "Opt-in sources: send this as `acknowledge` to switch the source on." }
+        needsKey: { type: boolean }
+        consent: { type: [object, "null"], properties: { acceptedAt: { type: string, format: date-time }, noticeVersion: { type: string } } }
 
     LimitsReport:
       type: object
