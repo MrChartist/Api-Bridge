@@ -160,7 +160,7 @@ export function brokerSetupSteps(broker, spec, { demo = false } = {}) {
       fields: saved,
     },
   ];
-  if (demo) steps.push({ title: "Start the Bridge normally", text: "Close the Bridge window, then open Mr Chartist Bridge again from the Start menu or the Desktop." });
+  if (demo) steps.push({ title: "Start the Bridge normally", text: "Close the Bridge window, then open API Bridge again from the Start menu or the Desktop." });
   steps.push({
     title: `Log in on Accounts`,
     text: `Press Log in next to ${name} and type the details above. They are saved, encrypted, on this computer only.${once.length ? ` Each login also asks for: ${once.join(", ")} (used once, never saved).` : ""}`,
@@ -176,9 +176,9 @@ export function brokerSetupSteps(broker, spec, { demo = false } = {}) {
  */
 export function afterDemoSaveSteps(r, brokerName = "your broker") {
   const steps = ["Close this Bridge window (or press Ctrl+C in it)."];
-  if (r?.demoTurnedOff) steps.push("Open Mr Chartist Bridge again from the Start menu or the Desktop. It starts normally now.");
+  if (r?.demoTurnedOff) steps.push("Open API Bridge again from the Start menu or the Desktop. It starts normally now.");
   else if (r?.demoWasInFile) steps.push(`Demo mode is still on in ${r.configFile ?? "your config file"}. Delete the line "demo": true there, then start the Bridge again.`);
-  else steps.push("Start the Bridge again without demo mode: open Mr Chartist Bridge from the Start menu, or run it without --demo.");
+  else steps.push("Start the Bridge again without demo mode: open API Bridge from the Start menu, or run it without --demo.");
   steps.push(`Open Accounts and press Log in next to ${brokerName}.`);
   return steps;
 }

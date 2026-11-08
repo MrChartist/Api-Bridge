@@ -17,7 +17,7 @@ export function workbookSheets({ host, watchlist = null, positions = [], madeAt 
     name: "Setup",
     widths: [22, 70],
     rows: [
-      ["Mr. Chartist API Bridge", "Live workbook"],
+      ["API Bridge", "Live workbook"],
       ["Bridge", host],
       ["BridgeKey", ""],
       ["", "Paste a read-only API key in B3 (API › Keys › Create, for Excel). This cell is named BridgeKey; every formula reads it."],

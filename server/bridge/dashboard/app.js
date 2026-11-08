@@ -1,4 +1,4 @@
-// Mr. Chartist API Bridge — local dashboard. Talks only to this Bridge (same origin). The API key lives in
+// API Bridge: the local dashboard. Talks only to this Bridge (same origin). The API key lives in
 // sessionStorage for this tab and is sent as a Bearer header; it is never put in a URL.
 // Opened from `mc-bridge start --open` or `mc-bridge open`, the URL carries a one-time sign-in code in its fragment
 // (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
@@ -477,58 +477,72 @@ export function h(tag, attrs, ...children) {
   return e;
 }
 
-/** Icons: small stroked SVGs (static strings from this file). */
+/**
+ * Icons: one outline set on a 24px grid, drawn originally for this dashboard: 1.75px stroke, round caps and joins,
+ * no fills (a dot is a zero-length round-capped stroke). `icon(name)` returns an <svg class="ic"> that takes its colour
+ * from the text (currentColor); app.css sets its size in each place. The static strings below are the only markup.
+ */
 export const ICONS = {
-  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/>',
-  accounts: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
-  console: '<rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="m6.5 9 3 3-3 3"/><path d="M12 15h5"/>',
-  limits: '<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/><circle cx="12" cy="14" r="1.5"/>',
-  orders: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
-  keys: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m15 8 2 2"/>',
-  integrations: '<path d="M9 7H6a3 3 0 0 0 0 6h3"/><path d="M15 7h3a3 3 0 0 1 0 6h-3"/><path d="M8 10h8"/><path d="M12 13v8"/>',
-  safety: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
-  activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
-  check: '<path d="m5 12 5 5 9-10"/>',
-  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
-  play: '<path d="M7 4v16l13-8z"/>',
-  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
-  power: '<path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
-  warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
-  plug: '<path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/>',
-  inbox: '<path d="M3 13h5l2 3h4l2-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/>',
-  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
-  external: '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v6H4V5h6"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  moon: '<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>',
-  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
-  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
-  chevron: '<path d="m9 6 6 6-6 6"/>',
-  close: '<path d="M6 6l12 12M18 6 6 18"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
-  logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
-  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
-  wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><circle cx="16" cy="15" r="1.2"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
-  grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
-  up: '<path d="m6 15 6-6 6 6"/>',
-  down: '<path d="m6 9 6 6 6-6"/>',
-  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
-  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
-  scale: '<path d="M12 4v16M5 20h14M4 8h16"/><path d="m4 8-2.5 6h5zM20 8l-2.5 6h5z"/>',
-  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
-  people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.3c3 .2 5.5 2.3 5.5 5.7"/>',
-  download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
-  sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m15 10-2 2 2 2"/>',
-  rail: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m13 10 2 2-2 2"/>',
-  density: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
+  bridge: '<path d="M2.5 17h19"/><path d="M7 4v13M17 4v13"/><path d="M7 4.5c1.6 8.5 8.4 8.5 10 0"/><path d="M2.5 11.5 7 4.5M21.5 11.5 17 4.5"/>',
+  home: '<path d="M4 10.8 12 4.2l8 6.6V19a1 1 0 0 1-1 1h-4v-5.5H9V20H5a1 1 0 0 1-1-1z"/>',
+  accounts: '<rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10.8" r="2"/><path d="M5.8 16c.7-1.5 1.9-2.2 3.2-2.2s2.5.7 3.2 2.2"/><path d="M15 10h3.2M15 13.6h3.2"/>',
+  console: '<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="m7.5 10 3 2.5-3 2.5"/><path d="M13 15h3.5"/>',
+  limits: '<path d="M4.6 17.2a8.2 8.2 0 1 1 14.8 0"/><path d="M12 13.2 15.2 9"/><path d="M12 13.2h.01" stroke-width="3"/>',
+  orders: '<rect x="5" y="3.5" width="14" height="17" rx="3"/><path d="M9 9h6M9 12.5h6M9 16h3.5"/>',
+  keys: '<circle cx="8" cy="15.5" r="3.6"/><path d="m10.6 12.9 8.4-8.4"/><path d="m16 7.5 2.5 2.5"/><path d="m13.4 10.1 1.8 1.8"/>',
+  integrations: '<path d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-.9.9"/><path d="M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l.9-.9"/>',
+  safety: '<path d="M12 3.5 5 6v5.6c0 4.1 2.8 7.3 7 8.9 4.2-1.6 7-4.8 7-8.9V6z"/><path d="m9 12 2.2 2.2 4.1-4.2"/>',
+  activity: '<path d="M3 12h3.6l2.4-6 4 12 2.4-6H21"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.6"/><path d="M15.5 8.5V7A2.5 2.5 0 0 0 13 4.5H7A2.5 2.5 0 0 0 4.5 7v6A2.5 2.5 0 0 0 7 15.5h1.5"/>',
+  play: '<path d="M8 6v12a.9.9 0 0 0 1.4.8l9.3-6a.9.9 0 0 0 0-1.5l-9.3-6A.9.9 0 0 0 8 6z"/>',
+  refresh: '<path d="M18.6 12.2a6.6 6.6 0 1 1-1.9-4.7"/><path d="M17.4 3.8v3.9h-3.9"/>',
+  plus: '<path d="M12 5.5v13M5.5 12h13"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2.8"/>',
+  power: '<path d="M12 3.5v8"/><path d="M7.2 6.9a7.5 7.5 0 1 0 9.6 0"/>',
+  info: '<circle cx="12" cy="12" r="8.8"/><path d="M12 11.2v5"/><path d="M12 7.9h.01" stroke-width="2.4"/>',
+  warn: '<path d="M10.3 4.7 3 17.3a2 2 0 0 0 1.7 3h14.6a2 2 0 0 0 1.7-3L13.7 4.7a2 2 0 0 0-3.4 0z"/><path d="M12 9.6v3.9"/><path d="M12 16.8h.01" stroke-width="2.4"/>',
+  plug: '<path d="M9 3.5v4M15 3.5v4"/><path d="M6.5 7.5h11V11a5.5 5.5 0 0 1-11 0z"/><path d="M12 16.5V21"/>',
+  inbox: '<path d="m3.6 13.5 2.4-7.7a2 2 0 0 1 1.9-1.3h8.2a2 2 0 0 1 1.9 1.3l2.4 7.7"/><path d="M3.6 13.5V18a2 2 0 0 0 2 2h12.8a2 2 0 0 0 2-2v-4.5H15l-1 2H10l-1-2z"/>',
+  bolt: '<path d="M13.2 3 5 13.6h6L10.8 21 19 10.4h-6z"/>',
+  external: '<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M18 14v3.5a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2H10"/>',
+  sun: '<circle cx="12" cy="12" r="3.8"/><path d="M12 3.5v1.7M12 18.8v1.7M3.5 12h1.7M18.8 12h1.7M6 6l1.2 1.2M16.8 16.8 18 18M6 18l1.2-1.2M16.8 7.2 18 6"/>',
+  moon: '<path d="M19.5 14.4A8 8 0 0 1 9.6 4.5a8 8 0 1 0 9.9 9.9z"/>',
+  monitor: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2.6"/><path d="M8.5 20h7M12 16v4"/>',
+  more: '<path d="M5.5 12h.01M12 12h.01M18.5 12h.01" stroke-width="3"/>',
+  chevron: '<path d="m9.5 6 6 6-6 6"/>',
+  close: '<path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/>',
+  search: '<circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.5 4.5"/>',
+  logout: '<path d="M10 4.5H7A2.5 2.5 0 0 0 4.5 7v10A2.5 2.5 0 0 0 7 19.5h3"/><path d="m15 8 4 4-4 4"/><path d="M19 12H9.5"/>',
+  chart: '<path d="M4 4.5V18a2 2 0 0 0 2 2h14"/><path d="m8 14.5 3.5-4 3 2.5 4.5-6"/>',
+  wallet: '<rect x="3.5" y="6.5" width="17" height="12.5" rx="3"/><path d="M20.5 11.5h-4a2 2 0 0 0 0 4h4"/><path d="M16.8 13.5h.01" stroke-width="2.4"/>',
+  clock: '<circle cx="12" cy="12" r="8.8"/><path d="M12 7.5V12l3 2"/>',
+  list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="3"/>',
+  grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3"/>',
+  up: '<path d="m6.5 14.5 5.5-5.5 5.5 5.5"/>',
+  down: '<path d="m6.5 9.5 5.5 5.5 5.5-5.5"/>',
+  expand: '<path d="M4.5 9.5v-3a2 2 0 0 1 2-2h3M19.5 9.5v-3a2 2 0 0 0-2-2h-3M4.5 14.5v3a2 2 0 0 0 2 2h3M19.5 14.5v3a2 2 0 0 1-2 2h-3"/>',
+  shrink: '<path d="M9.5 4.5v3a2 2 0 0 1-2 2h-3M14.5 4.5v3a2 2 0 0 0 2 2h3M9.5 19.5v-3a2 2 0 0 0-2-2h-3M14.5 19.5v-3a2 2 0 0 1 2-2h3"/>',
+  scale: '<path d="M12 4.5v15M7 19.5h10M5 7.5h14"/><path d="m5 7.5-2.5 6a2.5 2.5 0 0 0 5 0zM19 7.5l-2.5 6a2.5 2.5 0 0 0 5 0z"/>',
+  columns: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.2 4.5v15M14.8 4.5v15"/>',
+  people: '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19.5c.4-3.2 2.7-5 5.5-5s5.1 1.8 5.5 5"/><circle cx="17.5" cy="9.5" r="2.3"/><path d="M16 14.8c2.4.1 4.1 1.6 4.5 4.2"/>',
+  user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.5-3.8 3.4-6 7-6s6.5 2.2 7 6"/>',
+  download: '<path d="M12 4.5v10M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
+  sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="3.5"/><path d="M9.5 4.5v15"/><path d="m16 9.5-2.5 2.5 2.5 2.5"/>',
+  rail: '<rect x="3.5" y="4.5" width="17" height="15" rx="3.5"/><path d="M9.5 4.5v15"/><path d="m13.5 9.5 2.5 2.5-2.5 2.5"/>',
+  density: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M9.9 5.7A9.4 9.4 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.5 3.3M6.5 7.3C3.9 9.1 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3-.4 4.3-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m4 4 16 16"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.8"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+  help: '<circle cx="12" cy="12" r="8.8"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1.1 1-1.1 1.8"/><path d="M12 16.9h.01" stroke-width="2.4"/>',
+  trash: '<path d="M4.5 7h15M9.5 7V5.2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7M6.5 7l.8 11.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v5M14 11v5"/>',
+  arrow: '<path d="M5 12h14M13.5 6.5 19 12l-5.5 5.5"/>',
 };
+/** An <svg class="ic"> for `name` (see ICONS). Its size and colour come from the surrounding CSS (app.css 4). */
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   s.setAttribute("viewBox", "0 0 24 24");
+  s.setAttribute("class", "ic");
   s.setAttribute("aria-hidden", "true");
   s.setAttribute("focusable", "false");
   s.innerHTML = ICONS[name] ?? "";
@@ -536,8 +550,8 @@ export function icon(name) {
 }
 
 /**
- * The coloured squircle behind an icon (Settings-style). `tint` is an iOS system colour name
- * (blue, green, red, orange, indigo, purple, pink, teal, mint, gray); `size` is "sm" (28), "md" (32) or "lg" (44).
+ * The coloured squircle behind an icon (Settings-style). `tint` is a tile hue (blue, green, red, orange, teal, indigo,
+ * purple, pink, gray); `size` is "sm" (26), "md" (32) or "lg" (44).
  */
 export function iconTile(name, tint = "blue", size = "md") {
   return h("span", { class: `icon-tile tint-${tint} tile-${size}`, "aria-hidden": "true" }, icon(name));
@@ -725,6 +739,23 @@ export function emptyState(iconName, title, text, action, { compact = false } = 
   );
 }
 
+/**
+ * A loading placeholder for a card: a head line and `lines` shimmering text lines (class names in app.css 8). Pages may
+ * return it while they wait; the router shows pageSkeleton() itself until a page has drawn.
+ */
+export function skeletonCard(lines = 3) {
+  return h(
+    "div",
+    { class: "card skel-card", "aria-hidden": "true" },
+    h("div", { class: "skel-head" }, h("span", { class: "skel-circle" }), h("span", { class: "skel-title" })),
+    Array.from({ length: lines }, (_, i) => h("span", { class: i === lines - 1 ? "skel-line short" : i === 0 ? "skel-line" : "skel-line mid" })),
+  );
+}
+/** The page placeholder: two skeleton cards. Announced once as "Loading" for screen readers. */
+export function pageSkeleton() {
+  return h("div", { class: "page-skeleton" }, h("span", { class: "sr-only", role: "status" }, "Loading…"), skeletonCard(3), skeletonCard(4));
+}
+
 const mm = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
 
 /** The one demo indicator's explanation (the toolbar's "Demo" and the phone ⋯ badge). */
@@ -864,7 +895,7 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
 
 export function alertBox(err, cls = "bad") {
   const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err), detail: err?.detail ?? "" };
-  return h("div", { class: `alert ${cls}`, role: "alert" }, icon(cls === "info" ? "info" : "warn"), h("div", {}, h("strong", {}, f.title), f.detail ? h("span", { class: "detail" }, f.detail) : null));
+  return h("div", { class: `alert ${cls}`, role: "alert" }, icon(cls === "info" ? "info" : cls === "ok" ? "check" : "warn"), h("div", {}, h("strong", {}, f.title), f.detail ? h("span", { class: "detail" }, f.detail) : null));
 }
 
 /**
@@ -1424,6 +1455,21 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     else if (t?.closest?.("#sb-toggle")) toggleSidebarRail();
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
     revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
+  });
+  // Sign-in: the show / hide button on the key field, and the copy buttons beside the setup commands.
+  document.querySelector(".login-cmds")?.addEventListener("click", (e) => {
+    const b = /** @type {Element} */ (e.target)?.closest?.("[data-copy]");
+    if (b) copyText(/** @type {HTMLElement} */ (b).dataset.copy ?? "");
+  });
+  document.getElementById("key-toggle")?.addEventListener("click", (e) => {
+    const input = document.getElementById("key-input");
+    const btn = /** @type {HTMLElement} */ (e.currentTarget);
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.setAttribute("aria-pressed", String(show));
+    btn.setAttribute("aria-label", show ? "Hide key" : "Show key");
+    btn.replaceChildren(icon(show ? "eyeoff" : "eye"));
+    input.focus();
   });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();

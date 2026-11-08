@@ -87,7 +87,7 @@ describe("dashboard number format", () => {
   });
 });
 
-/** Every dashboard script that is not vendored (motion.min.js), minus `except`. */
+/** Every dashboard script, minus `except`. */
 function sourceFiles(except = []) {
-  return readdirSync(new URL(".", import.meta.url)).filter((f) => f.endsWith(".js") && !f.endsWith(".min.js") && !except.includes(f));
+  return readdirSync(new URL(".", import.meta.url)).filter((f) => f.endsWith(".js") && !except.includes(f));
 }

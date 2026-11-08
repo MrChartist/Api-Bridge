@@ -13,7 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
 const tsc = join(root, "node_modules", ".bin", "tsc");
 const files = readdirSync(here)
-  .filter((f) => f.endsWith(".js") && !f.endsWith(".min.js"))
+  .filter((f) => f.endsWith(".js"))
   .map((f) => join("server", "bridge", "dashboard", f));
 
 describe("dashboard modules", () => {

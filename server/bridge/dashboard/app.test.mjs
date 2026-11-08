@@ -230,7 +230,7 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
   it("has 4 pages in two groups, in the order of the sidebar", () => {
     expect(PAGES.map((p) => p.id)).toEqual(["accounts", "api", "orders", "safety"]);
     expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["Bridge", "Trade"]);
-    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["orders"]);
+    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["accounts", "api", "orders", "safety"]);
     expect(PAGES.find((p) => p.id === "orders").title).toBe("Orders");
   });
 

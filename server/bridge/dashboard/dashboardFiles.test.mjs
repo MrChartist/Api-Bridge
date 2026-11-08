@@ -15,7 +15,7 @@ function loadedFiles() {
     const f = queue.pop();
     if (seen.has(f) || !/\.(js|css|svg)$/.test(f) || !existsSync(resolve(here, f))) continue;
     seen.add(f);
-    if (f.endsWith(".js") && !f.endsWith(".min.js")) for (const m of read(f).matchAll(/(?:from |import\()"\.\/([^"]+)"/g)) queue.push(m[1]);
+    if (f.endsWith(".js")) for (const m of read(f).matchAll(/(?:from |import\()"\.\/([^"]+)"/g)) queue.push(m[1]);
   }
   return seen;
 }
