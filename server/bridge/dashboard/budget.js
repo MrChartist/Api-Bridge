@@ -6,6 +6,7 @@
 
 import { h, sheetPopover } from "./app.js";
 import { DASH, formatInt } from "./format.js";
+import { countTo, patchList, setAttr, setClass, setText } from "./motion.js";
 
 /** Tone of a window by how full it is: "ok" below 70 %, "warn" to 90 %, "bad" above. */
 export function shareTone(used, limit) {
@@ -18,14 +19,30 @@ export function shareTone(used, limit) {
 export const windowText = (w) => (w && w.limit > 0 ? `${formatInt(w.used)}/${formatInt(w.limit)}` : DASH);
 
 /**
- * A window as "3/10 s" with the used count in a box as wide as the limit's digits (tabular figures, right-aligned), so
- * the chip and the rows never change width as the count moves from 9 to 10 to 100.
+ * A live "3/10 s" cell. Built once into `host`; each message only changes the used count (a counter, tabular figures, in a
+ * box as wide as the limit's digits so the chip and rows never change width as the count goes from 9 to 10 to 100), the
+ * "/10 s" text node and the dash, never the nodes. Returns `set(window)`.
+ * @param {HTMLElement} host
+ * @param {string} [unit]
  */
-function windowNode(w, unit = "") {
-  if (!(w && w.limit > 0)) return DASH;
-  const used = h("span", { class: "bud-used" }, formatInt(w.used));
-  used.style.setProperty("--d", String(formatInt(w.limit).length));
-  return h("span", { class: "bud-win-text" }, used, `/${formatInt(w.limit)}`, unit ? ` ${unit}` : "");
+function liveWindow(host, unit = "") {
+  const used = h("span", { class: "bud-used" });
+  const tail = document.createTextNode("");
+  const text = h("span", { class: "bud-win-text" }, used, tail);
+  const dash = document.createTextNode(DASH);
+  host.replaceChildren(dash);
+  return (w) => {
+    if (!(w && w.limit > 0)) {
+      if (host.firstChild !== dash) host.replaceChildren(dash);
+      return;
+    }
+    if (host.firstChild !== text) host.replaceChildren(text);
+    const digits = String(formatInt(w.limit).length);
+    if (used.style.getPropertyValue("--d") !== digits) used.style.setProperty("--d", digits);
+    const t = `/${formatInt(w.limit)}${unit ? ` ${unit}` : ""}`;
+    if (tail.data !== t) tail.data = t;
+    countTo(used, w.used, { format: formatInt });
+  };
 }
 
 /**
@@ -78,15 +95,19 @@ export function savedParts(savings = {}) {
 const STREAM_TEXT = { live: "Stream live", off: "No stream open", down: "Stream down", connecting: "Connecting" };
 
 /**
- * Mount the indicator into `host` (the toolbar slot). Returns a function that stops it.
+ * Mount the indicator into `host` (the toolbar slot). Returns a function that stops it. Everything is built once: a budget
+ * message (every second or so) patches text nodes, attributes and bar widths in place, so nothing is rebuilt, a transition
+ * is never cut short, and focus and scroll stay where they are.
  * @param {HTMLElement} host
  * @param {{ onBudget: (fn: Function) => Function, liveState: () => string, onLiveState: (fn: Function) => Function }} live
  */
 export function mountBudget(host, live) {
   let msg = null;
   const dot = h("span", { class: "bud-dot", "aria-hidden": "true" });
-  const sec = h("span", { class: "bud-num bud-sec" }, DASH);
-  const min = h("span", { class: "bud-num bud-min" }, DASH);
+  const sec = h("span", { class: "bud-num bud-sec" });
+  const min = h("span", { class: "bud-num bud-min" });
+  const setSec = liveWindow(sec, "s");
+  const setMin = liveWindow(min, "min");
   const btn = h(
     "button",
     { type: "button", class: "toolbar-budget-btn glass", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Broker API budget: calls this second and this minute" },
@@ -97,25 +118,25 @@ export function mountBudget(host, live) {
     min,
   );
   host.replaceChildren(btn);
-  let popBody = null;
+  let pop = null;
   const draw = () => {
     const v = budgetView(msg, live.liveState());
     host.hidden = !v.hasBrokers;
-    host.dataset.tone = v.tone;
-    host.dataset.stream = v.stream;
-    sec.replaceChildren(windowNode(v.second, "s"));
-    min.replaceChildren(windowNode(v.minute, "min"));
+    setAttr(host, "data-tone", v.tone);
+    setAttr(host, "data-stream", v.stream);
+    setSec(v.second);
+    setMin(v.minute);
     const job = (msg?.jobs ?? [])[0];
-    host.dataset.job = job ? "1" : "";
+    setAttr(host, "data-job", job ? "1" : "");
     const fill = v.tone === "bad" ? " Near the limit." : v.tone === "warn" ? " Getting full." : "";
-    btn.setAttribute("aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
-    if (popBody?.isConnected) popBody.replaceChildren(...popContent(msg, v).filter(Boolean));
+    setAttr(btn, "aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
+    if (pop?.el.isConnected) pop.update(msg, v);
   };
   btn.addEventListener("click", () => {
-    popBody = h("div", { class: "bud-pop" });
-    popBody.replaceChildren(...popContent(msg, budgetView(msg, live.liveState())).filter(Boolean));
+    pop = buildPop();
+    pop.update(msg, budgetView(msg, live.liveState()));
     btn.setAttribute("aria-expanded", "true");
-    sheetPopover({ trigger: btn, title: "API budget", body: popBody, cls: "bud-popover", onClose: () => (popBody = null) });
+    sheetPopover({ trigger: btn, title: "API budget", body: pop.el, cls: "bud-popover", onClose: () => (pop = null) });
   });
   const offBudget = live.onBudget((m) => {
     msg = m;
@@ -129,39 +150,105 @@ export function mountBudget(host, live) {
   };
 }
 
-function popContent(msg, v) {
-  const rows = (msg?.accounts ?? []).map((a) =>
-    h(
-      "div",
-      { class: "bud-acct" },
-      h("div", { class: "bud-acct-head" }, h("strong", {}, a.accountId), h("span", { class: "muted" }, a.broker), a.backoffMs > 0 ? h("span", { class: "pill bad tiny" }, "Backing off") : null),
-      h(
-        "div",
-        { class: "bud-wins" },
-        winRow("This second", a.second),
-        winRow("This minute", a.minute),
-        h("div", { class: "bud-win bud-today" }, h("span", { class: "muted" }, "Today"), h("span", { class: "bud-num" }, `${formatInt(a.callsToday)} calls`)),
-      ),
-    ),
-  );
-  const parts = savedParts(msg?.savings);
-  const jobs = (msg?.jobs ?? []).map((j) => {
-    const bar = h("span", { class: "bud-bar ok", "aria-hidden": "true" }, h("i"));
-    bar.firstChild.style.setProperty("--w", `${j.total > 0 ? Math.min(100, Math.round((j.done / j.total) * 100)) : 0}%`);
-    return h("div", { class: "bud-win bud-job" }, h("span", { class: "muted" }, j.label), bar, h("span", { class: "bud-num" }, jobText(j)));
-  });
-  return [
-    h("div", { class: `bud-stream bud-${v.stream}` }, h("span", { class: "bud-dot", "aria-hidden": "true" }), STREAM_TEXT[v.stream], msg?.stream?.subscriptions ? h("span", { class: "muted" }, `${formatInt(msg.stream.subscriptions)} symbols`) : null),
-    ...rows,
-    jobs.length ? h("div", { class: "bud-jobs" }, jobs) : null,
-    h(
-      "div",
-      { class: "bud-saved" },
-      h("div", { class: "bud-saved-head" }, h("span", {}, "Saved today"), h("strong", { class: "bud-num" }, `${formatInt(v.savedToday)} calls`)),
-      h("div", { class: "bud-saved-parts" }, parts.filter(([, n]) => n > 0).map(([label, n]) => h("span", { class: "bud-part" }, h("span", { class: "muted" }, label), h("span", { class: "bud-num" }, formatInt(n))))),
-    ),
-    h("a", { href: "#/api/limits", class: "bud-more" }, "Rate limits and top consumers"),
-  ];
+/** One "label, bar, 3/10" row whose pieces are patched in place (`set(window)`). */
+function liveRow(label) {
+  const fill = h("i");
+  const bar = h("span", { class: "bud-bar ok", "aria-hidden": "true" }, fill);
+  const num = h("span", { class: "bud-num" });
+  const setWin = liveWindow(num);
+  const el = h("div", { class: "bud-win" }, h("span", { class: "muted" }, label), bar, num);
+  let pct = -1;
+  return {
+    el,
+    set(w) {
+      const tone = w ? shareTone(w.used, w.limit) : "ok";
+      for (const t of ["ok", "warn", "bad"]) setClass(bar, t, t === tone);
+      const next = w && w.limit > 0 ? Math.min(100, Math.round((w.used / w.limit) * 100)) : 0;
+      if (next !== pct) {
+        pct = next;
+        fill.style.setProperty("--w", `${next}%`);
+      }
+      setWin(w);
+    },
+  };
+}
+
+/** One account's block, drawn once per account id and patched afterwards. */
+function acctBlock(a, el) {
+  if (!el) {
+    const r = { name: h("strong"), broker: h("span", { class: "muted" }), back: h("span", { class: "pill bad tiny", hidden: true }, "Backing off"), sec: liveRow("This second"), min: liveRow("This minute"), today: h("span", { class: "bud-num" }) };
+    el = h("div", { class: "bud-acct" }, h("div", { class: "bud-acct-head" }, r.name, r.broker, r.back), h("div", { class: "bud-wins" }, r.sec.el, r.min.el, h("div", { class: "bud-win bud-today" }, h("span", { class: "muted" }, "Today"), r.today)));
+    el.__r = r;
+  }
+  const r = el.__r;
+  setText(r.name, a.accountId);
+  setText(r.broker, a.broker ?? "");
+  r.back.hidden = !(a.backoffMs > 0);
+  r.sec.set(a.second);
+  r.min.set(a.minute);
+  countTo(r.today, a.callsToday ?? 0, { format: (n) => `${formatInt(n)} calls` });
+  return el;
+}
+
+/** A background job's row (a bar and "34/200"). */
+function jobBlock(j, el) {
+  if (!el) {
+    const fill = h("i");
+    el = h("div", { class: "bud-win bud-job" }, h("span", { class: "muted" }), h("span", { class: "bud-bar ok", "aria-hidden": "true" }, fill), h("span", { class: "bud-num" }));
+    el.__r = { label: el.children[0], fill, text: el.children[2] };
+  }
+  const r = el.__r;
+  setText(r.label, j.label);
+  r.fill.style.setProperty("--w", `${j.total > 0 ? Math.min(100, Math.round((j.done / j.total) * 100)) : 0}%`);
+  setText(r.text, jobText(j));
+  return el;
+}
+
+/** One "Cache  123" part of the saved-today breakdown. */
+function partBlock([label, n], el) {
+  if (!el) {
+    el = h("span", { class: "bud-part" }, h("span", { class: "muted" }), h("span", { class: "bud-num" }));
+    el.__r = { label: el.children[0], n: el.children[1] };
+  }
+  setText(el.__r.label, label);
+  countTo(el.__r.n, n, { format: formatInt });
+  return el;
+}
+
+/**
+ * The popover's body, built once. `update(msg, view)` patches the stream line, the per-account blocks (keyed by account id),
+ * the job rows and the saved-today numbers in place; accounts and jobs that come and go fade in and out.
+ */
+function buildPop() {
+  const dot = h("span", { class: "bud-dot", "aria-hidden": "true" });
+  const streamText = document.createTextNode("");
+  const symbols = h("span", { class: "muted", hidden: true });
+  const stream = h("div", { class: "bud-stream" }, dot, streamText, symbols);
+  const accounts = h("div", { class: "bud-accts" });
+  const jobs = h("div", { class: "bud-jobs", hidden: true });
+  const savedNum = h("strong", { class: "bud-num" });
+  const parts = h("div", { class: "bud-saved-parts" });
+  const saved = h("div", { class: "bud-saved" }, h("div", { class: "bud-saved-head" }, h("span", {}, "Saved today"), savedNum), parts);
+  const more = h("a", { href: "#/api/limits", class: "bud-more" }, "Rate limits and top consumers");
+  const el = h("div", { class: "bud-pop" }, stream, accounts, jobs, saved, more);
+  let first = true;
+  return {
+    el,
+    update(msg, v) {
+      setAttr(stream, "class", `bud-stream bud-${v.stream}`);
+      if (streamText.data !== STREAM_TEXT[v.stream]) streamText.data = STREAM_TEXT[v.stream];
+      const n = msg?.stream?.subscriptions;
+      symbols.hidden = !n;
+      if (n) setText(symbols, `${formatInt(n)} symbols`);
+      patchList(accounts, msg?.accounts ?? [], (a) => a.accountId, acctBlock, { animate: !first });
+      const js = msg?.jobs ?? [];
+      jobs.hidden = js.length === 0;
+      patchList(jobs, js, (j) => j.label, jobBlock, { animate: !first });
+      countTo(savedNum, v.savedToday, { format: (x) => `${formatInt(x)} calls` });
+      patchList(parts, savedParts(msg?.savings).filter(([, c]) => c > 0), ([label]) => label, partBlock, { animate: !first });
+      first = false;
+    },
+  };
 }
 
 // ── API › Rate limits: calls per second against the limit, and who used the budget ──
@@ -225,11 +312,3 @@ export function usageChart(counts, limit, label) {
 
 /** "34/200", or "34/200 · paused" while a person is using the broker (pure). */
 export const jobText = (j) => `${formatInt(j?.done ?? 0)}/${formatInt(j?.total ?? 0)}${j?.paused ? " · paused" : ""}`;
-
-function winRow(label, w) {
-  const tone = w ? shareTone(w.used, w.limit) : "ok";
-  const pct = w && w.limit > 0 ? Math.min(100, Math.round((w.used / w.limit) * 100)) : 0;
-  const bar = h("span", { class: `bud-bar ${tone}`, "aria-hidden": "true" }, h("i"));
-  bar.firstChild.style.setProperty("--w", `${pct}%`);
-  return h("div", { class: "bud-win" }, h("span", { class: "muted" }, label), bar, h("span", { class: "bud-num" }, windowNode(w)));
-}

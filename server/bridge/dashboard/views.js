@@ -11,6 +11,7 @@ import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
 import { configureOrdersBook, fundsSection, ordersBook, pendingSection, renderTradesPage, sidePill } from "./orders-book.js";
+import { animatePage, installPullToRefresh, navigationHint, pageLeave, setAttr, trackSelection } from "./motion.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -69,45 +70,32 @@ export function segmented(label, options, initial = options[0][0]) {
   let value = initial;
   const el = h("div", { class: "segmented", role: "group", "aria-label": label });
   const buttons = options.map(([v, text]) => h("button", { type: "button", "data-value": v, onclick: () => pick(v, false) }, text));
-  /** Slide the contrast thumb (a ::before on the track) under the chosen button: --seg-x / --seg-w. The button's
-   *  own background is the fallback until it is measured (not in the document yet, or a hidden panel). */
-  let measured = false;
-  const place = () => {
-    const b = buttons.find((x) => x.dataset.value === value);
-    if (!b || !el.isConnected || !b.offsetWidth) return;
-    if (!measured) el.classList.add("no-anim");
-    el.style.setProperty("--seg-x", `${b.offsetLeft}px`);
-    el.style.setProperty("--seg-w", `${b.offsetWidth}px`);
-    el.classList.add("has-thumb");
-    if (!measured) {
-      measured = true;
-      requestAnimationFrame(() => el.classList.remove("no-anim"));
-    }
-  };
-  // Measure once it is laid out, and again whenever the track changes size (fonts, rotation, wrap). A detached
-  // control stops observing (a 0 × 0 callback) and starts again on its next pick.
-  let ro = null;
-  const watch = () => {
-    if (ro || typeof ResizeObserver !== "function") return;
-    let seen = false;
-    ro = new ResizeObserver(() => {
-      if (el.isConnected) return (seen = true), place();
-      if (!seen) return;
-      ro?.disconnect();
-      ro = null;
-    });
-    ro.observe(el);
-  };
+  // The thumb is a real element that motion.js moves with springs (translate and width): a tap, a key or `.value =` retargets
+  // it with the velocity it has, and on touch it can be dragged. The button's own background is the look until it is
+  // measured (not in the document yet, or a hidden panel); a ResizeObserver re-measures without animating.
+  const thumb = h("i", { class: "seg-thumb", "aria-hidden": "true" });
+  const selection = trackSelection(el, {
+    indicator: thumb,
+    items: () => buttons,
+    current: () => buttons.find((x) => x.dataset.value === value),
+    placedClass: "has-thumb",
+    drag: {
+      onCommit: (b) => b.dataset.value !== value && pick(b.dataset.value, false),
+      onPeek: (b) => {
+        for (const x of buttons) setAttr(x, "data-peek", x === b);
+      },
+    },
+  });
+  el.classList.add("seg-drag");
   const pick = (v, focus) => {
     value = v;
-    watch();
     for (const b of buttons) {
       const on = b.dataset.value === v;
       b.setAttribute("aria-pressed", String(on));
       b.tabIndex = on ? 0 : -1;
       if (on && focus) b.focus();
     }
-    place();
+    selection.update();
     el.dispatchEvent(new Event("change"));
   };
   el.addEventListener("keydown", (e) => {
@@ -117,10 +105,9 @@ export function segmented(label, options, initial = options[0][0]) {
     e.preventDefault();
     pick(buttons[(i + step + buttons.length) % buttons.length].dataset.value, true);
   });
-  el.append(...buttons);
+  el.append(thumb, ...buttons);
   Object.defineProperty(el, "value", { get: () => value, set: (v) => pick(String(v), false) });
   pick(initial, false);
-  watch();
   return el;
 }
 /** A labelled field around a segmented control (a <label> would forward clicks on its text to the first button). */
@@ -141,10 +128,30 @@ function drawTabs(bar, panel, tabs, active, onPick) {
   const base = bar.id || (bar.id = `tabs-${++drawTabs.n}`);
   panel.id ||= `${base}-panel`;
   panel.setAttribute("role", "tabpanel");
-  const buttons = tabs.map(([id, label]) =>
-    h("button", { type: "button", role: "tab", id: `${base}-${id}`, "aria-selected": String(id === active), "aria-controls": panel.id, tabindex: id === active ? "0" : "-1", onclick: () => onPick(id) }, label),
-  );
-  bar.replaceChildren(...buttons);
+  // The same tabs as last time: keep the buttons (and the sliding thumb under them) and only move the selection, so the
+  // thumb glides to the new tab and the strip keeps its scroll position and focus.
+  const sig = tabs.map(([id]) => id).join("|");
+  let buttons;
+  if (bar.dataset.tabs === sig && bar.__selection) {
+    buttons = [...bar.querySelectorAll('[role="tab"]')];
+    tabs.forEach(([id], i) => {
+      const b = buttons[i];
+      b.setAttribute("aria-selected", String(id === active));
+      b.tabIndex = id === active ? 0 : -1;
+      b.onclick = () => onPick(id);
+    });
+    bar.__selection.update();
+  } else {
+    buttons = tabs.map(([id, label]) =>
+      h("button", { type: "button", role: "tab", id: `${base}-${id}`, "aria-selected": String(id === active), "aria-controls": panel.id, tabindex: id === active ? "0" : "-1", onclick: () => onPick(id) }, label),
+    );
+    const thumb = h("i", { class: "seg-thumb", "aria-hidden": "true" });
+    bar.replaceChildren(thumb, ...buttons);
+    bar.dataset.tabs = sig;
+    bar.__selection?.destroy();
+    bar.__selection = trackSelection(bar, { indicator: thumb, items: () => buttons, current: () => bar.querySelector('[role="tab"][aria-selected="true"]'), placedClass: "has-thumb" });
+    bar.__selection.update();
+  }
   panel.setAttribute("aria-labelledby", `${base}-${active}`);
   bar.onkeydown = (e) => {
     const i = tabs.findIndex(([id]) => id === active);
@@ -327,6 +334,16 @@ const pageGlyph = (p) => {
 };
 
 function nav(active) {
+  const navEl = $("nav");
+  const sig = PAGES.map((p) => p.id).join("|");
+  // Built once: later routes only move aria-current and the indicator (the nodes persist, so the selection can slide and
+  // the ticket count and focus are never rebuilt).
+  if (navEl.dataset.pages === sig && navEl.__selection) {
+    for (const a of navEl.querySelectorAll("a[data-page]")) setAttr(a, "aria-current", a.dataset.page === active ? "page" : null);
+    navEl.__selection.update();
+    tabbar(active);
+    return;
+  }
   const out = [];
   let group = null;
   for (const p of PAGES) {
@@ -346,8 +363,14 @@ function nav(active) {
       ),
     );
   }
-  $("nav").replaceChildren(...out);
-  edgeFades($("nav"), "y");
+  const ind = h("i", { class: "nav-ind", "aria-hidden": "true" });
+  navEl.replaceChildren(ind, ...out);
+  navEl.dataset.pages = sig;
+  navEl.classList.add("has-ind");
+  navEl.__selection?.destroy();
+  navEl.__selection = trackSelection(navEl, { indicator: ind, items: () => [...navEl.querySelectorAll("a[data-page]")], current: () => navEl.querySelector('a[aria-current="page"]'), axes: "xy" });
+  navEl.__selection.update();
+  edgeFades(navEl, "y");
   tabbar(active);
 }
 
@@ -395,7 +418,18 @@ function tabbar(active) {
   if (!bar) return;
   const inTabs = PAGES.filter((p) => p.tab);
   const moreActive = !inTabs.some((p) => p.id === active);
+  bar.dataset.active = active;
+  const sig = inTabs.map((p) => p.id).join("|");
+  // Built once; a route only moves aria-current and the pill under the tabs.
+  if (bar.dataset.pages === sig && bar.__selection) {
+    for (const a of bar.querySelectorAll("a[data-page]")) setAttr(a, "aria-current", a.dataset.page === active ? "page" : null);
+    setAttr(bar.querySelector("button.tab"), "aria-current", moreActive ? "page" : null);
+    bar.__selection.update();
+    return;
+  }
+  const ind = h("i", { class: "tab-ind", "aria-hidden": "true" });
   bar.replaceChildren(
+    ind,
     ...inTabs.map((p) =>
       h(
         "a",
@@ -405,8 +439,13 @@ function tabbar(active) {
         p.id === "orders" ? h("span", { class: "count", "data-tickets": "", hidden: true }) : null,
       ),
     ),
-    h("button", { type: "button", class: "tab", "aria-haspopup": "dialog", "aria-current": moreActive ? "page" : undefined, onclick: () => moreSheet(active) }, icon("more"), h("span", {}, "More")),
+    h("button", { type: "button", class: "tab", "aria-haspopup": "dialog", "aria-current": moreActive ? "page" : undefined, onclick: () => moreSheet(bar.dataset.active) }, icon("more"), h("span", {}, "More")),
   );
+  bar.dataset.pages = sig;
+  bar.classList.add("has-ind");
+  bar.__selection?.destroy();
+  bar.__selection = trackSelection(bar, { indicator: ind, items: () => [...bar.querySelectorAll(".tab")], current: () => bar.querySelector('.tab[aria-current="page"]'), axes: "xy" });
+  bar.__selection.update();
 }
 
 /** The bridge mark on its accent tile (the same mark as the sidebar and sign-in). */
@@ -632,16 +671,23 @@ async function show(opts) {
     root.setAttribute("aria-labelledby", "page-title");
   }
   root.setAttribute("aria-busy", "true");
-  root.replaceChildren(...[tabs, pageSkeleton()].filter(Boolean));
+  // Navigating (not reloading): the old page fades out in 90 ms (sub-tabs slide along X), then the new one starts.
+  const way = travel(page, tab);
+  if (changed && !reload) {
+    navigationHint(way);
+    await pageLeave(root, way);
+    if (seq !== renderSeq) return;
+  }
+  setPage(root, tabs, pageSkeleton());
   if (tabs) edgeFades(tabs.firstElementChild);
   try {
     const nodes = await (tab?.render ?? page.render)();
     if (seq !== renderSeq) return;
-    root.replaceChildren(...[tabs, nodes].flat().filter(Boolean));
+    setPage(root, tabs, nodes);
     fitTables(root);
   } catch (err) {
     if (seq !== renderSeq) return;
-    root.replaceChildren(...[tabs, alertBox(err)].filter(Boolean));
+    setPage(root, tabs, alertBox(err));
   }
   root.removeAttribute("aria-busy");
   if (tabs) revealActiveTab(tabs.firstElementChild);
@@ -655,8 +701,7 @@ async function show(opts) {
     document.getElementById(focusId)?.focus({ preventScroll: true });
   }
   if (changed) window.scrollTo({ top: 0 });
-  const anim = motionHooks?.animatePage;
-  if (typeof anim === "function") anim(root);
+  animatePage(root);
   refreshTicketCount();
 }
 
@@ -678,10 +723,35 @@ function revealActiveTab(bar) {
  * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. #content is its tab panel.
  */
 function pageTabs(page, tab, panel) {
-  const bar = h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
+  // Moving between the tabs of one page keeps the strip: its buttons, its scroll position and the thumb that slides under it.
+  const kept = document.getElementById(`page-tabs-${page.id}`);
+  const bar = kept?.__selection && kept.parentElement?.classList.contains("page-tabs-row") ? kept : h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
   drawTabs(bar, panel, page.tabs.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
   // A full-width row of its own (pages that lay their panels out in a wrapping row stretch every child).
-  return h("div", { class: "page-tabs-row" }, bar);
+  return bar.parentElement?.classList.contains("page-tabs-row") ? bar.parentElement : h("div", { class: "page-tabs-row" }, bar);
+}
+
+/**
+ * Put a page's nodes into #content. When the tab strip is already there (a tab of the same page) only what follows it is
+ * replaced, so the strip is never torn down: its scroll position, focus and sliding thumb survive.
+ */
+function setPage(root, tabs, nodes) {
+  const rest = [nodes].flat().filter(Boolean);
+  if (tabs && tabs.parentNode === root) {
+    while (tabs.previousSibling) tabs.previousSibling.remove();
+    while (tabs.nextSibling) tabs.nextSibling.remove();
+    root.append(...rest);
+  } else root.replaceChildren(...[tabs, ...rest].filter(Boolean));
+}
+
+/** Which way a tab change travels, for the shared-axis slide: by the index of the tab among its page's tabs. */
+let lastPlace = null;
+function travel(page, tab) {
+  const here = { page: page.id, index: tab ? page.tabs.findIndex((t) => t.id === tab.id) : -1 };
+  const prev = lastPlace;
+  lastPlace = here;
+  if (prev && prev.page === here.page && tab && prev.index >= 0 && prev.index !== here.index) return { axis: "x", dir: here.index > prev.index ? 1 : -1 };
+  return {};
 }
 
 // ── Accessibility plumbing (created from here because index.html is static) ──
@@ -860,9 +930,6 @@ async function refreshTicketCount() {
   }
 }
 
-// Motion helper (animatePage), when motion.js provides it. Loaded lazily so Node tests never touch it.
-let motionHooks = null;
-
 /** Panels used to be draggable, with the order kept per page. That feature is gone: forget what it stored. */
 function forgetOldPanelLayouts() {
   try {
@@ -877,11 +944,17 @@ export async function startRouter() {
   setupA11y();
   setupChrome();
   initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }) });
-  try {
-    motionHooks = await import("./motion.js");
-  } catch {
-    motionHooks = null;
-  }
+  // Pull to refresh on touch screens: the same reload as the toolbar button, except on Sources and limits, which already
+  // updates live (a pull there would be a second way to do the same thing).
+  const ptr = h("div", { class: "ptr", "aria-hidden": "true" }, icon("refresh"), h("span", { class: "ptr-lbl" }, "Refreshing…"));
+  document.body.append(ptr);
+  installPullToRefresh({
+    target: $("content"),
+    indicator: ptr,
+    refresh: () => show({ refresh: true }),
+    enabled: () => !String(shownPage ?? "").startsWith("sources") && matchMedia("(max-width: 1023px)").matches,
+    onDone: () => announce("Updated"),
+  });
   window.addEventListener("hashchange", show);
   show();
 }
