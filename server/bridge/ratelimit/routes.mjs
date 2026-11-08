@@ -32,6 +32,11 @@ const finite = (n) => (Number.isFinite(n) ? n : null);
 
 const KEY_ID = /^[a-z0-9]{4,32}$/;
 const isAdmin = (ctx) => ctx.principal?.kind === "local" || Boolean(ctx.scopes?.has?.("admin"));
+/**
+ * The least the only active admin key may be given. Anything lower could lock it out of the API (a quota applies to the key,
+ * not to this computer's control token), leaving the control token / `mc-bridge` CLI as the only way to undo it.
+ */
+export const LAST_ADMIN_FLOOR = Object.freeze({ perSecond: 1, perDay: 1000 });
 const truthy = (v) => ["1", "true"].includes(String(v ?? "").toLowerCase());
 
 /**
@@ -75,6 +80,20 @@ export function createLimitRoutes(deps) {
     if (!rec || rec.revokedAt) return null;
     if (rec.expiresAt && Date.parse(rec.expiresAt) <= (deps.clock?.now?.() ?? Date.now())) return null;
     return rec;
+  }
+
+  /** Is this key admin-scoped with no other active admin-scoped key? (Keys that cannot be listed count as "not the last".) */
+  async function isLastAdmin(rec) {
+    if (!rec.scopes?.includes?.("admin")) return false;
+    let all;
+    try {
+      all = await deps.keyStore.list();
+    } catch {
+      return false;
+    }
+    const now = deps.clock?.now?.() ?? Date.now();
+    const active = (Array.isArray(all) ? all : []).filter((k) => k && !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) <= now) && k.scopes?.includes?.("admin"));
+    return !active.some((k) => k.id !== rec.id);
   }
 
   async function audit(ctx, type, data) {
@@ -178,8 +197,20 @@ export function createLimitRoutes(deps) {
       const keyId = ctx.params.keyId;
       const rec = await findKey(keyId);
       if (!rec) throw new BridgeError("NOT_FOUND", `There is no active API key with id "${String(keyId).slice(0, 40)}".`);
+      const before = quotas.override(keyId);
       const r = quotas.set(keyId, ctx.body);
       if (!r.ok) throw new BridgeError("VALIDATION_FAILED", "The quota is not valid.", { errors: r.errors });
+      if (await isLastAdmin(rec)) {
+        const q = quotas.resolve(keyId);
+        const low = [];
+        if (q.perSecond < LAST_ADMIN_FLOOR.perSecond) low.push({ path: "perSecond", message: `the only admin key needs at least ${LAST_ADMIN_FLOOR.perSecond} request a second` });
+        if (q.perDay !== null && q.perDay < LAST_ADMIN_FLOOR.perDay) low.push({ path: "perDay", message: `the only admin key needs at least ${LAST_ADMIN_FLOOR.perDay} requests a day (or none)` });
+        if (low.length) {
+          if (before) quotas.set(keyId, before);
+          else quotas.clear(keyId);
+          throw new BridgeError("VALIDATION_FAILED", "That quota could lock out the only active admin key, so it was not applied. Create a second admin key first, or keep the quota above these floors. (If a key is ever locked out, this computer's control token is not limited: `mc-bridge` run on this computer, or the dashboard opened with `mc-bridge open`, can still change or delete the quota.)", { errors: low });
+        }
+      }
       await audit(ctx, "quota.set", { keyId, quota: quotas.override(keyId) });
       return { data: quotaRow(rec), meta: { requestId: ctx.requestId } };
     },
