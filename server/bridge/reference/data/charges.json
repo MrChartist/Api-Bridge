@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "asOf": "2026-04-01",
+  "source": "Statutory charges on NSE and BSE equity derivatives and cash delivery (STT, stamp duty, exchange transaction charges, SEBI turnover fee, IPFT, GST). Rates as decimals of value; per-crore figures in rupees. Brokerage is not part of this table (it comes from config).",
+  "verified": false,
+  "opt": {
+    "sttSell": 0.0015,
+    "exerciseStt": 0.0015,
+    "stampBuy": 0.00003,
+    "txn": { "NSE": 0.0003503, "BSE": 0.000325 }
+  },
+  "fut": {
+    "sttSell": 0.0005,
+    "stampBuy": 0.00002,
+    "txn": { "NSE": 0.0000173, "BSE": 0 }
+  },
+  "sebiPerCrore": 10,
+  "ipftPerCrore": 0,
+  "gst": 0.18,
+  "physical": {
+    "sttDelivery": 0.001,
+    "stampBuy": 0.00015,
+    "txn": { "NSE": 0.0000297, "BSE": 0.0000375 },
+    "verified": false,
+    "source": "Cash-segment delivery rates applied to physical settlement of stock derivatives (needs verification)"
+  },
+  "margin": {
+    "expiryDayElmIndexShort": 0.02,
+    "verified": false,
+    "source": "Additional expiry-day ELM on short index options (needs verification)"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "asOf": "2026-04-01",
+  "source": "Shipped corporate actions (bonus, split, consolidation, rights, dividend) for F&O underlyings. Empty in this release: rows come from the user store (data/reference/corporate-actions.json) and from inference.",
+  "items": []
+}

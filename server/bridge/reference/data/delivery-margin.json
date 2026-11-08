@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "asOf": "2026-04-01",
+  "source": "NSE Clearing: phased delivery margin on physically settled stock derivatives in the last four trading days before expiry (percentage of VaR + ELM).",
+  "verified": false,
+  "appliesTo": "Physically settled stock futures and in-the-money stock options (NFO and BFO). Index derivatives are cash settled and carry no delivery margin.",
+  "schedule": [
+    { "day": "E-4", "pct": 10 },
+    { "day": "E-3", "pct": 25 },
+    { "day": "E-2", "pct": 45 },
+    { "day": "E-1", "pct": 70 }
+  ]
+}

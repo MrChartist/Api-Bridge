@@ -88,7 +88,6 @@ venv/
 # Merge leftovers
 *.orig
 
-# v2
-data/
+# v2 (the runtime data dir is /data/ above; server/bridge/reference/data holds shipped datasets and must be tracked)
 .codegraph/
 .claude/
