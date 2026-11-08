@@ -1641,295 +1641,464 @@ const ENDPOINTS = [
   { id: "funds", label: "Funds", method: "GET", path: "/v1/funds", fields: [["account", ""]] },
   { id: "order", label: "Place a paper order", method: "POST", path: "/v1/orders", body: { account: "", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET" } },
 ];
+const CONSOLE_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+const CONSOLE_HISTORY_SLOT = "mcb.dashboard.consoleHistory";
+const STATUS_TEXT = { 200: "OK", 201: "Created", 202: "Accepted", 204: "No content", 304: "Not modified", 400: "Bad request", 401: "Unauthorized", 403: "Forbidden", 404: "Not found", 405: "Method not allowed", 409: "Conflict", 422: "Unprocessable", 429: "Too many requests", 500: "Server error", 502: "Bad gateway", 503: "Unavailable" };
+/** Where in a JSON text the parser gave up ("line 3, column 5"), or a plain fallback. Pure. */
+function jsonProblem(text) {
+  try {
+    JSON.parse(text);
+    return null;
+  } catch (err) {
+    const msg = String(err?.message ?? "");
+    const lc = /line (\d+) column (\d+)/.exec(msg);
+    if (lc) return `Not valid JSON: line ${lc[1]}, column ${lc[2]}. Check the commas and quotes.`;
+    const pos = /position (\d+)/.exec(msg);
+    if (pos) {
+      const before = text.slice(0, Number(pos[1]));
+      return `Not valid JSON: line ${before.split("\n").length}, column ${before.length - before.lastIndexOf("\n")}. Check the commas and quotes.`;
+    }
+    return `Not valid JSON${msg ? ` (${msg.replace(/^JSON\.parse: /, "").replace(/ in JSON.*$/, "").toLowerCase()})` : ""}. Check the commas and quotes.`;
+  }
+}
+const sizeText = (n) => (n < 1024 ? `${formatInt(n)} B` : `${formatFixed(n / 1024, n < 10_240 ? 1 : 0)} KB`);
+const readHistory = () => {
+  try {
+    const v = JSON.parse(local.get(CONSOLE_HISTORY_SLOT) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => x && CONSOLE_METHODS.includes(x.method) && typeof x.path === "string").slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+};
 
+/**
+ * API › Test console: an API playground. Pick an example or type a method and a path, edit the body, send it with
+ * Ctrl or Cmd + Enter, and read the answer: status, time, size, headers (collapsed) and pretty JSON. Recent requests are
+ * chips that load a request back into the form.
+ */
 async function renderConsole() {
-  const accounts = (await api("/v1/accounts")).data.data ?? [];
+  const root = h("div", { class: "api-tab" });
+  loadInto(root, async () => (await api("/v1/accounts")).data.data ?? [], (accounts) => drawConsole(accounts), { rows: 2 });
+  return root;
+}
+
+async function drawConsole(accounts) {
   const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? accounts[0]?.id ?? "paper";
   const dataAcc = accounts.find((a) => a.broker !== "paper")?.id ?? paperAcc;
-  const select = h("select", { "aria-label": "Endpoint" }, ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
-  // #/api/console?endpoint=order opens a given endpoint (the Orders page links straight to the order form).
-  const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("endpoint");
-  if (ENDPOINTS.some((e) => e.id === wanted)) select.value = wanted;
-  const fieldsBox = h("div", { class: "stack" });
-  const curlBox = h("div");
-  const out = h("div", { class: "response" });
-  const runBtn = h("button", { type: "button", class: "primary" }, icon("play"), "Send request");
-  let inputs = {};
-  const firstExpiry = async () => {
-    const r = await optional(api("/v1/expiries?underlying=NIFTY"));
-    return r.data?.data?.expiries?.[0] ?? "";
+  const example = h("select", { id: "ac-example", "aria-label": "Endpoint" }, h("option", { value: "" }, "Custom request"), ENDPOINTS.map((e) => h("option", { value: e.id }, e.label)));
+  const method = h("select", { id: "ac-method", class: "ac-method", "aria-label": "Method" }, CONSOLE_METHODS.map((m) => h("option", { value: m }, m)));
+  const path = h("input", { id: "ac-path", class: "ac-path mono", spellcheck: "false", autocomplete: "off", autocapitalize: "off", placeholder: "/v1/ltp?symbols=NSE:NIFTY", "aria-label": "Request path", "aria-describedby": "ac-path-msg" });
+  const pathMsg = h("span", { id: "ac-path-msg", class: "ac-hint" }, "Starts with /v1/. Add a query after a question mark.");
+  const bodyBox = h("textarea", { id: "ac-body", class: "ac-body mono", rows: 9, spellcheck: "false", autocapitalize: "off", "aria-label": "Request body (JSON)", "aria-describedby": "ac-body-msg" });
+  const bodyMsg = h("span", { id: "ac-body-msg", class: "ac-hint" });
+  const sendBtn = h("button", { type: "button", class: "primary ac-send" }, icon("play"), "Send", h("span", { class: "ac-send-keys" }, ...shortcut("Enter").keys.map((k) => h("kbd", { class: "kbd" }, k))));
+  sendBtn.setAttribute("aria-keyshortcuts", shortcut("Enter").aria);
+  const formatBtn = h("button", { type: "button", class: "small quiet", onclick: () => (tryFormat(), updateBody()) }, "Format JSON");
+  const bodyField = h("div", { class: "ac-bodyfield" }, h("div", { class: "ac-bodyhead" }, h("label", { for: "ac-body" }, "Body (JSON)"), formatBtn), bodyBox, bodyMsg, h("p", { class: "ac-hint" }, "Tab inserts two spaces. Press Esc, then Tab, to move on."));
+  const out = h("div", { class: "ac-out" });
+  const historyBox = h("div", { class: "ac-history" });
+  let busyNow = false;
+  let history = readHistory();
+
+  const firstExpiry = async () => (await optional(api("/v1/expiries?underlying=NIFTY"))).data?.data?.expiries?.[0] ?? "";
+  const hasBody = () => method.value !== "GET";
+  const curlText = () => {
+    const url = `${location.origin}${path.value.trim() || "/v1/"}`;
+    const parts = [`curl -X ${method.value}`, `"${url}"`, `-H "Authorization: Bearer $MCB_API_KEY"`];
+    if (hasBody() && bodyBox.value.trim()) {
+      parts.push(`-H "Content-Type: application/json"`);
+      if (method.value === "POST" && /^\/v1\/orders\b/.test(path.value)) parts.push(`-H "Idempotency-Key: $(node -e "console.log(crypto.randomUUID())")"`);
+      parts.push(`-d '${bodyBox.value.trim().replace(/\s*\n\s*/g, " ").replace(/'/g, "'\\''")}'`);
+    }
+    return method.value === "GET" ? `curl -H "Authorization: Bearer $MCB_API_KEY" "${url}"` : parts.join(" ");
+  };
+  const curlBtn = copyButton(curlText, { label: "Copy as curl", toastLabel: "curl copied", cls: "small quiet", ariaLabel: "Copy this request as a curl command" });
+
+  const tryFormat = () => {
+    try {
+      bodyBox.value = JSON.stringify(JSON.parse(bodyBox.value), null, 2);
+    } catch {
+      /* the hint already says what is wrong */
+    }
+  };
+  const updateBody = () => {
+    bodyField.hidden = !hasBody();
+    const t = bodyBox.value.trim();
+    const problem = t ? jsonProblem(t) : null;
+    if (problem) bodyBox.setAttribute("aria-invalid", "true");
+    else bodyBox.removeAttribute("aria-invalid");
+    bodyMsg.className = `ac-hint ${problem ? "bad" : t ? "ok" : ""}`.trim();
+    bodyMsg.replaceChildren(...(problem ? [icon("warn"), problem] : t ? [icon("check"), "Valid JSON"] : ["Optional. An empty body sends nothing."]));
+  };
+  const setPathProblem = (msg) => {
+    pathMsg.className = `ac-hint${msg ? " bad" : ""}`;
+    pathMsg.textContent = msg ?? "Starts with /v1/. Add a query after a question mark.";
+    if (msg) path.setAttribute("aria-invalid", "true");
+    else path.removeAttribute("aria-invalid");
   };
 
-  const build = () => {
-    const ep = ENDPOINTS.find((e) => e.id === select.value);
+  /** Load an example into the form: its method, path with default values, and body. */
+  const applyExample = async (id) => {
+    const ep = ENDPOINTS.find((e) => e.id === id);
+    if (!ep) return;
+    method.value = ep.method;
+    setPathProblem(null);
     if (ep.method === "POST") {
-      const body = { ...ep.body, account: paperAcc };
-      return { ep, url: ep.path, body: JSON.parse(inputs.body?.value || JSON.stringify(body)) };
-    }
-    const qs = new URLSearchParams();
-    for (const [k] of ep.fields) if (inputs[k]?.value) qs.set(k, inputs[k].value.trim());
-    return { ep, url: `${ep.path}${qs.size ? `?${qs}` : ""}` };
-  };
-  const drawCurl = () => {
-    let b;
-    try {
-      b = build();
-    } catch {
-      return;
-    }
-    const base = location.origin;
-    const cmd = b.ep.method === "POST" ? `curl -X POST "${base}${b.url}" -H "Authorization: Bearer $MCB_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: $(node -e "console.log(crypto.randomUUID())")" -d '${JSON.stringify(b.body)}'` : `curl -H "Authorization: Bearer $MCB_API_KEY" "${base}${b.url}"`;
-    curlBox.replaceChildren(codeBlock(cmd, { title: "Same call from a terminal" }));
-  };
-  const drawFields = async () => {
-    const ep = ENDPOINTS.find((e) => e.id === select.value);
-    inputs = {};
-    const rows = [];
-    if (ep.method === "POST") {
-      const ta = h("textarea", { rows: 9, spellcheck: "false" }, JSON.stringify({ ...ep.body, account: paperAcc }, null, 2));
-      ta.addEventListener("input", drawCurl);
-      inputs.body = ta;
-      rows.push(h("label", { class: "field" }, "Order (JSON)", h("span", { class: "hint" }, "Paper by default. The dashboard adds an Idempotency-Key, so a retry never places it twice."), ta));
+      path.value = ep.path;
+      bodyBox.value = JSON.stringify({ ...ep.body, account: paperAcc }, null, 2);
     } else {
+      const qs = new URLSearchParams();
       for (const [k, def] of ep.fields) {
         let value = def;
         if (k === "expiry") value = await firstExpiry();
         if (k === "account") value = ep.id === "funds" || ep.id === "positions" ? paperAcc : dataAcc;
-        const input = h("input", { value, spellcheck: "false" });
-        input.addEventListener("input", drawCurl);
-        inputs[k] = input;
-        rows.push(h("label", { class: "field" }, k, input));
+        if (value) qs.set(k, value);
       }
+      path.value = `${ep.path}${qs.size ? `?${qs.toString().replace(/%3A/g, ":").replace(/%2C/g, ",")}` : ""}`;
+      bodyBox.value = "";
     }
-    fieldsBox.replaceChildren(...rows);
-    drawCurl();
+    updateBody();
   };
 
-  const run = async () => {
-    let b;
+  const drawHistory = () => {
+    historyBox.hidden = !history.length;
+    historyBox.replaceChildren(
+      h("span", { class: "ac-history-label", id: "ac-history-label" }, "Recent"),
+      h(
+        "div",
+        { class: "ac-chips", role: "group", "aria-labelledby": "ac-history-label" },
+        history.map((x) =>
+          h(
+            "button",
+            { type: "button", class: "chip-btn ac-chip", title: `${x.method} ${x.path}`, "aria-label": `Load ${x.method} ${x.path}, answered ${x.status || "with an error"}`, onclick: () => ((method.value = x.method), (path.value = x.path), (bodyBox.value = x.body ?? ""), (example.value = ""), setPathProblem(null), updateBody(), path.focus()) },
+            h("span", { class: "ac-chip-m" }, x.method),
+            h("span", { class: "ac-chip-p" }, x.path),
+            h("span", { class: "ac-chip-s" }, x.status ? String(x.status) : "failed"),
+          ),
+        ),
+      ),
+      h("button", { type: "button", class: "small plain", onclick: () => ((history = []), local.set(CONSOLE_HISTORY_SLOT, null), drawHistory()) }, "Clear"),
+    );
+  };
+  const remember = (entry) => {
+    history = [entry, ...history.filter((x) => !(x.method === entry.method && x.path === entry.path && x.body === entry.body))].slice(0, 8);
+    local.set(CONSOLE_HISTORY_SLOT, JSON.stringify(history));
+    drawHistory();
+  };
+
+  const showResponse = ({ status, ms, size, headers, text }) => {
+    const ok = status < 400;
+    let data = text;
+    let json = false;
     try {
-      b = build();
+      data = JSON.parse(text);
+      json = true;
     } catch {
-      out.replaceChildren(alertBox({ title: "The order JSON is not valid", detail: "Check the commas and quotes." }));
+      /* not JSON: shown as it came */
+    }
+    const pretty = !text ? "" : json ? JSON.stringify(data, null, 2) : text;
+    const pre = h("pre", { class: "snip-code ac-pre", tabindex: "0", "aria-label": "Response body" });
+    const LIMIT = 300_000;
+    if (!pretty) pre.append(h("span", { class: "muted" }, "No body in the answer."));
+    else if (json && pretty.length <= LIMIT) pre.innerHTML = highlightJson(pretty);
+    else pre.textContent = pretty.slice(0, LIMIT);
+    const order = ["x-request-id", "ratelimit", "ratelimit-policy", "retry-after", "x-mcb-data", "content-type"];
+    const names = [...headers.keys()].sort((a, b) => (order.indexOf(a) < 0 ? 99 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 99 : order.indexOf(b)) || a.localeCompare(b));
+    const friendly = !ok && json && typeof data === "object" && data ? alertBox({ code: data.code, status, message: data.detail }) : null;
+    out.replaceChildren(
+      h(
+        "section",
+        { class: "card ac-res", "aria-label": "Response" },
+        h("header", { class: "card-head" }, iconTile(ok ? "check" : "warn", ok ? "green" : status >= 500 ? "red" : "orange"), h("div", { class: "card-titles" }, h("h2", {}, "Response")), h("div", { class: "card-actions" }, pill(`${status} ${STATUS_TEXT[status] ?? (ok ? "OK" : "Error")}`, statusTone(status)), pill(`${formatInt(ms)} ms`), pill(sizeText(size)), headers.get("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null)),
+        h(
+          "div",
+          { class: "card-body stack" },
+          h("span", { class: "sr-only", role: "status" }, `Response ${status} in ${ms} milliseconds`),
+          friendly,
+          h("details", { class: "ac-headers" }, h("summary", {}, `Headers (${formatInt(names.length)})`), h("dl", { class: "kv" }, names.flatMap((n) => [h("dt", {}, n), h("dd", {}, headers.get(n))]))),
+          h("div", { class: "snip" }, h("div", { class: "snip-head" }, h("span", { class: "snip-lang" }, json ? "JSON" : "Text"), h("span", { class: "snip-title" }, "Body"), pretty ? copyButton(pretty, { ariaLabel: "Copy the response body", cls: "small copy snip-copy" }) : null), pre),
+        ),
+      ),
+    );
+  };
+
+  const send = async () => {
+    if (busyNow) return;
+    const p = path.value.trim();
+    if (!/^\/v1\/[^\s]*$/.test(p)) {
+      setPathProblem("The path must start with /v1/ and have no spaces. Example: /v1/ltp?symbols=NSE:NIFTY");
+      path.focus();
       return;
     }
-    busy(runBtn, true);
+    setPathProblem(null);
+    const text = hasBody() ? bodyBox.value.trim() : "";
+    if (text && jsonProblem(text)) {
+      updateBody();
+      bodyBox.focus();
+      return;
+    }
+    busyNow = true;
+    busy(sendBtn, true);
+    const entry = { method: method.value, path: p, body: text.length <= 2000 ? text : "" };
+    const t0 = performance.now();
     try {
-      const idem = b.ep.method === "POST" ? `dash-${crypto.randomUUID()}` : null;
-      const opts = { method: b.ep.method, raw: true, body: b.body };
-      let r;
-      if (idem) {
-        const res = await fetch(b.url, { method: "POST", headers: { Authorization: `Bearer ${currentKey()}`, "Content-Type": "application/json", "Idempotency-Key": idem, "X-MCB-Client": "dashboard" }, body: JSON.stringify(b.body) });
-        const text = await res.text();
-        r = { status: res.status, headers: res.headers, text, ms: 0, data: (() => { try { return JSON.parse(text); } catch { return text; } })() };
-      } else r = await api(b.url, opts);
-      const pretty = typeof r.data === "string" ? r.data : JSON.stringify(r.data, null, 2);
-      const pre = h("pre");
-      pre.innerHTML = highlightJson(pretty);
-      const hdr = (n) => r.headers.get(n);
-      const ok = r.status < 400;
-      const friendly = !ok && typeof r.data === "object" ? alertBox({ code: r.data.code, status: r.status, message: r.data.detail }) : null;
-      out.replaceChildren(
-        card({
-          glyph: "inbox",
-          tint: ok ? "green" : "red",
-          title: "Response",
-          actions: h("div", { class: "row" }, pill(`${r.status} ${ok ? "OK" : "Error"}`, ok ? "ok" : "bad"), r.ms ? pill(`${formatInt(r.ms)} ms`) : null, hdr("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null),
-          flush: true,
-          body: h(
-            "div",
-            {},
-            friendly ? h("div", { class: "card-body" }, friendly) : null,
-            h("dl", { class: "kv" }, ...["x-request-id", "ratelimit", "ratelimit-policy", "x-mcb-data", "content-type"].flatMap((n) => (hdr(n) ? [h("dt", {}, n), h("dd", {}, hdr(n))] : []))),
-            h("div", { class: "code" }, h("div", { class: "code-head" }, h("span", { class: "code-title" }, "Body"), copyButton(() => pretty, { ariaLabel: "Copy the response body" })), pre),
-          ),
-        }),
-      );
-    } catch (err) {
-      out.replaceChildren(alertBox(err));
+      const headers = { Authorization: `Bearer ${currentKey()}`, "X-MCB-Client": "dashboard", "X-MCB-Page": "console" };
+      if (text) headers["Content-Type"] = "application/json";
+      if (method.value === "POST" && /^\/v1\/orders\b/.test(p)) headers["Idempotency-Key"] = `dash-${crypto.randomUUID()}`;
+      let res;
+      try {
+        res = await fetch(p, { method: method.value, headers, body: text || undefined, cache: "no-store" });
+      } catch {
+        remember({ ...entry, status: 0 });
+        out.replaceChildren(alertBox({ network: true }));
+        return;
+      }
+      const raw = await res.text();
+      const ms = Math.round(performance.now() - t0);
+      showResponse({ status: res.status, ms, size: new TextEncoder().encode(raw).length, headers: res.headers, text: raw });
+      remember({ ...entry, status: res.status });
     } finally {
-      busy(runBtn, false);
+      busyNow = false;
+      busy(sendBtn, false);
     }
   };
 
-  select.addEventListener("change", drawFields);
-  runBtn.addEventListener("click", run);
-  await drawFields();
-  out.replaceChildren(card({ glyph: "inbox", tint: "gray", title: "Response", body: emptyState("console", "Send a request to see the answer", "The response shows the status, the rate-limit headers and the JSON exactly as your scripts would get it.") }));
-  return h(
-    "div",
-    { class: "console" },
+  example.addEventListener("change", () => (example.value ? applyExample(example.value) : null));
+  method.addEventListener("change", () => (updateBody(), (example.value = "")));
+  path.addEventListener("input", () => {
+    example.value = "";
+    if (path.getAttribute("aria-invalid")) setPathProblem(null);
+  });
+  bodyBox.addEventListener("input", () => ((example.value = ""), updateBody()));
+  // Tab writes two spaces, like an editor, until Esc is pressed (then Tab moves on): a keyboard-only person is never trapped.
+  let freeTab = false;
+  bodyBox.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") return void (freeTab = true);
+    if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !freeTab) {
+      e.preventDefault();
+      const { selectionStart: a, selectionEnd: b, value } = bodyBox;
+      bodyBox.value = `${value.slice(0, a)}  ${value.slice(b)}`;
+      bodyBox.selectionStart = bodyBox.selectionEnd = a + 2;
+      updateBody();
+    }
+  });
+  bodyBox.addEventListener("blur", () => (freeTab = false));
+  sendBtn.addEventListener("click", send);
+  const form = h("section", { class: "card ac-req", "aria-label": "Request" });
+  form.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+      e.preventDefault();
+      send();
+    } else if (e.key === "Enter" && e.target === path && !e.isComposing) {
+      e.preventDefault();
+      send();
+    }
+  });
+  form.append(
+    h("header", { class: "card-head" }, iconTile("console", "teal"), h("div", { class: "card-titles" }, h("h2", {}, "Request"), h("p", {}, "Sent with your dashboard key. Scripts should use their own key.")), h("div", { class: "card-actions" }, curlBtn)),
     h(
       "div",
-      { class: "stack" },
-      card({
-        glyph: "console",
-        tint: "teal",
-        title: "Request",
-        sub: "Uses your dashboard key. Scripts should use their own key.",
-        body: h("div", { class: "stack" }, h("label", { class: "field" }, "Endpoint", select), fieldsBox, h("div", { class: "row" }, runBtn)),
-      }),
-      curlBox,
+      { class: "card-body stack" },
+      h("label", { class: "field", for: "ac-example" }, h("span", {}, "Start from an example"), example),
+      h("div", { class: "ac-line" }, method, path, sendBtn),
+      pathMsg,
+      bodyField,
     ),
-    out,
   );
+  out.replaceChildren(card({ glyph: "inbox", tint: "gray", title: "Response", body: emptyState("console", "Send a request to see the answer", "You will see the status, how long it took, the rate-limit headers and the JSON, exactly as your scripts would get it.", null, { compact: true }) }));
+  const res = h("div", { class: "ac-right" }, historyBox, out);
+  const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("endpoint");
+  const first = ENDPOINTS.some((e) => e.id === wanted) ? wanted : "ltp";
+  await applyExample(first);
+  example.value = first;
+  drawHistory();
+  return h("div", { class: "ac" }, form, res);
 }
 
 // ── Rate limits ──
 
+const CLASS_NAME = Object.freeze({ order: "Orders", quote: "Quotes", depth: "Market depth", history: "History (candles)", chain: "Option chains", portfolio: "Positions and funds", master: "Instrument list", other: "Other calls" });
+/** How full a budget is, in words and in the tone that colours its bar (calm, then amber, then red). Pure. */
+function pressure(used, limit) {
+  if (!(limit > 0)) return { tone: "calm", word: "No limit", pct: 0 };
+  const p = used / limit;
+  const pct = Math.min(100, Math.round(p * 100));
+  if (p >= 0.85) return { tone: "high", word: "Near the limit", pct };
+  if (p >= 0.6) return { tone: "busy", word: "Busy", pct };
+  return { tone: "calm", word: "Calm", pct };
+}
+const limitSpan = (w) => ({ "1s": "per second", "1m": "per minute", "1d": "per day" })[w] ?? `per ${w ?? "second"}`;
+
+/** One budget: name, a bar with the figures beside it, and what it did today. Colour follows pressure; the word says it too. */
+function budgetMeter(name, c) {
+  const limit = isFigure(c.limit) ? Number(c.limit) : 0;
+  const used = Number(c.used ?? 0);
+  const p = pressure(used, limit);
+  const fill = h("i");
+  fill.style.width = `${Math.max(p.pct, used > 0 ? 2 : 0)}%`;
+  const others = (c.windows ?? []).filter((w) => w.bucket === `class:${c.cls}` && w.window !== c.window);
+  const today = [`${formatInt(c.callsToday)} broker calls today`, c.throttledToday ? `${formatInt(c.throttledToday)} throttled by the broker` : null, c.refusedToday ? `${formatInt(c.refusedToday)} held back to stay inside limits` : null, ...others.map((w) => `${windowText(w)} ${limitSpan(w.window)}`)].filter(Boolean);
+  return h(
+    "div",
+    { class: `al-meter ${p.tone}` },
+    h("div", { class: "al-meter-head" }, h("span", { class: "al-name" }, name), h("span", { class: "al-figs" }, limit ? h("span", {}, h("strong", {}, formatInt(used)), ` of ${formatInt(limit)} ${limitSpan(c.window)}`) : h("span", {}, `${formatInt(used)} ${limitSpan(c.window)}, no limit`), h("span", { class: "al-word" }, p.word))),
+    h("div", { class: "al-track", role: "meter", "aria-valuemin": "0", "aria-valuemax": String(limit || used || 1), "aria-valuenow": String(used), "aria-label": `${name}: ${formatInt(used)} of ${limit ? formatInt(limit) : "no limit"} ${limitSpan(c.window)}, ${p.word.toLowerCase()}` }, fill),
+    h("div", { class: "al-sub" }, today.join(" · ")),
+  );
+}
+
+/**
+ * API › Rate limits: how much of each broker budget is in use right now (calm, busy, near the limit), a two-minute
+ * chart, who spent the budget today, and what the broker allows. Usage refreshes every 1.5 seconds; the policy, which
+ * changes only with the configuration, is read once.
+ */
 async function renderLimits() {
-  const root = h("div", { class: "stack" });
+  const root = h("div", { class: "api-tab al" });
   /** accountId -> the endpoint class its chart shows (the busiest, until a person picks another) */
   const chartClass = new Map();
+  const openPolicies = new Set();
   let limitsData = null;
-  const draw = async () => {
-    // The policy table changes only with the config: read it once. Usage (with the per-second history) every 1.5 s.
-    const [usage, limits] = await Promise.all([api("/v1/usage?series=1"), limitsData ? Promise.resolve(limitsData) : api("/v1/limits")]);
-    limitsData = limits;
-    const u = usage.data.data ?? {};
-    const lim = limits.data.data ?? {};
-    const sv = u.savings ?? {};
-    const nodes = [
-      h(
-        "div",
-        { class: "grid cols-4 stats" },
-        stat("Served from live stream", formatInt(sv.servedFromStream), "No broker call at all", "activity", "teal"),
-        stat("Served from cache", formatInt(sv.servedFromCache), "Fresh enough, labelled with its age", "clock", "indigo"),
-        stat("Coalesced", formatInt(sv.coalesced), "Identical requests shared one call", "integrations", "purple"),
-        stat("Batched", formatInt(sv.batched), "Symbols packed into fewer calls", "list", "blue"),
-      ),
-    ];
-    const accounts = (u.accounts ?? []).filter((a) => a.broker !== "paper");
-    const tryBtn = h("button", { type: "button", class: "primary" }, icon("bolt"), "Send 20 identical requests");
-    tryBtn.addEventListener("click", async () => {
-      busy(tryBtn, true);
-      const before = (await api("/v1/usage")).data.data;
-      const calls = (x) => (x.accounts ?? []).reduce((n, a) => n + sum(Object.fromEntries(Object.entries(a.classes ?? {}).map(([k, v]) => [k, v.callsToday ?? 0]))), 0);
-      await Promise.all(Array.from({ length: 20 }, () => optional(api("/v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE"))));
-      const after = (await api("/v1/usage")).data.data;
-      busy(tryBtn, false);
-      const used = calls(after) - calls(before);
-      toast(`20 requests → ${formatInt(used)} broker call${used === 1 ? "" : "s"}. The rest came from the live stream, the cache or a shared call.`);
-      await draw();
-    });
-    nodes.push(
-      card({
-        glyph: "bolt",
-        tint: "purple",
-        title: "Try it",
-        sub: "Twenty tools asking for the same price at once should cost the broker about one call. Watch the counters.",
-        body: h("div", { class: "row" }, tryBtn, h("span", { class: "muted small" }, accounts.length ? "Uses /v1/ltp for NIFTY and RELIANCE." : "Needs a connected broker or demo mode.")),
-      }),
-    );
-    if (!accounts.length) nodes.push(card({ glyph: "limits", tint: "purple", title: "Broker budgets", body: emptyState("limits", "No broker account in use yet", "Once a broker account is connected, its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")) }));
-    // Live: calls per second over two minutes against the per-second limit, one chart per account.
-    for (const a of accounts) {
-      const classes = Object.keys(a.classes ?? {}).filter((c) => (a.classes[c].callsToday ?? 0) > 0 || a.series?.classes?.[c]);
-      const cls = chartClass.get(a.accountId) ?? busiestClass(a);
-      const c = a.classes?.[cls] ?? {};
-      const counts = a.series?.classes?.[cls] ?? new Array(a.series?.seconds ?? 120).fill(0);
-      const limit = perSecondLimit(c);
-      const sec = (c.windows ?? []).find((w) => w.window === "1s");
-      const min = (c.windows ?? []).find((w) => w.window === "1m");
-      const pick = classes.length > 1
-        ? h(
-            "div",
-            { class: "segmented", role: "group", "aria-label": "Endpoint class" },
-            classes.map((k) => h("button", { type: "button", "aria-pressed": String(k === cls), onclick: () => (chartClass.set(a.accountId, k), draw()) }, k)),
-          )
-        : null;
-      nodes.push(
-        card({
-          glyph: "activity",
-          tint: "blue",
-          title: `Live usage · ${a.accountId}`,
-          sub: `${cls}: ${sec ? `${windowText(sec)} this second` : "no per-second limit"}${min ? ` · ${windowText(min)} this minute` : ""}`,
-          actions: pick,
-          body: h(
-            "div",
-            { class: "stack" },
-            usageChart(counts, limit, `${cls} calls per second over the last two minutes${limit ? `, limit ${formatInt(limit)} a second` : ""}`),
-            h("div", { class: "rl-axis" }, h("span", {}, "2 min ago"), h("span", {}, "now")),
-            h("div", { class: "rl-legend" }, h("span", {}, h("i", { class: "sw" }), "Calls per second"), limit ? h("span", {}, h("i", { class: "sw limit" }), `Limit ${formatInt(limit)} a second`) : null),
-          ),
-        }),
-      );
-    }
-    // Who used the budget today (admin keys only: it names API keys).
-    if (Array.isArray(u.consumers) && u.consumers.length) {
-      const top = Math.max(1, ...u.consumers.map((x) => x.calls));
-      nodes.push(
-        card({
-          glyph: "people",
-          tint: "teal",
-          title: "Top consumers today",
-          sub: "Broker calls each page, key or job caused, and the calls it got from the stream, the cache or a shared call instead",
-          flush: true,
-          body: table(
-            [
-              { label: "Consumer", cell: (r) => h("strong", {}, r.name) },
-              { label: "Broker calls", num: true, cell: (r) => formatInt(r.calls) },
-              {
-                label: "Share",
-                cell: (r) => {
-                  const bar = h("span", { class: "rl-cons-bar", "aria-hidden": "true" });
-                  bar.style.setProperty("--w", `${Math.round((r.calls / top) * 100)}%`);
-                  return bar;
-                },
-              },
-              { label: "Saved", num: true, cell: (r) => formatInt(r.saved) },
-            ],
-            u.consumers,
-            emptyState("limits", "No broker calls yet today", ""),
-          ),
-        }),
-      );
-    }
-    for (const a of accounts) {
-      const classes = Object.entries(a.classes ?? {});
-      nodes.push(
-        card({
-          glyph: "limits",
-          tint: "purple",
-          title: `${a.accountId} · ${a.broker}`,
-          sub: `${a.healthy === false ? "Backing off" : "Healthy"} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} queued`,
-          actions: h("div", { class: "row" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok")),
-          body: h(
-            "div",
-            {},
-            classes.map(([cls, c]) => meterRow(cls, c.used ?? 0, c.limit ?? 0, `${formatInt(c.used ?? 0)} / ${isFigure(c.limit) ? formatInt(c.limit) : "∞"} per ${c.window ?? "s"} · ${formatInt(c.callsToday)} today`)),
-            h("p", { class: "muted small" }, `Today: ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.callsToday ?? 0]))))} broker calls, ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.throttledToday ?? 0]))))} throttled by the broker, ${formatInt(sum(Object.fromEntries(classes.map(([k, c]) => [k, c.refusedToday ?? 0]))))} refused to stay inside limits.`),
-          ),
-        }),
-      );
-    }
+  let policyNodes = null;
+  const policyCards = (lim) => {
     const policies = Object.values(lim.brokers ?? {});
-    for (const p of policies) {
-      nodes.push(
-        card({
-          glyph: "list",
-          tint: "gray",
-          title: `Policy: ${p.brokerId}`,
-          sub: p.notes ?? "",
-          flush: true,
-          body: table(
+    if (!policies.length) return null;
+    return h(
+      "section",
+      { class: "group" },
+      h("h2", { class: "group-title" }, "What the broker allows"),
+      ...policies.map((p) => {
+        const dec = Object.values(p.limits ?? {}).some((x) => isFigure(x.perSecond) && !Number.isInteger(Number(x.perSecond))) ? 1 : 0;
+        const d = h(
+          "details",
+          { class: "al-policy", open: openPolicies.has(p.brokerId) },
+          h("summary", {}, h("span", {}, h("strong", {}, p.brokerId), h("span", { class: "muted small" }, p.notes ? ` · ${p.notes}` : ""))),
+          table(
             [
-              { label: "Endpoint class", cell: (r) => h("strong", {}, r[0]) },
-              { label: "Per second", num: true, cell: (r) => formatFixed(r[1].perSecond, Object.values(p.limits ?? {}).some((x) => isFigure(x.perSecond) && !Number.isInteger(Number(x.perSecond))) ? 1 : 0) },
+              { label: "Endpoint class", cell: (r) => h("strong", {}, CLASS_NAME[r[0]] ?? r[0]) },
+              { label: "Per second", num: true, cell: (r) => formatFixed(r[1].perSecond, dec) },
               { label: "Per minute", num: true, cell: (r) => formatInt(r[1].perMinute) },
               { label: "Per day", num: true, cell: (r) => formatInt(r[1].perDay) },
               { label: "Source", wrap: true, cell: (r) => (String(r[1].source ?? "").includes("demo") ? pill("Sample (demo)", "demo") : r[1].verified ? pill("Broker docs", "ok") : pill("Conservative default", "warn")) },
             ],
             Object.entries(p.limits ?? {}),
-            emptyState("limits", "No limits", ""),
+            emptyState("limits", "No limits", "", null, { compact: true }),
           ),
-        }),
+        );
+        d.addEventListener("toggle", () => (d.open ? openPolicies.add(p.brokerId) : openPolicies.delete(p.brokerId)));
+        return d;
+      }),
+    );
+  };
+
+  const draw = async () => {
+    const [usage, limits] = await Promise.all([api("/v1/usage?series=1"), limitsData ? Promise.resolve(limitsData) : api("/v1/limits")]);
+    if (!limitsData) {
+      limitsData = limits;
+      policyNodes = policyCards(limits.data.data ?? {});
+    }
+    const u = usage.data.data ?? {};
+    const sv = u.savings ?? {};
+    const accounts = (u.accounts ?? []).filter((a) => a.broker !== "paper");
+    const nodes = [];
+
+    nodes.push(
+      h(
+        "section",
+        { class: "card al-intro" },
+        h("div", { class: "card-body stack" }, h("p", { class: "al-lead" }, "Every broker allows only so many calls. The Bridge keeps each account under its budget, and most requests never reach the broker at all."), h("div", { class: "al-stats" }, ...[
+          ["Served from the live stream", sv.servedFromStream, "No broker call at all"],
+          ["Served from cache", sv.servedFromCache, "Fresh enough, labelled with its age"],
+          ["Shared calls", sv.coalesced, "Identical requests shared one call"],
+          ["Batched calls", sv.batched, "Symbols packed into fewer calls"],
+        ].map(([name, n, sub]) => h("div", { class: "al-stat" }, h("span", { class: "al-stat-n" }, formatInt(n)), h("span", { class: "al-stat-l" }, name), h("span", { class: "al-stat-s" }, sub))))),
+      ),
+    );
+
+    if (!accounts.length) nodes.push(h("section", { class: "card" }, h("div", { class: "card-body flush" }, emptyState("limits", "No broker account in use yet", "Once a broker account is connected (or demo mode is on), its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")))));
+    for (const a of accounts) {
+      const classes = Object.entries(a.classes ?? {});
+      const active = Object.keys(a.classes ?? {}).filter((c) => (a.classes[c].callsToday ?? 0) > 0 || a.series?.classes?.[c]);
+      const cls = chartClass.get(a.accountId) ?? busiestClass(a);
+      const c = a.classes?.[cls] ?? {};
+      const counts = a.series?.classes?.[cls] ?? new Array(a.series?.seconds ?? 120).fill(0);
+      const limit = perSecondLimit(c);
+      const pick = active.length > 1 ? h("div", { class: "segmented", role: "group", "aria-label": "Endpoint class" }, active.map((k) => h("button", { type: "button", "aria-pressed": String(k === cls), onclick: () => (chartClass.set(a.accountId, k), draw()) }, CLASS_NAME[k] ?? k))) : null;
+      const total = (key) => sum(Object.fromEntries(classes.map(([k, x]) => [k, x[key] ?? 0])));
+      nodes.push(
+        h(
+          "section",
+          { class: "card al-acct" },
+          h("header", { class: "card-head" }, iconTile("limits", "purple"), h("div", { class: "card-titles" }, h("h2", {}, a.accountId), h("p", {}, `${cap(a.broker)} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} waiting`)), h("div", { class: "card-actions" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok"))),
+          h(
+            "div",
+            { class: "card-body stack" },
+            h("div", { class: "al-meters" }, classes.map(([k, x]) => budgetMeter(CLASS_NAME[k] ?? cap(k), { ...x, cls: k }))),
+            h("p", { class: "al-today" }, `Today: ${formatInt(total("callsToday"))} broker calls, ${formatInt(total("throttledToday"))} throttled by the broker, ${formatInt(total("refusedToday"))} held back to stay inside limits.`),
+            h(
+              "div",
+              { class: "al-chart" },
+              h("div", { class: "al-chart-head" }, h("h3", {}, "Calls per second, last two minutes"), pick),
+              usageChart(counts, limit, `${CLASS_NAME[cls] ?? cls} calls per second over the last two minutes${limit ? `, limit ${formatInt(limit)} a second` : ""}`),
+              h("div", { class: "rl-axis" }, h("span", {}, "2 min ago"), h("span", {}, "now")),
+              h("div", { class: "rl-legend" }, h("span", {}, h("i", { class: "sw" }), "Calls per second"), limit ? h("span", {}, h("i", { class: "sw limit" }), `Limit ${formatInt(limit)} a second`) : null),
+            ),
+          ),
+        ),
       );
     }
+
+    // Who used the budget today (admin keys only: it names API keys).
+    if (Array.isArray(u.consumers) && u.consumers.length) {
+      const top = Math.max(1, ...u.consumers.map((x) => x.calls));
+      nodes.push(
+        h(
+          "section",
+          { class: "group" },
+          h("h2", { class: "group-title" }, "Who used the budget today"),
+          h(
+            "ul",
+            { class: "list al-cons" },
+            u.consumers.map((r) => {
+              const bar = h("span", { class: "rl-cons-bar", "aria-hidden": "true" });
+              bar.style.setProperty("--w", `${Math.round((r.calls / top) * 100)}%`);
+              return h("li", { class: "list-row static" }, h("span", { class: "al-cons-name" }, r.name), h("span", { class: "al-cons-bar" }, bar), h("span", { class: "al-cons-n" }, h("strong", {}, formatInt(r.calls)), " broker calls", r.saved ? h("span", { class: "muted" }, ` · ${formatInt(r.saved)} saved`) : null));
+            }),
+          ),
+          h("p", { class: "group-foot" }, "Broker calls each page, key or job caused, and the calls it got from the stream, the cache or a shared call instead."),
+        ),
+      );
+    }
+    if (policyNodes) nodes.push(policyNodes);
+
+    const tryBtn = h("button", { type: "button", class: "small tinted" }, icon("bolt"), "Send 20 identical requests");
+    tryBtn.disabled = !accounts.length;
+    tryBtn.addEventListener("click", async () => {
+      busy(tryBtn, true);
+      try {
+        const calls = (x) => (x.accounts ?? []).reduce((n, a) => n + sum(Object.fromEntries(Object.entries(a.classes ?? {}).map(([k, v]) => [k, v.callsToday ?? 0]))), 0);
+        const before = (await api("/v1/usage")).data.data;
+        await Promise.all(Array.from({ length: 20 }, () => optional(api("/v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE"))));
+        const after = (await api("/v1/usage")).data.data;
+        const used = calls(after) - calls(before);
+        toast(`20 requests became ${formatInt(used)} broker call${used === 1 ? "" : "s"}. The rest came from the live stream, the cache or a shared call.`);
+      } finally {
+        busy(tryBtn, false);
+      }
+      await draw();
+    });
+    nodes.push(h("section", { class: "group" }, h("div", { class: "list" }, h("div", { class: "list-row static al-try" }, iconTile("bolt", "purple"), h("span", { class: "names" }, h("span", { class: "nm" }, "See the savings"), h("span", { class: "sub al-wrap" }, accounts.length ? "Twenty tools asking for the same price at once should cost the broker about one call." : "Needs a connected broker or demo mode.")), tryBtn))));
     keepFocus(root, () => root.replaceChildren(...nodes));
   };
-  await draw();
-  every(1500, draw);
+  const start = async () => {
+    root.replaceChildren(apiSkeleton(3));
+    try {
+      await draw();
+      every(1500, draw);
+    } catch (err) {
+      root.replaceChildren(errorPanel(err, start));
+    }
+  };
+  await start();
   return root;
 }
 
@@ -2264,16 +2433,187 @@ async function renderSafety() {
   return [killCard, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
 }
 
+// ── API page: shared pieces (Keys, Integrations, Test console, Rate limits, Activity) ──
+
+/** Icon and tile hue of each tool, as the key form and the Integrations gallery show them. */
+const API_TILE = Object.freeze({
+  webhooks: ["integrations", "teal"],
+  python: ["console", "blue"],
+  node: ["bolt", "green"],
+  excel: ["chart", "orange"],
+  amibroker: ["activity", "indigo"],
+  claude: ["plug", "purple"],
+  chatgpt: ["inbox", "pink"],
+  rest: ["arrow", "gray"],
+  app: ["accounts", "teal"],
+  other: ["keys", "gray"],
+});
+
+/** A calm placeholder while a tab loads (the shape of what is coming, no spinner). */
+const apiSkeleton = (rows = 3) => h("div", { class: "api-skel", "aria-hidden": "true" }, h("span", { class: "skel-title" }), Array.from({ length: rows }, () => h("span", { class: "skel-block" })));
+
+/** A failure in plain words, with the one thing to do about it. */
+function errorPanel(err, retry) {
+  const box = alertBox(err);
+  if (retry) box.lastElementChild.append(h("div", { class: "alert-actions" }, h("button", { type: "button", class: "small", onclick: retry }, icon("refresh"), "Try again")));
+  return box;
+}
+
+/**
+ * Fill `slot` with a skeleton, then with `draw(data)` once `load()` answers. A failure shows what happened and a Try
+ * again button in the same place, so one slow or failing read never blanks the whole tab.
+ */
+function loadInto(slot, load, draw, { rows = 3 } = {}) {
+  const run = async () => {
+    slot.setAttribute("aria-busy", "true");
+    slot.replaceChildren(h("span", { class: "sr-only", role: "status" }, "Loading…"), apiSkeleton(rows));
+    try {
+      const data = await load();
+      slot.replaceChildren(...[await draw(data)].flat().filter(Boolean));
+    } catch (err) {
+      slot.replaceChildren(errorPanel(err, run));
+    } finally {
+      slot.removeAttribute("aria-busy");
+    }
+  };
+  return run();
+}
+
+/**
+ * A gallery of choices as a roving-tabindex group: a radiogroup (`role: "radio"`, a form choice) or a tablist
+ * (`role: "tab"`, switches a panel). Arrow keys move and choose; Home and End jump. The chosen one carries a check.
+ * Returns the element, with a `.value` and `pick(id)`.
+ */
+function pickGrid({ label, role, items, value, onPick, panelId }) {
+  const tab = role === "tab";
+  const base = `pick-${++pickGrid.n}`;
+  const el = h("div", { class: "api-pick", role: tab ? "tablist" : "radiogroup", "aria-label": label });
+  const btns = items.map((it) => {
+    const [glyph, tint] = API_TILE[it.id] ?? ["keys", "gray"];
+    return h(
+      "button",
+      { type: "button", class: "api-pick-item", role: tab ? "tab" : "radio", "data-id": it.id, id: `${base}-${it.id}`, ...(tab && panelId ? { "aria-controls": panelId } : {}), onclick: () => pick(it.id, false) },
+      iconTile(glyph, tint, "sm"),
+      h("span", { class: "api-pick-text" }, h("span", { class: "api-pick-name" }, it.name), it.blurb ? h("span", { class: "api-pick-sub" }, it.blurb) : null),
+      icon("check"),
+    );
+  });
+  const pick = (id, focus) => {
+    value = id;
+    for (const b of btns) {
+      const on = b.dataset.id === id;
+      b.setAttribute(tab ? "aria-selected" : "aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+      if (on && focus) b.focus();
+    }
+    onPick?.(id);
+  };
+  el.addEventListener("keydown", (e) => {
+    const i = btns.findIndex((b) => b.dataset.id === value);
+    const j = e.key === "ArrowRight" || e.key === "ArrowDown" ? i + 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? btns.length - 1 : null;
+    if (j === null) return;
+    e.preventDefault();
+    pick(btns[(j + btns.length) % btns.length].dataset.id, true);
+  });
+  el.append(...btns);
+  Object.defineProperty(el, "value", { get: () => value });
+  // Mark the starting choice without telling the page about it.
+  for (const b of btns) {
+    const on = b.dataset.id === value;
+    b.setAttribute(tab ? "aria-selected" : "aria-checked", String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  el.pick = pick;
+  return el;
+}
+pickGrid.n = 0;
+
+/** The language names a code block shows (snippets.js `lang`). */
+const LANG_LABEL = Object.freeze({ bash: "Shell", json: "JSON", python: "Python", js: "JavaScript", excel: "Formula", afl: "AFL", bat: "Batch", text: "Text" });
+
+/**
+ * A code block that is made to be copied: a head with the language and what it is for, a Copy button that says
+ * "Copied", and code that scrolls sideways inside its own box instead of wrapping.
+ */
+function snippetBlock({ title, lang = "text", code }) {
+  const pre = h("pre", { class: "snip-code", tabindex: "0", "aria-label": title || LANG_LABEL[lang] || "Code" });
+  if (lang === "json") pre.innerHTML = highlightJson(code);
+  else pre.textContent = code;
+  return h(
+    "figure",
+    { class: "snip" },
+    h("figcaption", { class: "snip-head" }, h("span", { class: "snip-lang" }, LANG_LABEL[lang] ?? lang), title ? h("span", { class: "snip-title" }, title) : null, copyButton(code, { ariaLabel: `Copy: ${title || LANG_LABEL[lang] || "code"}`, cls: "small copy snip-copy" })),
+    pre,
+  );
+}
+
+/**
+ * Something the Bridge shows only once (a new key, a webhook's secret URL): large, high contrast, with a Copy button
+ * for each value, the warning, and a confirmation before it can be hidden. Nothing here is stored.
+ */
+function oncePanel({ title, sub, fields, body, ariaLabel, doneLabel = "Done, hide it", onDone }) {
+  const ack = h("input", { type: "checkbox", id: `once-ack-${++oncePanel.n}` });
+  const done = h("button", { type: "button", class: "primary", disabled: true, onclick: onDone }, doneLabel);
+  ack.addEventListener("change", () => (done.disabled = !ack.checked));
+  const copies = [];
+  const rows = fields.map((f) => {
+    const btn = copyButton(f.value, { label: f.copyLabel ?? "Copy", toastLabel: f.toast ?? "Copied", cls: "primary lg once-copy", ariaLabel: `Copy ${f.label.toLowerCase()}` });
+    copies.push(btn);
+    return h("div", { class: "once-field" }, h("span", { class: "once-label" }, f.label), h("div", { class: "once-row" }, h("code", { class: "once-value", tabindex: "0", "aria-label": f.label }, f.value), btn));
+  });
+  const el = h(
+    "section",
+    { class: "once", "aria-label": ariaLabel ?? title, tabindex: "-1" },
+    h("header", { class: "once-head" }, iconTile("check", "green", "lg"), h("div", { class: "once-titles" }, h("h2", {}, title), sub ? h("p", {}, sub) : null)),
+    alertBox({ title: "Copy it and store it now. It is shown only once.", detail: "The Bridge keeps only a fingerprint, so it cannot show this again. If you lose it, revoke it and make another." }, "warn"),
+    ...rows,
+    body ? h("div", { class: "once-body" }, body) : null,
+    h("div", { class: "once-foot" }, h("label", { class: "check once-ack", for: ack.id }, ack, "I have copied it and stored it safely"), done),
+  );
+  el.focusFirst = () => copies[0]?.focus({ preventScroll: true });
+  return el;
+}
+oncePanel.n = 0;
+
+/**
+ * One row of an API list (a key, a webhook): tile, name and fingerprint, pills, a side column for status and dates,
+ * and one action. On a phone the side column drops under the name. Rows sit in a `.list` group.
+ */
+function apiRow({ glyph = "keys", tint = "pink", title, badge, sub, chips, aside = [], action, dim = false }) {
+  return h(
+    "div",
+    { class: `list-row static api-row${dim ? " dim" : ""}` },
+    iconTile(glyph, dim ? "gray" : tint),
+    h("div", { class: "api-row-main" }, h("div", { class: "api-row-title" }, h("strong", {}, title), badge ?? null), sub ? h("div", { class: "api-row-sub" }, sub) : null, chips ? h("div", { class: "chips" }, chips) : null),
+    h("div", { class: "api-row-aside" }, aside),
+    action ? h("div", { class: "api-row-act" }, action) : null,
+  );
+}
+
 // ── Keys ──
 
 /** Where each snippet group goes, as the "Paste it into" tabs after a key is made. */
 const SNIPPET_TABS = Object.freeze({ excel: "Excel and Sheets", claude: "Claude (MCP)", chatgpt: "ChatGPT / OpenAI", python: "Python", node: "Node", amibroker: "AmiBroker", rest: "curl" });
 const CLIENT_LABEL = Object.freeze({ excel: "Excel / Sheets", mcp: "AI assistant", script: "Script", ui: "App", other: "Other" });
-const ACCESS_LABEL = Object.freeze({ read: "Read only: prices, charts, AI", paper: "Paper trading: read + paper orders", "admin,paper": "Admin: manage the Bridge" });
+const USE_NAME = Object.freeze({ excel: "Excel or Sheets", claude: "AI assistant", python: "Python script", node: "Node script", amibroker: "AmiBroker", app: "My own app", other: "Something else" });
+const USE_BLURB = Object.freeze({ excel: "Live prices in cells", claude: "Claude, ChatGPT and others", python: "Scripts and notebooks", node: "Scripts and services", amibroker: "Live values in AFL", app: "Your own tool or bot", other: "Anything not listed" });
+const SCOPE_WORD = Object.freeze({ read: "Read", paper: "Paper orders", admin: "Admin", live: "Live orders" });
+const SCOPE_HELP = Object.freeze({ read: "Prices, charts and option chains", paper: "Paper (practice) orders", admin: "Manage keys, accounts and webhooks", live: "Real orders with real money" });
+/** The three access levels the dashboard can make, in plain words: what the key can do and what it cannot. */
+const ACCESS_LEVELS = Object.freeze([
+  { value: "read", name: "Read only", can: ["Read prices, candles and option chains", "Use the AI tools to look things up"], cannot: ["Place any order", "Change keys or accounts"] },
+  { value: "paper", name: "Paper trading", can: ["Everything in Read only", "Place and cancel paper orders"], cannot: ["Place live orders", "Change keys or accounts"] },
+  { value: "admin,paper", name: "Admin", can: ["Everything in Paper trading", "Create and revoke keys, manage accounts"], cannot: ["Place live orders (live keys are made in the terminal)"] },
+]);
+const EXPIRY_WORD = Object.freeze({ "": "never expires", 7: "expires in 7 days", 30: "expires in 30 days", 90: "expires in 90 days" });
+
+const keyScopeChip = (s) => h("span", { class: `chip scope-${s}`, title: SCOPE_HELP[s] ?? "" }, SCOPE_WORD[s] ?? cap(s));
+const keyStatus = (k) => (k.revokedAt ? "revoked" : k.expiresAt && Date.parse(k.expiresAt) < Date.now() ? "expired" : "active");
+const dayMonth = (iso) => (iso ? istDateTime(iso).replace(/,.*$/, "") : DASH);
 
 /**
- * The key just made, shown big: the key with Copy (and a Copied state), a clear shown-once warning, and setups ready
- * to paste for the tool it is for (the key already filled in). Nothing here is stored; leaving the page forgets it.
+ * The key just made: the key itself, copyable, with a confirmation before it can be hidden, then the setups ready to
+ * paste for the tool it is for (the key already filled in).
  */
 function newKeyPanel({ key, label, use, scopes, account, onDone }) {
   const tabs = [...new Set([...use.snippets, "excel", "python", "node", "claude", "rest"])].filter((id) => SNIPPET_TABS[id]);
@@ -2282,196 +2622,224 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
   const all = snippets({ base: location.origin, key, account, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined });
   const body = h("div", { class: "stack" });
   const seg = segmented("Paste it into", usable.map((id) => [id, SNIPPET_TABS[id]]), usable[0]);
-  const draw = () => body.replaceChildren(...(all[seg.value] ?? []).map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json" })));
+  const draw = () => body.replaceChildren(...(all[seg.value] ?? []).map(snippetBlock));
   seg.addEventListener("change", draw);
   draw();
-  const keyCode = h("code", { class: "new-key-value" }, key);
-  return h(
-    "section",
-    { class: "new-key", "aria-label": `New key ${label}`, tabindex: "-1" },
-    h("div", { class: "new-key-head" }, h("span", { class: "new-key-tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "grow" }, h("strong", {}, `Key created: ${label}`), h("span", { class: "muted small" }, `${scopes.join(" + ")} access · ${use.label}`))),
-    alertBox({ title: "Copy it now. It is shown only once.", detail: "The Bridge keeps only a fingerprint of it. If you lose it, revoke it below and create another." }, "warn"),
-    h("div", { class: "new-key-row" }, keyCode, copyButton(key, { label: "Copy key", toastLabel: "Key copied", cls: "primary" })),
-    h("div", { class: "new-key-snips stack" }, h("div", { class: "row" }, h("strong", {}, "Paste it into"), seg), body),
-    h("div", { class: "row" }, h("span", { class: "grow muted small" }, "Leaving this page hides the key for good."), h("button", { type: "button", class: "small", onclick: onDone }, "I have copied it, hide it")),
-  );
+  return oncePanel({
+    title: `Key created: ${label}`,
+    sub: `${scopes.map((s) => SCOPE_WORD[s] ?? s).join(" + ")} access · ${use.label}`,
+    ariaLabel: `New key ${label}`,
+    fields: [{ label: "Your new key", value: key, copyLabel: "Copy key", toast: "Key copied" }],
+    body: h("div", { class: "stack" }, h("div", { class: "once-use" }, h("h3", {}, "Paste it into"), seg), body),
+    doneLabel: "Done, hide the key",
+    onDone,
+  });
 }
 
 async function renderKeys() {
-  const [keys, accounts] = await Promise.all([api("/v1/keys"), api("/v1/accounts")]);
-  const rows = keys.data.data ?? [];
-  const accs = accounts.data.data ?? [];
-  const paperAcc = accs.find((a) => a.broker === "paper")?.id ?? "paper";
-  let labels = rows.map((k) => k.label);
-  const createdBox = h("div", { class: "new-key-box" });
-  const formErr = h("div", { "aria-live": "polite" });
-  // "Used by" comes first: it fills in the name, the access, the expiry and URL use, so Create works first time.
-  const usedBy = h("select", { id: "key-use" }, KEY_USES.map((u) => h("option", { value: u.id }, u.label)));
-  const label = h("input", { id: "key-label", maxlength: "60", "aria-required": "true", autocomplete: "off" });
-  const scope = h("select", { id: "key-access" }, Object.entries(ACCESS_LABEL).map(([v, t]) => h("option", { value: v }, t)));
-  const acct = h("select", { id: "key-accounts" }, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, `${a.label} (${a.id})`)));
-  const expires = segmented("Expires", [["", "Never"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]], "");
-  const urlUse = h("input", { type: "checkbox", id: "key-url" });
-  const createBtn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create key");
-  // What the person changed by hand is kept when they switch "Used by"; the rest follows the tool.
-  const touched = { label: false, scope: false, expires: false, url: false };
-  label.addEventListener("input", () => (touched.label = label.value.trim() !== ""));
-  scope.addEventListener("change", () => (touched.scope = true));
-  expires.addEventListener("click", () => (touched.expires = true));
-  urlUse.addEventListener("change", () => (touched.url = true));
-  const applyUse = () => {
-    const u = keyUse(usedBy.value);
-    if (!touched.label) {
-      label.value = defaultKeyName(u.id, new Date(), labels);
-      clearFieldError(label);
-    }
-    if (!touched.scope) {
-      scope.value = u.scopes.join(",");
-      clearFieldError(scope);
-    }
-    if (!touched.expires) expires.value = u.expiresDays ? String(u.expiresDays) : "";
-    if (!touched.url) urlUse.checked = u.allowQuery;
-  };
-  usedBy.addEventListener("change", applyUse);
-  applyUse();
-  const create = async () => {
-    formErr.replaceChildren();
-    const u = keyUse(usedBy.value);
-    const scopes = scope.value.split(",");
-    const problem = keyFormProblem({ label: label.value, scopes, allowQuery: urlUse.checked });
-    if (problem) return fieldError(problem.field === "label" ? label : scope, problem.message);
-    busy(createBtn, true);
-    try {
-      const body = { label: label.value.trim(), scopes, accounts: acct.value === "*" ? "*" : [acct.value], clientKind: u.clientKind };
-      if (expires.value) body.expiresAt = new Date(Date.now() + Number(expires.value) * 86_400_000).toISOString();
-      if (urlUse.checked) body.allowQuery = true;
-      const r = await api("/v1/keys", { method: "POST", body });
-      const k = r.data.data?.key;
-      const made = body.label;
-      createdBox.replaceChildren(newKeyPanel({ key: k, label: made, use: { ...u, allowQuery: urlUse.checked }, scopes, account: acct.value === "*" ? paperAcc : acct.value, onDone: () => createdBox.replaceChildren() }));
-      createdBox.firstElementChild?.scrollIntoView?.({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      createdBox.querySelector(".new-key-row button")?.focus({ preventScroll: true });
-      toast(`Key created: ${made}. Copy it now.`);
-      labels = [...labels, made];
-      touched.label = false;
-      applyUse();
-      await drawTable();
-    } catch (err) {
-      const one = err?.body?.errors?.[0];
-      const at = String(one?.path ?? "").split(".").pop();
-      if (at === "label") fieldError(label, one.message ? `${cap(one.message)}.` : err.message);
-      else formErr.replaceChildren(errorBox(err, { label: "Name", scopes: "Access", accounts: "Accounts", expiresAt: "Expires" }));
-    } finally {
-      busy(createBtn, false);
-    }
-  };
-  createBtn.addEventListener("click", create);
-  label.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.isComposing) {
-      e.preventDefault();
-      create();
-    }
-  });
-
+  const root = h("div", { class: "api-tab ak" });
+  const createdBox = h("div", { class: "ak-created", "aria-live": "polite" });
+  const cols = h("div", { class: "ak-cols" });
+  root.append(createdBox, cols);
   const ownId = String(currentKey() ?? "").split("_")[1] ?? null;
-  const tableBox = h("div");
-  const drawTable = async (list) => {
-    const data = list ?? (await api("/v1/keys")).data.data ?? [];
-    const status = (k) => (k.revokedAt ? pill("Revoked", "bad") : k.expiresAt && Date.parse(k.expiresAt) < Date.now() ? pill("Expired", "warn") : pill("Active", "ok"));
-    tableBox.replaceChildren(
-      table(
-        [
-          { label: "Name", cell: (k) => h("div", {}, h("strong", {}, k.label), h("div", { class: "muted small mono" }, k.id, k.id === ownId ? h("span", { class: "chip own-key" }, "this browser") : null)) },
-          { label: "Scopes", cell: (k) => h("div", { class: "chips" }, k.scopes.slice().sort().map(scopeChip), k.allowQuery ? h("span", { class: "chip" }, "URL ok") : null) },
-          { label: "Accounts", cell: (k) => (k.accounts === "*" ? "All" : k.accounts.join(", ")) },
-          { label: "For", cell: (k) => CLIENT_LABEL[k.clientKind] ?? k.clientKind ?? DASH },
-          { label: "Last used", cell: (k) => (k.lastUsedAt ? istDateTime(k.lastUsedAt) : "Never") },
-          { label: "Expires", cell: (k) => (k.expiresAt ? istDateTime(k.expiresAt) : "Never") },
-          { label: "Status", cell: status },
-          {
-            label: "",
-            cell: (k) =>
-              k.revokedAt
-                ? ""
-                : h("button", {
-                    type: "button",
-                    class: "small plain",
-                    "aria-label": `Revoke key ${k.label}`,
-                    onclick: async (e) => {
-                      const btn = e.currentTarget;
-                      const own = k.id === ownId;
-                      const ok = await modal({
-                        title: `Revoke “${k.label}”?`,
-                        body: h(
-                          "div",
-                          { class: "stack" },
-                          h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."),
-                          own ? alertBox({ title: "This browser is signed in with this key", detail: "You will be signed out at once. Sign in again with another admin key, or make a sign-in link with the CLI." }, "warn") : null,
-                        ),
-                        buttons: [{ label: "Cancel", value: false }, { label: own ? "Revoke and sign out" : "Revoke", cls: "primary", value: true }],
-                      });
-                      if (!ok) return;
-                      busy(btn, true);
-                      try {
-                        await api(`/v1/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
-                        toast(`Revoked ${k.label}`);
-                      } catch (err) {
-                        toast(`Could not revoke ${k.label}: ${err.message}`, { tone: "error" });
-                      }
-                      busy(btn, false);
-                      drawTable();
-                    },
-                  }, "Revoke"),
-          },
-        ],
-        data,
-        emptyState("keys", "No keys yet", "Create one key per tool so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus())),
-        { mobile: "stack-wide" },
-      ),
-    );
-  };
-  await drawTable(rows);
-  // Wide screens (1700 px and up): create on the left, the keys beside it (app.css .keys-split).
-  return [
-    h("div", { class: "keys-split" }, card({
-      glyph: "plus",
-      tint: "pink",
-      title: "Create a key",
-      sub: "One key per tool. Pick the tool and the rest is filled in with the least access it needs. Live keys are made from the terminal only.",
-      body: h(
+
+  const drawAll = ({ rows, accs }) => {
+    const paperAcc = accs.find((a) => a.broker === "paper")?.id ?? "paper";
+    let labels = rows.map((k) => k.label);
+    const formErr = h("div", { "aria-live": "polite" });
+
+    // 1 · What will use it. The tool decides the name, the access, the expiry and URL use.
+    const picker = pickGrid({
+      label: "What will use this key",
+      role: "radio",
+      items: KEY_USES.map((u) => ({ id: u.id, name: USE_NAME[u.id] ?? u.label, blurb: USE_BLURB[u.id] })),
+      value: KEY_USES[0].id,
+      onPick: () => applyUse(),
+    });
+    // 2 · The details, already filled in.
+    const label = h("input", { id: "key-label", maxlength: "60", "aria-required": "true", autocomplete: "off", spellcheck: "false" });
+    const access = segmented("Access", ACCESS_LEVELS.map((a) => [a.value, a.name]), "read");
+    const caps = h("div", { class: "ak-caps", "aria-live": "polite" });
+    const acct = h("select", { id: "key-accounts" }, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, `${a.label} (${a.id})`)));
+    const expires = segmented("Expires", [["", "Never"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]], "");
+    const urlUse = h("input", { type: "checkbox", id: "key-url", role: "switch" });
+    const summary = h("p", { class: "ak-summary", "aria-live": "polite" });
+    const createBtn = h("button", { type: "button", class: "primary lg full" }, icon("plus"), "Create key");
+    // What the person changed by hand is kept when they pick another tool; the rest follows the tool.
+    const touched = { label: false, scope: false, expires: false, url: false };
+    label.addEventListener("input", () => (touched.label = label.value.trim() !== ""));
+    for (const ev of ["click", "keydown"]) {
+      access.addEventListener(ev, () => (touched.scope = true));
+      expires.addEventListener(ev, () => (touched.expires = true));
+    }
+    urlUse.addEventListener("change", () => (touched.url = true));
+    const drawCaps = () => {
+      const lvl = ACCESS_LEVELS.find((a) => a.value === access.value) ?? ACCESS_LEVELS[0];
+      const list = (cls, head, items, glyph) => h("div", { class: `ak-caps-col ${cls}` }, h("h4", {}, head), h("ul", {}, items.map((t) => h("li", {}, icon(glyph), h("span", {}, t)))));
+      caps.replaceChildren(...[list("can", "Can", lvl.can, "check"), list("cannot", "Cannot", lvl.cannot, "close"), lvl.value === "admin,paper" ? h("p", { class: "ak-caps-note" }, "An admin key can create and revoke other keys. Give it only to tools you run yourself.") : null].filter(Boolean));
+    };
+    const drawSummary = () => {
+      const lvl = ACCESS_LEVELS.find((a) => a.value === access.value) ?? ACCESS_LEVELS[0];
+      summary.textContent = `“${label.value.trim() || "Unnamed key"}”: ${lvl.name.toLowerCase()}, ${acct.value === "*" ? "all accounts" : acct.value}, ${EXPIRY_WORD[expires.value] ?? "never expires"}${urlUse.checked ? ", works in URLs" : ""}.`;
+    };
+    function applyUse() {
+      const u = keyUse(picker.value);
+      if (!touched.label) {
+        label.value = defaultKeyName(u.id, new Date(), labels);
+        clearFieldError(label);
+      }
+      if (!touched.scope) access.value = u.scopes.join(",");
+      if (!touched.expires) expires.value = u.expiresDays ? String(u.expiresDays) : "";
+      if (!touched.url) urlUse.checked = u.allowQuery;
+      drawCaps();
+      drawSummary();
+    }
+    for (const el of [label, acct, urlUse]) el.addEventListener(el === label ? "input" : "change", drawSummary);
+    access.addEventListener("change", () => (drawCaps(), drawSummary()));
+    expires.addEventListener("change", drawSummary);
+    applyUse();
+
+    const create = async () => {
+      formErr.replaceChildren();
+      const u = keyUse(picker.value);
+      const scopes = access.value.split(",");
+      const problem = keyFormProblem({ label: label.value, scopes, allowQuery: urlUse.checked });
+      if (problem) {
+        if (problem.field === "label") fieldError(label, problem.message);
+        else (formErr.replaceChildren(alertBox({ title: problem.message }, "warn")), urlUse.focus());
+        return;
+      }
+      busy(createBtn, true);
+      try {
+        const body = { label: label.value.trim(), scopes, accounts: acct.value === "*" ? "*" : [acct.value], clientKind: u.clientKind };
+        if (expires.value) body.expiresAt = new Date(Date.now() + Number(expires.value) * 86_400_000).toISOString();
+        if (urlUse.checked) body.allowQuery = true;
+        const r = await api("/v1/keys", { method: "POST", body });
+        const k = r.data.data?.key;
+        const made = body.label;
+        const panel = newKeyPanel({ key: k, label: made, use: { ...u, allowQuery: urlUse.checked }, scopes, account: acct.value === "*" ? paperAcc : acct.value, onDone: () => (createdBox.replaceChildren(), label.focus({ preventScroll: true })) });
+        createdBox.replaceChildren(panel);
+        panel.scrollIntoView?.({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        panel.focusFirst();
+        toast(`Key created: ${made}. Copy it now.`);
+        labels = [...labels, made];
+        touched.label = false;
+        applyUse();
+        await drawList();
+      } catch (err) {
+        const one = err?.body?.errors?.[0];
+        const at = String(one?.path ?? "").split(".").pop();
+        if (at === "label") fieldError(label, one.message ? `${cap(one.message)}.` : err.message);
+        else formErr.replaceChildren(errorBox(err, { label: "Name", scopes: "Access", accounts: "Accounts", expiresAt: "Expires" }));
+      } finally {
+        busy(createBtn, false);
+      }
+    };
+    createBtn.addEventListener("click", create);
+    label.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        create();
+      }
+    });
+
+    // The list of keys, redrawn after a key is made or revoked.
+    const listBox = h("div", { class: "ak-list" });
+    const revokeKey = async (k, btn) => {
+      const own = k.id === ownId;
+      const ok = await modal({
+        title: `Revoke “${k.label}”?`,
+        body: h("div", { class: "stack" }, h("p", {}, "It stops working on its very next request, and its open streams close. This cannot be undone."), own ? alertBox({ title: "This browser is signed in with this key", detail: "You will be signed out at once. Sign in again with another admin key, or make a sign-in link with the CLI." }, "warn") : null),
+        buttons: [{ label: "Cancel", value: false }, { label: own ? "Revoke and sign out" : "Revoke key", cls: "destructive", value: true }],
+      });
+      if (!ok) return;
+      busy(btn, true);
+      try {
+        await api(`/v1/keys/${encodeURIComponent(k.id)}`, { method: "DELETE" });
+        toast(`Revoked ${k.label}`);
+      } catch (err) {
+        toast(`Could not revoke ${k.label}: ${err.message}`, { tone: "error" });
+      }
+      busy(btn, false);
+      drawList();
+    };
+    const keyRow = (k) => {
+      const st = keyStatus(k);
+      const used = k.lastUsedAt ? `Last used ${istDateTime(k.lastUsedAt)}` : "Never used";
+      const exp = k.expiresAt ? `${st === "expired" ? "Expired" : "Expires"} ${dayMonth(k.expiresAt)}` : "No expiry";
+      return apiRow({
+        title: k.label,
+        dim: st !== "active",
+        badge: k.id === ownId ? h("span", { class: "chip own-key" }, "This browser") : null,
+        sub: h("span", {}, h("span", { class: "mono" }, `mcb_${k.id}_…`), ` · ${CLIENT_LABEL[k.clientKind] ?? k.clientKind ?? "Other"} · ${k.accounts === "*" ? "All accounts" : k.accounts.join(", ")}`),
+        chips: [...k.scopes.slice().sort().map(keyScopeChip), k.allowQuery ? h("span", { class: "chip", title: "May be sent in the address (?key=)" }, "Works in URLs") : null],
+        aside: [st === "active" ? pill("Active", "ok") : st === "expired" ? pill("Expired", "warn") : pill("Revoked", "bad"), h("span", { class: "api-row-note" }, k.revokedAt ? `Revoked ${dayMonth(k.revokedAt)}` : used), k.revokedAt ? null : h("span", { class: "api-row-note" }, exp)],
+        action: k.revokedAt ? null : h("button", { type: "button", class: "small tinted destructive", "aria-label": `Revoke key ${k.label}`, onclick: (e) => revokeKey(k, e.currentTarget) }, icon("trash"), "Revoke"),
+      });
+    };
+    const drawList = async (list) => {
+      let data = list;
+      try {
+        data = list ?? (await api("/v1/keys")).data.data ?? [];
+      } catch (err) {
+        listBox.replaceChildren(errorPanel(err, () => drawList()));
+        return;
+      }
+      const live = data.filter((k) => !k.revokedAt);
+      const gone = data.filter((k) => k.revokedAt);
+      const wasOpen = listBox.querySelector("details")?.open;
+      listBox.replaceChildren(...[
+        h("section", { class: "group" }, h("h2", { class: "group-title" }, `Your keys · ${formatInt(live.length)} active`), live.length ? h("div", { class: "list" }, live.map(keyRow)) : h("div", { class: "list" }, emptyState("keys", "No active keys", "Create one key per tool, so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus()))), h("p", { class: "group-foot" }, "Only a fingerprint of each key is stored. The key itself was shown once, when you made it.")),
+        gone.length ? h("details", { class: "ak-gone", open: wasOpen }, h("summary", {}, `Revoked keys (${formatInt(gone.length)})`), h("div", { class: "list" }, gone.map(keyRow))) : null,
+      ].filter(Boolean));
+    };
+    drawList(rows);
+
+    const create$ = h(
+      "section",
+      { class: "card ak-create" },
+      h("header", { class: "card-head" }, iconTile("plus", "pink"), h("div", { class: "card-titles" }, h("h2", {}, "Create a key"), h("p", {}, "One key per tool, with only the access it needs. Live keys are made in the terminal."))),
+      h(
         "div",
-        { class: "stack" },
+        { class: "card-body ak-form" },
+        h("div", { class: "ak-step" }, h("h3", {}, h("span", { class: "ak-n", "aria-hidden": "true" }, "1"), "What will use it?"), picker),
         h(
           "div",
-          { class: "form-grid" },
-          field("Used by", usedBy, "Sets the name, the access and the expiry for you"),
-          field("Name", label),
-          h("label", { class: "field wide", for: "key-access" }, h("span", {}, "Access"), scope),
-          h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct),
-          segField("Expires", expires, { wide: true }),
+          { class: "ak-step" },
+          h("h3", {}, h("span", { class: "ak-n", "aria-hidden": "true" }, "2"), "Check what it can do"),
+          h("div", { class: "stack" }, h("label", { class: "field", for: "key-label" }, h("span", {}, "Name"), label), segField("Access", access, { wide: true }), caps, h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct), segField("Expires", expires, { wide: true }), h("label", { class: "ak-switch", for: "key-url" }, h("span", { class: "names" }, h("strong", {}, "Allow in URLs"), h("span", { class: "hint" }, "For Excel and Google Sheets, which can only send a key in the address (?key=). Read only keys.")), h("span", { class: "switch" }, urlUse, h("i")))),
         ),
-        h("div", { class: "row" }, h("label", { class: "check" }, urlUse, "Allow in URLs (?key=), for Excel and Google Sheets. Read-only keys only."), h("span", { class: "grow" }), createBtn),
-        formErr,
-        createdBox,
+        h("div", { class: "ak-go" }, summary, formErr, createBtn),
       ),
-    }),
-    card({ glyph: "keys", tint: "pink", title: "Your keys", sub: "Only a fingerprint (hash) of each key is stored. The key itself was shown once.", flush: true, body: tableBox })),
-  ];
+    );
+    return [create$, listBox];
+  };
+
+  loadInto(
+    cols,
+    async () => {
+      const [keys, accounts] = await Promise.all([api("/v1/keys"), api("/v1/accounts")]);
+      return { rows: keys.data.data ?? [], accs: accounts.data.data ?? [] };
+    },
+    drawAll,
+    { rows: 4 },
+  );
+  return root;
 }
 
 // ── Integrations ──
 
-const TABS = INTEGRATION_TOOLS;
 const INTRO = {
-  webhooks: "Alerts that place paper orders through a webhook: signed generic JSON from your scripts, ChartInk scans or GoCharting alerts.",
-  python: "The Python SDK: standard library only, Python 3.9+. Paper orders get an Idempotency-Key automatically.",
-  node: "The Node SDK (ESM). Streaming on Node 20 needs ws; Node 22 has a built-in WebSocket.",
-  excel: "Live prices in cells with WEBSERVICE. The key goes in the URL, so make a read-only URL key with an expiry.",
+  webhooks: "Alerts from your scripts, ChartInk scans or GoCharting place paper orders through a webhook. Each hook has its own secret address.",
+  python: "The Python client: standard library only, Python 3.9 or newer. Paper orders get an Idempotency-Key for you.",
+  node: "The Node client (ESM). Streaming on Node 20 needs the ws package; Node 22 has a WebSocket built in.",
+  excel: "Live prices in cells with WEBSERVICE. The key goes in the address, so use a read-only key with an expiry.",
   amibroker: "Live values in AFL from the Bridge's cache and stream. History imports use /xl/history with the shipped .format files.",
-  claude: "The Bridge is an MCP server. Claude can read prices, chains and your positions; it can only prepare orders for you to confirm.",
-  chatgpt: "ChatGPT connectors cannot reach a local server. Use the same tools from your own script with OpenAI function calling.",
-  rest: "Every route answers { data, meta } JSON with freshness labels; errors are problem+json with a stable code.",
+  claude: "The Bridge is an MCP server. An assistant can read prices, chains and your positions; it can only prepare orders for you to confirm.",
+  chatgpt: "ChatGPT connectors cannot reach a server on your computer. Use the same tools from your own script with OpenAI function calling.",
+  rest: "Every route answers { data, meta } JSON with freshness labels. Errors are problem+json with a stable code.",
 };
+const TOOL_BLURB = { webhooks: "Alerts place paper orders", python: "Scripts and notebooks", node: "Scripts and services", excel: "Live prices in cells", amibroker: "Live values in AFL", claude: "MCP server for assistants", chatgpt: "Function calling", rest: "Plain HTTP and JSON" };
 const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
 /** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */
@@ -2485,194 +2853,298 @@ function setHashParam(key, value) {
 }
 
 /**
- * API › Integrations: one panel. Its tools are an inner segmented control (?tool=, and the old ?tab=); the webhook
- * form sits straight in the panel and the code blocks are its only inner surfaces.
+ * API › Integrations: pick a tool (the gallery is a tablist; ?tool= and the old ?tab= choose one), then read one
+ * panel: what it is, your Bridge address, a key if the tool needs one, and code that is ready to paste.
  */
 async function renderIntegrations() {
-  const accounts = (await api("/v1/accounts")).data.data ?? [];
-  const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? "paper";
-  const createdKeys = {};
-  const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Tools" });
-  const panel = h("div", { class: "integ-panel" });
+  const root = h("div", { class: "api-tab ai" });
   const params = hashParams();
   const asked = params.get("tool") ?? params.get("tab");
-  let active = TABS.some(([id]) => id === asked) ? asked : "webhooks";
+  const start = INTEGRATION_TOOLS.some(([id]) => id === asked) ? asked : "webhooks";
+  const createdKeys = {};
 
-  const draw = async () => {
-    drawTabs(tabsBar, panel, TABS, active, (id) => {
-      active = id;
-      setHashParam("tool", id);
-      draw();
-    });
-    edgeFades(tabsBar);
-    const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active];
-    const preset = KEY_PRESETS[active];
-    const keyBtn = preset && h("button", { type: "button", class: "small" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join("+")} key for this`);
-    if (keyBtn) keyBtn.disabled = Boolean(createdKeys[active]);
-    keyBtn?.addEventListener("click", async () => {
-      try {
-        const body = { label: preset.label, scopes: preset.scopes, accounts: "*", clientKind: preset.clientKind };
-        if (preset.allowQuery) body.allowQuery = true;
-        if (preset.expiresDays) body.expiresAt = new Date(Date.now() + preset.expiresDays * 86_400_000).toISOString();
-        const r = await api("/v1/keys", { method: "POST", body });
-        createdKeys[active] = r.data.data.key;
-        toast("Key created and filled in below. Copy it now: it is shown only once.");
-        draw();
-      } catch (err) {
-        toast(err.message, { tone: "error" });
+  const drawAll = (accounts) => {
+    const paperAcc = accounts.find((a) => a.broker === "paper")?.id ?? "paper";
+    let active = start;
+    const panel = h("section", { class: "card ai-panel", role: "tabpanel", id: "ai-panel" });
+    const picker = pickGrid({ label: "Tools", role: "tab", items: INTEGRATION_TOOLS.map(([id, name]) => ({ id, name, blurb: TOOL_BLURB[id] })), value: start, panelId: "ai-panel", onPick: (id) => ((active = id), setHashParam("tool", id), drawTool()) });
+
+    async function drawTool() {
+      const [, name] = INTEGRATION_TOOLS.find(([id]) => id === active);
+      const [glyph, tint] = API_TILE[active] ?? ["keys", "gray"];
+      panel.setAttribute("aria-labelledby", picker.querySelector(`[data-id="${active}"]`)?.id ?? "");
+      const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active] ?? [];
+      const preset = KEY_PRESETS[active];
+      const keyBtn = preset && h("button", { type: "button", class: "small tinted" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join(" + ")} key for this`);
+      if (keyBtn) {
+        keyBtn.disabled = Boolean(createdKeys[active]);
+        keyBtn.addEventListener("click", async () => {
+          busy(keyBtn, true);
+          try {
+            const body = { label: preset.label, scopes: preset.scopes, accounts: "*", clientKind: preset.clientKind };
+            if (preset.allowQuery) body.allowQuery = true;
+            if (preset.expiresDays) body.expiresAt = new Date(Date.now() + preset.expiresDays * 86_400_000).toISOString();
+            const r = await api("/v1/keys", { method: "POST", body });
+            createdKeys[active] = r.data.data.key;
+            toast("Key created and filled in below. Copy it now: it is shown only once.");
+            drawTool();
+          } catch (err) {
+            busy(keyBtn, false);
+            toast(err.message, { tone: "error" });
+          }
+        });
       }
-    });
-    const intro = h(
-      "div",
-      { class: "card-body stack" },
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
-      createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
-    );
-    const parts = [intro];
-    if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
-    if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json" }))));
-    panel.replaceChildren(...parts.filter(Boolean));
+      const guide = h("a", { class: "btn small quiet", href: `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${name} guide (opens in a new tab)` }, "Guide", icon("external"));
+      const parts = [
+        h("header", { class: "card-head" }, iconTile(glyph, tint, "lg"), h("div", { class: "card-titles" }, h("h2", {}, name), h("p", {}, INTRO[active])), h("div", { class: "card-actions" }, guide)),
+        h(
+          "div",
+          { class: "card-body ai-body" },
+          h("div", { class: "ai-meta" }, h("div", { class: "ai-addr" }, h("span", { class: "ai-addr-label" }, "Your Bridge address"), h("code", {}, location.origin), copyButton(location.origin, { ariaLabel: "Copy your Bridge address", toastLabel: "Address copied", cls: "small copy" })), keyBtn ?? null),
+          createdKeys[active] ? alertBox({ title: "Your new key is filled into the code below.", detail: "It is shown only on this page, and only until you leave it. Copy it now." }, "info") : null,
+          active === "webhooks" ? h("div", { class: "ai-hooks" }) : null,
+          s.length ? h("div", { class: "ai-snips stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : null, s.map(snippetBlock)) : null,
+        ),
+      ];
+      panel.replaceChildren(...parts);
+      if (active === "webhooks") await webhookPanel(paperAcc, panel.querySelector(".ai-hooks"));
+    }
+    drawTool();
+    return [picker, panel];
   };
-  await draw();
-  return card({ flush: true, cls: "integ-card", body: h("div", {}, tabsBar, panel) });
+
+  loadInto(root, async () => (await api("/v1/accounts")).data.data ?? [], drawAll, { rows: 3 });
+  return root;
 }
 
-async function webhookPanel(paperAcc) {
-  const hooks = await optional(api("/v1/hooks"));
-  const list = hooks.data?.data ?? [];
-  const box = h("div", { class: "stack" });
-  const label = h("input", { value: "NIFTY breakout", maxlength: "60" });
-  const source = h("select", {}, [["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
+async function webhookPanel(paperAcc, host) {
+  const box = h("div", { class: "stack", "aria-live": "polite" });
+  const listSlot = h("div", { class: "ai-hook-list" });
+  const label = h("input", { id: "hook-name", value: "NIFTY breakout", maxlength: "60", autocomplete: "off" });
+  const source = h("select", { id: "hook-source" }, [["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
   const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
-  const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
+  const lots = h("input", { id: "hook-lots", type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
-  const columns = [
-    { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
-    { label: "Source", cell: (x) => x.source },
-    { label: "Account", cell: (x) => x.account },
-    { label: "Mode", cell: (x) => (x.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
-    // Live hooks: their account's trading readiness (GET /v1/hooks `readiness`; paper hooks have none).
-    { label: "Readiness", cell: (x) => (x.mode === "live" && x.readiness ? pill(STATE_TEXT[x.readiness] ?? x.readiness, STATE_TONE[x.readiness] ?? "") : h("span", { class: "muted" }, DASH)) },
-    { label: "Last alert", cell: (x) => istDateTime(x.lastSignalAt) },
-    {
-      label: "",
-      cell: (x) =>
-        h("button", {
-          type: "button",
-          class: "small plain",
-          "aria-label": `Delete webhook ${x.label}`,
-          onclick: async () => {
-            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its URL are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete", cls: "primary", value: true }] }))) return;
-            await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
-            show();
-          },
-        }, "Delete"),
-    },
-  ];
-  // Only the table is redrawn when a hook is added, so the one-time secret URL in `box` stays on screen.
-  const tableSlot = h("div", { class: "integ-hooks" });
-  const drawTable = () => tableSlot.replaceChildren(...[table(columns, list, h("p", { class: "integ-empty muted small" }, "No webhooks yet. Fill in the form above and choose Create webhook."))].filter(Boolean));
-  drawTable();
+  let list = [];
+  const hookRow = (x) =>
+    apiRow({
+      glyph: "integrations",
+      tint: "teal",
+      title: x.label,
+      sub: h("span", {}, h("span", { class: "mono" }, x.id), ` · ${cap(x.source)} · ${x.account}`),
+      chips: [x.mode === "live" ? pill("Live", "bad") : pill("Paper"), x.mode === "live" && x.readiness ? pill(STATE_TEXT[x.readiness] ?? x.readiness, STATE_TONE[x.readiness] ?? "") : null],
+      aside: [h("span", { class: "api-row-note" }, x.lastSignalAt ? `Last alert ${istDateTime(x.lastSignalAt)}` : "No alerts yet")],
+      action: h("button", {
+        type: "button",
+        class: "small plain destructive",
+        "aria-label": `Delete webhook ${x.label}`,
+        onclick: async () => {
+          if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its address are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete webhook", cls: "destructive", value: true }] }))) return;
+          await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
+          list = list.filter((h2) => h2.id !== x.id);
+          drawList();
+          toast(`Deleted ${x.label}`);
+        },
+      }, icon("trash"), "Delete"),
+    });
+  const listNode = () => h("section", { class: "group" }, h("h3", { class: "group-title" }, `Your webhooks · ${formatInt(list.length)}`), list.length ? h("div", { class: "list" }, list.map(hookRow)) : h("div", { class: "list" }, emptyState("integrations", "No webhooks yet", "Fill in the form above and choose Create webhook. Its secret address appears here once.", null, { compact: true })));
+  const drawList = () => listSlot.replaceChildren(listNode());
   btn.addEventListener("click", async () => {
     busy(btn, true);
     try {
       const r = await api("/v1/hooks", { method: "POST", body: { source: source.value, label: label.value.trim() || "Webhook", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1, ...(side.value ? { side: side.value } : {}) } });
       const d = r.data.data;
-      list.push(d);
-      drawTable();
-      box.replaceChildren(...[
-        h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), copyButton(d.url, { cls: "small primary", toastLabel: "URL copied" })),
-        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), copyButton(d.signingSecret, { cls: "small primary", toastLabel: "Secret copied" })) : null,
-        ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{") })),
-        ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")),
-        h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."),
-      ].filter(Boolean));
+      list = [...list, d];
+      drawList();
+      const panel = oncePanel({
+        title: `Webhook created: ${d.label ?? "Webhook"}`,
+        sub: `Paper orders on ${paperAcc}`,
+        ariaLabel: "New webhook",
+        fields: [{ label: "Webhook address (its secret token is shown once)", value: d.url, toast: "Address copied" }, ...(d.signingSecret ? [{ label: "Signing secret (shown once; sign every request with it)", value: d.signingSecret, toast: "Secret copied" }] : [])],
+        body: h("div", { class: "stack" }, ...(d.templates ?? []).slice(0, 1).map((t) => snippetBlock({ title: t.name, lang: t.contentType === "application/json" && t.message.startsWith("{") ? "json" : "text", code: t.message })), ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")), h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default.")),
+        doneLabel: "Done, hide it",
+        onDone: () => box.replaceChildren(),
+      });
+      box.replaceChildren(panel);
+      panel.focusFirst();
     } catch (err) {
       box.replaceChildren(alertBox(err));
     } finally {
       busy(btn, false);
     }
   });
-  return [
+  host.replaceChildren(
     h(
-      "div",
-      { class: "card-body stack integ-hook-form" },
-      h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`)),
-      h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn),
+      "section",
+      { class: "ai-hook-form" },
+      h("div", { class: "card-titles" }, h("h3", {}, "Create an alert webhook"), h("p", {}, `Each hook has its own secret address and places paper orders on ${paperAcc}.`)),
+      h("div", { class: "form-grid" }, h("label", { class: "field", for: "hook-name" }, h("span", {}, "Name"), label), h("label", { class: "field", for: "hook-source" }, h("span", {}, "Source"), source), segField("Side", side), segField("Product", product), segField("Order type", orderType, { wide: true }), h("label", { class: "field", for: "hook-lots" }, h("span", {}, "Max lots per alert"), lots), btn),
       box,
     ),
-    tableSlot,
-  ];
+    listSlot,
+  );
+  await loadInto(listSlot, async () => (await optional(api("/v1/hooks"))).data?.data ?? [], (data) => ((list = data), listNode()), { rows: 1 });
 }
 
 // ── Activity ──
 
+/** The word that goes with each status code on a pill, so the number is never the only signal. */
+const statusTone = (n) => (n < 300 ? "ok" : n < 500 ? "warn" : "bad");
+
 async function renderActivity() {
-  const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Activity" });
-  const body = h("div");
+  const root = h("div", { class: "api-tab aa" });
   // #/api/activity?view=audit opens the audit log (the Ctrl K "Audit log" entry).
-  let active = hashParams().get("view") === "audit" ? "audit" : "requests";
-  let showAll = false;
-  const hideOwn = h("input", { type: "checkbox" });
-  hideOwn.checked = local.get(HIDE_OWN_SLOT) !== "0";
-  hideOwn.addEventListener("change", () => {
-    local.set(HIDE_OWN_SLOT, hideOwn.checked ? null : "0");
-    draw();
+  let view = hashParams().get("view") === "audit" ? "audit" : "requests";
+  const seg = segmented("Log", [["requests", "Requests"], ["audit", "Audit log"]], view);
+  const body = h("div", { class: "aa-body" });
+  const head = h("div", { class: "aa-head" }, seg);
+  root.append(head, body);
+  let token = 0;
+  seg.addEventListener("change", () => {
+    view = seg.value;
+    setHashParam("view", view);
+    build();
   });
-  const draw = () => keepFocusAsync(body, drawActivity);
-  const drawActivity = async () => {
-    drawTabs(tabsBar, body, [["requests", "Requests"], ["audit", "Audit log"]], active, (id) => {
-      active = id;
-      setHashParam("view", id);
-      draw();
+
+  const build = () => {
+    const mine = ++token;
+    clearInterval(timer);
+    body.replaceChildren();
+    return (view === "audit" ? auditView(mine) : requestsView(mine)).catch((err) => {
+      if (mine === token) body.replaceChildren(errorPanel(err, build));
     });
-    if (active === "requests") {
-      const r = await api("/v1/requests?limit=200");
-      const all = (r.data.data ?? []).filter((x) => !hideOwn.checked || x.client !== "dashboard");
-      const rows = all.slice(0, showAll ? 200 : 40);
-      const more = all.length > rows.length ? h("div", { class: "card-body row" }, h("span", { class: "muted small" }, `Showing the latest ${formatInt(rows.length)} of ${formatInt(all.length)}.`), h("button", { type: "button", class: "small", onclick: () => { showAll = true; draw(); } }, "Show all")) : null;
-      body.replaceChildren(
-        h("div", { class: "card-body row" }, h("label", { class: "check" }, hideOwn, "Hide the dashboard's own requests"), h("span", { class: "grow" }), h("span", { class: "muted small" }, "Kept in memory only: the last 200 requests. Paths only, never query strings, bodies or keys.")),
-        table(
-          [
-            { label: "Time", cell: (x) => istTime(x.at) },
-            { label: "Method", cell: (x) => h("span", { class: `method ${x.method}` }, x.method) },
-            { label: "Path", cell: (x) => h("span", { class: "mono" }, x.path) },
-            { label: "Status", cell: (x) => pill(String(x.status), x.status < 300 ? "ok" : x.status < 500 ? "warn" : "bad") },
-            { label: "Time taken", num: true, cell: (x) => `${formatInt(x.ms)} ms` },
-            { label: "Key", cell: (x) => (x.keyId ? h("span", { class: "mono small" }, x.keyId) : h("span", { class: "muted" }, "None")) },
-          ],
-          rows,
-          emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Untick the box to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/api/console")),
-          { mobile: "scroll" },
-        ),
-        ...(more ? [more] : []), // replaceChildren would print a null as the text "null"
-      );
-    } else {
-      const r = await api("/v1/audit?limit=100");
-      const rows = r.data.data ?? [];
-      body.replaceChildren(
-        h("div", { class: "card-body" }, h("p", { class: "muted small" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted. Verify the chain on the Safety page.")),
-        table(
-          [
-            { label: "#", num: true, cell: (x) => formatInt(x.seq) },
-            { label: "When", cell: (x) => istDateTime(x.at) },
-            { label: "Event", cell: (x) => h("strong", {}, x.type) },
-            { label: "By", cell: (x) => `${x.actor?.kind ?? ""}:${x.actor?.id ?? ""}` },
-            { label: "Source", cell: (x) => x.source },
-            { label: "Account", cell: (x) => x.accountId ?? DASH },
-            { label: "Details", wrap: true, cell: (x) => h("span", { class: "mono small" }, JSON.stringify(x.data ?? {}).slice(0, 140)) },
-          ],
-          rows,
-          emptyState("activity", "The audit log is empty today", "Key changes, orders, kill-switch actions and webhook events are recorded here."),
-          { mobile: "scroll" },
-        ),
-      );
-    }
   };
-  await draw();
-  every(4000, draw);
-  return card({ flush: true, body: h("div", {}, tabsBar, body) });
+
+  async function requestsView(mine) {
+    let all = [];
+    let q = "";
+    let status = "all";
+    let showAll = false;
+    const hideOwn = h("input", { type: "checkbox", role: "switch", id: "aa-hide-own" });
+    hideOwn.checked = local.get(HIDE_OWN_SLOT) !== "0";
+    const search = h("input", { type: "search", id: "aa-search", placeholder: "Filter by path, method, status or key", "aria-label": "Filter requests", autocomplete: "off", spellcheck: "false" });
+    const clear = h("button", { type: "button", class: "clear", "aria-label": "Clear the filter", onclick: () => ((search.value = ""), (q = ""), drawList(), search.focus()) }, icon("close"));
+    const chips = h("div", { class: "aa-chips", role: "group", "aria-label": "Status" });
+    const chipN = {};
+    for (const [id, text] of [["all", "All"], ["ok", "Succeeded"], ["err", "Errors"]]) {
+      chipN[id] = h("span", { class: "aa-n" }, "0");
+      chips.append(h("button", { type: "button", class: "chip-btn", "data-status": id, "aria-pressed": String(id === "all"), onclick: () => ((status = id), draw()) }, `${text} `, chipN[id]));
+    }
+    const listBox = h("div", { class: "aa-results" });
+    const draw = () => {
+      const base = all.filter((x) => !hideOwn.checked || x.client !== "dashboard");
+      const ok = base.filter((x) => x.status < 400).length;
+      chipN.all.textContent = formatInt(base.length);
+      chipN.ok.textContent = formatInt(ok);
+      chipN.err.textContent = formatInt(base.length - ok);
+      for (const b of chips.children) b.setAttribute("aria-pressed", String(b.dataset.status === status));
+      drawList(base);
+    };
+    const drawList = (given) => {
+      const base = given ?? all.filter((x) => !hideOwn.checked || x.client !== "dashboard");
+      const needle = q.trim().toLowerCase();
+      const rows = base.filter((x) => (status === "all" || (status === "ok" ? x.status < 400 : x.status >= 400)) && (!needle || `${x.method} ${x.path} ${x.status} ${x.keyId ?? ""}`.toLowerCase().includes(needle)));
+      const shown = rows.slice(0, showAll ? 200 : 50);
+      if (!shown.length) {
+        listBox.replaceChildren(
+          h("div", { class: "list" }, base.length ? emptyState("search", "No requests match", "Change the filter or the status to see more.", nextStep("Clear filters", () => ((q = ""), (status = "all"), (search.value = ""), draw()), "small")) : emptyState("activity", "No requests yet", hideOwn.checked ? "Requests from your scripts, charts, Excel and AI tools appear here. Turn off the switch to see the dashboard's own." : "Requests appear here as they arrive.", nextStep("Make a call in the test console", "#/api/console"))),
+        );
+        return;
+      }
+      listBox.replaceChildren(
+        h(
+          "ul",
+          { class: "list aa-log", "aria-label": "Requests, newest first" },
+          shown.map((x) =>
+            h(
+              "li",
+              { class: "aa-row" },
+              h("span", { class: "aa-time" }, istTime(x.at)),
+              h("span", { class: `method aa-method m-${x.method}` }, x.method),
+              h("span", { class: "aa-path mono", title: x.path }, x.path),
+              h("span", { class: "aa-status" }, pill(String(x.status), statusTone(x.status))),
+              h("span", { class: "aa-ms" }, `${formatInt(x.ms)} ms`),
+              h("span", { class: "aa-key mono" }, x.keyId ?? "no key"),
+            ),
+          ),
+        ),
+        h("p", { class: "aa-foot" }, `Showing ${formatInt(shown.length)} of ${formatInt(rows.length)}${rows.length > shown.length ? "." : ""}`, rows.length > shown.length ? h("button", { type: "button", class: "small plain", onclick: () => ((showAll = true), drawList()) }, "Show up to 200") : null, h("span", { class: "aa-fine" }, "Kept in memory only: the last 200 requests. Paths only, never query strings, bodies or keys.")),
+      );
+    };
+    search.addEventListener("input", () => ((q = search.value), drawList()));
+    hideOwn.addEventListener("change", () => (local.set(HIDE_OWN_SLOT, hideOwn.checked ? null : "0"), draw()));
+    body.replaceChildren(h("div", { class: "aa-bar" }, h("div", { class: "search-field aa-search" }, searchIcon(), search, clear), chips, h("label", { class: "aa-own", for: "aa-hide-own" }, h("span", {}, "Hide the dashboard's own requests"), h("span", { class: "switch" }, hideOwn, h("i")))), listBox);
+    const refresh = async () => {
+      const r = await api("/v1/requests?limit=200");
+      if (mine !== token) return;
+      all = r.data.data ?? [];
+      draw();
+    };
+    listBox.replaceChildren(apiSkeleton(4));
+    await refresh();
+    every(4000, refresh);
+  }
+
+  async function auditView(mine) {
+    let rows = [];
+    let q = "";
+    const search = h("input", { type: "search", id: "aa-audit-search", placeholder: "Filter by event, who, account or details", "aria-label": "Filter the audit log", autocomplete: "off", spellcheck: "false" });
+    const clear = h("button", { type: "button", class: "clear", "aria-label": "Clear the filter", onclick: () => ((search.value = ""), (q = ""), drawList(), search.focus()) }, icon("close"));
+    const verifyBtn = h("button", { type: "button", class: "small tinted" }, icon("safety"), "Verify the chain");
+    const result = h("div", { class: "aa-verify", role: "status" });
+    const listBox = h("div", { class: "aa-results" });
+    verifyBtn.addEventListener("click", async () => {
+      busy(verifyBtn, true);
+      try {
+        const d = (await api("/v1/audit/verify")).data.data ?? {};
+        result.replaceChildren(d.ok ? alertBox({ title: `The chain is intact (${formatInt(d.checked)} records)`, detail: "No record was changed or removed." }, "ok") : alertBox({ title: `The chain is broken at ${d.brokenAt}`, detail: "A record was changed or removed after it was written. Keep the audit files and investigate before trusting this log." }));
+      } catch (err) {
+        result.replaceChildren(alertBox(err));
+      } finally {
+        busy(verifyBtn, false);
+      }
+    });
+    const drawList = () => {
+      const needle = q.trim().toLowerCase();
+      const shown = rows.filter((x) => !needle || `${x.type} ${x.actor?.kind}:${x.actor?.id} ${x.source} ${x.accountId ?? ""} ${JSON.stringify(x.data ?? {})}`.toLowerCase().includes(needle));
+      if (!shown.length) {
+        listBox.replaceChildren(h("div", { class: "list" }, rows.length ? emptyState("search", "No records match", "Change the filter to see more.", nextStep("Clear the filter", () => ((search.value = ""), (q = ""), drawList()), "small")) : emptyState("activity", "The audit log is empty today", "Key changes, orders, kill-switch actions and webhook events are recorded here.")));
+        return;
+      }
+      listBox.replaceChildren(
+        h(
+          "div",
+          { class: "list aa-audit" },
+          shown.map((x) =>
+            h(
+              "details",
+              { class: "list-row static aa-rec" },
+              h("summary", {}, h("span", { class: "aa-seq" }, `#${formatInt(x.seq)}`), h("strong", { class: "aa-event" }, x.type), h("span", { class: "aa-when" }, istDateTime(x.at)), h("span", { class: "aa-who" }, `${x.actor?.kind ?? ""}${x.actor?.id ? `:${x.actor.id}` : ""}`, x.accountId ? ` · ${x.accountId}` : "")),
+              h("div", { class: "aa-rec-body" }, h("dl", { class: "kv" }, h("dt", {}, "Source"), h("dd", {}, x.source ?? DASH), h("dt", {}, "Hash"), h("dd", {}, String(x.hash ?? "").slice(0, 16) || DASH)), h("pre", { class: "snip-code" }, JSON.stringify(x.data ?? {}, null, 2))),
+            ),
+          ),
+        ),
+        h("p", { class: "aa-foot" }, `Showing ${formatInt(shown.length)} of ${formatInt(rows.length)} records.`, h("span", { class: "aa-fine" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted.")),
+      );
+    };
+    search.addEventListener("input", () => ((q = search.value), drawList()));
+    body.replaceChildren(h("div", { class: "aa-bar" }, h("div", { class: "search-field aa-search" }, searchIcon(), search, clear), verifyBtn), result, listBox);
+    listBox.replaceChildren(apiSkeleton(4));
+    const refresh = async () => {
+      const r = await api("/v1/audit?limit=100");
+      if (mine !== token) return;
+      const next = r.data.data ?? [];
+      // Redraw only when a record arrived, so a record the person opened stays open.
+      if (rows.length && next.length === rows.length && next[0]?.seq === rows[0]?.seq) return;
+      rows = next;
+      drawList();
+    };
+    await refresh();
+    every(8000, refresh);
+  }
+
+  build();
+  return root;
 }

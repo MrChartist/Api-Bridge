@@ -19,6 +19,8 @@ export const KEY_PRESETS = Object.freeze({
 });
 
 const j = (v) => JSON.stringify(v, null, 2);
+/** A folder path as a shell word: quoted only when it has a space. */
+const sh = (path) => (/\s/.test(path) ? `"${path}"` : path);
 
 /** Body of a generic webhook alert (sign it with the hook's signing secret). */
 export function genericAlert({ orderType = "LIMIT", symbol = "NSE:RELIANCE" } = {}) {
@@ -31,7 +33,7 @@ export function genericAlert({ orderType = "LIMIT", symbol = "NSE:RELIANCE" } = 
  * Every snippet group, keyed by integration id. Each item: { title, lang, code }.
  * @param {{ base: string, key?: string | null, account?: string, symbol?: string, folder?: string }} o
  */
-export function snippets({ base, key = null, account = "paper", symbol = "NSE:NIFTY", folder = "/path/to/api-bridge" }) {
+export function snippets({ base, key = null, account = "paper", symbol = "NSE:NIFTY", folder = "/path/to/api-bridge-v2" }) {
   const read = key ?? PLACEHOLDER.read;
   const paper = key ?? PLACEHOLDER.paper;
   const url = key ?? PLACEHOLDER.url;
@@ -54,7 +56,8 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       { title: "GoCharting alert message (plain text)", lang: "text", code: "BUY NSE:RELIANCE 1 @ 1402.5 INTRADAY" },
     ],
     python: [
-      { title: "Install (inside the api-bridge folder)", lang: "bash", code: `python3 -m venv .venv && . .venv/bin/activate\npip install ./sdk/python\nexport MCB_API_KEY=${paper}` },
+      // The Python client is not on PyPI: it installs from this repository's sdk/python folder (import name: mrchartist_bridge).
+      { title: "Install from your API Bridge folder (it is not on PyPI)", lang: "bash", code: `python3 -m venv .venv && . .venv/bin/activate\npip install ${sh(`${folder}/sdk/python`)}\nexport MCB_API_KEY=${paper}` },
       {
         title: "Prices and a paper order",
         lang: "python",
@@ -72,7 +75,8 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       },
     ],
     node: [
-      { title: "Install", lang: "bash", code: `cd sdk/node && npm pack\n# in your project:\nnpm install /path/to/mrchartist-bridge-client-0.1.0.tgz ws` },
+      // The Node client (@mrchartist/bridge-client) is private: it is packed from this repository's sdk/node folder.
+      { title: "Install from your API Bridge folder (it is not on npm)", lang: "bash", code: `cd ${sh(`${folder}/sdk/node`)} && npm pack\n# then, in your project (ws is only needed to stream on Node 20):\nnpm install ${sh(`${folder}/sdk/node/mrchartist-bridge-client-0.1.0.tgz`)} ws` },
       {
         title: "Prices, a stream and a paper order (ESM)",
         lang: "js",
