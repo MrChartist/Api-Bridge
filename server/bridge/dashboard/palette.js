@@ -1,6 +1,6 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
-import { chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
+import { app, chooseDensity, chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast, toggleSidebarRail } from "./app.js";
 
 /** The modifier shown in every shortcut hint. One label for everyone: the key handler accepts Control or Command alike. */
 export const MOD = "Ctrl";
@@ -66,6 +66,58 @@ export function rank(commands, query) {
     .map((x) => x.c);
 }
 
+/**
+ * Where a query matches a label, as [start, end) ranges to highlight: the substring when there is one, else the
+ * characters of a fuzzy match, with neighbours merged. [] when nothing in the label matches (a keyword hit). Pure.
+ */
+export function matchRanges(query, text) {
+  const q = String(query).toLowerCase().replace(/\s+/g, " ").trim();
+  const t = String(text).toLowerCase();
+  if (!q) return [];
+  const at = t.indexOf(q);
+  if (at >= 0) return [[at, at + q.length]];
+  if (fuzzyScore(q, t) < 0) return [];
+  const out = [];
+  let ti = 0;
+  for (const ch of q) {
+    if (ch === " ") continue;
+    const i = t.indexOf(ch, ti);
+    if (i < 0) return [];
+    if (out.length && out[out.length - 1][1] === i) out[out.length - 1][1] = i + 1;
+    else out.push([i, i + 1]);
+    ti = i + 1;
+  }
+  return out;
+}
+
+/** The label as nodes with the matched parts in <mark>. Pure apart from creating elements. */
+function highlighted(label, query) {
+  const ranges = matchRanges(query, label);
+  if (!ranges.length) return [label];
+  const out = [];
+  let at = 0;
+  for (const [a, b] of ranges) {
+    if (a > at) out.push(label.slice(at, a));
+    out.push(h("mark", { class: "pal-mark" }, label.slice(a, b)));
+    at = b;
+  }
+  if (at < label.length) out.push(label.slice(at));
+  return out;
+}
+
+const RECENT_SLOT = "mcb.dashboard.palette.recent";
+const RECENT_MAX = 4;
+/** The last commands run from the palette (ids, newest first), kept in this browser. */
+export function recentIds() {
+  try {
+    const v = JSON.parse(app.local.get(RECENT_SLOT) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(0, RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+const remember = (id) => app.local.set(RECENT_SLOT, JSON.stringify([id, ...recentIds().filter((x) => x !== id)].slice(0, RECENT_MAX)));
+
 let ctx = null; // { pages, go, refresh }
 let dlg = null;
 let input = null;
@@ -98,10 +150,10 @@ const groupOf = (p) => p.group;
  * lists (each Integrations tool, the audit log; found by searching only), then the actions. Shortcut hints come from
  * the page's curated `key`. Pure apart from reading `ctx`.
  */
-export function pageCommands(pages, mod = modKey()) {
+export function pageCommands(pages) {
   const out = [];
   for (const p of pages) {
-    const hint = p.key ? [mod, String(p.key)] : null;
+    const hint = p.key ? shortcut(p.key).keys : null;
     if (!p.tabs?.length) {
       out.push({ id: `page-${p.id}`, group: groupOf(p), label: p.label, keywords: `${p.title} ${p.sub} ${p.keywords ?? ""} go open page`, icon: p.icon, tint: p.tint, sub: p.sub, hint, route: p.id });
       continue;
@@ -114,22 +166,32 @@ export function pageCommands(pages, mod = modKey()) {
   return out;
 }
 
+const fineDesktop = () => typeof matchMedia === "function" && matchMedia("(pointer: fine)").matches;
+const densityNow = () => document.documentElement.dataset.density;
+
+/**
+ * Everything the palette can do, in three sections: Pages (and each tab), Actions, Settings. A command may be
+ * `navigates` (it moves to another page, so focus is not given back to where it was).
+ */
 function commands() {
-  const pageCmds = pageCommands(ctx.pages()).map((c) => ({ ...c, run: () => ctx.go(c.route) }));
+  const pageCmds = pageCommands(ctx.pages()).map((c) => ({ ...c, section: "Pages", navigates: true, run: () => ctx.go(c.route) }));
+  const theme = currentTheme();
+  const sb = document.documentElement.dataset.sb;
   const actions = [
-    { id: "kill", label: "Engage kill switch", sub: "Stop every new order, from every tool", keywords: "stop all orders safety emergency halt", icon: "power", tint: "red", run: () => ctx.go("safety", "#kill-action") },
-    { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", run: () => ctx.go("api/keys", "#key-label") },
-    { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", run: () => ctx.go("api/console") },
-    { id: "paper", label: "Place a paper order", sub: "Send a paper order as JSON in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", run: () => ctx.go("api/console?endpoint=order") },
-    { id: "theme", label: "Toggle theme", sub: `Now ${currentTheme() === "auto" ? "Auto" : currentTheme() === "light" ? "Light" : "Dark"}`, keywords: "dark light appearance mode", icon: "moon", tint: "indigo", run: () => setTheme({ auto: "light", light: "dark", dark: "auto" }[currentTheme()] ?? "auto") },
-    { id: "theme-light", label: "Theme: Light", keywords: "appearance", icon: "sun", tint: "gray", run: () => setTheme("light") },
-    { id: "theme-dark", label: "Theme: Dark", keywords: "appearance night", icon: "moon", tint: "gray", run: () => setTheme("dark") },
-    { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "monitor", tint: "gray", run: () => setTheme("auto") },
+    { id: "kill", label: "Stop all orders", sub: "Kill switch: stop every new order, from every tool", keywords: "kill switch emergency halt engage safety", icon: "stop", tint: "red", navigates: true, run: () => ctx.go("safety", "#kill-action") },
+    { id: "ready", label: "Check trading readiness now", sub: "Run the session, IP, limits and kill-switch checks", keywords: "safety status session static ip health", icon: "safety", tint: "green", run: () => import("./readiness.js").then((m) => m.checkNow(null)) },
+    { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", navigates: true, run: () => ctx.go("api/keys", "#key-label") },
+    { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", navigates: true, run: () => ctx.go("api/console") },
+    { id: "paper", label: "Place a paper order", sub: "Send a paper order as JSON in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", navigates: true, run: () => ctx.go("api/console?endpoint=order") },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
     { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
-  ].map((a) => ({ ...a, group: "Actions" }));
-  return [...pageCmds, ...actions];
+  ].map((a) => ({ ...a, group: "Actions", section: "Actions" }));
+  const themes = [["auto", "Theme: Auto (match system)", "monitor", "appearance system"], ["light", "Theme: Light", "sun", "appearance day"], ["dark", "Theme: Dark", "moon", "appearance night"]].map(([v, label, ic, kw]) => ({ id: `theme-${v}`, label, sub: theme === v ? "Current" : undefined, keywords: kw, icon: ic, tint: "indigo", run: () => setTheme(v) }));
+  const density = fineDesktop() ? [["auto", "Density: Automatic"], ["comfortable", "Density: Comfortable"], ["compact", "Density: Compact"]].map(([v, label]) => ({ id: `density-${v}`, label, sub: v !== "auto" && densityNow() === v ? "Current" : undefined, keywords: "spacing rows tighter roomier", icon: "density", tint: "teal", run: () => (chooseDensity(v), toast(`Density: ${v === "auto" ? "Automatic" : v === "compact" ? "Compact" : "Comfortable"}`))})) : [];
+  const sidebar = sb === "rail" || sb === "full" ? [{ id: "sidebar", label: sb === "rail" ? "Expand the sidebar" : "Collapse the sidebar to icons", keywords: "menu navigation rail", icon: sb === "rail" ? "rail" : "sidebar", tint: "blue", run: () => toggleSidebarRail() }] : [];
+  const settings = [...themes, ...density, ...sidebar].map((a) => ({ ...a, group: "Settings", section: "Settings" }));
+  return [...pageCmds, ...actions, ...settings];
 }
 
 function build() {
@@ -140,8 +202,8 @@ function build() {
     "aria-expanded": "true",
     "aria-controls": "palette-list",
     "aria-autocomplete": "list",
-    "aria-label": "Search pages and actions",
-    placeholder: "Search pages and actions",
+    "aria-label": "Search pages, actions and settings",
+    placeholder: "Search pages, actions and settings",
     autocomplete: "off",
     spellcheck: "false",
   });
@@ -181,40 +243,54 @@ function build() {
   document.body.append(dlg);
 }
 
+const SECTIONS = ["Pages", "Actions", "Settings"];
+
+/** The groups to show: with no query, Recent first and then each section in order; with one, sections in order of their best match. */
+function groupsFor(q) {
+  const all = commands();
+  if (q) {
+    const hits = rank(all, q);
+    const order = [...new Set(hits.map((c) => c.section))];
+    return order.map((name) => [name, hits.filter((c) => c.section === name)]);
+  }
+  const recent = recentIds().map((id) => all.find((c) => c.id === id)).filter(Boolean);
+  const rest = all.filter((c) => !c.searchOnly && !recent.includes(c));
+  return [["Recent", recent], ...SECTIONS.map((name) => [name, rest.filter((c) => c.section === name)])].filter(([, list]) => list.length);
+}
+
 function draw() {
   const q = input.value.trim();
-  results = rank(q ? commands() : commands().filter((c) => !c.searchOnly), q);
+  const groups = groupsFor(q);
+  results = groups.flatMap(([, list]) => list);
   if (activeIndex >= results.length) activeIndex = Math.max(0, results.length - 1);
   const items = [];
-  let group = null;
-  results.forEach((c, i) => {
-    if (!input.value.trim() && c.group !== group) {
-      group = c.group;
-      items.push(h("li", { class: "palette-group", role: "presentation" }, group));
+  let i = 0;
+  for (const [name, list] of groups) {
+    const gid = `palette-group-${name}`;
+    items.push(h("li", { class: "palette-group", role: "presentation", id: gid }, name));
+    for (const c of list) {
+      const n = i++;
+      const hint = c.hint ? kbd(...c.hint) : null;
+      const li = h(
+        "li",
+        { id: `palette-opt-${n}`, class: "palette-option", role: "option", "aria-selected": String(n === activeIndex) },
+        iconTile(c.icon, c.tint ?? "gray", "md"),
+        h("span", { class: "palette-text" }, h("span", { class: "palette-label" }, highlighted(c.label, q)), c.sub ? h("span", { class: "palette-sub" }, c.sub) : null),
+        hint ? h("span", { class: "palette-right", "aria-hidden": "true" }, hint) : null,
+      );
+      li.addEventListener("mousemove", () => {
+        if (activeIndex !== n) {
+          activeIndex = n;
+          markActive();
+        }
+      });
+      li.addEventListener("click", () => runAt(n));
+      items.push(li);
     }
-    const hint = c.hint ? kbd(...c.hint) : null;
-    const li = h(
-      "li",
-      { id: `palette-opt-${c.id}`, class: "palette-option", role: "option", "aria-selected": String(i === activeIndex) },
-      iconTile(c.icon, c.tint ?? "gray", "md"),
-      h(
-        "span",
-        { class: "palette-text" },
-        h("span", { class: "palette-label" }, c.label, input.value.trim() ? h("span", { class: "palette-kind" }, c.group === "Actions" ? "Action" : "Page") : null),
-        c.sub ? h("span", { class: "palette-sub" }, c.sub) : null,
-      ),
-      hint ? h("span", { class: "palette-right", "aria-hidden": "true" }, hint) : null,
-    );
-    li.addEventListener("mousemove", () => {
-      if (activeIndex !== i) {
-        activeIndex = i;
-        markActive();
-      }
-    });
-    li.addEventListener("click", () => runAt(i));
-    items.push(li);
-  });
-  if (!results.length) items.push(h("li", { class: "palette-empty", role: "presentation" }, `No page or action matches “${input.value.trim()}”.`));
+  }
+  if (!results.length) {
+    items.push(h("li", { class: "palette-empty", role: "presentation" }, icon("search"), h("strong", {}, `No results for “${q}”`), h("span", {}, "Try a page such as Accounts, Orders or Keys, or an action such as Stop all orders.")));
+  }
   list.replaceChildren(...items);
   markActive();
 }
@@ -262,8 +338,8 @@ function onKey(e) {
 function runAt(i) {
   const c = results[i];
   if (!c) return;
-  const navigates = c.group !== "Actions" || ["kill", "key", "console", "paper"].includes(c.id);
-  closePalette({ restore: !navigates });
+  remember(c.id);
+  closePalette({ restore: !c.navigates });
   c.run();
 }
 
@@ -293,13 +369,12 @@ export function closePalette({ restore = true } = {}) {
 // ── Shortcuts ──
 
 export function shortcutList() {
-  const mod = modKey();
   const pages = ctx?.pages() ?? [];
   return [
-    { keys: [mod, "K"], what: "Search pages and actions" },
+    { keys: shortcut("K").keys, what: "Search pages and actions" },
     { keys: ["/"], what: "Search (when not typing in a field)" },
     { keys: ["?"], what: "Show these shortcuts" },
-    ...pages.filter((p) => p.key).sort((a, b) => a.key - b.key).map((p) => ({ keys: [mod, String(p.key)], what: `Go to ${p.label}` })),
+    ...pages.filter((p) => p.key).sort((a, b) => a.key - b.key).map((p) => ({ keys: shortcut(p.key).keys, what: `Go to ${p.label}` })),
     { keys: ["↑", "↓"], what: "Move through search results" },
     { keys: ["↵"], what: "Open the selected result" },
     { keys: ["esc"], what: "Close search or a dialog" },

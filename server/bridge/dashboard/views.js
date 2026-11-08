@@ -1,7 +1,7 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
 // except small conveniences in localStorage (theme, density, the last tab of each page).
-import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, meterRow, modal, optional, pill, table, ticketFields, toast, sheetPopover, confirmEngageKillSwitch, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
-import { STATE_TEXT, STATE_TONE, readinessCard, refreshReadiness } from "./readiness.js";
+import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, meterRow, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
+import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
@@ -601,7 +601,6 @@ async function show(opts) {
   const root = $("content");
   document.documentElement.dataset.page = route.view;
   document.documentElement.dataset.route = page.id;
-  document.documentElement.classList.remove("panel-max-open");
   root.classList.toggle("api-page", page.id === "api");
   document.title = tab ? `${tab.label} · ${page.label} · API Bridge` : `${page.label} · API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
@@ -628,7 +627,6 @@ async function show(opts) {
     const nodes = await (tab?.render ?? page.render)();
     if (seq !== renderSeq) return;
     root.replaceChildren(...[tabs, nodes].flat().filter(Boolean));
-    arrangePanels(root, route.view);
     fitTables(root);
   } catch (err) {
     if (seq !== renderSeq) return;
@@ -670,143 +668,7 @@ function pageTabs(page, tab, panel) {
   const bar = h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
   drawTabs(bar, panel, page.tabs.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
   // A full-width row of its own (pages that lay their panels out in a wrapping row stretch every child).
-  return h("div", { class: "page-tabs-row", "data-fixed": "" }, bar);
-}
-
-// ── Movable panels ──
-
-const layoutSlot = (pageId) => `mcb.dashboard.layout.${pageId}`;
-const panelKey = (el, i) => el.dataset.panel || el.querySelector(".card-head h2")?.textContent?.trim() || el.getAttribute("aria-label") || `panel-${i}`;
-const movables = (root) => [...root.children].filter((el) => el.classList.contains("movable"));
-const saveLayout = (root, pageId) => local.set(layoutSlot(pageId), JSON.stringify(movables(root).map((el) => el.dataset.panelKey)));
-
-/**
- * Give each top-level panel of a page a handle to move it (drag, or arrow keys on the handle) and a button to
- * maximise it, and put the panels in the order this browser saved for the page. Panels marked data-fixed stay put.
- */
-function arrangePanels(root, pageId) {
-  // Empty hosts (an error or notice slot that fills later) are not panels: a move strip on them is a bare rule.
-  const items = [...root.children].filter((el) => !el.hasAttribute("data-fixed") && !el.matches("p, .alert") && (el.firstElementChild || el.textContent.trim()));
-  if (items.length < 2 && !items.some((el) => el.dataset.panel)) return;
-  items.forEach((el, i) => {
-    el.dataset.panelKey = panelKey(el, i);
-    el.classList.add("movable");
-    if (!el.querySelector(":scope > .panel-tools") && !el.querySelector(":scope > * > .panel-tools.in-head")) {
-      const tools = panelTools(el, root, pageId);
-      el.prepend(panelEdge(el), tools);
-      // Touch tablets: the tools sit in flow in the panel's own head row (never over its content); a panel without a
-      // head gets a 44 px strip instead (CSS). Phones hide them (one column).
-      const head = typeof matchMedia === "function" && matchMedia("(pointer: coarse) and (min-width: 720px)").matches ? el.querySelector(":scope > :is(.panel-head, .card-head, header)") : null;
-      if (head) {
-        tools.classList.add("in-head");
-        // On the head's first line: right after its title (or its only control group).
-        head.insertBefore(tools, head.children[1] ?? null);
-      }
-    }
-  });
-  let saved = [];
-  try {
-    saved = JSON.parse(local.get(layoutSlot(pageId)) ?? "[]");
-  } catch {
-    saved = [];
-  }
-  if (!Array.isArray(saved) || !saved.length) return;
-  const rank = (el) => {
-    const i = saved.indexOf(el.dataset.panelKey);
-    return i < 0 ? saved.length + items.indexOf(el) : i;
-  };
-  root.append(...[...items].sort((a, b) => rank(a) - rank(b)));
-}
-
-/**
- * A thin strip on the panel's top edge: hovering it (or tapping it on a touch screen) shows the move / maximise pill,
- * so the pill never sits over the panel's own controls while you work in it.
- */
-function panelEdge(panel) {
-  let timer = 0;
-  const edge = h("div", { class: "panel-edge", "aria-hidden": "true" });
-  edge.addEventListener("pointerdown", (e) => {
-    if (e.pointerType === "mouse") return;
-    panel.classList.add("tools-shown");
-    clearTimeout(timer);
-    timer = setTimeout(() => panel.classList.remove("tools-shown"), 4000);
-  });
-  return edge;
-}
-
-function panelTools(panel, root, pageId) {
-  const grip = h("button", { type: "button", class: "grip-btn", title: "Drag to move (or use the arrow keys). Double-click to reset this page's layout", "aria-label": "Move panel: arrow up or down" }, icon("grip"));
-  const max = h("button", { type: "button", class: "max-btn", title: "Maximise", "aria-label": "Maximise panel", "aria-pressed": "false" }, icon("expand"));
-  const moveBy = (d) => {
-    const list = movables(root);
-    const i = list.indexOf(panel);
-    const j = i + d;
-    if (j < 0 || j >= list.length) return;
-    if (d < 0) root.insertBefore(panel, list[j]);
-    else root.insertBefore(panel, list[j].nextSibling);
-    saveLayout(root, pageId);
-    grip.focus();
-  };
-  grip.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-      e.preventDefault();
-      moveBy(e.key === "ArrowUp" ? -1 : 1);
-    }
-  });
-  grip.addEventListener("dblclick", () => {
-    local.set(layoutSlot(pageId), null);
-    toast("Layout reset");
-    show();
-  });
-  grip.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    grip.setPointerCapture(e.pointerId);
-    panel.classList.add("dragging");
-    const startY = e.clientY;
-    let moved = false;
-    const onMove = (ev) => {
-      if (Math.abs(ev.clientY - startY) > 4) moved = true;
-      // Swap with a neighbour once the pointer passes its middle.
-      for (const other of movables(root)) {
-        if (other === panel) continue;
-        const r = other.getBoundingClientRect();
-        const mid = r.top + r.height / 2;
-        const before = panel.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_PRECEDING;
-        if (before && ev.clientY < mid) root.insertBefore(panel, other);
-        else if (!before && ev.clientY > mid) root.insertBefore(panel, other.nextSibling);
-      }
-    };
-    const onUp = () => {
-      grip.removeEventListener("pointermove", onMove);
-      grip.removeEventListener("pointerup", onUp);
-      grip.removeEventListener("pointercancel", onUp);
-      panel.classList.remove("dragging");
-      if (moved) saveLayout(root, pageId);
-    };
-    grip.addEventListener("pointermove", onMove);
-    grip.addEventListener("pointerup", onUp);
-    grip.addEventListener("pointercancel", onUp);
-  });
-  const setMax = (on) => {
-    panel.classList.toggle("panel-max", on);
-    document.documentElement.classList.toggle("panel-max-open", on);
-    max.setAttribute("aria-pressed", String(on));
-    max.title = on ? "Restore (Esc)" : "Maximise";
-    max.setAttribute("aria-label", on ? "Restore panel" : "Maximise panel");
-    max.replaceChildren(icon(on ? "shrink" : "expand"));
-    if (on) {
-      const esc = (e) => {
-        if (e.key !== "Escape" || document.querySelector("dialog[open]") || !panel.classList.contains("panel-max")) return;
-        if (panel.querySelector(".popover")) return;
-        document.removeEventListener("keydown", esc);
-        setMax(false);
-      };
-      document.addEventListener("keydown", esc);
-    }
-  };
-  max.addEventListener("click", () => setMax(!panel.classList.contains("panel-max")));
-  return h("div", { class: "panel-tools" }, grip, max);
+  return h("div", { class: "page-tabs-row" }, bar);
 }
 
 // ── Accessibility plumbing (created from here because index.html is static) ──
@@ -988,7 +850,17 @@ async function refreshTicketCount() {
 // Motion helper (animatePage), when motion.js provides it. Loaded lazily so Node tests never touch it.
 let motionHooks = null;
 
+/** Panels used to be draggable, with the order kept per page. That feature is gone: forget what it stored. */
+function forgetOldPanelLayouts() {
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith("mcb.dashboard.layout.")) localStorage.removeItem(k);
+  } catch {
+    /* storage blocked: nothing was stored */
+  }
+}
+
 export async function startRouter() {
+  forgetOldPanelLayouts();
   setupA11y();
   setupChrome();
   initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }) });
@@ -2159,109 +2031,127 @@ async function confirmTicket(t, byId) {
 // ── Safety ──
 
 async function renderSafety() {
-  const [safety, accounts] = await Promise.all([api("/v1/safety"), optional(api("/v1/accounts"))]);
+  let safety, accounts, ready;
+  try {
+    [safety, accounts, ready] = await Promise.all([api("/v1/safety"), optional(api("/v1/accounts")), loadReadiness()]);
+  } catch (err) {
+    return [h("div", { class: "sf-fail" }, alertBox(err), h("div", {}, h("button", { type: "button", class: "small", onclick: () => show() }, icon("refresh"), "Try again")))];
+  }
   const s = safety.data.data;
   // Accounts by their names, as everywhere else; the id stays in the tooltip for API users.
   const names = new Map((accounts.data?.data ?? []).map((a) => [a.id, a.label]));
   const ks = s.killSwitch ?? {};
-  const engage = async () => {
-    if (await confirmEngageKillSwitch()) refreshReadiness();
+  const demo = app.state.demo;
+
+  // ── Status hero: one calm answer, and the kill switch as a deliberate control under it ──
+  const heroMain = h("div", { class: "sf-hero-main" });
+  const drawHero = (snap) => {
+    if (!hero.isConnected && hero.dataset.drawn) return offHero();
+    hero.dataset.drawn = "1";
+    const m = heroModel(s, snap, { demo });
+    hero.dataset.state = m.state;
+    hero.dataset.tone = m.tone;
+    heroMain.replaceChildren(
+      h("span", { class: "sf-hero-tile", "aria-hidden": "true" }, icon(m.icon)),
+      h("div", { class: "sf-hero-text" }, h("h2", { id: "sf-hero-h" }, m.title), h("p", {}, m.sub), m.reasons.length ? h("ul", { class: "sf-hero-why" }, m.reasons.map((r) => h("li", {}, r))) : null),
+    );
+  };
+  const stopped = async () => {
+    await refreshReadiness();
     show();
+  };
+  const engage = async () => {
+    if (await engageKillSwitch()) stopped();
   };
   const release = async () => {
-    const typed = h("input", { placeholder: "RELEASE", autocomplete: "off", spellcheck: "false" });
-    const go = await modal({
-      title: "Allow orders again?",
-      body: h("div", { class: "stack" }, h("p", {}, "Needs an admin key, from this computer."), h("label", { class: "field" }, "Type RELEASE to confirm", typed)),
-      buttons: [{ label: "Cancel", value: false }, { label: "Release", cls: "primary", onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly, in capitals", { tone: "warn" }), false)) }],
-    });
-    if (!go) return;
-    try {
-      await api("/v1/safety/kill-switch", { method: "DELETE", body: { confirm: "RELEASE" } });
-      toast("Kill switch released");
-      refreshReadiness();
-    } catch (err) {
-      await modal({ title: "Could not release", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
-    }
-    show();
+    if (await releaseKillSwitch()) stopped();
   };
-  const verify = async (btn) => {
-    busy(btn, true);
-    try {
-      const r = await api("/v1/audit/verify");
-      const d = r.data.data ?? {};
-      toast(d.ok ? `Audit chain intact (${formatInt(d.checked)} records)` : `Audit chain broken at ${d.brokenAt}`, { tone: d.ok ? "ok" : "error" });
-    } catch (err) {
-      toast(err.message, { tone: "error" });
-    } finally {
-      busy(btn, false);
-    }
-  };
-  const verifyBtn = h("button", { type: "button", class: "small" }, "Verify audit log");
-  verifyBtn.addEventListener("click", () => verify(verifyBtn));
-
-  const killCard = h(
-    "section",
-    { class: `card kill${ks.engaged ? " engaged" : ""}` },
-    iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
-    h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."])),
-    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
-  );
-  const live = card({
-    glyph: "bolt",
-    tint: s.liveTrading ? "red" : "gray",
-    title: "Live trading",
-    actions: s.liveTrading ? pill("On", "bad") : pill("Off: paper only"),
-    body: h(
-      "div",
-      { class: "stack" },
-      h("p", { class: "muted" }, "A live order needs every one of these. Nothing in the API, a webhook or an AI tool can switch live trading on."),
-      h(
+  const killRow = ks.engaged
+    ? h(
         "div",
-        { class: "stack small" },
-        [
-          ["safety.liveTrading is true in bridge.config.json", s.liveTrading],
-          ["the account has live.enabled and allows the request's source", (s.accounts ?? []).some((a) => a.liveAllowedByConfig)],
-          ["the key has the live scope and the request says mode: live", null],
-          ["a person confirmed it, for AI-prepared orders and confirmation webhooks", null],
-          ["every safety check passes (rate cap, daily limits, price band)", null],
-        ].map(([t, v]) => h("div", { class: "req" }, v === true ? pill("Yes", "ok") : v === false ? pill("No") : pill("Per order"), h("span", {}, t))),
-      ),
-      app.state.demo ? h("p", { class: "small warn-text" }, "Demo mode forces live trading off.") : null,
-    ),
+        { class: "sf-kill engaged" },
+        h("div", { class: "sf-kill-text" }, h("p", { class: "sf-kill-title" }, "Kill switch", pill("On", "bad")), h("p", {}, `Turned on ${istDateTime(ks.at)} by ${ks.by ?? "unknown"}${ks.reason ? `: ${ks.reason}` : ""}`), h("p", { class: "sf-kill-note" }, "Releasing works from this computer only, with an admin key.")),
+        h("button", { type: "button", id: "kill-action", class: "primary lg", onclick: release }, "Release kill switch"),
+      )
+    : h(
+        "div",
+        { class: "sf-kill" },
+        h(
+          "div",
+          { class: "sf-kill-text" },
+          h("p", { class: "sf-kill-title" }, "Kill switch", pill("Off")),
+          h("p", {}, "Stops every new order, from every tool: the API, webhooks, AI assistants, the CLI and this dashboard. Cancels still work."),
+          h("p", { class: "sf-kill-note" }, "From a terminal: ", h("span", { class: "cli-cmd" }, "mc-bridge kill")),
+        ),
+        h("button", { type: "button", id: "kill-action", class: "destructive lg", onclick: engage }, icon("stop"), "Stop all orders"),
+      );
+  const hero = h("section", { class: "sf-hero", "aria-labelledby": "sf-hero-h" }, heroMain, killRow);
+  const offHero = onReadiness((snap) => drawHero(snap));
+  drawHero(ready.snap);
+
+  // ── Trading readiness (checklist, timeline, how it is checked) and the demo tools ──
+  const readiness = readinessSection({ demo, initial: ready });
+
+  // ── Daily limits per account ──
+  const usage = (label, u, extra) => {
+    const fill = h("span");
+    fill.style.width = `${u.pct}%`; // set through the style object: the page's CSP refuses a style attribute
+    const bar = h("div", { class: `bar ${u.tone}`, role: "meter", "aria-label": label, "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(u.pct) }, fill);
+    return h("div", { class: "sf-use" }, h("div", { class: "sf-use-top" }, h("span", {}, label), h("strong", {}, u.text)), bar, u.word || extra ? h("p", { class: `sf-use-note ${u.tone}` }, u.word, u.word && extra ? " · " : null, extra) : null);
+  };
+  const limitCards = (s.accounts ?? []).map((a) => {
+    const m = limitsModel(a);
+    const name = names.get(a.accountId) || a.accountId;
+    return h(
+      "article",
+      { class: "sf-lim sf-card", "aria-label": `Daily limits for ${name}` },
+      h("header", {}, h("h3", { title: `Account id ${a.accountId}` }, name), h("p", {}, a.accountId)),
+      usage("Orders today", m.orders),
+      usage("Loss against the daily limit", m.loss, m.loss.pnl === null ? "No P&L yet" : h("span", {}, "P&L today ", pnl(m.loss.pnl, 0))),
+      h("dl", { class: "sf-lim-facts" }, m.facts.map(([k, v]) => h("div", {}, h("dt", {}, k), h("dd", {}, v)))),
+    );
   });
-  const limits = card({
-    glyph: "limits",
-    tint: "orange",
-    title: "Daily limits per account",
-    sub: `IST day ${s.day ?? ""}. Paper and live are counted separately.`,
-    flush: true,
-    body: table(
-      [
-        { label: "Account", cell: (a) => h("strong", { title: `Account id ${a.accountId}` }, names.get(a.accountId) || a.accountId) },
-        { label: "Orders today", num: true, cell: (a) => `${formatInt((a.ordersToday ?? 0) + (a.paperOrdersToday ?? 0))} / ${formatInt(a.limits?.dailyMaxOrders)}` },
-        { label: "P&L today", num: true, cell: (a) => pnl(isFigure(a.realisedPnlToday) || isFigure(a.paperRealisedPnlToday) ? (a.realisedPnlToday ?? 0) + (a.paperRealisedPnlToday ?? 0) : null, 0) },
-        // Limits are whole rupees: no paise.
-        { label: "Max loss", num: true, cell: (a) => formatRupeeGrouped(a.limits?.dailyMaxLoss, 0) },
-        { label: "Max order value", num: true, cell: (a) => formatRupeeGrouped(a.limits?.maxOrderValue, 0) },
-        { label: "Max lots", num: true, cell: (a) => formatInt(a.limits?.maxLotsPerOrder) },
-        { label: "Orders / s", num: true, cell: (a) => formatInt(a.limits?.orderRatePerSecond) },
-        { label: "Market orders", cell: (a) => cap(a.limits?.marketOrders ?? "protect") },
-      ],
-      s.accounts ?? [],
-      emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts")),
-    ),
+  const limits = h(
+    "section",
+    { class: "sf-sec", "aria-labelledby": "sf-lim-h" },
+    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-lim-h" }, "Daily limits"), h("p", { class: "sf-sec-sub" }, `Per account, for the IST day ${s.day ?? ""}. The figures add paper and live orders.`))),
+    limitCards.length ? h("div", { class: "sf-lim-grid" }, limitCards) : h("div", { class: "sf-card" }, emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts"), { compact: true })),
+  );
+
+  // ── Live trading: the five conditions ──
+  const answer = (v) => (v === "yes" ? pill("Yes", "ok") : v === "no" ? pill("No") : pill("Per order", "info"));
+  const liveGroup = h(
+    "section",
+    { class: "sf-sec", "aria-labelledby": "sf-live-h" },
+    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-live-h" }, "Live trading"), h("p", { class: "sf-sec-sub" }, "A live order needs all five. Nothing in the API, a webhook or an AI tool can switch live trading on.")), h("div", { class: "sf-sec-acts" }, s.liveTrading ? pill("On", "bad") : pill("Off: paper only"))),
+    h("div", { class: "list" }, liveConditions(s).map((c) => h("div", { class: "list-row static sf-cond" }, h("span", { class: "names" }, h("span", { class: "nm" }, c.text), c.detail ? h("span", { class: "sub" }, c.detail) : null), answer(c.value)))),
+    demo ? h("div", { class: "alert info sf-demo-note" }, icon("info"), h("div", {}, h("strong", {}, "Demo mode forces live trading off."))) : null,
+  );
+
+  // ── Audit log: verify the hash chain ──
+  const verifyOut = h("div", { class: "sf-verify", "aria-live": "polite" });
+  const verifyBtn = h("button", { type: "button", class: "small" }, icon("check"), "Verify now");
+  verifyBtn.addEventListener("click", async () => {
+    busy(verifyBtn, true);
+    try {
+      const d = (await api("/v1/audit/verify")).data.data ?? {};
+      const at = istTime(new Date().toISOString());
+      verifyOut.replaceChildren(d.ok ? alertBox({ title: "The audit log is intact", detail: `${formatInt(d.checked)} records checked. None was changed or removed. Verified at ${at} IST.` }, "ok") : alertBox({ title: "The audit log was changed", detail: `The chain breaks at ${d.brokenAt ?? "an unknown record"}. Records after it cannot be trusted. Verified at ${at} IST.` }, "bad"));
+    } catch (err) {
+      verifyOut.replaceChildren(alertBox(err));
+    } finally {
+      busy(verifyBtn, false);
+    }
   });
-  // The audit chain check: a narrow card beside Live trading (the limits table gets the full width so no column is cut).
-  const audit = card({
-    glyph: "activity",
-    tint: "indigo",
-    title: "Audit log",
-    body: h("div", { class: "stack" }, h("p", { class: "muted" }, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."), h("div", { class: "row" }, verifyBtn)),
-  });
-  // Trading readiness: between the kill switch and live trading.
-  const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
-  return [killCard, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
+  const audit = h(
+    "section",
+    { class: "sf-sec", "aria-labelledby": "sf-audit-h" },
+    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-audit-h" }, "Audit log"), h("p", { class: "sf-sec-sub" }, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."))),
+    h("div", { class: "list" }, h("div", { class: "list-row static sf-audit-row" }, iconTile("activity", "indigo", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Hash chain"), h("span", { class: "sub" }, "Admin key, this computer only")), verifyBtn)),
+    verifyOut,
+  );
+
+  return [hero, readiness.main, limits, h("div", { class: "sf-pair" }, liveGroup, audit), readiness.demo].filter(Boolean);
 }
 
 // ── Keys ──
