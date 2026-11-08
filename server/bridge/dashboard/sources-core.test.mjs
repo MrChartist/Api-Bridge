@@ -176,6 +176,36 @@ describe("burn rate", () => {
   });
 });
 
+describe("smoothing", () => {
+  it("follows a sustained level and shrugs off one burst", () => {
+    const s = C.createSmoother({ alpha: 0.35 });
+    expect(s.update("a", 0.2)).toBe(0.2);
+    const burst = s.update("a", 1);
+    expect(burst).toBeCloseTo(0.48, 5);
+    expect(C.toneForShare(burst)).toBe("calm");
+    let v = burst;
+    for (let i = 0; i < 8; i++) v = s.update("a", 1);
+    expect(C.toneForShare(v)).toBe("limit");
+  });
+
+  it("a one-second budget uses the smoothed share for its tone, but an empty budget is always at the limit", () => {
+    const smooth = C.createSmoother();
+    const tones = C.createToneTracker();
+    const rates = C.createRateTracker();
+    const mk = (used) => C.buildRows({ usage: F.usage([F.usageAccount({ id: "a", quote: [used, 10, 0, 600] })]) });
+    C.annotateRows(mk(1), { tones, rates, smooth, at: 0 });
+    const [burst] = C.annotateRows(mk(10), { tones, rates, smooth, at: 2000 });
+    expect(burst.budget.share).toBe(1);
+    expect(burst.tone).toBe("limit");
+    // a gentler burst of 9 of 10 after calm is not yet a heads up
+    const t2 = C.createToneTracker();
+    const s2 = C.createSmoother();
+    C.annotateRows(mk(1), { tones: t2, rates, smooth: s2, at: 0 });
+    const [soft] = C.annotateRows(mk(9), { tones: t2, rates, smooth: s2, at: 2000 });
+    expect(soft.tone).toBe("calm");
+  });
+});
+
 describe("forecast", () => {
   it("stays calm when the pace is below the refill", () => {
     expect(C.forecastEmpty({ remaining: 300, limit: 600, windowSec: 60, rate: 5 })).toEqual({ kind: "calm", seconds: null });
@@ -356,6 +386,7 @@ describe("pooled room", () => {
     const text = C.heroText({ pool, tone: "calm", rows });
     expect(text.sentence).toBe("Plenty of room");
     expect(text.detail).toBe("About 950 calls of room this minute, across 4 sources.");
+    expect([text.prefix, text.figure, text.suffix]).toEqual(["About ", "950", " calls of room this minute, across 4 sources."]);
     expect(C.heroText({ pool, tone: "limit", rows }).detail).toMatch(/^Only 950 calls of room left this minute/);
     expect(C.heroText({ pool: C.pooledRoom([]), tone: "calm", rows: [] }).sentence).toBe("Nothing to measure yet");
   });
@@ -385,7 +416,7 @@ describe("forecast sentence and attention", () => {
     const t = C.attentionText(worst, rows);
     expect(t.tone).toBe("warn");
     expect(t.title).toMatch(/^dhan-main: quotes will be full in about/);
-    expect(t.detail).toBe("New quotes calls will go to zerodha-main first. Orders are not affected.");
+    expect(t.detail).toBe("New quote calls will go to zerodha-main first. Orders are not affected.");
   });
 
   it("an order budget at the limit does not claim orders are safe", () => {

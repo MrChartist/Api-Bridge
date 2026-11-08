@@ -94,6 +94,26 @@ export function createToneTracker({ dwellMs = LIMIT_TONES.dwellMs } = {}) {
   };
 }
 
+/**
+ * Smooths a share that jumps around (a one-second window) so its tone follows the sustained level, not one burst.
+ * @param {{ alpha?: number }} [opts]
+ */
+export function createSmoother({ alpha = 0.35 } = {}) {
+  /** @type {Map<string, number>} */
+  const state = new Map();
+  return {
+    update(key, value) {
+      const prev = state.get(key);
+      const next = prev === undefined ? value : alpha * value + (1 - alpha) * prev;
+      state.set(key, next);
+      return next;
+    },
+    prune(keep) {
+      for (const k of [...state.keys()]) if (!keep.has(k)) state.delete(k);
+    },
+  };
+}
+
 // ── Windows, rates and the forecast ──
 
 /** The length of a window name from the Bridge ("1s", "1m", "60s", "1h", "day", "second", "minute") in seconds, or null. */
@@ -387,7 +407,7 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
       kind: "source",
       id: s.id,
       name: s.name ?? s.id,
-      sub: `${s.official ? "Official" : "Unofficial"} source: ${capabilityText(s.capabilities)}`,
+      sub: `Gives ${capabilityText(s.capabilities)}`,
       cls: s.class ?? "realtime",
       delaySec: s.delaySec ?? null,
       official: Boolean(s.official),
@@ -412,9 +432,9 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
 
 /**
  * Add the live parts to rows: the tone (kept steady by a tracker), the burn rate and the forecast. Mutates and returns
- * the rows. `trackers` is `{ tones, rates }` made by createToneTracker and createRateTracker.
+ * the rows. `tones`, `rates` and `smooth` come from createToneTracker, createRateTracker and createSmoother.
  */
-export function annotateRows(rows, { tones, rates, at }) {
+export function annotateRows(rows, { tones, rates, smooth = null, at }) {
   for (const r of rows) {
     const b = r.budget;
     r.rate = rates.update(r.key, r.counter, at);
@@ -428,7 +448,9 @@ export function annotateRows(rows, { tones, rates, at }) {
     const classRate = r.kind === "account" ? classRateOf(r, rates, at) : r.rate;
     r.forecast = forecastEmpty({ remaining: b.remaining, limit: b.limit, windowSec: b.windowSec, rate: classRate, fixed: b.fixed, resetInSec: b.resetInSec });
     const secs = r.forecast.kind === "runsOut" ? r.forecast.seconds : r.forecast.kind === "empty" ? 0 : null;
-    r.tone = tones.update(r.key, b.share, secs, at);
+    // A one-second budget jumps with every burst: its tone follows the smoothed share, its meter the real one.
+    const toneShare = smooth && b.windowSec <= 5 ? Math.max(smooth.update(r.key, b.share), b.remaining <= 0 ? 1 : 0) : b.share;
+    r.tone = tones.update(r.key, toneShare, secs, at);
     r.classRate = classRate;
   }
   return rows;
@@ -532,18 +554,18 @@ export function forecastSentence(rows) {
 export function heroText({ pool, tone, rows }) {
   const sentence = TONE_SENTENCE[tone] ?? TONE_SENTENCE.calm;
   const counted = pool.counted.length;
-  if (!rows.length) return { sentence: "Nothing to measure yet", detail: "Connect a broker account or turn on a free source and its room shows here.", figure: DASH };
-  if (!pool.window) return { sentence, detail: "None of your sources states a call budget, so there is nothing to run out of.", figure: DASH };
+  if (!rows.length) return { sentence: "Nothing to measure yet", prefix: "Connect a broker account or turn on a free source and its room shows here.", figure: null, suffix: "", detail: "Connect a broker account or turn on a free source and its room shows here." };
+  if (!pool.window) return { sentence, prefix: "None of your sources states a call budget, so there is nothing to run out of.", figure: null, suffix: "", detail: "None of your sources states a call budget, so there is nothing to run out of." };
   const unit = pool.window === "minute" ? "this minute" : "today";
-  const figure = `${formatInt(pool.remaining)}`;
-  const across = counted === 1 ? `1 source` : `${counted} sources`;
-  const detail = {
-    calm: `About ${figure} calls of room ${unit}, across ${across}.`,
-    busy: `About ${figure} calls of room left ${unit}, across ${across}. Fine, but it is filling up.`,
-    headsup: `About ${figure} calls of room left ${unit}, across ${across}. Slow down heavy tools or add a source.`,
-    limit: `Only ${figure} calls of room left ${unit}. New calls wait for room to free up.`,
-  }[tone] ?? "";
-  return { sentence, detail, figure };
+  const across = counted === 1 ? "1 source" : `${counted} sources`;
+  const [prefix, suffix] = {
+    calm: ["About ", ` calls of room ${unit}, across ${across}.`],
+    busy: ["About ", ` calls of room left ${unit}, across ${across}. Fine, but it is filling up.`],
+    headsup: ["About ", ` calls of room left ${unit}, across ${across}. Slow down heavy tools or add a source.`],
+    limit: ["Only ", ` calls of room left ${unit}. New calls wait for room to free up.`],
+  }[tone] ?? ["", ""];
+  const figure = formatInt(pool.remaining);
+  return { sentence, prefix, figure, suffix, detail: `${prefix}${figure}${suffix}` };
 }
 
 /** Rows whose own tone needs a word on the page (heads up or the limit), worst first. */
@@ -559,7 +581,8 @@ export function attentionText(row, rows) {
   const c = row.budget?.clsName ?? "Calls";
   const isOrder = ["order", "portfolio"].includes(row.budgetClass ?? "");
   const next = rows.filter((r) => r !== row && contributes(r) && r.cls === "realtime" && r.tone !== "limit" && r.tone !== "headsup").sort((a, b) => (a.budget?.share ?? 0) - (b.budget?.share ?? 0))[0];
-  const where = next ? `New ${c.toLowerCase()} calls will go to ${next.name} first.` : "Calls will wait for room to free up.";
+  const kindWord = { quote: "quote", depth: "market depth", history: "history", chain: "option chain", order: "order", portfolio: "positions and funds", master: "instrument list" }[row.budgetClass ?? ""] ?? c.toLowerCase();
+  const where = next ? `New ${kindWord} calls will go to ${next.name} first.` : "Calls will wait for room to free up.";
   const orders = isOrder ? "" : " Orders are not affected.";
   if (row.tone === "limit") {
     const reset = row.budget?.resetInSec ? ` Room starts coming back in about ${waitPhrase(row.budget.resetInSec).replace(/^about /, "")}.` : "";

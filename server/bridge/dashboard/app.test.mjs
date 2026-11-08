@@ -222,26 +222,27 @@ describe("dashboard broker login form", async () => {
   });
 });
 
-describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, Safety)", async () => {
-  const { PAGES, LEGACY, resolveRoute } = await import("./views.js");
+describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, Orders, Safety)", async () => {
+  const { PAGES, LEGACY, LEGACY_PATHS, resolveRoute } = await import("./views.js");
   const { fuzzyScore, pageCommands, rank } = await import("./palette.js");
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
-  it("has 4 pages in two groups, in the order of the sidebar", () => {
-    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "api", "orders", "safety"]);
+  it("has 5 pages in two groups, in the order of the sidebar", () => {
+    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "sources", "api", "orders", "safety"]);
     expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["Bridge", "Trade"]);
-    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["accounts", "api", "orders", "safety"]);
+    // The phone tab bar holds four pages and More: Sources (is the data flowing?) is in it, API (set up once) is under More.
+    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["accounts", "sources", "orders", "safety"]);
     expect(PAGES.find((p) => p.id === "orders").title).toBe("Orders");
   });
 
   it("curates the shortcuts", () => {
     const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
-    expect(keys).toEqual({ 1: "accounts", 2: "api", 3: "orders", 4: "safety" });
+    expect(keys).toEqual({ 1: "accounts", 2: "api", 3: "orders", 4: "safety", 5: "sources" });
   });
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
     const tabbed = PAGES.filter((p) => p.tabs);
-    expect(tabbed.map((p) => p.id)).toEqual(["api", "orders"]);
+    expect(tabbed.map((p) => p.id)).toEqual(["sources", "api", "orders"]);
     for (const p of tabbed) {
       expect(p.tabs.some((t) => t.id === p.defaultTab), p.id).toBe(true);
       for (const t of p.tabs) {
@@ -249,18 +250,23 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
         expect(typeof t.render, `${p.id}/${t.id}`).toBe("function");
       }
     }
-    for (const [old, to] of Object.entries(LEGACY)) {
+    for (const [old, to] of Object.entries({ ...LEGACY, ...LEGACY_PATHS })) {
       const [pageId, tabId] = to.split("/");
       const tab = PAGES.find((p) => p.id === pageId)?.tabs?.find((t) => t.id === tabId);
-      expect(tab?.page, `${old} → ${to}`).toBe(old);
+      expect(tab, `${old} → ${to}`).toBeTruthy();
+      // An old page id is the data-page of its tab, unless the tab moved to another page (Rate limits became Sources › Overview).
+      if (pageId !== "sources") expect(tab.page, `${old} → ${to}`).toBe(old);
     }
+    expect(LEGACY_PATHS).toEqual({ "api/limits": "sources/overview" });
   });
 
   it("old hashes open the right tab and keep their query", () => {
     const cases = [
       ["#/console?endpoint=order", "api", "console", "console", "#/api/console?endpoint=order"],
       ["#/keys", "api", "keys", "keys", "#/api/keys"],
-      ["#/limits", "api", "limits", "limits", "#/api/limits"],
+      ["#/limits", "sources", "overview", "sources", "#/sources/overview"],
+      ["#/api/limits", "sources", "overview", "sources", "#/sources/overview"],
+      ["#/api/limits?x=1", "sources", "overview", "sources", "#/sources/overview?x=1"],
       ["#/integrations?tab=python", "api", "integrations", "integrations", "#/api/integrations?tool=python"],
       ["#/activity", "api", "activity", "activity", "#/api/activity"],
     ];
@@ -284,19 +290,26 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
     expect(route("#/api/nope").tab.id).toBe("keys");
     expect(route("#/api/nope").redirect).toBe("#/api/keys");
     expect(route("#/api/keys").redirect).toBe(null);
-    expect(route("#/api", (id) => (id === "api" ? "limits" : null)).tab.id).toBe("limits");
+    expect(route("#/api", (id) => (id === "api" ? "console" : null)).tab.id).toBe("console");
+    // A tab remembered from before it moved ("limits" under API) falls back to the default.
+    expect(route("#/api", (id) => (id === "api" ? "limits" : null)).tab.id).toBe("keys");
+    expect(route("#/sources").tab.id).toBe("overview");
+    expect(route("#/sources/providers")).toMatchObject({ view: "providers", redirect: null });
+    expect(route("#/sources/quotas")).toMatchObject({ view: "quotas", redirect: null });
     expect(route("#/api/nope", () => "gone").tab.id).toBe("keys");
   });
 
   it("the palette has one command per tab, the tools as search-only destinations, and ranks prefixes first", () => {
     const cmds = pageCommands(PAGES, "Ctrl");
     const byLabel = Object.fromEntries(cmds.map((c) => [c.label, c]));
-    for (const l of ["API keys", "Integrations", "Test console", "Rate limits", "Activity", "Trade book", "Python snippet", "Webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
+    for (const l of ["API keys", "Integrations", "Test console", "Sources and rate limits", "Data providers", "Key quotas", "Why this source?", "Activity", "Trade book", "Python snippet", "Webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
     expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "2"] });
     expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
     expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
     expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Bridge", "Trade"]);
-    expect(rank(cmds, "rate")[0].label).toBe("Rate limits");
+    expect(rank(cmds, "rate")[0].label).toBe("Sources and rate limits");
+    expect(byLabel["Sources and rate limits"]).toMatchObject({ route: "sources/overview", sub: "Sources › Overview" });
+    expect(byLabel["Why this source?"]).toMatchObject({ route: "sources/overview?trace=1", searchOnly: true });
     expect(rank(cmds, "console")[0].label).toBe("Test console");
     // A scattered in-order match is not enough: three points per query character.
     expect(fuzzyScore("rate", "Safety")).toBeLessThan(fuzzyScore("rate", "Rate limits"));
