@@ -37,7 +37,7 @@ import {
   traceQuery,
   capabilityText,
 } from "./sources-core.js";
-import { DASH, formatFixed, formatInt } from "./format.js";
+import { DASH, formatFixed, formatInt, plural } from "./format.js";
 import { brokerTile, chevron, classPill, countingNumber, createKeyedList, createMeter, createPoller, healthTag, officialBadge, overviewSkeleton, prefersReducedMotion, setData, setText, setToneGlyph, sourceTile, toneGlyph, updateClassPill } from "./sources-ui.js";
 
 /** The page's one dependency on views.js, handed over when views.js loads (it owns the segmented control). */
@@ -170,8 +170,8 @@ function openSourceSheet(row, ctx) {
     for (const c of row.classes.filter((x) => x.binding)) add(c.name, `${formatInt(c.binding.used)} of ${formatInt(c.binding.limit)} ${c.binding.per}`);
   } else {
     const s = row.source;
-    if (row.minute) add("This minute", `${formatInt(row.minute.used)} of ${formatInt(row.minute.limit)} calls`);
-    if (row.day) add("Today", `${formatInt(row.day.used)} of ${formatInt(row.day.limit)} calls`);
+    if (row.minute) add("This minute", `${formatInt(row.minute.used)} of ${plural(row.minute.limit, "call")}`);
+    if (row.day) add("Today", `${formatInt(row.day.used)} of ${plural(row.day.limit, "call")}`);
     if (s?.capabilities) add("Gives", capabilityText(s.capabilities).replace(/^./, (c) => c.toUpperCase()));
   }
   add("Calls today", formatInt(row.counter));
@@ -363,7 +363,7 @@ export async function renderOverview() {
     },
     update: (el, c) => {
       el.style.setProperty("--w", `${c.pct}%`);
-      setText(el._parts.n, `${formatInt(c.calls)} broker calls${c.saved ? `, ${formatInt(c.saved)} saved` : ""}`);
+      setText(el._parts.n, `${plural(c.calls, "broker call")}${c.saved ? `, ${formatInt(c.saved)} saved` : ""}`);
     },
   });
   const consGroup = h("section", { class: "group sx-group", "aria-labelledby": "sx-con-h", hidden: true }, h("h2", { class: "group-title", id: "sx-con-h" }, "Who used the budget today"), consBox);
@@ -489,7 +489,7 @@ export async function renderOverview() {
     setText(p.tag.lastChild, r.health.word);
     p.list.sync(r.classes.filter((c) => c.binding), { reorder: false });
     const total = (k) => r.classes.reduce((n, c) => n + c[k], 0);
-    setText(p.today, `Today: ${formatInt(total("callsToday"))} broker calls, ${formatInt(total("throttledToday"))} throttled by the broker, ${formatInt(total("refusedToday"))} held back to stay inside limits.`);
+    setText(p.today, `Today: ${plural(total("callsToday"), "broker call")}, ${formatInt(total("throttledToday"))} throttled by the broker, ${formatInt(total("refusedToday"))} held back to stay inside limits.`);
   }
 
   // ── Request rows ──
@@ -576,7 +576,7 @@ export async function renderOverview() {
     if (pooled) {
       poolMeter.set({ share: pool.share, tone, speech: `${formatInt(pool.remaining)} of ${formatInt(pool.limit)} calls of room left ${pool.window === "minute" ? "per minute" : "today"}, ${TONE_WORD[tone].toLowerCase()}` });
       setText(capL, `${percent(pool.share)}% used`);
-      setText(capR, `${formatInt(pool.limit)} calls ${pool.window === "minute" ? "per minute" : "today"} in all`);
+      setText(capR, `${plural(pool.limit, "call")} ${pool.window === "minute" ? "per minute" : "today"} in all`);
     } else {
       setText(capL, "");
       setText(capR, "");

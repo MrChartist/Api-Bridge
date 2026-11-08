@@ -8,7 +8,7 @@
 // Response shapes are the ones in the build plan: GET /v1/sources, /v1/usage, /v1/limits?explain=1, /v1/quotas,
 // /v1/pooling and GET /v1/sources/trace. Every function tolerates a missing field: a half-built Bridge never throws here.
 
-import { DASH, formatInt } from "./format.js";
+import { DASH, formatInt, plural } from "./format.js";
 
 // ── The tone scale ──
 
@@ -557,7 +557,7 @@ export function heroText({ pool, tone, rows }) {
   if (!rows.length) return { sentence: "Nothing to measure yet", prefix: "Connect a broker account or turn on a free source and its room shows here.", figure: null, suffix: "", detail: "Connect a broker account or turn on a free source and its room shows here." };
   if (!pool.window) return { sentence, prefix: "None of your sources states a call budget, so there is nothing to run out of.", figure: null, suffix: "", detail: "None of your sources states a call budget, so there is nothing to run out of." };
   const unit = pool.window === "minute" ? "this minute" : "today";
-  const across = counted === 1 ? "1 source" : `${counted} sources`;
+  const across = plural(counted, "source");
   const [prefix, suffix] = {
     calm: ["About ", ` calls of room ${unit}, across ${across}.`],
     busy: ["About ", ` calls of room left ${unit}, across ${across}. Fine, but it is filling up.`],
@@ -596,7 +596,7 @@ export function attentionText(row, rows) {
 export function meterSpeech(row) {
   const b = row.budget;
   if (!b) return `${row.name}: no budget figure`;
-  const parts = [`${formatInt(b.remaining)} of ${formatInt(b.limit)} calls left ${b.per}`, TONE_WORD[row.tone ?? "calm"].toLowerCase()];
+  const parts = [`${formatInt(b.remaining)} of ${plural(b.limit, "call")} left ${b.per}`, TONE_WORD[row.tone ?? "calm"].toLowerCase()];
   if (row.forecast?.kind === "runsOut") parts.push(`runs out in ${waitPhrase(row.forecast.seconds)}`);
   return parts.join(", ");
 }

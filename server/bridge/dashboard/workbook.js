@@ -2,7 +2,7 @@
 // .xlsx whose prices are live WEBSERVICE formulas against this Bridge (workbook-core.js, xlsx-core.js; no dependency).
 // The key is never written into the file: the Setup sheet says where to paste a read-only one.
 import { api, h, optional, toast } from "./app.js";
-import { formatInt } from "./format.js";
+import { plural } from "./format.js";
 import { bridgeWorkbook } from "./workbook-core.js";
 
 /** Save bytes or text as a file: a Blob link clicked once. */
@@ -30,6 +30,6 @@ export async function downloadWorkbook() {
   const bytes = bridgeWorkbook({ host: location.origin, positions, madeAt: today });
   const open = positions.filter((p) => Number(p.netQty)).length;
   if (saveFile(`bridge-workbook-${today}.xlsx`, bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) {
-    toast(`Workbook saved with ${formatInt(open)} open position${open === 1 ? "" : "s"}. Paste a read-only key in Setup › B3`);
+    toast(`Workbook saved with ${plural(open, "open position")}. Paste a read-only key in Setup › B3`);
   }
 }

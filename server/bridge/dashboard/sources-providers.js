@@ -6,7 +6,7 @@
 import { alertBox, api, emptyState, h, icon, iconTile, istTime, modal, optional, toast } from "./app.js";
 import { capabilityText, classAdvice, consentProblem, enableSteps, poolingModel, providerState, shortWait, tierText, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
 import { brokerTile, classPill, createKeyedList, createPoller, healthTag, officialBadge, setAttr, setData, setText, updateClassPill } from "./sources-ui.js";
-import { formatInt } from "./format.js";
+import { formatInt, plural } from "./format.js";
 
 const isMissing = (err) => err && (err.status === 404 || err.status === 405 || err.status === 501);
 
@@ -313,7 +313,7 @@ export async function renderProviders() {
     poolSwitch.disabled = !pool.on && !pool.canPool;
     setText(poolStatus, pool.on ? "On" : "Off");
     setData(poolCard, "on", pool.on ? "1" : "0");
-    setText(poolSub, pool.on ? `${pool.inPoolCount} accounts share their room` : pool.canPool ? "Off. Each account serves only its own calls." : "Off. Needs two or more of your accounts.");
+    setText(poolSub, pool.on ? `${plural(pool.inPoolCount, "account")} ${pool.inPoolCount === 1 ? "shares" : "share"} their room` : pool.canPool ? "Off. Each account serves only its own calls." : "Off. Needs two or more of your accounts.");
     poolChange.hidden = !pool.on;
     const nodes = [];
     if (!pool.groups.length) nodes.push(emptyState("accounts", "No broker accounts yet", "Connect two or more of your broker accounts and you can pool them here.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = "#/accounts") }, "Go to Accounts")));

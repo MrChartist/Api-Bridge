@@ -2,7 +2,7 @@
 // except small conveniences in localStorage (theme, density, the last tab of each page).
 import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
 import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
-import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
 import "./sources-ui.js";
@@ -1195,7 +1195,7 @@ function brokerPicker(brokers, initial, onPick) {
       picker.replaceChildren(h("div", { class: "acct-pick-empty", role: "status" }, h("p", {}, `No broker matches “${q}”.`), h("p", { class: "muted small" }, "Try its short name, like “kite” or “angel”."), clear));
     }
   };
-  const search = searchBox(`Search ${formatInt(realCount)} brokers`, "Search brokers", draw);
+  const search = searchBox(`Search ${plural(realCount, "broker")}`, "Search brokers", draw);
   // Enter in the search picks the only match (or the first), so a typed name plus Enter is enough.
   search.input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
@@ -1660,7 +1660,7 @@ function brokerCatalog(list, ctx) {
   const count = h("p", { class: "acct-count", role: "status", "aria-live": "polite" });
   const more = h("button", { type: "button", class: "tinted acct-more-btn", "aria-expanded": "false" });
   const chips = h("div", { class: "acct-filters" });
-  const search = searchBox(`Search ${formatInt(real.length)} brokers`, "Search brokers", () => draw());
+  const search = searchBox(`Search ${plural(real.length, "broker")}`, "Search brokers", () => draw());
   const kindCount = (k) => real.filter((b) => b.authKind === k).length;
 
   // The chips are built once; picking one only moves aria-pressed, so keyboard focus stays where it is.
@@ -1700,10 +1700,10 @@ function brokerCatalog(list, ctx) {
     if (!rows.length) {
       grid.replaceChildren(emptyState("search", "No broker matches", search.input.value.trim() ? `Nothing found for “${search.input.value.trim()}”. Try its short name, like “kite” or “angel”.` : "Nothing fits these filters.", h("button", { type: "button", class: "small", onclick: reset }, "Clear search and filters")));
     }
-    count.textContent = filtered ? `${formatInt(rows.length)} of ${formatInt(real.length)} brokers` : `${formatInt(real.length)} brokers`;
+    count.textContent = filtered ? `${formatInt(rows.length)} of ${plural(real.length, "broker")}` : plural(real.length, "broker");
     const canFold = !filtered && rows.length > CATALOG_FIRST;
     more.hidden = !canFold;
-    more.textContent = state.all ? "Show fewer" : `Show all ${formatInt(rows.length)} brokers`;
+    more.textContent = state.all ? "Show fewer" : `Show all ${plural(rows.length, "broker")}`;
     more.setAttribute("aria-expanded", String(state.all));
   }
   more.addEventListener("click", () => {
@@ -1771,7 +1771,7 @@ async function renderAccounts() {
     accs.length
       ? h("div", { class: "list acct-list", role: "list", "aria-labelledby": "acct-h-accounts" }, rows)
       : h("div", { class: "card" }, emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addBtn("primary"))),
-    accs.length ? h("p", { class: "group-foot" }, `${needLogin ? `${formatInt(needLogin)} ${needLogin === 1 ? "account needs" : "accounts need"} a login. ` : ""}You can add several brokers, and several accounts for one broker. New accounts are paper only.`) : null,
+    accs.length ? h("p", { class: "group-foot" }, `${needLogin ? `${plural(needLogin, "account")} ${needLogin === 1 ? "needs" : "need"} a login. ` : ""}You can add several brokers, and several accounts for one broker. New accounts are paper only.`) : null,
   );
 
   const catalog = acctSection(
@@ -2260,7 +2260,7 @@ async function confirmTicket(t, byId) {
   };
   const tick = setInterval(paint, 1000);
   sure?.addEventListener("change", paint);
-  const qtyLine = o.lots ? `${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}` : `${formatInt(o.quantity)} qty`;
+  const qtyLine = o.lots ? plural(o.lots, "lot") : `${formatInt(o.quantity)} qty`;
   const ok = await modal({
     title: "Confirm this order?",
     body: h(
@@ -2398,7 +2398,7 @@ async function renderSafety() {
     try {
       const d = (await api("/v1/audit/verify")).data.data ?? {};
       const at = istTime(new Date().toISOString());
-      verifyOut.replaceChildren(d.ok ? alertBox({ title: "The audit log is intact", detail: `${formatInt(d.checked)} records checked. None was changed or removed. Verified at ${at} IST.` }, "ok") : alertBox({ title: "The audit log was changed", detail: `The chain breaks at ${d.brokenAt ?? "an unknown record"}. Records after it cannot be trusted. Verified at ${at} IST.` }, "bad"));
+      verifyOut.replaceChildren(d.ok ? alertBox({ title: "The audit log is intact", detail: `${plural(d.checked, "record")} checked. None was changed or removed. Verified at ${at} IST.` }, "ok") : alertBox({ title: "The audit log was changed", detail: `The chain breaks at ${d.brokenAt ?? "an unknown record"}. Records after it cannot be trusted. Verified at ${at} IST.` }, "bad"));
     } catch (err) {
       verifyOut.replaceChildren(alertBox(err));
     } finally {
@@ -3085,7 +3085,7 @@ async function renderActivity() {
       busy(verifyBtn, true);
       try {
         const d = (await api("/v1/audit/verify")).data.data ?? {};
-        result.replaceChildren(d.ok ? alertBox({ title: `The chain is intact (${formatInt(d.checked)} records)`, detail: "No record was changed or removed." }, "ok") : alertBox({ title: `The chain is broken at ${d.brokenAt}`, detail: "A record was changed or removed after it was written. Keep the audit files and investigate before trusting this log." }));
+        result.replaceChildren(d.ok ? alertBox({ title: `The chain is intact (${plural(d.checked, "record")})`, detail: "No record was changed or removed." }, "ok") : alertBox({ title: `The chain is broken at ${d.brokenAt}`, detail: "A record was changed or removed after it was written. Keep the audit files and investigate before trusting this log." }));
       } catch (err) {
         result.replaceChildren(alertBox(err));
       } finally {
@@ -3112,7 +3112,7 @@ async function renderActivity() {
             ),
           ),
         ),
-        h("p", { class: "aa-foot" }, `Showing ${formatInt(shown.length)} of ${formatInt(rows.length)} records.`, h("span", { class: "aa-fine" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted.")),
+        h("p", { class: "aa-foot" }, `Showing ${formatInt(shown.length)} of ${plural(rows.length, "record")}.`, h("span", { class: "aa-fine" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted.")),
       );
     };
     search.addEventListener("input", () => ((q = search.value), drawList()));

@@ -7,7 +7,7 @@
 // what was checked and where the fact came from, never advice. Every reading is local: the badge polls
 // GET /v1/readiness, which answers from the monitor's cache and never calls a broker.
 import { api, app, codeBlock, h, icon, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
-import { DASH, formatInt, formatRupeeGrouped, isFigure } from "./format.js";
+import { DASH, formatInt, formatRupeeGrouped, isFigure, plural } from "./format.js";
 import { setAttr, setText } from "./motion.js";
 
 /** How often the badge reads /v1/readiness while the tab is visible. */
@@ -82,7 +82,6 @@ export const REASON_SHORT = Object.freeze({
 });
 export const reasonShort = (code) => REASON_SHORT[code] ?? String(code ?? "").toLowerCase().replace(/_/g, " ");
 
-const plural = (n, one, many = `${one}s`) => `${formatInt(n)} ${n === 1 ? one : many}`;
 const accountName = (a) => a?.label || a?.accountId || "this account";
 const visibleLive = (snap) => (snap?.accounts ?? []).filter((a) => a?.live?.allowedByConfig);
 

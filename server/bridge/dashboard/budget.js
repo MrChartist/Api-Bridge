@@ -5,7 +5,7 @@
 // Pure helpers (budgetView, savedParts) are exported for tests; the DOM code runs only in a browser.
 
 import { h, sheetPopover } from "./app.js";
-import { DASH, formatInt } from "./format.js";
+import { DASH, formatInt, plural } from "./format.js";
 import { countTo, patchList, setAttr, setClass, setText } from "./motion.js";
 import { LIMIT_TONES } from "./sources-core.js";
 
@@ -130,7 +130,7 @@ export function mountBudget(host, live) {
     const job = (msg?.jobs ?? [])[0];
     setAttr(host, "data-job", job ? "1" : "");
     const fill = v.tone === "bad" ? " Near the limit." : v.tone === "warn" ? " Getting full." : "";
-    setAttr(btn, "aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
+    setAttr(btn, "aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${plural(v.savedToday, "call")} saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
     if (pop?.el.isConnected) pop.update(msg, v);
   };
   btn.addEventListener("click", () => {
@@ -187,7 +187,7 @@ function acctBlock(a, el) {
   r.back.hidden = !(a.backoffMs > 0);
   r.sec.set(a.second);
   r.min.set(a.minute);
-  countTo(r.today, a.callsToday ?? 0, { format: (n) => `${formatInt(n)} calls` });
+  countTo(r.today, a.callsToday ?? 0, { format: (n) => plural(n, "call") });
   return el;
 }
 
@@ -240,12 +240,12 @@ function buildPop() {
       if (streamText.data !== STREAM_TEXT[v.stream]) streamText.data = STREAM_TEXT[v.stream];
       const n = msg?.stream?.subscriptions;
       symbols.hidden = !n;
-      if (n) setText(symbols, `${formatInt(n)} symbols`);
+      if (n) setText(symbols, plural(n, "symbol"));
       patchList(accounts, msg?.accounts ?? [], (a) => a.accountId, acctBlock, { animate: !first });
       const js = msg?.jobs ?? [];
       jobs.hidden = js.length === 0;
       patchList(jobs, js, (j) => j.label, jobBlock, { animate: !first });
-      countTo(savedNum, v.savedToday, { format: (x) => `${formatInt(x)} calls` });
+      countTo(savedNum, v.savedToday, { format: (x) => plural(x, "call") });
       patchList(parts, savedParts(msg?.savings).filter(([, c]) => c > 0), ([label]) => label, partBlock, { animate: !first });
       first = false;
     },

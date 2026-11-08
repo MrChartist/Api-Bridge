@@ -4,7 +4,7 @@
 // confirm) and hands them in; this file draws.
 import { alertBox, api, card, codeBlock, copyText, emptyState, h, icon, iconTile, istTime, modal, optional, pill, sheetPopover, skeletonCard, store, toast, writeCount } from "./app.js";
 import { contractName } from "./flows.js";
-import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped, isFigure, plural } from "./format.js";
 import {
   DRY_RUN_REUSE_MS,
   ORDER_FILTERS,
@@ -143,7 +143,7 @@ const declined = () => {
 };
 const decline = (id) => session.set(DECLINED, JSON.stringify([...declined(), id].slice(-50)));
 
-const lotsText = (o) => (o.lots ? `${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}` : `${formatInt(o.quantity)} qty`);
+const lotsText = (o) => (o.lots ? plural(o.lots, "lot") : `${formatInt(o.quantity)} qty`);
 
 /** One ticket: every field of the order, who prepared it, how long it has left and the Decline / Review pair. */
 function ticketCard(t, byId, { review, onDecline }) {
@@ -157,7 +157,7 @@ function ticketCard(t, byId, { review, onDecline }) {
   const marketish = o.orderType === "MARKET" || o.orderType === "SL-M";
   const fields = [
     ["Account", acc ? acc.label : (o.account ?? DASH), acc ? `${o.account} · ${acc.broker ?? ""}` : null],
-    ["Quantity", o.lots ? `${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}` : formatInt(o.quantity), null],
+    ["Quantity", o.lots ? plural(o.lots, "lot") : formatInt(o.quantity), null],
     ["Order type", orderTypeText(o.orderType) || DASH, null],
     ["Price", marketish && !isFigure(o.price) ? "At market" : money(o.price), null],
     isFigure(o.triggerPrice) ? ["Trigger price", money(o.triggerPrice), null] : null,
@@ -251,7 +251,7 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
         h("div", { class: "ob-tickets" }, ...shown.map((t) => ticketCard(t, byId, { review, onDecline }))),
         live,
       );
-      live.textContent = `${n} order${n === 1 ? "" : "s"} waiting for your confirmation`;
+      live.textContent = `${plural(n, "order")} waiting for your confirmation`;
     });
   }
   function tick() {
@@ -520,7 +520,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
             h("h3", { class: "ca-head" }, `Placed outside the Bridge · ${formatInt(theirs)}`),
             h("p", { class: "ob-sub" }, "In your broker's app or terminal, such as a stop-loss you set there. Left open unless you tick the box."),
             cancelList(g.external, labelOf),
-            h("label", { class: "check ca-also" }, also, `Also cancel ${formatInt(theirs)} order${theirs === 1 ? "" : "s"} placed outside the Bridge`),
+            h("label", { class: "check ca-also" }, also, `Also cancel ${plural(theirs, "order")} placed outside the Bridge`),
           )
         : null,
     ),
@@ -659,7 +659,7 @@ export async function renderTradesPage() {
       onclick: () => {
         const day = istDayOf(Date.now());
         download(`trades-${day}.csv`, tradesCsv(shown, { labelOf, chargesOf: fillCharges, timeOf: (iso) => `${istDayOf(iso)} ${istTime(iso)}` }));
-        toast(`Exported ${formatInt(shown.length)} trade${shown.length === 1 ? "" : "s"}`);
+        toast(`Exported ${plural(shown.length, "trade")}`);
       },
     },
     icon("download"),
@@ -678,7 +678,7 @@ export async function renderTradesPage() {
     stats.replaceChildren(
       stat("Fills", formatInt(t.count), `${formatInt(buys)} buy · ${formatInt(t.count - buys)} sell`),
       stat("Turnover", formatRupeeGrouped(t.turnoverValue, 0), `Bought ${formatRupeeGrouped(t.buyValue, 0)} · Sold ${formatRupeeGrouped(t.sellValue, 0)}`),
-      stat("Charges (estimate)", priced ? `≈ ${formatRupeeGrouped(t.charges.total, 2)}` : DASH, priced ? `For ${formatInt(priced)} futures and options fill${priced === 1 ? "" : "s"}. Your broker's contract note is final.` : "Estimated for futures and options only.", "Brokerage, STT, exchange, SEBI, stamp duty and GST"),
+      stat("Charges (estimate)", priced ? `≈ ${formatRupeeGrouped(t.charges.total, 2)}` : DASH, priced ? `For ${plural(priced, "futures and options fill")}. Your broker's contract note is final.` : "Estimated for futures and options only.", "Brokerage, STT, exchange, SEBI, stamp duty and GST"),
     );
     if (!list.length) {
       body.replaceChildren(
@@ -701,7 +701,7 @@ export async function renderTradesPage() {
           return h(
             "div",
             { class: "ob-day", role: "rowgroup" },
-            h("div", { class: "ob-dayhead", role: "row" }, h("h3", { role: "cell" }, dayHeading(g.day, today())), h("span", { class: "ob-sub", role: "cell" }, `${formatInt(gt.count)} fill${gt.count === 1 ? "" : "s"} · ${formatRupeeGrouped(gt.turnoverValue, 0)} traded`)),
+            h("div", { class: "ob-dayhead", role: "row" }, h("h3", { role: "cell" }, dayHeading(g.day, today())), h("span", { class: "ob-sub", role: "cell" }, `${plural(gt.count, "fill")} · ${formatRupeeGrouped(gt.turnoverValue, 0)} traded`)),
             ...g.rows.map((r) => tradeRow(r, labelOf)),
           );
         }),

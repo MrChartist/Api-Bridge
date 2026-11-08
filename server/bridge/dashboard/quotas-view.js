@@ -5,7 +5,7 @@
 import { alertBox, api, emptyState, h, icon, iconTile, istTime, modal, optional, toast } from "./app.js";
 import { dayShare, kindLabel, matchPreset, quotaLine, quotaPresets, quotaSourceText, sortKeys, validateQuota, toneForShare, TONE_WORD } from "./sources-core.js";
 import { chevron, createKeyedList, createMeter, createPoller, setData, setText } from "./sources-ui.js";
-import { formatInt } from "./format.js";
+import { formatInt, plural } from "./format.js";
 
 let segmented = null;
 /** views.js hands over its segmented control (it owns the sliding thumb). */
@@ -74,7 +74,7 @@ export function openQuotaSheet(key, defs) {
     if (!quiet) showErrors(v.ok ? {} : v.errors);
     if (v.ok) {
       const b = v.body;
-      setText(preview, `This key could make up to ${formatInt(b.perSecond)} calls a second, in short bursts of ${formatInt(b.burst)}${b.perDay ? `, and ${formatInt(b.perDay)} a day` : ", with no daily cap"}.`);
+      setText(preview, `This key could make up to ${plural(b.perSecond, "call")} a second, in short bursts of ${formatInt(b.burst)}${b.perDay ? `, and ${formatInt(b.perDay)} a day` : ", with no daily cap"}.`);
     } else setText(preview, "Fix the highlighted fields to see what this key could do.");
     if (!fromPreset && seg.value !== undefined) {
       guard = true;
@@ -221,7 +221,7 @@ export async function renderQuotas() {
     setText(p.held, t ? `${formatInt(t)} held back today` : "Never held back today");
     setData(p.held, "hot", t > 0 ? "1" : null);
     setData(el, "tone", tone);
-    el.setAttribute("aria-label", `${k.label}, ${kindLabel(k.clientKind)}. ${quotaLine(k)}. ${u.text}. ${TONE_WORD[tone]}. ${t ? `${formatInt(t)} calls held back today` : "Never held back today"}. Select to change the quota.`);
+    el.setAttribute("aria-label", `${k.label}, ${kindLabel(k.clientKind)}. ${quotaLine(k)}. ${u.text}. ${TONE_WORD[tone]}. ${t ? `${plural(t, "call")} held back today` : "Never held back today"}. Select to change the quota.`);
   }
 
   async function edit(k) {
@@ -241,7 +241,7 @@ export async function renderQuotas() {
     }
     const keys = sortKeys(data.keys ?? []);
     const d = data.default ?? {};
-    setText(defaultLine, `Default for a new key: ${formatInt(d.perSecond)} calls a second, in bursts of ${formatInt(d.burst)}.`);
+    setText(defaultLine, `Default for a new key: ${plural(d.perSecond, "call")} a second, in bursts of ${formatInt(d.burst)}.`);
     emptyBox.hidden = keys.length > 0;
     rowsBox.hidden = keys.length === 0;
     foot.hidden = keys.length === 0;
