@@ -26,7 +26,7 @@ export default defineConfig({
     // about speed measure CPU time or work counts (e2e/fixtures.mjs stopwatch), never these budgets.
     testTimeout: 60_000,
     hookTimeout: 60_000,
-    setupFiles: ["./test/pinDate.mjs"],
+    setupFiles: ["./test/pinDate.mjs", "./test/noRealNetwork.mjs"],
     globalSetup: ["./test/tmpdir.mjs"],
   },
 });

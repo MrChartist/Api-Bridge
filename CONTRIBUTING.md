@@ -30,7 +30,7 @@ node --test sdk/node/test/client.test.mjs
 python -m pip install ./sdk/python pytest && python -m pytest sdk/python/tests -q
 ```
 
-Tests never touch the network or a real broker. Broker adapters are tested against recorded sample responses in `server/brokers/__fixtures__/`.
+Tests never touch the network or a real broker: the test run replaces the global `fetch` with a guard (`test/noRealNetwork.mjs`) that allows only requests to this computer and fails any test that tries another host, so inject a fake `fetch` where code takes one. Broker adapters are tested against recorded sample responses in `server/brokers/__fixtures__/`.
 
 ## Ground rules
 
