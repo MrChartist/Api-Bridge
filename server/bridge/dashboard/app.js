@@ -1422,7 +1422,7 @@ async function signIn() {
     if (err.status === 401 || err.status === 403) setKey(null);
     login.hidden = false;
     shell.hidden = true;
-    document.getElementById("login-error").replaceChildren(alertBox(err));
+    showLoginError(alertBox(err));
     shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
     return;
   }
@@ -1467,7 +1467,6 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     const show = input.type === "password";
     input.type = show ? "text" : "password";
     btn.setAttribute("aria-pressed", String(show));
-    btn.setAttribute("aria-label", show ? "Hide key" : "Show key");
     btn.replaceChildren(icon(show ? "eyeoff" : "eye"));
     input.focus();
   });
@@ -1476,7 +1475,7 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     const input = document.getElementById("key-input");
     setKey(input.value.trim());
     input.value = "";
-    document.getElementById("login-error").replaceChildren();
+    showLoginError(null);
     signIn();
   });
   boot();
@@ -1498,6 +1497,21 @@ function revealInRow(el) {
   if (dx) row.scrollBy({ left: dx, behavior: reducedMotion() ? "auto" : "smooth" });
 }
 
+/** The sign-in error under the key field: the field is marked invalid and points at the message (null clears both). */
+function showLoginError(node) {
+  const box = document.getElementById("login-error");
+  const input = document.getElementById("key-input");
+  if (node) box.replaceChildren(node);
+  else box.replaceChildren();
+  if (node) {
+    input?.setAttribute("aria-invalid", "true");
+    input?.setAttribute("aria-describedby", "login-error");
+  } else {
+    input?.removeAttribute("aria-invalid");
+    input?.removeAttribute("aria-describedby");
+  }
+}
+
 /** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */
 async function boot() {
   if (pendingSignInCode === null) return signIn();
@@ -1508,7 +1522,7 @@ async function boot() {
     if (!document.getElementById("app").hidden) toast("Signed in. Welcome to your Bridge.");
   } else if (!memoryKey) {
     // Already signed in in this tab: the older key keeps working, so an old link needs no error.
-    document.getElementById("login-error").replaceChildren(alertBox(result.error));
+    showLoginError(alertBox(result.error));
     shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
   }
 }

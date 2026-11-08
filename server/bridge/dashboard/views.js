@@ -195,15 +195,15 @@ const INTEGRATION_TOOLS = [
 /**
  * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the Ctrl K palette
  * `group` is the sidebar group, `tint` an iOS system
- * colour name (the page's glyph colour everywhere), `key` the curated Ctrl 1 to Ctrl 9 shortcut, `tab: true` puts it in the
+ * colour name (the page's glyph colour everywhere), `key` the Ctrl 1 to Ctrl 4 shortcut (one per page), `tab: true` puts it in the
  * phone tab bar (`short` labels it there),  `headline` is the large title when it differs from `title`. A page with `tabs` is one page with a tab strip: each tab names the page id it renders as (`page`, the
  * `:root[data-page]` value that scopes its CSS and the id older links used), may set its own `sub`, and `command` is its
  * Ctrl K label; `extras` are further Ctrl K destinations inside it.
  */
 export const PAGES = [
-  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, key: 1, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   {
-    id: "api", label: "API", icon: "keys", tint: "pink", tab: true, key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
+    id: "api", label: "API", icon: "keys", tint: "pink", tab: true, key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
     defaultTab: "keys",
     tabs: [
       { id: "keys", label: "Keys", page: "keys", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
@@ -220,14 +220,14 @@ export const PAGES = [
     ],
   },
   {
-    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 5, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
+    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 3, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
     defaultTab: "book",
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
       { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
     ],
   },
-  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, key: 4, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
 ];
 
 /** Old page ids that became tabs: an old link or bookmark opens the tab, keeping its ?query. */

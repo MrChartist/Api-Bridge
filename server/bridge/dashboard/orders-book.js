@@ -303,7 +303,7 @@ const curlExample = (account) =>
 function rowMenu(o, { modify, cancel }) {
   const name = contractName(o.symbol);
   const working = ["pending", "open", "trigger_pending", "partially_filled"].includes(o.status);
-  const btn = h("button", { type: "button", class: "icon-btn ob-more", "data-fid": `menu:${o.orderId}`, "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${o.side === "BUY" ? "buy" : "sell"} ${name}` }, icon("more"));
+  const btn = h("button", { type: "button", class: "icon-btn ob-more", "data-fid": `menu:${o.orderId}`, "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${o.side === "BUY" ? "buy" : "sell"} ${name}, ${o.quantity != null ? `${o.quantity} qty, ` : ""}${istTime(o.placedAt)}` }, icon("more"));
   btn.addEventListener("click", () => {
     btn.setAttribute("aria-expanded", "true");
     let handle = null;
