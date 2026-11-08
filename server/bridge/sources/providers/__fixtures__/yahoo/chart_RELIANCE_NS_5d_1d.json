@@ -1,0 +1,108 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "INR",
+     "symbol": "RELIANCE.NS",
+     "exchangeName": "NSE",
+     "fullExchangeName": "NSE",
+     "instrumentType": "EQUITY",
+     "regularMarketTime": 1794132180,
+     "gmtoffset": 19800,
+     "timezone": "IST",
+     "exchangeTimezoneName": "Asia/Kolkata",
+     "regularMarketPrice": 1324,
+     "chartPreviousClose": 1290,
+     "fiftyTwoWeekHigh": 1611.8,
+     "fiftyTwoWeekLow": 1152.2,
+     "regularMarketDayHigh": 1327.4,
+     "regularMarketDayLow": 1309.9,
+     "regularMarketVolume": 6821400,
+     "dataGranularity": "1d",
+     "range": "5d",
+     "validRanges": [
+      "1d",
+      "5d",
+      "1mo",
+      "3mo",
+      "6mo",
+      "1y",
+      "2y",
+      "5y",
+      "10y",
+      "ytd",
+      "max"
+     ]
+    },
+    "timestamp": [
+     1793591100,
+     1793677500,
+     1793763900,
+     1793850300,
+     1793936700,
+     1794132000
+    ],
+    "indicators": {
+     "quote": [
+      {
+       "open": [
+        1290,
+        null,
+        1297,
+        1302.5,
+        1306,
+        1324
+       ],
+       "high": [
+        1302,
+        null,
+        1305.9,
+        1311,
+        1316.2,
+        1324
+       ],
+       "low": [
+        1288,
+        null,
+        1295.1,
+        1299.8,
+        1303.3,
+        1324
+       ],
+       "close": [
+        1296.5,
+        null,
+        1301.25,
+        1308.4,
+        1311.8,
+        1324
+       ],
+       "volume": [
+        5120000,
+        null,
+        4890000,
+        5310000,
+        5760000,
+        6821400
+       ]
+      }
+     ],
+     "adjclose": [
+      {
+       "adjclose": [
+        1296.5,
+        null,
+        1301.25,
+        1308.4,
+        1311.8,
+        1324
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "error": null
+ }
+}
