@@ -21,25 +21,6 @@ import { DEMO_ROUTES, demoRouteKeys } from "../demo/routes.mjs";
 /** Demo-only operations ("METHOD /openapi/path"). Each spec that adds a demo route adds its key here. */
 const DEMO_ONLY = Object.freeze(["POST /v1/demo/readiness"]);
 
-/**
- * Operations documented ahead of the code that serves them (the multi-source platform was built in parallel streams).
- * The test below tolerates these being absent from the route table; once a route is registered it is checked like any
- * other (scope, auth, loopback, module). Delete an entry when its route lands; an empty list is the normal state.
- */
-const DOCUMENTED_BEFORE_REGISTERED = Object.freeze([
-  "GET /v1/sources",
-  "GET /v1/sources/trace",
-  "PATCH /v1/sources/{id}",
-  "PUT /v1/sources/{id}/config",
-  "POST /v1/sources/{id}/test",
-  "GET /v1/pooling",
-  "PUT /v1/pooling/consent",
-  "DELETE /v1/pooling/consent",
-  "GET /v1/quotas",
-  "PUT /v1/quotas/{keyId}",
-  "DELETE /v1/quotas/{keyId}",
-]);
-
 const SPEC = readFileSync(resolve(import.meta.dirname, "../../../docs/openapi.yaml"), "utf8");
 
 /** Minimal line-based reader for the disciplined layout of docs/openapi.yaml. */
@@ -93,7 +74,7 @@ describe("docs/openapi.yaml matches the registered routes", async () => {
 
   it("every documented operation is registered (demo-only ones in demo mode only)", () => {
     const keys = new Set(routes.map((r) => r.key));
-    const extra = httpOps.filter((o) => !o.demoOnly && !keys.has(`${o.method} ${o.path}`)).map((o) => `${o.method} ${o.path}`).filter((k) => !DOCUMENTED_BEFORE_REGISTERED.includes(k));
+    const extra = httpOps.filter((o) => !o.demoOnly && !keys.has(`${o.method} ${o.path}`)).map((o) => `${o.method} ${o.path}`);
     expect(extra).toEqual([]);
     expect(routes.filter((r) => DEMO_ONLY.includes(r.key)).map((r) => r.key)).toEqual([]);
   });
