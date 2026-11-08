@@ -4,7 +4,8 @@ import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, 
 import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
-import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
+import { mountBudget } from "./budget.js";
+import "./sources-ui.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
@@ -202,8 +203,22 @@ const INTEGRATION_TOOLS = [
  */
 export const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, key: 1, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  // Sources has a place in the phone tab bar and API (set up once, used at a desk) moves to More: whether the data is
+  // flowing is the question people open the Bridge on a phone to ask, a key is made once.
   {
-    id: "api", label: "API", icon: "keys", tint: "pink", tab: true, key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
+    id: "sources", label: "Sources", icon: "sources", tint: "teal", tab: true, key: 5, group: "Bridge", title: "Sources", sub: "Where your data comes from, how much room is left, and why a request went where it did",
+    defaultTab: "overview",
+    tabs: [
+      {
+        id: "overview", label: "Overview", page: "sources", sub: "How much room your brokers and sources have, what is using it, and why a request went where it did", command: "Sources and rate limits", icon: "sources", tint: "teal", keywords: "sources limits rate limits budget usage room health forecast throttle pooled requests recent", render: renderSourcesOverview,
+        extras: [{ id: "trace", label: "Why this source?", route: "sources/overview?trace=1", keywords: "route trace explain source why which broker answered", sub: "Sources › Overview › Route trace" }],
+      },
+      { id: "providers", label: "Providers", page: "providers", sub: "Your brokers and the free and key-based sources you can turn on", command: "Data providers", icon: "sources", tint: "teal", keywords: "providers free sources key yahoo delayed pooling brokers terms notice switch", render: renderSourcesProviders },
+      { id: "quotas", label: "Quotas", page: "quotas", sub: "How much each API key and tool may ask for", command: "Key quotas", icon: "limits", tint: "purple", keywords: "quota quotas key tool throttle per second burst weight fair share", render: renderSourcesQuotas },
+    ],
+  },
+  {
+    id: "api", label: "API", icon: "keys", tint: "pink", key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console and the request log",
     defaultTab: "keys",
     tabs: [
       { id: "keys", label: "Keys", page: "keys", sub: "One key per tool, with only the access it needs", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
@@ -212,7 +227,6 @@ export const PAGES = [
         extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
       },
       { id: "console", label: "Test console", page: "console", sub: "Try any call and see what a script would get back", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
-      { id: "limits", label: "Rate limits", page: "limits", sub: "How much of each broker's call budget is in use", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
       {
         id: "activity", label: "Activity", page: "activity", sub: "Every request the Bridge handled, and its audit log", command: "Activity", icon: "activity", tint: "gray", keywords: "activity requests log", render: renderActivity,
         extras: [{ id: "audit", label: "Audit log", route: "api/activity?view=audit", keywords: "audit log hash chain tamper", sub: "API › Activity › Audit log" }],
@@ -233,10 +247,15 @@ export const PAGES = [
 /** Old page ids that became tabs: an old link or bookmark opens the tab, keeping its ?query. */
 export const LEGACY = {
   console: "api/console",
-  limits: "api/limits",
+  limits: "sources/overview",
   keys: "api/keys",
   integrations: "api/integrations",
   activity: "api/activity",
+};
+
+/** Old `page/tab` addresses of a tab that moved to another page. */
+export const LEGACY_PATHS = {
+  "api/limits": "sources/overview",
 };
 
 /**
@@ -262,6 +281,11 @@ export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {})
       qs.delete("tab");
       query = qs.toString();
     }
+    redirect = `#/${path}${query ? `?${query}` : ""}`;
+  }
+  // A tab that moved to another page (API › Rate limits is now Sources › Overview) keeps its old address working.
+  if (Object.hasOwn(LEGACY_PATHS, path)) {
+    path = LEGACY_PATHS[path];
     redirect = `#/${path}${query ? `?${query}` : ""}`;
   }
   const [pageId, tabId] = path.split("/");
@@ -1978,191 +2002,20 @@ async function drawConsole(accounts) {
   return h("div", { class: "ac" }, form, res);
 }
 
-// ── Rate limits ──
+// ── Sources (sources-page.js, sources-providers.js, quotas-view.js: loaded when the page is opened) ──
 
-const CLASS_NAME = Object.freeze({ order: "Orders", quote: "Quotes", depth: "Market depth", history: "History (candles)", chain: "Option chains", portfolio: "Positions and funds", master: "Instrument list", other: "Other calls" });
-/** How full a budget is, in words and in the tone that colours its bar (calm, then amber, then red). Pure. */
-function pressure(used, limit) {
-  if (!(limit > 0)) return { tone: "calm", word: "No limit", pct: 0 };
-  const p = used / limit;
-  const pct = Math.min(100, Math.round(p * 100));
-  if (p >= 0.85) return { tone: "high", word: "Near the limit", pct };
-  if (p >= 0.6) return { tone: "busy", word: "Busy", pct };
-  return { tone: "calm", word: "Calm", pct };
+async function renderSourcesOverview() {
+  const m = await import("./sources-page.js");
+  m.configureSources({ segmented });
+  return m.renderOverview();
 }
-const limitSpan = (w) => ({ "1s": "per second", "1m": "per minute", "1d": "per day" })[w] ?? `per ${w ?? "second"}`;
-
-/** One budget: name, a bar with the figures beside it, and what it did today. Colour follows pressure; the word says it too. */
-function budgetMeter(name, c) {
-  const limit = isFigure(c.limit) ? Number(c.limit) : 0;
-  const used = Number(c.used ?? 0);
-  const p = pressure(used, limit);
-  const fill = h("i");
-  fill.style.width = `${Math.max(p.pct, used > 0 ? 2 : 0)}%`;
-  const others = (c.windows ?? []).filter((w) => w.bucket === `class:${c.cls}` && w.window !== c.window);
-  const today = [`${formatInt(c.callsToday)} broker calls today`, c.throttledToday ? `${formatInt(c.throttledToday)} throttled by the broker` : null, c.refusedToday ? `${formatInt(c.refusedToday)} held back to stay inside limits` : null, ...others.map((w) => `${windowText(w)} ${limitSpan(w.window)}`)].filter(Boolean);
-  return h(
-    "div",
-    { class: `al-meter ${p.tone}` },
-    h("div", { class: "al-meter-head" }, h("span", { class: "al-name" }, name), h("span", { class: "al-figs" }, limit ? h("span", {}, h("strong", {}, formatInt(used)), ` of ${formatInt(limit)} ${limitSpan(c.window)}`) : h("span", {}, `${formatInt(used)} ${limitSpan(c.window)}, no limit`), h("span", { class: "al-word" }, p.word))),
-    h("div", { class: "al-track", role: "meter", "aria-valuemin": "0", "aria-valuemax": String(limit || used || 1), "aria-valuenow": String(used), "aria-label": `${name}: ${formatInt(used)} of ${limit ? formatInt(limit) : "no limit"} ${limitSpan(c.window)}, ${p.word.toLowerCase()}` }, fill),
-    h("div", { class: "al-sub" }, today.join(" · ")),
-  );
+async function renderSourcesProviders() {
+  return (await import("./sources-providers.js")).renderProviders();
 }
-
-/**
- * API › Rate limits: how much of each broker budget is in use right now (calm, busy, near the limit), a two-minute
- * chart, who spent the budget today, and what the broker allows. Usage refreshes every 1.5 seconds; the policy, which
- * changes only with the configuration, is read once.
- */
-async function renderLimits() {
-  const root = h("div", { class: "api-tab al" });
-  /** accountId -> the endpoint class its chart shows (the busiest, until a person picks another) */
-  const chartClass = new Map();
-  const openPolicies = new Set();
-  let limitsData = null;
-  let policyNodes = null;
-  const policyCards = (lim) => {
-    const policies = Object.values(lim.brokers ?? {});
-    if (!policies.length) return null;
-    return h(
-      "section",
-      { class: "group" },
-      h("h2", { class: "group-title" }, "What the broker allows"),
-      ...policies.map((p) => {
-        const dec = Object.values(p.limits ?? {}).some((x) => isFigure(x.perSecond) && !Number.isInteger(Number(x.perSecond))) ? 1 : 0;
-        const d = h(
-          "details",
-          { class: "al-policy", open: openPolicies.has(p.brokerId) },
-          h("summary", {}, h("span", {}, h("strong", {}, p.brokerId), h("span", { class: "muted small" }, p.notes ? ` · ${p.notes}` : ""))),
-          table(
-            [
-              { label: "Endpoint class", cell: (r) => h("strong", {}, CLASS_NAME[r[0]] ?? r[0]) },
-              { label: "Per second", num: true, cell: (r) => formatFixed(r[1].perSecond, dec) },
-              { label: "Per minute", num: true, cell: (r) => formatInt(r[1].perMinute) },
-              { label: "Per day", num: true, cell: (r) => formatInt(r[1].perDay) },
-              { label: "Source", wrap: true, cell: (r) => (String(r[1].source ?? "").includes("demo") ? pill("Sample (demo)", "demo") : r[1].verified ? pill("Broker docs", "ok") : pill("Conservative default", "warn")) },
-            ],
-            Object.entries(p.limits ?? {}),
-            emptyState("limits", "No limits", "", null, { compact: true }),
-          ),
-        );
-        d.addEventListener("toggle", () => (d.open ? openPolicies.add(p.brokerId) : openPolicies.delete(p.brokerId)));
-        return d;
-      }),
-    );
-  };
-
-  const draw = async () => {
-    const [usage, limits] = await Promise.all([api("/v1/usage?series=1"), limitsData ? Promise.resolve(limitsData) : api("/v1/limits")]);
-    if (!limitsData) {
-      limitsData = limits;
-      policyNodes = policyCards(limits.data.data ?? {});
-    }
-    const u = usage.data.data ?? {};
-    const sv = u.savings ?? {};
-    const accounts = (u.accounts ?? []).filter((a) => a.broker !== "paper");
-    const nodes = [];
-
-    nodes.push(
-      h(
-        "section",
-        { class: "card al-intro" },
-        h("div", { class: "card-body stack" }, h("p", { class: "al-lead" }, "Every broker allows only so many calls. The Bridge keeps each account under its budget, and most requests never reach the broker at all."), h("div", { class: "al-stats" }, ...[
-          ["Served from the live stream", sv.servedFromStream, "No broker call at all"],
-          ["Served from cache", sv.servedFromCache, "Fresh enough, labelled with its age"],
-          ["Shared calls", sv.coalesced, "Identical requests shared one call"],
-          ["Batched calls", sv.batched, "Symbols packed into fewer calls"],
-        ].map(([name, n, sub]) => h("div", { class: "al-stat" }, h("span", { class: "al-stat-n" }, formatInt(n)), h("span", { class: "al-stat-l" }, name), h("span", { class: "al-stat-s" }, sub))))),
-      ),
-    );
-
-    if (!accounts.length) nodes.push(h("section", { class: "card" }, h("div", { class: "card-body flush" }, emptyState("limits", "No broker account in use yet", "Once a broker account is connected (or demo mode is on), its live budget per endpoint class shows here.", nextStep("Go to Accounts", "#/accounts")))));
-    for (const a of accounts) {
-      const classes = Object.entries(a.classes ?? {});
-      const active = Object.keys(a.classes ?? {}).filter((c) => (a.classes[c].callsToday ?? 0) > 0 || a.series?.classes?.[c]);
-      const cls = chartClass.get(a.accountId) ?? busiestClass(a);
-      const c = a.classes?.[cls] ?? {};
-      const counts = a.series?.classes?.[cls] ?? new Array(a.series?.seconds ?? 120).fill(0);
-      const limit = perSecondLimit(c);
-      const pick = active.length > 1 ? h("div", { class: "segmented", role: "group", "aria-label": "Endpoint class" }, active.map((k) => h("button", { type: "button", "aria-pressed": String(k === cls), onclick: () => (chartClass.set(a.accountId, k), draw()) }, CLASS_NAME[k] ?? k))) : null;
-      const total = (key) => sum(Object.fromEntries(classes.map(([k, x]) => [k, x[key] ?? 0])));
-      nodes.push(
-        h(
-          "section",
-          { class: "card al-acct" },
-          h("header", { class: "card-head" }, iconTile("limits", "purple"), h("div", { class: "card-titles" }, h("h2", {}, a.accountId), h("p", {}, `${cap(a.broker)} · ${formatInt(a.inFlight ?? 0)} in flight · ${formatInt(a.queued ?? 0)} waiting`)), h("div", { class: "card-actions" }, a.healthy === false ? pill("Backing off", "bad") : pill("Healthy", "ok"))),
-          h(
-            "div",
-            { class: "card-body stack" },
-            h("div", { class: "al-meters" }, classes.map(([k, x]) => budgetMeter(CLASS_NAME[k] ?? cap(k), { ...x, cls: k }))),
-            h("p", { class: "al-today" }, `Today: ${formatInt(total("callsToday"))} broker calls, ${formatInt(total("throttledToday"))} throttled by the broker, ${formatInt(total("refusedToday"))} held back to stay inside limits.`),
-            h(
-              "div",
-              { class: "al-chart" },
-              h("div", { class: "al-chart-head" }, h("h3", {}, "Calls per second, last two minutes"), pick),
-              usageChart(counts, limit, `${CLASS_NAME[cls] ?? cls} calls per second over the last two minutes${limit ? `, limit ${formatInt(limit)} a second` : ""}`),
-              h("div", { class: "rl-axis" }, h("span", {}, "2 min ago"), h("span", {}, "now")),
-              h("div", { class: "rl-legend" }, h("span", {}, h("i", { class: "sw" }), "Calls per second"), limit ? h("span", {}, h("i", { class: "sw limit" }), `Limit ${formatInt(limit)} a second`) : null),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Who used the budget today (admin keys only: it names API keys).
-    if (Array.isArray(u.consumers) && u.consumers.length) {
-      const top = Math.max(1, ...u.consumers.map((x) => x.calls));
-      nodes.push(
-        h(
-          "section",
-          { class: "group" },
-          h("h2", { class: "group-title" }, "Who used the budget today"),
-          h(
-            "ul",
-            { class: "list al-cons" },
-            u.consumers.map((r) => {
-              const bar = h("span", { class: "rl-cons-bar", "aria-hidden": "true" });
-              bar.style.setProperty("--w", `${Math.round((r.calls / top) * 100)}%`);
-              return h("li", { class: "list-row static" }, h("span", { class: "al-cons-name" }, r.name), h("span", { class: "al-cons-bar" }, bar), h("span", { class: "al-cons-n" }, h("strong", {}, formatInt(r.calls)), " broker calls", r.saved ? h("span", { class: "muted" }, ` · ${formatInt(r.saved)} saved`) : null));
-            }),
-          ),
-          h("p", { class: "group-foot" }, "Broker calls each page, key or job caused, and the calls it got from the stream, the cache or a shared call instead."),
-        ),
-      );
-    }
-    if (policyNodes) nodes.push(policyNodes);
-
-    const tryBtn = h("button", { type: "button", class: "small tinted" }, icon("bolt"), "Send 20 identical requests");
-    tryBtn.disabled = !accounts.length;
-    tryBtn.addEventListener("click", async () => {
-      busy(tryBtn, true);
-      try {
-        const calls = (x) => (x.accounts ?? []).reduce((n, a) => n + sum(Object.fromEntries(Object.entries(a.classes ?? {}).map(([k, v]) => [k, v.callsToday ?? 0]))), 0);
-        const before = (await api("/v1/usage")).data.data;
-        await Promise.all(Array.from({ length: 20 }, () => optional(api("/v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE"))));
-        const after = (await api("/v1/usage")).data.data;
-        const used = calls(after) - calls(before);
-        toast(`20 requests became ${formatInt(used)} broker call${used === 1 ? "" : "s"}. The rest came from the live stream, the cache or a shared call.`);
-      } finally {
-        busy(tryBtn, false);
-      }
-      await draw();
-    });
-    nodes.push(h("section", { class: "group" }, h("div", { class: "list" }, h("div", { class: "list-row static al-try" }, iconTile("bolt", "purple"), h("span", { class: "names" }, h("span", { class: "nm" }, "See the savings"), h("span", { class: "sub al-wrap" }, accounts.length ? "Twenty tools asking for the same price at once should cost the broker about one call." : "Needs a connected broker or demo mode.")), tryBtn))));
-    keepFocus(root, () => root.replaceChildren(...nodes));
-  };
-  const start = async () => {
-    root.replaceChildren(apiSkeleton(3));
-    try {
-      await draw();
-      every(1500, draw);
-    } catch (err) {
-      root.replaceChildren(errorPanel(err, start));
-    }
-  };
-  await start();
-  return root;
+async function renderSourcesQuotas() {
+  const m = await import("./quotas-view.js");
+  m.configureQuotas({ segmented });
+  return m.renderQuotas();
 }
 
 // ── Orders ──
