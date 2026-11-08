@@ -1523,6 +1523,7 @@ function loginSheet(a, broker) {
   });
   const st = acctStatus(a);
   return modal({
+    dirty: () => !busy && [...inputs.values()].some((i) => i.value !== ""),
     title: `Log in to ${a.label}`,
     body: h(
       "div",

@@ -315,6 +315,29 @@ export function updateClassPill(el, cls, delaySec) {
 
 export const officialBadge = (official) => h("span", { class: `chip sx-official${official ? "" : " unofficial"}`, title: official ? "A documented service from the data's owner or your own broker." : "Not an official service. It can change or stop without notice." }, officialLabel(official));
 
+/** What the labels on a source mean, said once and in place. A real disclosure: the keyboard opens it. */
+export function labelsHelp() {
+  return h(
+    "details",
+    { class: "sx-explain" },
+    h("summary", {}, "What do these labels mean?"),
+    h(
+      "dl",
+      {},
+      h("dt", {}, "Real-time"),
+      h("dd", {}, "Straight from the market, with no delay."),
+      h("dt", {}, "Delayed"),
+      h("dd", {}, "Behind the market by the time shown. Fine for charts and watchlists, never used for orders, risk checks, paper fills or alerts."),
+      h("dt", {}, "End of day"),
+      h("dd", {}, "Prices from the end of the trading day."),
+      h("dt", {}, "Official"),
+      h("dd", {}, "A documented service from the data's owner or your own broker."),
+      h("dt", {}, "Unofficial"),
+      h("dd", {}, "Not an official service. It can change or stop without notice, and its terms may limit what you may do with the data."),
+    ),
+  );
+}
+
 /** The health dot and word: a dot (never the only signal) and the word beside it. */
 export function healthTag() {
   const dot = h("span", { class: "sx-dot", "aria-hidden": "true" });

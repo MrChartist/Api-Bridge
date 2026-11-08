@@ -411,6 +411,8 @@ describe("forecast sentence and attention", () => {
     expect(s.tone).toBe("warn");
     expect(s.text).toMatch(/^At this pace the Dhan quotes budget runs out in about 15 seconds\.$/);
     expect(C.forecastSentence([]).text).toBe("At this pace: stays calm.");
+    expect(C.forecastSentence([], "headsup").text).not.toMatch(/calm/);
+    expect(C.forecastSentence([], "headsup").tone).toBe("warn");
   });
 
   it("the banner says where calls go next and that orders are safe", () => {

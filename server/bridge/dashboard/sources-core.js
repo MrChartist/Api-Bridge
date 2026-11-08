@@ -405,15 +405,17 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
     accountKeys.add(a.accountId);
     accountKeys.add(a.broker);
     const health = accountHealth(a);
+    // What the account's data is comes from its descriptor when the Bridge lists one; a broker account is otherwise real-time.
+    const desc = (sources ?? []).find((s) => s.kind === "broker" && (s.id === a.accountId || s.id === a.broker));
     rows.push({
       key: `acct:${a.accountId}`,
       kind: "account",
       id: a.accountId,
       name: labels?.[a.accountId] || a.accountId,
       sub: `${titleCase(a.broker)}, your broker account`,
-      cls: "realtime",
-      delaySec: 0,
-      official: true,
+      cls: desc?.class ?? "realtime",
+      delaySec: desc ? (desc.delaySec ?? null) : 0,
+      official: desc ? Boolean(desc.official) : true,
       enabled: true,
       configured: true,
       health,
@@ -570,9 +572,10 @@ export function soonestRunOut(rows) {
  * The one forecast sentence under the pooled meter.
  * @returns {{ text: string, tone: "calm" | "warn" }}
  */
-export function forecastSentence(rows) {
+export function forecastSentence(rows, tone = "calm") {
   const hit = soonestRunOut(rows);
-  if (!hit) return { text: "At this pace: stays calm.", tone: "calm" };
+  // No run-out is forecast, but the headline may still not be calm: the line must not say "calm" beside "Heads up".
+  if (!hit) return { text: { calm: "At this pace: stays calm.", busy: "At this pace: no budget runs out soon.", headsup: "At this pace: nothing runs out yet, but keep an eye on it.", limit: "A budget is full now: new calls wait for room." }[tone] ?? "At this pace: stays calm.", tone: tone === "headsup" || tone === "limit" ? "warn" : "calm" };
   const r = hit.row;
   const what = r.kind === "account" ? `${titleCase(String(r.sub).split(",")[0])} ${(r.budget?.clsName ?? "call").toLowerCase()} budget` : `${r.name} budget`;
   return { text: `At this pace the ${what} runs out in ${waitPhrase(hit.seconds)}.`, tone: "warn" };

@@ -39,7 +39,7 @@ import {
   capabilityText,
 } from "./sources-core.js";
 import { DASH, formatFixed, formatInt, plural } from "./format.js";
-import { brokerTile, chevron, classPill, countingNumber, createKeyedList, createMeter, createPoller, healthTag, officialBadge, overviewSkeleton, prefersReducedMotion, setData, setText, setToneGlyph, sourceTile, toneGlyph, updateClassPill } from "./sources-ui.js";
+import { brokerTile, chevron, classPill, countingNumber, createKeyedList, createMeter, createPoller, healthTag, labelsHelp, officialBadge, overviewSkeleton, prefersReducedMotion, setData, setText, setToneGlyph, sourceTile, toneGlyph, updateClassPill } from "./sources-ui.js";
 
 /** The page's one dependency on views.js, handed over when views.js loads (it owns the segmented control). */
 let segmented = null;
@@ -304,6 +304,7 @@ export async function renderOverview() {
     rowsBox,
     rowsEmpty,
     rowsFoot,
+    labelsHelp(),
   );
   sortSeg.addEventListener?.("change", () => {
     sortMode = sortSeg.value;
@@ -583,7 +584,7 @@ export async function renderOverview() {
       setText(capL, "");
       setText(capR, "");
     }
-    const f = forecastSentence(rows);
+    const f = forecastSentence(rows, tone);
     setText(forecastText, f.text);
     setData(forecastRow, "tone", f.tone);
     forecastRow.hidden = !pooled && f.tone === "calm";
@@ -679,7 +680,7 @@ export async function renderOverview() {
     spoken.tone = key;
     spoken.at = at;
     const worst = attentionRows(model.rows)[0];
-    const f = forecastSentence(model.rows);
+    const f = forecastSentence(model.rows, model.tone);
     setText(live, worst ? `${attentionText(worst, model.rows).title}. ${f.tone === "warn" ? f.text : ""}` : `${TONE_WORD[model.tone]}. ${heroText({ pool: model.pool, tone: model.tone, rows: model.rows }).detail}`);
   }
 

@@ -5,7 +5,7 @@
 
 import { alertBox, api, emptyState, h, icon, iconTile, istTime, modal, optional, toast } from "./app.js";
 import { capabilityText, classAdvice, consentProblem, enableSteps, forgetSwitch, poolingModel, providerState, rememberSwitch, shortWait, tierChipText, withSwitches, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
-import { brokerTile, classPill, createKeyedList, createPoller, healthTag, officialBadge, setAttr, setData, setText, updateClassPill } from "./sources-ui.js";
+import { brokerTile, classPill, createKeyedList, createPoller, healthTag, labelsHelp, officialBadge, setAttr, setData, setText, updateClassPill } from "./sources-ui.js";
 import { formatInt, plural } from "./format.js";
 
 const isMissing = (err) => err && (err.status === 404 || err.status === 405 || err.status === 501);
@@ -97,6 +97,7 @@ export function openKeySheet(src, { replacing = false } = {}) {
   });
 
   return modal({
+    dirty: () => phase === "enter" && input.value.trim() !== "",
     title: replacing ? `Replace the ${src.name} key` : `Add your ${src.name} key`,
     body: h(
       "div",
@@ -275,12 +276,13 @@ export async function renderProviders() {
   const poolStatus = h("span", { class: "sx-pool-status" });
   const poolSub = h("p", { class: "sx-card-sub" });
   const poolBody = h("div", { class: "sx-pool-body" });
+  const poolNeed = h("p", { class: "hint sx-pool-need", id: "pool-need", hidden: true }, "Pooling needs two or more of your own accounts. ", h("a", { href: "#/accounts" }, "Add one on Accounts"), ".");
   const poolChange = h("button", { type: "button", class: "small plain", hidden: true }, "Change accounts");
   const poolCard = h(
     "section",
     { class: "card sx-pool", "aria-labelledby": "sx-pool-h" },
     h("header", { class: "card-head" }, iconTile("accounts", "indigo"), h("div", { class: "card-titles" }, h("h3", { class: "sx-card-title", id: "sx-pool-h" }, "Pool your brokers"), poolSub), h("div", { class: "card-actions sx-switch-wrap" }, poolStatus, h("label", { class: "switch" }, poolSwitch, h("i")))),
-    h("div", { class: "card-body stack" }, h("p", { class: "sx-pool-why" }, "Each broker limits how often the Bridge may ask it for prices. Pooling lets your accounts share the work, so busy tools get more room. It only ever moves reading prices between your own accounts. Orders never leave the account they belong to."), poolBody, h("div", { class: "sx-pool-acts" }, poolChange)),
+    h("div", { class: "card-body stack" }, h("p", { class: "sx-pool-why" }, "Each broker limits how often the Bridge may ask it for prices. Pooling lets your accounts share the work, so busy tools get more room. It only ever moves reading prices between your own accounts. Orders never leave the account they belong to."), poolNeed, poolBody, h("div", { class: "sx-pool-acts" }, poolChange)),
   );
   const poolWrap = h("section", { class: "group sx-group", "aria-labelledby": "sx-brokers-h" }, h("h2", { class: "group-title", id: "sx-brokers-h" }, "Your brokers"), poolCard);
 
@@ -314,6 +316,7 @@ export async function renderProviders() {
       poolBody.replaceChildren(isMissing(poolErr) ? alertBox({ title: "Pooling needs a newer Bridge", detail: "This Bridge cannot pool broker accounts yet. Everything else here still works." }, "info") : alertBox(poolErr));
       poolSwitch.disabled = true;
       poolSwitch.checked = false;
+      poolNeed.hidden = true;
       setText(poolSub, "Not available");
       setText(poolStatus, "");
       poolChange.hidden = true;
@@ -321,6 +324,9 @@ export async function renderProviders() {
     }
     poolSwitch.checked = pool.on;
     poolSwitch.disabled = !pool.on && !pool.canPool;
+    // A switch that cannot be used says why, for everyone: a line beside it and the same words for a screen reader.
+    poolNeed.hidden = !poolSwitch.disabled;
+    setAttr(poolSwitch, "aria-describedby", poolSwitch.disabled ? "pool-need" : null);
     setText(poolStatus, pool.on ? "On" : "Off");
     setData(poolCard, "on", pool.on ? "1" : "0");
     setText(poolSub, pool.on ? `${plural(pool.inPoolCount, "account")} ${pool.inPoolCount === 1 ? "shares" : "share"} their room` : pool.canPool ? "Off. Each account serves only its own calls." : "Off. Needs two or more of your accounts.");
@@ -364,6 +370,7 @@ export async function renderProviders() {
     h("h2", { class: "group-title", id: "sx-free-h" }, "Free and key-based sources"),
     h("p", { class: "sx-prov-intro" }, "Where your brokers cannot answer, or a delay is fine, these sources can. Every answer from one is labelled with how current it is, and none is ever used for orders, risk checks, paper fills or alerts."),
     fallbackRow,
+    labelsHelp(),
     grid,
     gridEmpty,
     provFoot,

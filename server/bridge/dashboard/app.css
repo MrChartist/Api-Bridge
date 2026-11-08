@@ -733,10 +733,10 @@ button.chip-btn[aria-pressed="true"][aria-pressed="true"] { --btn-bg: hsl(var(--
 /* Switch. */
 .switch { position: relative; flex: none; width: 44px; height: 26px; display: inline-block; }
 .switch input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
-.switch i { position: absolute; inset: 0; border-radius: 99px; background: var(--fill-3); transition: background-color var(--dur-2) var(--ease-std); pointer-events: none; }
+.switch i { position: absolute; inset: 0; border-radius: 99px; background: var(--fill-3); box-shadow: inset 0 0 0 1px var(--control-edge); transition: background-color var(--dur-2) var(--ease-std), box-shadow var(--dur-2) var(--ease-std); pointer-events: none; }
 .switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 99px; background: #fff; box-shadow: 0 1px 3px hsl(0 0% 0% / 0.28), 0 0 0 0.5px hsl(0 0% 0% / 0.06); transition: transform var(--dur-3) var(--ease-spring), width var(--dur-2) var(--ease-out); }
 .switch input:active + i::after { width: 26px; }
-.switch input:checked + i { background: hsl(var(--accent)); }
+.switch input:checked + i { background: hsl(var(--accent)); box-shadow: none; }
 .switch input:checked + i::after { transform: translateX(18px); }
 .switch input:checked:active + i::after { transform: translateX(14px); }
 .switch input:focus-visible + i { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -831,7 +831,8 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
 .dot { width: 8px; height: 8px; border-radius: 99px; flex: none; display: inline-block; background: hsl(var(--success)); box-shadow: 0 0 0 3px hsl(var(--success) / 0.18); }
 /* The breathing pulse of an always-on indicator (motion.js pulse): opacity and transform only, on its own layer; paused while
    the tab is hidden, none under reduced motion (section 11). */
-.dv-breathe { animation: dv-breathe 2.4s ease-in-out infinite; will-change: opacity, transform; }
+/* The demo dot breathes three times when the page opens, then rests (a loop that never ends only distracts). */
+.dv-breathe { animation: dv-breathe 2.4s ease-in-out 3; will-change: opacity, transform; }
 @keyframes dv-breathe { 50% { opacity: 0.45; transform: scale(0.85); } }
 :root.tab-hidden .dv-breathe { animation-play-state: paused; }
 .kbd-group { display: inline-flex; gap: 3px; align-items: center; }
@@ -1036,6 +1037,11 @@ dialog.sheet::backdrop { background: var(--scrim); }
 .sheet-title { flex: 1; min-width: 0; font: var(--t-title3); letter-spacing: -0.016em; overflow-wrap: anywhere; }
 .sheet-close { --btn-bg: var(--fill-2); --btn-h: 30px; --btn-ic: 14px; width: 30px; min-height: 30px; }
 .sheet-close[hidden] { display: none; }
+/* "Discard changes?" inside a sheet that has something typed. */
+.sheet-discard { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 20px 12px; padding: 10px 12px; border-radius: var(--r-md); background: hsl(var(--warning) / 0.12); font: var(--t-subhead); }
+.sheet-discard strong { font-weight: 600; }
+.sheet-discard > span { flex: 1 1 14ch; color: var(--label-2); }
+.sheet-discard-acts { display: flex; gap: 8px; margin-left: auto; }
 /* On touch the hit area is 44px; the circle you see stays 30px (and the quiet icon buttons keep their footprint). */
 @media (pointer: coarse) {
   .sheet-close { --btn-bg: transparent; --btn-bg-h: transparent; --btn-h: 44px; width: 44px; min-height: 44px; margin: -7px -7px -7px 0; background-image: radial-gradient(circle closest-side, var(--fill-2) 14.5px, transparent 15px); }
@@ -1274,7 +1280,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 @media (max-width: 719px) {
   .page-head { margin-bottom: 16px; }
   .page-head .eyebrow { display: none; }
-  .page-sub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 }
 @media (max-width: 359px) { .large-title { font-size: 30px; line-height: 1.15; } }
 :root[data-density="compact"] .page-head { margin-bottom: 14px; }
@@ -2301,7 +2306,8 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-today { margin: 6px 0 0; font: var(--t-footnote); color: var(--label-2); }
 .sx-policy-item { border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); overflow: clip; }
 .sx-policy-item + .sx-policy-item { margin-top: 8px; }
-.sx-policy-item > summary { justify-content: space-between; }
+.sx-policy-item > summary { justify-content: space-between; min-height: 36px; }
+@media (pointer: coarse), (max-width: 719px) { .sx-policy-item > summary { min-height: 44px; } }
 .sx-policy-item .table-wrap { padding-bottom: 8px; }
 
 /* Activity */
@@ -2512,6 +2518,14 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-switch-wrap .switch input, .sx-prov-head .switch input { inset: -9px -3px; width: calc(100% + 6px); height: calc(100% + 18px); }
 .sx-fallback { padding-inline: var(--space-4); font: var(--t-footnote); color: var(--label-2); }
 .sx-fallback[hidden] { display: none; }
+.sx-explain { padding-inline: var(--space-4); }
+.sx-explain > summary { display: flex; align-items: center; min-height: 32px; cursor: pointer; font: var(--t-subhead); color: hsl(var(--accent-ink)); }
+.sx-explain > summary:focus-visible { outline-offset: 2px; border-radius: var(--r-sm); }
+.sx-explain dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 6px 0 4px; font: var(--t-footnote); color: var(--label-2); }
+.sx-explain dt { font-weight: 600; color: hsl(var(--foreground)); }
+.sx-explain dd { margin: 0; }
+@container sx (max-width: 460px) { .sx-explain dl { grid-template-columns: minmax(0, 1fr); gap: 0; } .sx-explain dd { margin-bottom: 6px; } }
+@media (pointer: coarse) { .sx-explain > summary { min-height: 44px; } }
 .sx-prov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: var(--panel-gap); align-items: start; }
 .sx-prov-grid[hidden] { display: none; }
 .sx-prov { padding: var(--card-pad); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -2548,7 +2562,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-slot:empty { display: none; }
 .sx-kv dd { font-family: var(--font-body); font-size: 14px; font-weight: 500; }
 .sx-kv dd .pill, .sx-kv dd .chip { vertical-align: 1px; }
-.sx-notice { max-height: 200px; overflow-y: auto; padding: 12px 14px; border-radius: var(--r-md); background: var(--fill-1); font: var(--t-callout); display: flex; flex-direction: column; gap: 8px; }
+.sx-notice { padding: 12px 14px; border-radius: var(--r-md); background: var(--fill-1); font: var(--t-callout); display: flex; flex-direction: column; gap: 8px; }
 .sx-pick { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .sx-pick legend { padding: 0; margin-bottom: 6px; }
 .sx-pick-row { cursor: pointer; flex-wrap: wrap; }
