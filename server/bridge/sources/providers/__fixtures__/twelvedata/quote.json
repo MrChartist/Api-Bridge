@@ -1,0 +1,24 @@
+{
+ "symbol": "RELIANCE",
+ "name": "Reliance Industries Ltd",
+ "exchange": "NSE",
+ "mic_code": "XNSE",
+ "currency": "INR",
+ "datetime": "2026-11-06",
+ "timestamp": 1793936700,
+ "last_quote_at": 1793959200,
+ "open": "1306.00000",
+ "high": "1316.20000",
+ "low": "1303.30000",
+ "close": "1311.80000",
+ "volume": "5760000",
+ "previous_close": "1308.40000",
+ "change": "3.40000",
+ "percent_change": "0.25986",
+ "average_volume": "5400000",
+ "is_market_open": false,
+ "fifty_two_week": {
+  "low": "1152.20000",
+  "high": "1611.80000"
+ }
+}

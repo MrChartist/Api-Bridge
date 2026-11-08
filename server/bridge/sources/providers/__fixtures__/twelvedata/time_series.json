@@ -1,0 +1,46 @@
+{
+ "meta": {
+  "symbol": "RELIANCE",
+  "interval": "1day",
+  "currency": "INR",
+  "exchange_timezone": "Asia/Kolkata",
+  "exchange": "NSE",
+  "mic_code": "XNSE",
+  "type": "Common Stock"
+ },
+ "values": [
+  {
+   "datetime": "2026-11-02",
+   "open": "1290.00000",
+   "high": "1302.00000",
+   "low": "1288.00000",
+   "close": "1296.50000",
+   "volume": "5120000"
+  },
+  {
+   "datetime": "2026-11-04",
+   "open": "1297.00000",
+   "high": "1305.90000",
+   "low": "1295.10000",
+   "close": "1301.25000",
+   "volume": "4890000"
+  },
+  {
+   "datetime": "2026-11-05",
+   "open": "1302.50000",
+   "high": "1311.00000",
+   "low": "1299.80000",
+   "close": "1308.40000",
+   "volume": "5310000"
+  },
+  {
+   "datetime": "2026-11-06",
+   "open": "1306.00000",
+   "high": "1316.20000",
+   "low": "1303.30000",
+   "close": "1311.80000",
+   "volume": "5760000"
+  }
+ ],
+ "status": "ok"
+}
