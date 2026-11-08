@@ -1670,7 +1670,7 @@ async function renderAccounts() {
     "acct-h-accounts",
     "Your accounts",
     null,
-    h("div", { class: "row nowrap" }, excel, addBtn()),
+    h("div", { class: "row nowrap" }, excel, addBtn(accs.length ? "primary small" : "tinted small")),
     accs.length
       ? h("div", { class: "list acct-list", role: "list", "aria-labelledby": "acct-h-accounts" }, rows)
       : h("div", { class: "card" }, emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addBtn("primary"))),

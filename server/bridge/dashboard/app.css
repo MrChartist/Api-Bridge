@@ -1093,17 +1093,23 @@ button.toast-undo { --btn-h: 28px; --btn-px: 10px; --btn-fs: 13px; --btn-bg: tra
    Tab bar (< 1024px): a floating capsule, safe-area aware. */
 .app-shell { min-width: 0; }
 .app-main {
+  display: flex; flex-direction: column;
   min-width: 0; min-height: 100vh; min-height: 100svh;
   padding: calc(var(--toolbar-h) + var(--safe-t) + 4px) 0 var(--space-8);
 }
 .container-wide {
+  display: flex; flex-direction: column; flex: 1 0 auto;
   width: 100%; max-width: var(--content-max); min-width: 0; margin-inline: auto;
   padding-left: max(var(--page-gutter), var(--safe-l)); padding-right: max(var(--page-gutter), var(--safe-r));
 }
 .container-wide > * { min-width: 0; }
-.content { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
+.content { display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; flex: none; }
 .content > .stack { gap: var(--panel-gap); }
-.app-foot { margin-top: var(--space-8); padding: 0 4px var(--space-4); font: var(--t-footnote); color: var(--label-3); }
+/* The footer rests at the foot of the window until the page is taller, so it does not jump while the page loads. */
+.app-foot { margin-top: auto; padding: var(--space-8) 4px var(--space-4); font: var(--t-footnote); color: var(--label-3); }
+/* Until the first page is drawn the title and footer are placeholders: hide them so they cannot shift. */
+:root:not([data-page]) :is(.page-head, .app-foot) { visibility: hidden; }
+.content[aria-busy="true"] ~ .app-foot { visibility: hidden; }
 @media (max-width: 1023px) {
   .app-main { padding-bottom: calc(var(--tabbar-h) + 32px + var(--safe-b) + var(--bottom-extra, 0px)); }
   .app-foot { padding-bottom: 0; }
@@ -1473,7 +1479,7 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
   .acct-status { grid-area: bottom; align-items: flex-start; justify-self: start; }
   .acct-today, .acct-row > .acct-act { grid-area: bottom; justify-self: end; }
 }
-@media (max-width: 479px) {
+@media (max-width: 359px) {
   .acct-xl { --btn-px: 0; width: var(--btn-h); }
   .acct-xl > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
@@ -1874,6 +1880,13 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ob-n:empty { display: none; }
 .segmented button[aria-pressed="true"] .ob-n { color: var(--label-2); }
 .ob-card-acts { flex-wrap: wrap; justify-content: flex-end; }
+/* A phone: the two actions fill the card's width, side by side when they fit and stacked when they do not. */
+@media (max-width: 559px) {
+  .ob-card-acts { width: 100%; justify-content: stretch; }
+  .ob-card-acts > * { flex: 1 1 auto; display: flex; }
+  .ob-card-acts > * > button, .ob-card-acts > button { flex: 1 1 auto; }
+  .ob-card-acts > :empty, .ob-card-acts > [hidden] { display: none; }
+}
 .ob-cancel-slot:empty { display: none; }
 .ob-retry { margin-top: 10px; }
 .ob-empty { padding-bottom: 28px; }
