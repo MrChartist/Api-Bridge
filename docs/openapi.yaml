@@ -758,7 +758,13 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { type: array, items: { $ref: "#/components/schemas/DataSource" } }
-                  meta: { $ref: "#/components/schemas/Meta" }
+                  meta:
+                    allOf:
+                      - { $ref: "#/components/schemas/Meta" }
+                      - type: object
+                        properties:
+                          notice: { type: string, description: "What the Bridge says about sources other than your own broker accounts." }
+                          autoFallback: { type: boolean, description: "True when a read no broker account can answer may go to an enabled source without being asked (config `sources.autoFallback`). When false, a source is used only for a read that asks for `backup=true`." }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -5540,6 +5546,10 @@ components:
         errorRate: { type: [number, "null"], description: "Recent share of failed calls, 0 to 1." }
         p50Ms: { type: [number, "null"], description: "Median latency of recent calls." }
         lastError: { type: [string, "null"] }
+        lastErrorKind:
+          type: string
+          enum: [none, auth, rate-limit, not-found, hard]
+          description: "What kind of trouble `lastError` was: `auth` the key or login was refused, `rate-limit` the vendor is limiting requests, `not-found` it does not know the symbol, `hard` a timeout, network or server error. `none` when there is no error, or a call has answered since."
         nextTryAt: { type: [string, "null"], format: date-time }
     DataSource:
       type: object

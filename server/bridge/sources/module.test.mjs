@@ -102,11 +102,13 @@ describe("sources module in demo mode", () => {
     expect(r.status).toBe(200);
     expect(r.json.meta.requestId).toBeTypeOf("string");
     expect(r.json.meta.notice).toMatch(/never answer orders/);
+    expect(r.json.meta.autoFallback).toBe(false);
     expect(r.json.data.map((s) => s.id)).toEqual(["demo", "demo-delayed", "demo-eod"]);
     for (const s of r.json.data) {
       expect(Object.keys(s)).toEqual(expect.arrayContaining(["id", "name", "kind", "tier", "enabled", "configured", "class", "delaySec", "official", "capabilities", "limits", "usage", "health", "terms", "needsKey", "consent"]));
       expect(s.usage).toEqual({ lastMinute: 0, today: 0 });
-      expect(Object.keys(s.health).sort()).toEqual(["errorRate", "lastError", "nextTryAt", "p50Ms", "state"]);
+      expect(Object.keys(s.health).sort()).toEqual(["errorRate", "lastError", "lastErrorKind", "nextTryAt", "p50Ms", "state"]);
+      expect(s.health.lastErrorKind).toBe("none");
     }
     const [demo, delayed, eod] = r.json.data;
     expect(demo).toMatchObject({ kind: "broker", tier: "builtin", enabled: true, class: "realtime", delaySec: 0, official: true });

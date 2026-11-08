@@ -192,7 +192,7 @@ describe("health of real calls", () => {
     await quotes(env, [SYMBOLS[0]], { query: "&backup=true" });
     let row = (await env.sources())["fake-a"];
     expect(row.usage.lastMinute).toBe(1);
-    expect(row.health).toMatchObject({ state: "ok", lastError: null, nextTryAt: null });
+    expect(row.health).toMatchObject({ state: "ok", lastError: null, lastErrorKind: "none", nextTryAt: null });
     expect(typeof row.health.p50Ms).toBe("number");
 
     // Three failures in a row eject it. Each read asks for another symbol and the clock moves past the short memory of a failure.
@@ -206,6 +206,7 @@ describe("health of real calls", () => {
     row = (await env.sources())["fake-a"];
     expect(row.health.state).toBe("open");
     expect(row.health.lastError).toMatch(/down/);
+    expect(row.health.lastErrorKind).toBe("hard");
     expect(Date.parse(row.health.nextTryAt)).toBeGreaterThan(env.now());
 
     // While ejected it is not asked, except for one last-resort probe when nothing else could answer, at most every few seconds.
