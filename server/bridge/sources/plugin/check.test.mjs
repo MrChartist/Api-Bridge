@@ -63,6 +63,12 @@ describe.skipIf(!HARNESS)("checkPluginFolder (offline conformance)", () => {
     expect(r.ok).toBe(false);
   }, 60_000);
 
+  it("fails a plugin whose answers change between identical calls", async () => {
+    const r = await checkPluginFolder(folder({ entry: GOOD.replace("fields: { ltp: q.p }", "fields: { ltp: q.p + Math.random() }") }));
+    expect(r.ok).toBe(false);
+    expect(failed(r)).toContain("deterministic");
+  }, 60_000);
+
   it("fails when a request matches no fixture", async () => {
     const r = await checkPluginFolder(folder({ fixtures: { inputs: { quotes: ["NSE:X"] }, responses: [{ urlContains: "/nothing-matches", json: {} }] } }));
     expect(r.ok).toBe(false);

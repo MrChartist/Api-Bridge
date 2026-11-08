@@ -7,6 +7,7 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
+| [sources.md](sources.md) | Where prices come from: your brokers, optional free sources and plugins, what delayed, end-of-day and unofficial mean, how to turn a source on |
 | [paper-margin.md](paper-margin.md) | How the paper engine estimates margin for F&O positions |
 | [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
@@ -22,4 +23,6 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [compliance.md](compliance.md) | SEBI, exchange and broker rules that shape the design (with needs-verification flags) |
 
 Reference: [openapi.yaml](../openapi.yaml) (REST), [asyncapi.yaml](../asyncapi.yaml) (streams),
-[ARCHITECTURE.md](../ARCHITECTURE.md) (design), [BROKERS.md](../BROKERS.md) (broker table).
+[ARCHITECTURE.md](../ARCHITECTURE.md) (design), [BROKERS.md](../BROKERS.md) (broker table),
+[source-contract.md](../source-contract.md) (writing a data source or plugin),
+[sources-architecture.md](../sources-architecture.md) (how sources, routing and quotas fit together).

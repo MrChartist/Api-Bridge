@@ -38,6 +38,16 @@ info:
     way, so the subscription is fixed by the URL (`symbols`, `mode`, `orders=1`); open a new URL to change it. A
     reconnect (EventSource sends `Last-Event-ID`) starts again with a fresh `snapshot`; nothing is replayed.
 
+    ## Which data the stream carries
+    Only real-time data from your own broker accounts. Every `tick` and `snapshot` entry comes from a live broker
+    feed, so its data class is `realtime` and it is official data from your broker. The optional free sources and
+    plugins described in `docs/guides/sources.md` (`GET /v1/sources`) are delayed or end-of-day and are never published
+    on a stream: a stream cannot show a delayed value as if it were live. Their answers appear only in REST responses,
+    where each item's `freshness` says `class`, `delaySec`, `official`, `confidence` and `flags`. Reads for orders, risk
+    checks, paper fills and alerts accept only real-time data, so they never use those sources either.
+    The `budget` message reports your broker accounts' request budgets; per-key quotas and the fair-queue state are on
+    `GET /v1/quotas` and `GET /v1/limits?explain=1`.
+
     ## Symbols
     Canonical Bridge symbols (`NSE:RELIANCE`, `NFO:NIFTY-2026-10-27-25000-CE`). Inputs may be aliases (lower case,
     chart tickers such as `NSE:NIFTY1!`); replies always use the canonical form, and you may unsubscribe with

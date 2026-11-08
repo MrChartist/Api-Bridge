@@ -3,7 +3,7 @@
  * order, checks safety, fills paper orders or holds broker credentials may import them, and they import none of it.
  * This scans the source tree; a new import across the boundary fails the build.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -90,12 +90,13 @@ describe("the plugin import boundary", () => {
           continue;
         }
         const t = resolveLocal(f, s);
-        if (t) queue.push(t);
+        if (t && existsSync(t)) queue.push(t);
       }
     }
     const outside = [...seen].filter((f) => !inside(f, PLUGIN_DIR)).map(rel).sort();
-    // The only code outside the plugin folder it may reach: the shared contract and the error taxonomy.
-    expect(outside).toEqual(["server/bridge/core/errors.mjs", "server/bridge/sources/contract.mjs"]);
+    // The only code outside the plugin folder it may reach: the shared contract, the error taxonomy and (for
+    // `plugins check`) the conformance harness, which itself imports only those two.
+    expect(outside).toEqual(["server/bridge/core/errors.mjs", ...(existsSync(resolve(SERVER, "bridge/sources/conformance.mjs")) ? ["server/bridge/sources/conformance.mjs"] : []), "server/bridge/sources/contract.mjs"]);
   });
 
   it("the plugin runner imports only Node built-ins", () => {

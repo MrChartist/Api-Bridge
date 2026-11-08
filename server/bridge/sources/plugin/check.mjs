@@ -136,6 +136,23 @@ export async function checkPluginFolder(path, { baseDir = process.cwd(), harness
     const report = await mod.runProviderConformance(provider, { clock, upstream, inputs: fx.inputs, hosts, secrets: needsKey ? [CANARY] : [], logs: () => logs });
     for (const c of report.checks) steps.push(step(`conformance: ${c.name}`, c.ok, c.detail));
 
+    // Determinism: the same fixture twice gives the same answer (no hidden state or clock dependence).
+    const det = [];
+    for (const cap of info.manifest.capabilities) {
+      const args = cap === "quotes" ? [fx.inputs.quotes] : cap === "history" ? [fx.inputs.history] : cap === "expiries" ? [fx.inputs.expiries ?? "NIFTY"] : [fx.inputs.optionChain?.underlying ?? "NIFTY", fx.inputs.optionChain?.expiry];
+      if (args[0] === undefined) continue;
+      try {
+        upstream.setScenario("ok");
+        clock.advance(86_400_000 + 61_000);
+        const first = JSON.stringify(await provider[cap](...args, { now: clock.now() }));
+        clock.advance(61_000);
+        const second = JSON.stringify(await provider[cap](...args, { now: clock.now() }));
+        if (first !== second) det.push(`${cap} gave different answers for the same fixture`);
+      } catch (err) {
+        det.push(`${cap}: ${err?.code ?? err?.name}: ${String(err?.message).slice(0, 80)}`);
+      }
+    }
+    steps.push(step("deterministic", det.length === 0, det.join("; ") || undefined));
     steps.push(step("requests matched fixtures", unmatched.size === 0, unmatched.size ? `no fixture for: ${[...unmatched].slice(0, 3).join(", ")}` : undefined));
     const status = provider.health();
     steps.push(step("plugin stayed healthy", status.state !== "disabled", status.state === "disabled" ? status.lastError : undefined));
