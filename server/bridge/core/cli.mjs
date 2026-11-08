@@ -17,6 +17,7 @@ import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 import { poolingDoctorChecks } from "../sources/pooling.mjs";
+import { PLUGIN_TRUST_NOTICE } from "../sources/plugin/notice.mjs";
 
 export const USAGE = `Mr. Chartist API Bridge
 
@@ -43,8 +44,8 @@ Usage:
   mc-bridge sources set-key <id>   the key is read from stdin or a hidden prompt, never from the command line
   mc-bridge sources test <id>
   mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display] [--max-age <ms>]
-  mc-bridge sources plugins check <folder>   validate a plugin and run the conformance checks offline
-  mc-bridge sources plugins pin <folder>     print the sha256 to put in the config (review the plugin first)
+  mc-bridge sources plugins pin <folder>     print the sha256 to put in the config. First read mc-source.json and the entry file
+  mc-bridge sources plugins check <folder>   run the conformance checks offline. This RUNS the plugin's code: pin it first
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -511,6 +512,7 @@ export async function runCli(positionals, flags, io) {
       }
       case "mcp": {
         // A relay to the RUNNING Bridge (POST /mcp), so AI tools share its connections, limits, safety and audit.
+        warnKeyOnArgv(flags, io);
         const raw = typeof flags.key === "string" ? flags.key : io.env.MCB_API_KEY;
         if (!raw) throw new BridgeError("UNAUTHENTICATED", "mcp needs --key or MCB_API_KEY (use a key created for this AI client).");
         // AI apps start this process in their own folder, so --url / MCB_BRIDGE_URL come first; the config lookup
@@ -579,6 +581,7 @@ async function killCommand(sub, flags, io) {
   const alive = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
   if (alive) {
     // No key needed on this computer: the running Bridge keeps a control token in its data folder (controlToken.mjs).
+    warnKeyOnArgv(flags, io);
     const key = typeof flags.key === "string" ? flags.key : (io.env.MCB_API_KEY ?? readControlToken(config.dataDir));
     if (!key) {
       throw new BridgeError("UNAUTHENTICATED", `The Bridge is running at ${baseUrl} but its control token is not in ${config.dataDir} (another data folder, or another computer). Pass --key (or MCB_API_KEY)${release ? " with an admin key" : ""}, or use the dashboard's Safety page.`);
@@ -650,6 +653,7 @@ async function connectCommand(accountId, flags, io) {
   const baseUrl = bridgeUrl(flags, io, config);
   const alive = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
   if (!alive) throw new BridgeError("UPSTREAM_ERROR", `The Bridge is not running at ${baseUrl}. Start it first (mc-bridge start), then run this again.`);
+  warnKeyOnArgv(flags, io);
   const key = typeof flags.key === "string" ? flags.key : io.env.MCB_ADMIN_KEY ?? io.env.MCB_API_KEY;
   if (!key) throw new BridgeError("UNAUTHENTICATED", "accounts connect needs an admin key: --key, or MCB_ADMIN_KEY in the environment.");
   const ask = typeof io.prompt === "function" ? io.prompt : terminalPrompt;
@@ -680,6 +684,11 @@ async function connectCommand(accountId, flags, io) {
   const result = await call("POST", `/v1/accounts/${encodeURIComponent(accountId)}/session`, Object.keys(secrets).length ? { values, secrets } : { values });
   io.out(`Connected ${accountId}: session ${result?.state ?? result?.session?.state ?? "saved"}.`);
   return 0;
+}
+
+/** `--key` puts a key in shell history and in the process list; say so once and point at the environment variables. */
+function warnKeyOnArgv(flags, io) {
+  if (typeof flags.key === "string") io.err("Warning: a key passed with --key stays in your shell history and is visible in the process list. Prefer the MCB_ADMIN_KEY (admin actions) or MCB_API_KEY environment variable.");
 }
 
 // === sources: `mc-bridge sources ...` ==========================================================================
@@ -738,6 +747,7 @@ async function sourcesClient(flags, io) {
   const baseUrl = bridgeUrl(flags, io, config);
   const alive = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
   if (!alive) throw new BridgeError("UPSTREAM_ERROR", `The Bridge is not running at ${baseUrl}. Start it first (${cliCommand(io.env)} start), then run this again.`);
+  warnKeyOnArgv(flags, io);
   const explicit = typeof flags.key === "string" ? flags.key : (io.env.MCB_ADMIN_KEY ?? io.env.MCB_API_KEY);
   const key = explicit ?? readControlToken(config.dataDir);
   if (!key) throw new BridgeError("UNAUTHENTICATED", `This needs an admin key: pass --key (or set MCB_ADMIN_KEY). Create one with: ${cliCommand(io.env)} keys create --label cli --scope admin`);
@@ -768,6 +778,7 @@ async function sourcesCommand(args, flags, io) {
   }
   if (sub === "plugins") return await pluginsCommand(arg, arg2, flags, io);
   if (["enable", "disable", "set-key", "test"].includes(sub) && !arg) throw new BridgeError("VALIDATION_FAILED", `sources ${sub} needs a source id. List them with: ${cliCommand(io.env)} sources list`);
+  if (sub === "set-key" && args.length > 2) throw new BridgeError("VALIDATION_FAILED", "set-key takes only the source id. The key is never taken from the command line (shell history and process lists would keep it): run set-key with the id alone and it reads the key from stdin or asks for it with hidden input. If you pasted a key after the id, it is in your shell history now: delete that line and rotate the key at the vendor.");
   if (sub === "set-key") for (const f of SECRET_FLAGS) if (flags[f] !== undefined) throw new BridgeError("VALIDATION_FAILED", "Keys are never taken from the command line (shell history and process lists would keep them). Run set-key without them: it reads the key from stdin or asks for it with hidden input.");
   const { call } = await sourcesClient(flags, io);
   const cli = cliCommand(io.env);
@@ -805,7 +816,7 @@ async function sourcesCommand(args, flags, io) {
       }
       const { data } = await call("PATCH", path(s.id), { enabled: true, ...(given !== undefined ? { acknowledge: given } : {}) });
       io.out(`Turned on ${s.name}. Its answers are labelled: ${describeSourceClass(data ?? s)}.`);
-      if (s.tier === "plugin") io.err("This is third-party code you granted. It runs in its own process and can only fetch from the hosts in its manifest.");
+      if (s.tier === "plugin") io.err(`This is third-party code you granted. It runs in its own process and can only fetch from the hosts in its manifest through the Bridge. ${PLUGIN_TRUST_NOTICE}`);
       return 0;
     }
     case "disable": {
@@ -885,18 +896,23 @@ async function pluginsCommand(action, folder, flags, io) {
     io.err(`  Data: ${describeSourceClass(info.descriptor)}; can answer: ${m.capabilities.join(", ")}`);
     io.err(`  May reach: ${m.network.allowHosts.join(", ") || "no hosts"}`);
     io.err(`  Terms: ${m.terms.url} (${m.terms.note})`);
+    io.err(`  Files to read first: ${join(info.dir, "mc-source.json")} and ${info.entryPath}`);
+    io.err(PLUGIN_TRUST_NOTICE);
     io.err("Review those, and the code in the entry file, before you grant it. Then add to \"sources\".\"plugins\" in bridge.config.json:");
     io.err(`  { "path": ${JSON.stringify(folder)}, "sha256": "${info.pin}", "granted": true }`);
     io.err("If you change either file later, the Bridge refuses it until you run this again and update the pin.");
+    io.err(`Optional next step: ${cliCommand(io.env)} sources plugins check ${JSON.stringify(folder)} runs the plugin's code offline (same sandbox, scripted network) to test it.`);
     io.out(info.pin);
     return 0;
   }
   const { checkPluginFolder } = await import("../sources/plugin/check.mjs");
+  // `check` starts the plugin. Order matters: read manifest and entry, pin, then check.
+  io.err("Warning: check RUNS this plugin's code on this computer (restricted like in production, with a scripted network, but it is still its code). Run it only after you have read mc-source.json and the entry file and pinned them (sources plugins pin).");
   const report = await checkPluginFolder(folder, { baseDir: io.cwd });
   if (flags.json) io.out(JSON.stringify(report, null, 2));
   else {
     for (const s of report.steps) io.out(`${s.ok ? "OK  " : "FAIL"}  ${s.name}${s.detail ? `: ${s.detail}` : ""}`);
-    io.out(report.ok ? `\nAll checks passed. Pin for the config: ${report.pin}` : "\nSome checks failed. Fix them and run this again.");
+    io.out(report.ok ? `\nAll checks passed. Pin for the config (the same value \`plugins pin\` prints): ${report.pin}` : "\nSome checks failed. Fix them and run this again.");
   }
   return report.ok ? 0 : 1;
 }

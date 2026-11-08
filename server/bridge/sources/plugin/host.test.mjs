@@ -3,7 +3,7 @@
  * timeouts and cancellation, crash and restart limits, the clean environment and the permission flags.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RESTART_WINDOW_MS, RUNNER_PATH, buildNodeArgs, cleanEnv, createPluginHost, permissionFlagFor } from "./host.mjs";
+import { RESTART_WINDOW_MS, RUNNER_PATH, buildNodeArgs, cleanEnv, createPluginHost, permissionFlagFor, runAsProblem } from "./host.mjs";
 import { parseManifest } from "./manifest.mjs";
 import { createFetchBroker } from "./netbroker.mjs";
 import { MAX_MESSAGE_BYTES } from "./protocol.mjs";
@@ -738,5 +738,64 @@ describe("rate limits and cancellation reach the network", () => {
     await tick(10);
     expect(aborted).toBe(true);
     expect(fs.last().of("cancel")[0].id).toBe(callId);
+  });
+});
+
+describe("refused-request logging is summarised", () => {
+  it("logs the first refusal at once and then at most one summary line per 10 s per plugin", async () => {
+    const { h, fs, logs, state } = setup({ host: { broker: createFetchBroker({ id: "fake-plugin", version: "1.0.0", allowHosts: ["api.vendor-example.com"], limits: { perSecond: 100 }, transport: vi.fn() }) } });
+    await h.call("quotes", {});
+    const c = fs.last();
+    const refusals = () => logs.filter(([, m]) => m.includes("refused a request"));
+    for (let i = 0; i < 60; i++) {
+      c.say({ type: "fetch", id: i + 1, url: "https://evil.example.org/x" });
+      await tick(1);
+    }
+    expect(c.of("fetchResult").filter((r) => r.code === "HOST_NOT_ALLOWED").length).toBeGreaterThan(50);
+    expect(c.of("fetchResult").length).toBeGreaterThan(50); // the host still answers each one
+    expect(refusals()).toHaveLength(1);
+    state.now += 9_000;
+    c.say({ type: "fetch", id: 1001, url: "https://evil.example.org/x" });
+    await tick(10);
+    expect(refusals()).toHaveLength(1); // still inside the 10 s window
+    state.now += 1_500;
+    c.say({ type: "fetch", id: 1002, url: "https://evil.example.org/x" });
+    await tick(10);
+    expect(refusals()).toHaveLength(2);
+    expect(refusals()[1][1]).toMatch(/more refused since the last line/);
+  });
+});
+
+describe("running plugins as another user (sources.pluginUser)", () => {
+  it("passes uid and gid to the child process when the Bridge has the privilege", async () => {
+    const { h, fs } = setup({ host: { runAs: { uid: 1500, gid: 1501 }, getuid: () => 0, platform: "linux" } });
+    await h.call("quotes", {});
+    expect(fs.calls[0].options).toMatchObject({ uid: 1500, gid: 1501, shell: false });
+  });
+
+  it("does not set uid or gid when no pluginUser is configured (never required)", async () => {
+    const { h, fs } = setup({ host: { getuid: () => 1000 } });
+    await h.call("quotes", {});
+    expect(fs.calls[0].options).not.toHaveProperty("uid");
+    expect(fs.calls[0].options).not.toHaveProperty("gid");
+  });
+
+  it("refuses to start the plugin, with a clear message, when the Bridge is not allowed to switch user", async () => {
+    const { h, fs } = setup({ host: { runAs: { uid: 1500, gid: 1500 }, getuid: () => 1000, platform: "linux" } });
+    const err = await rejection(h.call("quotes", {}));
+    expect(err.code).toBe("BROKER_UNAVAILABLE");
+    expect(err.message).toMatch(/runs as uid 1000/);
+    expect(err.message).toMatch(/pluginUser/);
+    expect(fs.calls).toHaveLength(0); // never silently started with the Bridge's own privileges
+  });
+
+  it("runAsProblem names every unsupported case", () => {
+    expect(runAsProblem(null)).toBeNull();
+    expect(runAsProblem({ uid: 1500, gid: 1500 }, { platform: "linux", getuid: () => 0 })).toBeNull();
+    expect(runAsProblem({ uid: 1500, gid: 1500 }, { platform: "win32", getuid: undefined })).toMatch(/not supported/);
+    expect(runAsProblem({ uid: 0, gid: 1500 }, { platform: "linux", getuid: () => 0 })).toMatch(/never run as root/);
+    expect(runAsProblem({ uid: 1500, gid: 0 }, { platform: "linux", getuid: () => 0 })).toMatch(/never run as root/);
+    expect(runAsProblem({ uid: 1.5, gid: 2 }, { platform: "linux", getuid: () => 0 })).toMatch(/numeric/);
+    expect(runAsProblem({ uid: 1500, gid: 1500 }, { platform: "linux", getuid: () => 1000 })).toMatch(/uid 1000/);
   });
 });

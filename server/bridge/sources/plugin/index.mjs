@@ -39,7 +39,7 @@ export async function registerPlugins(registry, deps = {}) {
       return undefined;
     }
   };
-  const { providers, problems } = loadPlugins({ entries, baseDir, readSecret, logger: deps.logger, takenIds: registry.list().map((p) => p.descriptor.id) });
+  const { providers, problems } = loadPlugins({ entries, baseDir, readSecret, logger: deps.logger, runAs: deps.config?.sources?.pluginUser ?? null, takenIds: registry.list().map((p) => p.descriptor.id) });
   const loaded = [];
   for (const provider of providers) {
     try {

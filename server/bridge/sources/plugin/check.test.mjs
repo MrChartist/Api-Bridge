@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkPluginFolder } from "./check.mjs";
+import { checkPluginFolder, readFixtures } from "./check.mjs";
+import { fakeSpawn } from "./__fixtures__/fakeChild.mjs";
 import { testManifest } from "./__fixtures__/fakeChild.mjs";
 
 // The conformance harness is written by the providers stream; until it is merged these tests are skipped.
@@ -99,4 +100,56 @@ describe("checkPluginFolder without the harness", () => {
     expect(r.ok).toBe(false);
     expect(r.steps.at(-1).name).toBe("conformance harness");
   });
+});
+
+describe("checkPluginFolder: links and flags", () => {
+  const secretDir = () => {
+    const d = mkdtempSync(join(tmpdir(), "mcb-check-secret-"));
+    writeFileSync(join(d, "master.key"), '{"q":[]}');
+    return d;
+  };
+
+  it("refuses a plugin folder that holds a symbolic link (a fixture pointing at a file outside), and starts nothing", async () => {
+    const dir = folder();
+    symlinkSync(join(secretDir(), "master.key"), join(dir, "fixtures", "stolen.json"));
+    const fs = fakeSpawn();
+    const r = await checkPluginFolder(dir, { hostOptions: { spawnImpl: fs.spawnImpl } });
+    expect(r.ok).toBe(false);
+    expect(r.steps[0]).toMatchObject({ name: "manifest", ok: false });
+    expect(r.steps[0].detail).toMatch(/symbolic link/);
+    expect(fs.calls).toHaveLength(0);
+  });
+
+  it("readFixtures itself checks REAL paths: a linked fixture file or a linked conformance.json is refused, a startsWith on the resolved path is not enough", () => {
+    const dir = folder();
+    symlinkSync(join(secretDir(), "master.key"), join(dir, "fixtures", "stolen.json"));
+    writeFileSync(join(dir, "fixtures", "conformance.json"), JSON.stringify({ inputs: { quotes: ["NSE:X"] }, responses: [{ urlContains: "/q?", file: "stolen.json" }] }));
+    expect(readFixtures(dir).error).toMatch(/symbolic link or resolves outside/);
+    const dir2 = folder({ fixtures: false });
+    symlinkSync(join(secretDir(), "master.key"), join(dir2, "fixtures", "conformance.json"));
+    expect(readFixtures(dir2).error).toMatch(/symbolic link or resolves outside/);
+    expect(readFixtures(folder()).error).toBeUndefined();
+    const dir3 = folder({ fixtures: { inputs: { quotes: ["NSE:X"] }, responses: [{ urlContains: "/q?", file: "../mc-source.json" }] } });
+    expect(readFixtures(dir3).error).toMatch(/outside the fixtures folder|resolves outside/);
+  });
+
+  it.skipIf(!HARNESS)("starts the plugin under the same restricted flags as the host: read of the entry file only, nothing else allowed", async () => {
+    const dir = folder();
+    const calls = [];
+    const spawnImpl = (cmd, args, options) => {
+      calls.push({ cmd, args, options });
+      throw new Error("not starting a real process in this test");
+    };
+    await checkPluginFolder(dir, { hostOptions: { spawnImpl } });
+    expect(calls.length).toBeGreaterThan(0);
+    const { args, options } = calls[0];
+    expect(args[0]).toMatch(/^--(experimental-)?permission$/);
+    const reads = args.filter((a) => a.startsWith("--allow-fs-read="));
+    expect(reads).toHaveLength(2);
+    expect(reads.some((a) => a.endsWith("index.mjs"))).toBe(true);
+    expect(reads.some((a) => a === `--allow-fs-read=${realpathSync(dir)}`)).toBe(false);
+    expect(args.join(" ")).not.toMatch(/--allow-(child-process|worker|addons|wasi|fs-write|net)/);
+    expect(args).toContain("--disallow-code-generation-from-strings");
+    expect(options.env).toEqual({});
+  }, 60_000);
 });

@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { validateDescriptor } from "../contract.mjs";
-import { PURPOSES_REFUSED_FOR_PLUGINS, inspectPluginFolder, loadPlugins, pinOf } from "./loader.mjs";
+import { PLUGIN_TRUST_NOTICE, PURPOSES_REFUSED_FOR_PLUGINS, inspectPluginFolder, loadPlugins, pinOf } from "./loader.mjs";
+import { sourcesConfigSchema } from "../config.mjs";
 import { fakeSpawn, goodQuotes, testManifest } from "./__fixtures__/fakeChild.mjs";
 
 const NOW = Date.parse("2026-10-19T10:00:00+05:30");
@@ -273,5 +274,38 @@ describe("the provider a plugin becomes", () => {
     expect(r.providers[0].descriptor.needsKey).toBe(true);
     await r.providers[0].quotes(["A"], {});
     expect(asked).toEqual(["fake-plugin"]);
+  });
+});
+
+describe("the trust notice and sources.pluginUser", () => {
+  it("states the signal and own-network limits plainly, and shows them when a plugin is refused for not being granted and when one loads", () => {
+    expect(PLUGIN_TRUST_NOTICE).toMatch(/signalling the Bridge/);
+    expect(PLUGIN_TRUST_NOTICE).toMatch(/pluginUser/);
+    const { dir } = makePlugin();
+    expect(load([{ path: dir, sha256: pinFor(dir), granted: false }]).problems[0].reason).toContain(PLUGIN_TRUST_NOTICE);
+    const lines = [];
+    load([{ path: dir, sha256: pinFor(dir), granted: true }], { logger: { info: (m) => lines.push(m), warn: () => {}, debug: () => {} } });
+    expect(lines.join("\n")).toContain(PLUGIN_TRUST_NOTICE);
+  });
+
+  it("starts every plugin as the configured user when the Bridge may, and refuses to load them (with the reason) when it may not", () => {
+    const { dir } = makePlugin();
+    const entry = [{ path: dir, sha256: pinFor(dir), granted: true }];
+    const ok = load(entry, { runAs: { uid: 1500, gid: 1500 }, getuid: () => 0, platform: "linux" });
+    expect(ok.problems).toEqual([]);
+    expect(ok.providers).toHaveLength(1);
+    const dir2 = makePlugin().dir;
+    const refused = load([{ path: dir2, sha256: pinFor(dir2), granted: true }], { runAs: { uid: 1500, gid: 1500 }, getuid: () => 1000, platform: "linux" });
+    expect(refused.providers).toEqual([]);
+    expect(refused.problems[0].reason).toMatch(/runs as uid 1000/);
+    expect(refused.fs.calls).toHaveLength(0);
+  });
+
+  it("the config accepts pluginUser only as two positive integers, and never requires it", () => {
+    expect(sourcesConfigSchema.parse({}).pluginUser).toBeUndefined();
+    expect(sourcesConfigSchema.parse({ pluginUser: { uid: 1500, gid: 1500 } }).pluginUser).toEqual({ uid: 1500, gid: 1500 });
+    for (const bad of [{ uid: 0, gid: 1 }, { uid: 1, gid: 0 }, { uid: 1 }, { uid: "1", gid: 1 }, { uid: 1.5, gid: 1 }, { uid: -1, gid: 1 }, { uid: 1, gid: 1, extra: true }]) {
+      expect(sourcesConfigSchema.safeParse({ pluginUser: bad }).success).toBe(false);
+    }
   });
 });

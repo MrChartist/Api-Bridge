@@ -244,6 +244,8 @@ The owner lists it in `bridge.config.json`:
 "sources": { "plugins": [ { "path": "./my-plugin", "sha256": "<pin>", "granted": true, "config": { "market": "NSE" } } ] }
 ```
 
+- Order of work for an owner: **read** `mc-source.json` and the entry file, **pin**, then (optionally) **check**. `check` starts
+  the plugin and runs its code, so it comes after review, not before.
 - `mc-bridge sources plugins pin <folder>` prints the **pin**: the sha256 of a fixed header and the digests of the manifest
   file and the entry file. It also prints what the owner is granting (hosts, capabilities, limits, terms) to review.
 - A plugin loads only if `granted` is exactly `true`, the files match the pin, the folder holds **no symbolic link at any
@@ -387,12 +389,24 @@ security boundary against malicious code. The honest limits:
   allow-list governs the requests that go through the host; it does not stop a plugin that bypasses it. A plugin has no key to
   the Bridge's API, and an admin route needs one, but a malicious plugin can still talk to local services or send data it can
   see (its own folder, its config, its API key, market data) to the internet.
+- **A plugin can signal the Bridge.** Node's permission flags do not cover signals. A plugin that runs as the same user as the
+  Bridge can call `process.kill(process.ppid, "SIGKILL")` (or `SIGSTOP`, which freezes it) and stop the Bridge, and nothing the
+  Bridge can do prevents or catches that: `SIGKILL` and `SIGSTOP` cannot be handled by any process. The Bridge does not pretend
+  otherwise. The mitigation is a **different user**: set `sources.pluginUser: { uid, gid }` and run the Bridge as root (or with
+  `CAP_SETUID` and `CAP_SETGID`); the child is then started as that user and the kernel refuses its signals to the Bridge.
+  If `pluginUser` is set but the Bridge may not switch user, plugins are not started (a clear message is logged), never silently
+  started as the Bridge's user. Without it, the risk is the one stated in the notice shown by `plugins pin`, when a plugin is
+  refused for not being granted, and when it loads.
 - The plugin runs with **your user's privileges** apart from the file-system flags. File descriptors that already exist
   are not covered, and a bug in Node or V8 can defeat the flags.
 - Memory and CPU are only loosely bounded: `--max-old-space-size` limits the JS heap, not buffers, and a busy loop is cut off
   only by the call timeout and the heartbeat, not by a CPU quota.
 - A plugin can lie: wrong prices that are well-formed pass every shape check. The `delayed`/`unofficial` labels and the
   exclusion from orders limit the damage; they cannot make a bad vendor correct.
+
+**Process lifetime.** The host kills every live plugin child when the Bridge exits (including `process.exit` after SIGINT or
+SIGTERM). A forced kill of the Bridge cannot run that, and a plugin stuck in a busy loop never notices its stdin closing, so it
+can be orphaned; the owner stops it by hand (`pgrep -af "plugin/child.mjs"`, see [guides/sources.md](guides/sources.md)).
 
 **So:** a plugin is code you choose to run. Read it, pin it, and install only what you trust. If you need a real boundary, run
 the Bridge, or only the plugins, inside a container or VM with an egress-filtering firewall: that is the supported way to get
@@ -405,8 +419,10 @@ plugin loaded through the host, with a fake clock and a scripted fetch: no netwo
 `shape:<capability>`, `abort`, `limits`, `errors:<scenario>` (rate limit, not found, upstream failure, network failure,
 unreadable answer, and auth when a key is needed), `secrets` and `network`.
 
-`mc-bridge sources plugins check <folder>` does this for a plugin. It starts the plugin for real, with the same process and
-flags as in production, answers every request it makes from `fixtures/conformance.json` (a request that matches no fixture
+`mc-bridge sources plugins check <folder>` does this for a plugin. **It runs the plugin's code**, so read the manifest and entry file
+and `pin` first. It starts the plugin for real, through the same loader and host, with the same process and
+flags as in production (read access to the entry file only, empty environment, no children or workers). It refuses a folder with a symbolic link, and a fixture
+that resolves (by real path) outside the folder, answers every request it makes from `fixtures/conformance.json` (a request that matches no fixture
 fails the check), and adds checks for loading, determinism and fixture coverage. See `examples/source-plugin/fixtures/` for the
 format:
 
@@ -474,8 +490,9 @@ async quotes(symbols, ctx) {
 Steps:
 
 ```sh
-mc-bridge sources plugins check examples/source-plugin    # all checks must say OK
+# read examples/source-plugin/mc-source.json and index.mjs first
 mc-bridge sources plugins pin   examples/source-plugin    # prints the pin and what you would grant
+mc-bridge sources plugins check examples/source-plugin    # RUNS the plugin's code offline; all checks must say OK
 # add { "path": "examples/source-plugin", "sha256": "<pin>", "granted": true } to sources.plugins, restart
 mc-bridge sources enable example-delayed
 mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE

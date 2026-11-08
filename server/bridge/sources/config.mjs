@@ -5,6 +5,7 @@
  *     "autoFallback": false,                       // reads no broker can answer may fall back to an enabled source
  *     "timeoutMs": 5000,                           // per call to a source (100 to 15000)
  *     "providers": { "<source id>": { "enabled": false } },   // false keeps a source off whatever the dashboard says
+ *     "pluginUser": { "uid": 1500, "gid": 1500 },  // optional: run plugins as this user (needs the Bridge to run as root; see docs)
  *     "plugins": [{ "path": "plugins/x", "sha256": "<64 hex>", "granted": true, "config": { } }]   // config: the plugin's own settings
  *   }
  *
@@ -25,6 +26,12 @@ export const sourcesConfigSchema = z
     autoFallback: z.boolean().default(false),
     timeoutMs: z.number().int().min(MIN_TIMEOUT_MS).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS),
     providers: z.record(sourceId, z.object({ enabled: z.boolean().optional() }).passthrough()).default({}),
+    // Optional: start plugin processes as this unprivileged user, so a plugin cannot signal the Bridge. Needs privilege (root);
+    // when set and not permitted, plugins are not started and the reason is logged. Never required.
+    pluginUser: z
+      .object({ uid: z.number().int().min(1).max(4_294_967_294), gid: z.number().int().min(1).max(4_294_967_294) })
+      .strict()
+      .optional(),
     plugins: z
       .array(
         z

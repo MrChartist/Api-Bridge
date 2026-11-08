@@ -17,10 +17,13 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSyn
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { BridgeError } from "../../core/errors.mjs";
 import { MANIFEST_FILE, checkedDescriptor, parseManifestText, validateConfig } from "./manifest.mjs";
-import { createPluginHost } from "./host.mjs";
+import { createPluginHost, runAsProblem } from "./host.mjs";
+import { PLUGIN_TRUST_NOTICE } from "./notice.mjs";
 
 /** Purposes for which a plugin may never answer, whatever its data class says (the router also refuses them). */
 export const PURPOSES_REFUSED_FOR_PLUGINS = Object.freeze(["alert", "paper", "risk", "order"]);
+
+export { PLUGIN_TRUST_NOTICE };
 
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -193,10 +196,11 @@ export function providerFor(descriptor, host, extra = {}) {
  * @param {object} [opts.logger]
  * @param {(id: string, state: { state: string, reason?: string }) => void} [opts.onStateChange]
  * @param {Set<string>|string[]} [opts.takenIds]  ids already registered (built-in sources); a plugin may not reuse one
+ * @param {{ uid: number, gid: number }|null} [opts.runAs]  `sources.pluginUser`: run every plugin as this user (needs root)
  * @param {typeof createPluginHost} [opts.hostFactory]  injected in tests
  * @returns {{ providers: object[], problems: Array<{ path: string, id?: string, reason: string }>, stop(): Promise<void> }}
  */
-export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret, logger, onStateChange, takenIds = [], hostFactory = createPluginHost, ...hostOptions } = {}) {
+export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret, logger, onStateChange, takenIds = [], runAs = null, hostFactory = createPluginHost, ...hostOptions } = {}) {
   const providers = [];
   const problems = [];
   const hosts = [];
@@ -212,7 +216,7 @@ export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret,
       continue;
     }
     if (entry.granted !== true) {
-      refuse("not granted: set granted to true after reviewing the plugin's manifest");
+      refuse(`not granted: set granted to true after reviewing the plugin's manifest and entry file. ${PLUGIN_TRUST_NOTICE}`);
       continue;
     }
     if (!/^[0-9a-f]{64}$/.test(String(entry.sha256 ?? ""))) {
@@ -233,6 +237,11 @@ export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret,
       refuse(`the id ${id} is already used by another source`, id);
       continue;
     }
+    const runAsIssue = runAsProblem(runAs, { platform: hostOptions.platform, getuid: hostOptions.getuid });
+    if (runAsIssue) {
+      refuse(runAsIssue, id);
+      continue;
+    }
     const cfg = validateConfig(info.manifest, entry.config ?? {});
     if (!cfg.ok) {
       refuse(`config: ${cfg.errors.join("; ")}`, id);
@@ -248,8 +257,10 @@ export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret,
       readSecret: readSecret ? () => readSecret(id) : undefined,
       logger,
       onStateChange: onStateChange ? (s) => onStateChange(id, s) : undefined,
+      runAs,
       ...hostOptions,
     });
+    logger?.info?.(`plugin ${id} loaded (${info.manifest.version}). ${runAs ? `It runs as uid ${runAs.uid}.` : PLUGIN_TRUST_NOTICE}`);
     hosts.push(host);
     providers.push(providerFor(info.descriptor, host, { hosts: info.manifest.network.allowHosts, plugin: { version: info.manifest.version, folder: info.dir, pin: info.pin } }));
   }
