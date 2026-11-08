@@ -87,6 +87,10 @@ export function hasScope(granted, needed) {
  * @property {boolean} [confirmationRequired]  Set for webhook signals whose hook requires a person to confirm each
  *   order (OrderService then opens a ticket instead of placing).
  * @property {string[]} [hookAccounts]   Accounts a webhook principal may use.
+ * @property {{ from: "stream"|"cache"|"shared"|"live"|"stale", source?: string, sourceName?: string, class: string, delaySec: number }} [route]
+ *   Set by a market-data route when it has answered: what served the read (market/routeInfo.mjs). The request log
+ *   (GET /v1/requests) copies it onto the entry for the request.
+ * @property {number} [routeShared]   Items of this request that joined a call another caller had already started.
  */
 
 export function newRequestId() {

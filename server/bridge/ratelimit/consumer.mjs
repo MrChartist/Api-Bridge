@@ -47,6 +47,11 @@ export function currentConsumer() {
   return als.getStore()?.name ?? null;
 }
 
+/** The request context the running work was started with (runAsConsumer's third argument), or null. */
+export function currentRequestContext() {
+  return als.getStore()?.ctx ?? null;
+}
+
 /**
  * Who the fair queue should treat the running work as: `{ name, fairKey, keyId, clientKind, label }`, or null when
  * the work runs outside any consumer (internal calls share one unnamed consumer).

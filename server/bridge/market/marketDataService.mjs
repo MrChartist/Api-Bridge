@@ -45,6 +45,7 @@ import { createFailureCache } from "../sources/failureCache.mjs";
 import { createHealthTracker, outcomeKindOf } from "../sources/health.mjs";
 import { createSourceRouter, historySupport } from "../sources/router.mjs";
 import { createBatcher } from "./batcher.mjs";
+import { markShared } from "./routeInfo.mjs";
 import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, settlementOfKind, strikeStepOf, trimStrikes } from "./chain.mjs";
 import { kindOf, pricingContext } from "../vol/context.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
@@ -757,6 +758,7 @@ export function createMarketDataService(deps) {
     const running = inflight.get(key);
     if (running) {
       saving("coalesced");
+      markShared();
       return running;
     }
     const share = priority === "background" && backgroundShare !== undefined ? backgroundShare : "";
@@ -776,6 +778,7 @@ export function createMarketDataService(deps) {
     const running = inflight.get(key);
     if (running) {
       saving("coalesced");
+      markShared();
       return running;
     }
     const p = (async () => {
