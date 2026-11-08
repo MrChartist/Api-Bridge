@@ -4,7 +4,6 @@ import { app, chooseDensity, chooseTheme, copyText, h, icon, iconTile, lockScrol
 
 /** The modifier shown in every shortcut hint. One label for everyone: the key handler accepts Control or Command alike. */
 export const MOD = "Ctrl";
-export const modKey = () => MOD;
 /**
  * The one helper for shortcut hints. shortcut("K") gives { keys: ["Ctrl", "K"], label: "Ctrl K", aria: "Control+K Meta+K" }:
  * `keys` for kbd(), `label` for a title or visible text, `aria` for aria-keyshortcuts.

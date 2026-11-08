@@ -6,7 +6,7 @@
 // readiness.test.mjs; DOM code runs only in a browser. Numbers become text through format.js only. Copy is descriptive:
 // what was checked and where the fact came from, never advice. Every reading is local: the badge polls
 // GET /v1/readiness, which answers from the monitor's cache and never calls a broker.
-import { api, app, codeBlock, h, icon, iconTile, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
+import { api, app, codeBlock, h, icon, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
 import { DASH, formatInt, formatRupeeGrouped, isFigure } from "./format.js";
 
 /** How often the badge reads /v1/readiness while the tab is visible. */
@@ -729,14 +729,14 @@ export function readinessSection({ demo = false, initial = { snap: null, history
   const checks = h("div", { class: "sf-checks" });
   const aside = h("div", { class: "sf-aside" });
   const pillSlot = h("span", { class: "sf-head-pill" });
-  const sub = h("p", { class: "sf-sec-sub" });
+  const sub = h("p");
   const announce = h("span", { class: "sr-only", role: "status" });
   const checkBtn = h("button", { type: "button", class: "tinted" }, icon("refresh"), "Check now");
   const working = h("span", { class: "sf-working", hidden: true }, "Checking…");
   const main = h(
     "section",
-    { class: "sf-sec sf-ready", "aria-labelledby": "sf-ready-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-ready-h" }, "Trading readiness"), sub), h("div", { class: "sf-sec-acts" }, working, pillSlot, checkBtn)),
+    { class: "sec sf-ready", "aria-labelledby": "sf-ready-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-ready-h" }, "Trading readiness"), sub), h("div", { class: "sec-acts" }, working, pillSlot, checkBtn)),
     h("div", { class: "sf-ready-grid" }, checks, aside),
     announce,
   );

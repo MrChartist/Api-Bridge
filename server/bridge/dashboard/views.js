@@ -1,16 +1,15 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
 // except small conveniences in localStorage (theme, density, the last tab of each page).
-import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, meterRow, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
+import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
 import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
-import { DASH, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
+import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
 import { configureOrdersBook, fundsSection, ordersBook, pendingSection, renderTradesPage, sidePill } from "./orders-book.js";
-import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,7 +28,6 @@ const busy = (b, on) => {
   if (on) b.setAttribute("aria-busy", "true");
   else b.removeAttribute("aria-busy");
 };
-const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
 /** Sentence case for a status word from the API ("filled" → "Filled"). */
 export const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -167,11 +165,6 @@ export function keepFocus(container, fn) {
   const r = fn();
   restoreFocus(container, sig);
   return r;
-}
-async function keepFocusAsync(container, fn) {
-  const sig = focusSignature(container);
-  await fn();
-  restoreFocus(container, sig);
 }
 function focusSignature(container) {
   const a = document.activeElement;
@@ -478,7 +471,7 @@ function accountPopover(trigger) {
   const body = h(
     "div",
     { class: "acct-pop" },
-    h("div", { class: "acct-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
+    h("div", { class: "acct-pop-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
     h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-appearance" }, "Appearance"), appearanceControl("acct-appearance")),
     h("section", { class: "group density-ctl" }, h("h3", { class: "group-title", id: "acct-density" }, "Density"), densityControl("acct-density")),
     h(
@@ -863,11 +856,6 @@ export async function startRouter() {
   }
   window.addEventListener("hashchange", show);
   show();
-}
-
-/** A metric card: tinted icon and label, the figure, a footnote. */
-function stat(label, value, sub, glyph, tint) {
-  return h("section", { class: "card stat" }, h("div", { class: "stat-head" }, glyph ? iconTile(glyph, tint, "sm") : null, h("span", { class: "label" }, label)), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub));
 }
 
 // ── Accounts ──
@@ -1638,8 +1626,8 @@ function brokerCatalog(list, ctx) {
 function acctSection(id, title, sub, actions, ...body) {
   return h(
     "section",
-    { class: "acct-section", "aria-labelledby": id, "data-fixed": "" },
-    h("header", { class: "acct-head" }, h("div", { class: "acct-head-titles" }, h("h2", { id }, title), sub ? h("p", {}, sub) : null), actions ? h("div", { class: "acct-head-actions" }, actions) : null),
+    { class: "sec", "aria-labelledby": id, "data-fixed": "" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id }, title), sub ? h("p", {}, sub) : null), actions ? h("div", { class: "sec-acts" }, actions) : null),
     ...body,
   );
 }
@@ -2455,8 +2443,8 @@ async function renderSafety() {
   });
   const limits = h(
     "section",
-    { class: "sf-sec", "aria-labelledby": "sf-lim-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-lim-h" }, "Daily limits"), h("p", { class: "sf-sec-sub" }, `Per account, for the IST day ${s.day ?? ""}. The figures add paper and live orders.`))),
+    { class: "sec", "aria-labelledby": "sf-lim-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-lim-h" }, "Daily limits"), h("p", {}, `Per account, for the IST day ${s.day ?? ""}. The figures add paper and live orders.`))),
     limitCards.length ? h("div", { class: "sf-lim-grid" }, limitCards) : h("div", { class: "sf-card" }, emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts"), { compact: true })),
   );
 
@@ -2464,8 +2452,8 @@ async function renderSafety() {
   const answer = (v) => (v === "yes" ? pill("Yes", "ok") : v === "no" ? pill("No") : pill("Per order", "info"));
   const liveGroup = h(
     "section",
-    { class: "sf-sec", "aria-labelledby": "sf-live-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-live-h" }, "Live trading"), h("p", { class: "sf-sec-sub" }, "A live order needs all five. Nothing in the API, a webhook or an AI tool can switch live trading on.")), h("div", { class: "sf-sec-acts" }, s.liveTrading ? pill("On", "bad") : pill("Off: paper only"))),
+    { class: "sec", "aria-labelledby": "sf-live-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-live-h" }, "Live trading"), h("p", {}, "A live order needs all five. Nothing in the API, a webhook or an AI tool can switch live trading on.")), h("div", { class: "sec-acts" }, s.liveTrading ? pill("On", "bad") : pill("Off: paper only"))),
     h("div", { class: "list" }, liveConditions(s).map((c) => h("div", { class: "list-row static sf-cond" }, h("span", { class: "names" }, h("span", { class: "nm" }, c.text), c.detail ? h("span", { class: "sub" }, c.detail) : null), answer(c.value)))),
     demo ? h("div", { class: "alert info sf-demo-note" }, icon("info"), h("div", {}, h("strong", {}, "Demo mode forces live trading off."))) : null,
   );
@@ -2487,8 +2475,8 @@ async function renderSafety() {
   });
   const audit = h(
     "section",
-    { class: "sf-sec", "aria-labelledby": "sf-audit-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-audit-h" }, "Audit log"), h("p", { class: "sf-sec-sub" }, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."))),
+    { class: "sec", "aria-labelledby": "sf-audit-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-audit-h" }, "Audit log"), h("p", {}, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."))),
     h("div", { class: "list" }, h("div", { class: "list-row static sf-audit-row" }, iconTile("activity", "indigo", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Hash chain"), h("span", { class: "sub" }, "Admin key, this computer only")), verifyBtn)),
     verifyOut,
   );

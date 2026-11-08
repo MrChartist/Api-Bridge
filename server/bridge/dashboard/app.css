@@ -8,7 +8,7 @@
      PART A  Foundation (the design system: pages use it, they do not restyle it)
        1  Tokens, light        1b  Tokens, dark          2  Base          3  Materials and cards
        4  Icons, tiles         5  Buttons                6  Forms         7  Segmented, tabs, switches
-       8  Lists, pills, tables, empty, skeleton, alerts, code, meters, tooltips
+       8  Lists, pills, tables, empty, skeleton, alerts, code, progress bars, tooltips
        9  Popovers, menus, sheets, toast
        10 Shell: sidebar, toolbar, page header, tab bar, account and More, sign-in
        11 Preferences: reduced motion and transparency, contrast, forced colours, density, print
@@ -48,10 +48,6 @@
   --warning-ink: 36.6 80.4% 30%;
   --info: 229.4 81.4% 62%;
   --info-ink: 230.3 60.2% 51.8%;
-  /* Gain and loss (finance convention), data-viz marks. */
-  --pos: var(--success);
-  --neg: var(--danger);
-  --neg-ink: var(--danger-ink);
 
   /* Label ladder over --foreground: --a-label (secondary, 5.5:1) and --a-quiet (tertiary, the 4.5:1 floor for text). */
   --a-label: 0.68;
@@ -74,15 +70,11 @@
   /* Surfaces and materials. */
   --surface: hsl(var(--card));
   --surface-grouped: hsl(var(--background));
-  --surface-raised: hsl(var(--elevated));
-  --mat-grouped-solid: var(--surface);
   --fill-1: hsl(214 17% 8% / 0.045);
   --fill-2: hsl(214 17% 8% / 0.07);
   --fill-3: hsl(214 17% 8% / 0.11);
   --separator: hsl(214 17% 8% / 0.1);
   --hairline: hsl(214 17% 8% / 0.06);
-  --mat-fill-1: var(--fill-1);
-  --mat-fill-2: var(--fill-2);
   --mat-separator: var(--separator);
   --mat-hairline: var(--hairline);
   --mat-bar: hsl(0 0% 100% / 0.78);          /* toolbar, tab bar, sidebar */
@@ -121,7 +113,7 @@
   --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 6.5 8 10l3.5-3.5' fill='none' stroke='%23697078' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --tick-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --syn-key: var(--accent-ink);
-  --syn-str: var(--tile-pink);
+  --syn-str: var(--danger-ink);
   --syn-num: var(--info-ink);
   --syn-lit: var(--tile-purple);
 
@@ -143,7 +135,6 @@
   --radius-lg: 14px;
   --radius-xl: 20px;
   --r-md: var(--radius-md);
-  --r-lg: var(--radius-lg);
   --r-ctl: var(--radius-md);
   --r-inner: var(--radius-md);
   --r-panel: var(--radius-lg);
@@ -164,10 +155,8 @@
 
   /* Stacking: every z-index of 10 and up is one of these. Dialogs and popovers use the top layer or --z-popover. */
   --z-sticky: 2;
-  --z-raised: 20;
   --z-chrome: 50;
   --z-popover: 60;
-  --z-panel-max: 70;
   --z-toast: 90;
   --safe-t: env(safe-area-inset-top, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -439,7 +428,6 @@ code { font-size: 0.9em; padding: 1px 6px; border-radius: var(--radius-sm); back
 .up { color: hsl(var(--success-ink)); }
 .down { color: hsl(var(--danger-ink)); }
 .bad-text { color: hsl(var(--danger-ink)); font-weight: 600; }
-.warn-text { color: hsl(var(--warning-ink)); font-weight: 600; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .row.nowrap { flex-wrap: nowrap; gap: 8px; }
 .stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -447,23 +435,19 @@ code { font-size: 0.9em; padding: 1px 6px; border-radius: var(--radius-sm); back
 .row > p.grow { flex-basis: 260px; }
 .grid { display: grid; gap: var(--panel-gap); min-width: 0; }
 .grid > * { min-width: 0; }
-.grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .grid.side { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; }
 @media (max-width: 1279px) {
-  .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid.side { grid-template-columns: minmax(0, 1fr); }
 }
-@media (max-width: 359px) { .grid.cols-4.stats { grid-template-columns: minmax(0, 1fr); } }
 
 /* ───────────────────────── 3 · MATERIALS AND CARDS ─────────────────────────
    .card            solid grouped surface (radius 14, hairline edge). Markup:
                       <section class="card"><header class="card-head">[icon tile] <div class="card-titles"><h2>…</h2><p>…</p></div>
                       <div class="card-actions">…</div></header><div class="card-body">…</div><footer class="card-foot">…</footer></section>
-                    .card-body.flush removes the padding (tables, lists run edge to edge); .card-foot is a hairline-topped note row.
+                    .card-body.flush removes the padding (tables, lists run edge to edge).
    .group           an inset-grouped block: <section class="group"><h3 class="group-title">Title</h3><div class="list">…</div>
                     <p class="group-foot">Footer note</p></section>. Section header above, footer below, 8px apart from the list.
    .glass           translucent chrome (blur): bars, sidebar. Never a data surface.
-   .stat            metric card: <div class="card stat"><div class="stat-head">[tile]<span class="label"></span></div><div class="value"></div><div class="sub"></div></div> */
 .glass {
   position: relative;
   background: var(--mat-bar);
@@ -485,7 +469,6 @@ code { font-size: 0.9em; padding: 1px 6px; border-radius: var(--radius-sm); back
 .card-actions { display: flex; align-items: center; align-self: center; gap: 8px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
 .card-body { padding: 14px var(--card-pad) var(--card-pad); min-width: 0; }
 .card > .card-body:first-child { padding-top: var(--card-pad); }
-.card-foot { padding: 12px var(--card-pad); font: var(--t-footnote); color: var(--label-2); box-shadow: inset 0 var(--hl) 0 var(--separator); }
 /* clip, not hidden: a hidden overflow would make the sticky table head stick to the card, not the page. */
 .card-body.flush { padding: 12px 0 0; border-radius: 0 0 var(--r-panel) var(--r-panel); overflow: clip; }
 .card > .card-body.flush:first-child { padding-top: 0; border-radius: var(--r-panel); }
@@ -499,14 +482,16 @@ code { font-size: 0.9em; padding: 1px 6px; border-radius: var(--radius-sm); back
 .group { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .group-title, .group-label { padding: 0 var(--space-4); font: var(--t-label); letter-spacing: 0; color: var(--label-3); text-wrap: balance; }
 .group-foot { padding: 0 var(--space-4); font: var(--t-footnote); color: var(--label-3); }
+/* Section head: a page section outside any card (Your accounts, Funds, Daily limits): title, one line under it, actions on the right.
+   <section class="sec"><header class="sec-head"><div class="sec-titles"><h2>Title</h2><p>Line</p></div><div class="sec-acts">…</div></header>…</section> */
+.sec { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.sec-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-4); min-width: 0; }
+.sec-titles { flex: 1 1 240px; min-width: 0; }
+.sec-titles h2 { font: var(--t-title3); letter-spacing: -0.016em; text-wrap: balance; }
+.sec-titles p { margin-top: 2px; max-width: 72ch; font: var(--t-subhead); color: var(--label-2); text-wrap: pretty; }
+.sec-acts { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
 
 /* Metric card. */
-.stat { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 4px; }
-.stat-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.stat .label { font: var(--t-label); color: var(--label-2); min-width: 0; }
-.stat .value { margin-top: 8px; font: 700 clamp(26px, 2.6vw, 32px)/1.1 var(--font-display); letter-spacing: -0.022em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.stat .sub { font: var(--t-subhead); color: var(--label-3); overflow-wrap: anywhere; }
-@media (max-width: 719px) { .stat { padding: 14px 16px 16px; } .stat .value { margin-top: 6px; } }
 
 /* ───────────────────────── 4 · ICONS AND TILES ─────────────────────────
    svg.ic            every icon (app.js icon()): outline, currentColor, 1.75px stroke, round. Size it where it is used.
@@ -550,7 +535,7 @@ svg.ic { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor
      (default)        gray fill: the secondary action
      .primary         accent fill, white text: the one main action of a section
      .tinted          accent at 12 % over the fill, accent text: a strong but quiet action
-     .plain           no fill, accent text.   .quiet (.ghost): no fill, label-coloured text (hover fills)
+     .plain           no fill, accent text.   .quiet: no fill, label-coloured text (hover fills)
      .destructive     red fill.   .tinted.destructive / .plain.destructive / .quiet.destructive: red tint or red text
      .glass           translucent fill for a control floating over content.   .copy: the small copy button
      .btn.buy / .btn.sell   gain green / loss red fills (white on light, dark ink on dark)
@@ -586,17 +571,17 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
 :where(button, .btn).primary { --btn-bg: hsl(var(--accent)); --btn-bg-h: hsl(var(--accent-hover)); --btn-fg: hsl(var(--on-accent)); --btn-fw: 600; }
 :where(button, .btn).tinted { --btn-bg: hsl(var(--accent) / 0.12); --btn-bg-h: hsl(var(--accent) / 0.2); --btn-fg: hsl(var(--accent-ink)); --btn-fw: 600; }
 :where(button, .btn).plain { --btn-bg: transparent; --btn-bg-h: hsl(var(--accent) / 0.1); --btn-fg: hsl(var(--accent-ink)); }
-:where(button, .btn):is(.quiet, .ghost) { --btn-bg: transparent; --btn-bg-h: var(--fill-2); }
+:where(button, .btn).quiet { --btn-bg: transparent; --btn-bg-h: var(--fill-2); }
 :where(button, .btn).destructive { --btn-bg: hsl(var(--danger)); --btn-bg-h: hsl(var(--danger-ink)); --btn-fg: hsl(var(--on-danger)); --btn-fw: 600; }
 :where(button, .btn).tinted.destructive { --btn-bg: hsl(var(--danger) / 0.12); --btn-bg-h: hsl(var(--danger) / 0.2); --btn-fg: hsl(var(--danger-ink)); }
-:where(button, .btn):is(.plain, .quiet, .ghost).destructive { --btn-bg: transparent; --btn-bg-h: hsl(var(--danger) / 0.1); --btn-fg: hsl(var(--danger-ink)); --btn-fw: 500; }
+:where(button, .btn):is(.plain, .quiet).destructive { --btn-bg: transparent; --btn-bg-h: hsl(var(--danger) / 0.1); --btn-fg: hsl(var(--danger-ink)); --btn-fw: 500; }
 :where(button, .btn).glass { --btn-bg: var(--mat-bar-strong); --btn-bg-h: var(--mat-thick); --btn-line: var(--separator); -webkit-backdrop-filter: var(--mat-blur); backdrop-filter: var(--mat-blur); }
 :where(button, .btn).copy { --btn-bg: var(--fill-2); --btn-fw: 500; }
 .btn:is(.buy, .sell) { --btn-fg: hsl(var(--btn-trade-fg)); --btn-fw: 600; }
 .btn.buy { --btn-bg: hsl(var(--btn-buy)); --btn-bg-h: hsl(var(--btn-buy) / 0.88); }
 .btn.sell { --btn-bg: hsl(var(--btn-sell)); --btn-bg-h: hsl(var(--btn-sell) / 0.88); }
 /* A toggle button that is on (aria-pressed): the tinted look. */
-:is(button, .btn)[aria-pressed="true"]:not(.segmented button, .tabs button, .chip-btn, .bk-chip) { --btn-bg: hsl(var(--accent) / 0.14); --btn-fg: hsl(var(--accent-ink)); }
+:is(button, .btn)[aria-pressed="true"]:not(.segmented button, .tabs button, .chip-btn) { --btn-bg: hsl(var(--accent) / 0.14); --btn-fg: hsl(var(--accent-ink)); }
 /* Icon buttons are circles: one icon and an aria-label. */
 .icon-btn { --btn-h: 36px; --btn-ic: 18px; --btn-r: 999px; width: var(--btn-h); height: var(--btn-h); padding: 0; flex: none; color: hsl(var(--foreground) / 0.86); }
 .icon-btn.tiny { --btn-h: 26px; --btn-ic: 14px; --btn-bg: transparent; }
@@ -618,7 +603,7 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
    with any transform a page sets. Segments, chips and pressable rows never move. */
 :where(button, .btn, .tab):active:not(:disabled):not([aria-disabled="true"]) { scale: var(--press, 0.97); transition-duration: var(--dur-hover), var(--dur-hover), var(--dur-hover), var(--dur-hover), var(--dur-press); transition-timing-function: var(--ease-out); }
 .tab { transition: scale var(--dur-spring) var(--ease-spring), color var(--dur-hover) var(--ease-out); }
-:is(.segmented, .tabs) button, button:is(.chip-btn, .list-row, .menu-item, .palette-option, .bk-chip) { --press: 1; }
+:is(.segmented, .tabs) button, button:is(.chip-btn, .list-row, .menu-item, .palette-option) { --press: 1; }
 /* Touch: every button reaches a 44px target through an invisible area outside its painted edge. */
 @media (pointer: coarse) {
   :where(button, .btn)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; }
@@ -632,10 +617,6 @@ button svg, .btn svg { width: var(--btn-ic); height: var(--btn-ic); flex: none; 
    .field                    <label class="field"><span>Label</span><input><span class="hint">Help</span></label>: label above
    .search-field             <div class="search-field">{icon}<input type="search" placeholder="Search"><button type="button"
                              class="clear" aria-label="Clear">{close icon}</button></div>; the clear button shows only with text.
-   .form-group               inset grouped form (iOS Settings): rows on a card with hairlines between them.
-                             <div class="form-group"><label class="form-row"><span class="form-label">Name</span><input></label>
-                             <div class="form-row"><span class="form-label">Alerts</span><label class="switch"><input type="checkbox"><i></i></label></div></div>
-                             then <p class="group-foot">…</p>. Fields inside a row are borderless and right-aligned.
    .input-affix              a field with a trailing button inside it (show/hide, copy): <div class="input-affix"><input><button class="icon-btn tiny">…
    label.check               <label class="check"><input type="checkbox"> Text</label>
    .form-grid                responsive grid of fields (min 200px columns); .field.wide spans two. */
@@ -679,16 +660,6 @@ label.check { display: flex; align-items: center; gap: 10px; min-height: 32px; f
 .input-affix > input { padding-right: 44px; }
 .input-affix > .icon-btn { position: absolute; right: 6px; --btn-h: 28px; --btn-bg: transparent; color: var(--label-2); }
 
-.form-group { border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); overflow: hidden; min-width: 0; }
-.form-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 6px var(--space-4); min-width: 0; }
-.form-row + .form-row::before { content: ""; position: absolute; top: 0; left: var(--space-4); right: 0; height: var(--hl); background: var(--separator); }
-.form-label { flex: 0 0 38%; max-width: 200px; font: var(--t-callout); color: hsl(var(--foreground)); }
-.form-row > :is(input, select, textarea) { flex: 1; min-width: 0; min-height: 36px; padding-inline: 0; background: transparent; box-shadow: none; text-align: right; }
-.form-row > select { background: var(--select-chevron) no-repeat right 0 center / 16px 16px; padding-right: 22px; }
-.form-row > :is(input, select, textarea):focus { background: transparent; box-shadow: none; }
-.form-row:focus-within { background: var(--fill-1); }
-.form-row > .switch { margin-left: auto; }
-@media (max-width: 519px) { .form-label { flex-basis: 34%; } }
 
 /* ───────────────────────── 7 · SEGMENTED CONTROLS, TABS, SWITCHES, CHECKS ─────────────────────────
    .segmented        <div class="segmented" role="group"><button aria-pressed="true">One</button><button>Two</button></div>
@@ -747,11 +718,11 @@ div.field.seg-field .segmented button { flex: 1 1 auto; min-width: 0; padding: 0
 :is(.segmented.page-tabs, .tabs).fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); }
 
 /* Chips you can press (filters, presets): outlined, accent-tinted when on. */
-button.chip-btn, button.bk-chip {
+button.chip-btn {
   --btn-h: 28px; --btn-px: 11px; --btn-fs: 12.5px; --btn-r: 999px; --btn-bg: transparent; --btn-bg-h: var(--fill-2); --btn-line: var(--separator); min-height: var(--btn-h); font-variant-numeric: tabular-nums; color: var(--label-2);
 }
-button.chip-btn[aria-pressed="true"], button.bk-chip[aria-pressed="true"] { --btn-bg: hsl(var(--accent) / 0.14); --btn-bg-h: hsl(var(--accent) / 0.2); --btn-line: hsl(var(--accent) / 0.35); color: hsl(var(--accent-ink)); font-weight: 600; }
-@media (pointer: coarse) { button.chip-btn, button.bk-chip { --btn-h: 36px; } }
+button.chip-btn[aria-pressed="true"][aria-pressed="true"] { --btn-bg: hsl(var(--accent) / 0.14); --btn-bg-h: hsl(var(--accent) / 0.2); --btn-line: hsl(var(--accent) / 0.35); color: hsl(var(--accent-ink)); font-weight: 600; }
+@media (pointer: coarse) { button.chip-btn { --btn-h: 36px; } }
 
 /* Switch. */
 .switch { position: relative; flex: none; width: 44px; height: 26px; display: inline-block; }
@@ -789,7 +760,7 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
                        <span class="sub">Secondary</span></span><span class="value">Trailing</span>{chevron svg.chev}</button>…</div>
                        Rows are <button>, <a> or <div>. aria-current="page" fills the row. .list-row.static has no hover.
    .pill               status badge: <span class="pill ok|bad|warn|info|demo"><span class="pdot"></span>Text</span> (state is the word,
-                       the dot only repeats it). .chip: neutral tag. .count: numeric badge. .dot / .status-dot: 8px state dot
+                       the dot only repeats it). .chip: neutral tag. .count: numeric badge. .dot: 8px state dot
                        (.ok .warn .bad). kbd: key cap. .method: HTTP verb tag.
    table               plain tables inside .table-wrap: sticky head, row hover, numbers right-aligned (th.num, td.num), td.lead is the
                        row title, td.act holds actions. .table-wrap.stack becomes stacked label/value rows under 720px
@@ -800,7 +771,7 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
    .alert              banner: <div class="alert info|ok|warn|bad" role="alert">{icon}<div><strong>Title</strong><span class="detail">…</span></div></div>
    .code-block         <div class="code-block"><div class="code-head"><div class="code-title">Title</div>[copy button]</div><div class="code"><pre>…</pre></div></div>
    .kv                 key / value definition list: <dl class="kv"><dt>Key</dt><dd>Value</dd></dl>
-   .bar                progress: <div class="bar ok|warn|bad"><span style="width:40%"></span></div>; .meter rows add a name and a value.
+   .bar                progress: <div class="bar ok|warn|bad"><span style="width:40%"></span></div>.
    [data-tip]          CSS tooltip: <button data-tip="Copy key">; shows on hover and keyboard focus, never the only carrier of meaning. */
 .list { border-radius: var(--r-panel); overflow: hidden; background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); min-width: 0; }
 .list-row {
@@ -846,17 +817,12 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
   display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px; border-radius: 999px; white-space: nowrap;
   font: 500 12px/1 var(--font-body); background: var(--fill-2); color: var(--label-2);
 }
-.chip.scope-live { background: hsl(var(--danger) / 0.14); color: hsl(var(--danger-ink)); }
 .method { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: var(--radius-sm); font: 600 12px/1 var(--font-mono); letter-spacing: 0.02em; background: var(--fill-2); color: var(--label-2); }
-.order-side { font-weight: 600; letter-spacing: 0.01em; }
 .count {
   margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; display: inline-grid; place-items: center;
   font: 600 12px/1 var(--font-numeric); background: hsl(var(--danger)); color: hsl(var(--on-danger));
 }
-.dot, .status-dot { width: 8px; height: 8px; border-radius: 99px; flex: none; display: inline-block; background: hsl(var(--success)); box-shadow: 0 0 0 3px hsl(var(--success) / 0.18); }
-.status-dot.warn { background: hsl(var(--warning)); box-shadow: 0 0 0 3px hsl(var(--warning) / 0.2); }
-.status-dot.bad { background: hsl(var(--danger)); box-shadow: 0 0 0 3px hsl(var(--danger) / 0.2); }
-.status-dot.off { background: hsl(var(--foreground) / 0.35); box-shadow: none; }
+.dot { width: 8px; height: 8px; border-radius: 99px; flex: none; display: inline-block; background: hsl(var(--success)); box-shadow: 0 0 0 3px hsl(var(--success) / 0.18); }
 /* The breathing pulse of an always-on indicator (motion.js pulse): opacity and transform only, on its own layer; paused while
    the tab is hidden, none under reduced motion (section 11). */
 .dv-breathe { animation: dv-breathe 2.4s ease-in-out infinite; will-change: opacity, transform; }
@@ -865,7 +831,7 @@ input[type="checkbox"]:not(.switch input):disabled, input[type="radio"]:disabled
 .kbd-group { display: inline-flex; gap: 3px; align-items: center; }
 kbd, .kbd {
   display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--radius-sm);
-  font: 500 12px/1 var(--font-body); color: var(--label-3); background: var(--fill-2); white-space: nowrap;
+  font: 500 12px/1 var(--font-body); color: var(--label-2); background: var(--fill-2); white-space: nowrap;
 }
 
 /* Tables. */
@@ -890,7 +856,6 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.wrap { white-space: normal; min-width: 180px; overflow-wrap: anywhere; }
 td .muted.small { font-size: 12.5px; margin-top: 2px; }
 td strong { font-weight: 600; }
-.broker-cell { display: inline-flex; align-items: center; gap: 8px; }
 .empty-dash { color: var(--label-3); }
 /* A stacked table is a grouped list: one block per row, label left, value right. */
 @media (max-width: 719px) {
@@ -999,26 +964,12 @@ td strong { font-weight: 600; }
 .kv dt { color: var(--label-2); }
 .kv dd { margin: 0; font-family: var(--font-mono); font-size: 13px; word-break: break-word; overflow-wrap: anywhere; min-width: 0; }
 
-/* Progress and meters. */
+/* Progress bars. */
 .bar:not(rect) { height: 6px; min-width: 60px; background: var(--fill-2); border-radius: 99px; overflow: hidden; }
-.bar.thick { height: 10px; }
 .bar > span { display: block; height: 100%; width: 0; background: hsl(var(--accent)); border-radius: 99px; transition: width 400ms var(--ease-out); }
 .bar.ok > span { background: hsl(var(--success)); }
 .bar.warn > span { background: hsl(var(--warning)); }
 .bar.bad > span { background: hsl(var(--danger)); }
-.bar.indeterminate > span { width: 40%; animation: bar-slide 1.3s var(--ease-std) infinite; }
-@keyframes bar-slide { from { margin-left: -40%; } to { margin-left: 100%; } }
-.meter { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 220px); gap: 14px; align-items: center; padding: 8px 0; font: var(--t-callout); }
-.meter + .meter { border-top: var(--hl) solid var(--separator); }
-.meter .name { font-weight: 600; overflow-wrap: anywhere; }
-.meter .val { text-align: right; color: var(--label-2); overflow-wrap: anywhere; }
-.req { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; font-size: 14px; }
-.req .pill { justify-self: start; }
-@media (max-width: 719px) {
-  .meter { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
-  .meter .bar { grid-column: 1 / -1; grid-row: 2; }
-  .req { grid-template-columns: 84px minmax(0, 1fr); }
-}
 
 /* Tooltip. */
 [data-tip] { position: relative; }
@@ -1297,8 +1248,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 .large-title { font: var(--t-large); letter-spacing: -0.02em; overflow-wrap: anywhere; text-wrap: balance; }
 .page-sub { font: var(--t-callout); color: var(--label-2); margin: 6px 0 0; max-width: 68ch; text-wrap: pretty; }
 .page-sub:empty { display: none; }
-.page-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-width: 0; max-width: 100%; }
-.page-actions:empty { display: none; }
 @media (max-width: 719px) {
   .page-head { margin-bottom: 16px; }
   .page-head .eyebrow { display: none; }
@@ -1340,10 +1289,10 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 /* Account popover (sidebar foot) and the More sheet: inset grouped. */
 .acct-pop, .more-sheet { display: flex; flex-direction: column; gap: 16px; }
 .acct-pop { padding: 4px 14px 14px; min-width: 300px; }
-.acct-head { display: flex; align-items: center; gap: 12px; padding: 2px 2px 0; min-width: 0; }
-.acct-head .names { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.acct-head strong { font: var(--t-headline); }
-.acct-head .sub { font: var(--t-footnote); color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-pop-head { display: flex; align-items: center; gap: 12px; padding: 2px 2px 0; min-width: 0; }
+.acct-pop-head .names { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.acct-pop-head strong { font: var(--t-headline); }
+.acct-pop-head .sub { font: var(--t-footnote); color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-pop .group, .more-sheet .group { gap: 6px; }
 .acct-pop .group-title, .more-sheet .group-title { padding-inline: 2px; }
 .acct-pop .list-row { min-height: 44px; }
@@ -1395,7 +1344,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
   :where(button, .btn, .tab):active:not(:disabled) { scale: 1; }
   button[aria-busy="true"]::before, .btn[aria-busy="true"]::before { animation: none; }
   .skeleton, .skel-line, .skel-title, .skel-block, .skel-circle { animation: none; background-image: none; }
-  .bar.indeterminate > span { animation: none; width: 100%; opacity: 0.5; }
   .popover.floating, .dv-breathe { animation: none; will-change: auto; }
   .toolbar-title { translate: 0 0; }
 }
@@ -1416,7 +1364,7 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
   input, select, textarea { box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.4); }
 }
 @media (forced-colors: active) {
-  .card, .list, .form-group, .glass, .icon-btn, dialog.sheet, .toast, .popover, .sidebar, .tabbar { -webkit-backdrop-filter: none; backdrop-filter: none; background: Canvas; border: 1px solid CanvasText; }
+  .card, .list, .glass, .icon-btn, dialog.sheet, .toast, .popover, .sidebar, .tabbar { -webkit-backdrop-filter: none; backdrop-filter: none; background: Canvas; border: 1px solid CanvasText; }
   button, .btn, input, select, textarea { border: 1px solid ButtonText; }
   .toolbar::before { display: none; }
   .nav a[aria-current="page"], .tab[aria-current="page"], .segmented button[aria-pressed="true"], .tabs button[aria-selected="true"], [role="tab"][aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
@@ -1425,7 +1373,7 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
   :focus-visible { outline: 2px solid Highlight; }
 }
 @media print {
-  .sidebar, .tabbar, .toolbar, .toast, .panel-tools { display: none !important; }
+  .sidebar, .tabbar, .toolbar, .toast { display: none !important; }
   .app-shell { padding-left: 0; }
   .app-main { padding-top: 0; }
   body::before { display: none; }
@@ -1441,14 +1389,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
    (container query), so the sidebar, the rail and the phone all get the layout that fits. Rows open details through a
    button laid over them; the next step is a button above that. The Add sheet, the log-in sheet and the details sheet share
    the tile and name styles below. */
-.acct-section { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.acct-section + .acct-section { margin-top: var(--space-4); }
-.acct-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding: 0; }
-.acct-head-titles { flex: 1 1 150px; min-width: 0; }
-.acct-head h2 { font: var(--t-title3); letter-spacing: -0.016em; }
-.acct-head p { margin-top: 2px; max-width: 72ch; font: var(--t-subhead); color: var(--label-2); }
-.acct-head-actions { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.acct-head-actions > .row { gap: var(--space-2); }
 
 /* Tile, name and sub: the same three parts in every row, tile and sheet. */
 .acct-names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -1529,7 +1469,7 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 .acct-tools .search-field { max-width: 440px; }
 .acct-filters { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
 .acct-filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
-.acct-chip-n { margin-left: 6px; font-weight: 500; opacity: 0.7; }
+.acct-chip-n { margin-left: 6px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .acct-count { margin: var(--space-3) var(--space-1) var(--space-2); font: var(--t-footnote); color: var(--label-3); }
 .acct-cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 10px; }
 .acct-cat > .empty { grid-column: 1 / -1; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); }
@@ -1602,15 +1542,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 }
 /* === END PAGE: accounts === */
 
-/* API › Integrations: one panel, the tools on top, the webhook list flush with the panel's edges. */
-/* A line of its own under the head row (pushes the table down; the panel refits its height). */
-.panel-head { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; min-height: var(--panel-head-h); padding: 8px 12px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); }
-/* Order ticket. */
-.ticket { gap: 14px; }
-.ticket-figs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); overflow: hidden; }
-.ticket-figs > div:first-child { box-shadow: none; }
-.ticket-figs > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; white-space: nowrap; font: 500 15px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
-.ticket-figs small { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 /* ───────────────────────── 12g2 · API BUDGET (budget.js) ─────────────────────────
    The toolbar capsule: stream dot, "API", calls this second and this minute against the broker's limit; tinted only
    when a window is 70 % or 90 % full. Its popover lists each account. Tokens only; numbers tabular. */
@@ -1679,7 +1610,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 .rd-pop-acts > * { flex: 1 1 auto; justify-content: center; }
 @media (max-width: 719px) { .rd-pop { width: 100%; } .rd-pop-acts > * { flex: 1 1 100%; } }
 
-/* ═════ PAGE: safety ═════ (views.js renderSafety, readiness.js) */
 /* === PAGE: safety === */
 :root[data-page="safety"] .content { gap: 28px; }
 .sf-card { min-width: 0; padding: 16px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); }
@@ -1688,12 +1618,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 .cli-cmd { font-family: var(--font-mono); font-size: 0.92em; white-space: nowrap; }
 
 /* Section heads: a title, one line under it, the section's own actions on the right. */
-.sf-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.sf-sec-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 0 4px; }
-.sf-sec-titles { min-width: 0; flex: 1 1 280px; }
-.sf-sec-titles h2 { margin: 0; font: var(--t-title3); letter-spacing: -0.018em; text-wrap: balance; }
-.sf-sec-sub { margin: 2px 0 0; font: var(--t-subhead); color: var(--label-2); font-variant-numeric: tabular-nums; }
-.sf-sec-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .sf-working { font: var(--t-subhead); color: var(--label-2); }
 
 /* The status hero: one calm answer, then the kill switch as a deliberate control. */
@@ -1858,16 +1782,10 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 @media (forced-colors: active) { .sf-glyph, .sf-hero-tile { border: 1px solid CanvasText; } .ks-list li::before { background: CanvasText; } }
 /* === END PAGE: safety === */
 
-@media (max-width: 719px) {
-}
 /* === PAGE: orders === */
 /* Orders › Orders and Trades (orders-book.js, views.js renderOrders). Three blocks on the grouped canvas: what waits for a
    person (ticket cards), the day's orders (a grid of rows that becomes stacked rows when its card is narrow), and the money
    behind them (a card per account). The tables are container-sized, not viewport-sized: the sidebar changes the width. */
-.ob-pending, .ob-funds-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.ob-sec-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 0 2px; }
-.ob-sec-head h2 { font: var(--t-title3); letter-spacing: -0.016em; text-wrap: balance; }
-.ob-sec-head > p { flex: 0 0 100%; font: var(--t-subhead); color: var(--label-2); }
 
 /* Nothing waiting: one calm line, not an empty card. */
 .ob-quiet { display: flex; align-items: center; gap: 14px; padding: 14px var(--card-pad); }
@@ -2045,21 +1963,26 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ob-fstat dd { margin: 0; font: 600 15px/1.35 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .ob-fund-error p { margin: 0 0 8px; font: var(--t-callout); }
 .ob-fund-foot { display: flex; justify-content: flex-end; margin: auto calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0; }
-/* === END PAGE: orders === */
+/* The order ticket sheet (also opened from Accounts and Safety). */
+.ticket { gap: 14px; }
+.ticket-figs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); box-shadow: inset 0 var(--hl) 0 var(--mat-separator), inset 0 calc(-1 * var(--hl)) 0 var(--mat-separator); overflow: hidden; }
+.ticket-figs > div:first-child { box-shadow: none; }
+.ticket-figs > div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; white-space: nowrap; font: 500 15px/1.1 var(--font-numeric); font-variant-numeric: tabular-nums; box-shadow: calc(-1 * var(--hl)) 0 0 var(--mat-separator); }
+.ticket-figs small { font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
 /* The order ticket grows with its fields on tall screens (stop and target add two rows), so the figures stay above
    the footer; shorter screens keep the usual cap and scroll inside the sheet. */
 @media (min-width: 720px) and (min-height: 900px) { dialog.sheet:has(.ticket) { max-height: min(96vh, 1180px); } }
 /* SL / SL-M: four types share the Type control. */
 .ticket .segmented button[data-value="SL-M"] { white-space: nowrap; }
 .bk-pair > :only-child { grid-column: 1 / -1; }
-
+/* === END PAGE: orders === */
 
 /* === PAGE: api === */
 /* The API page (views.js: renderKeys, renderIntegrations, renderConsole, renderLimits, renderActivity). Tokens and the
    foundation's components only; the layout answers the width of the tab itself (container queries), not the window's. */
 .api-tab { container-type: inline-size; display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
 .api-tab > :empty { display: none; }
-.api-tab h3 { font: var(--t-headline); letter-spacing: -0.012em; }
+.api-tab h3:not(.group-title) { font: var(--t-headline); letter-spacing: -0.012em; }
 .api-skel { display: flex; flex-direction: column; gap: 12px; padding: var(--card-pad); border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); }
 .api-skel .skel-block { height: 56px; }
 
@@ -2092,6 +2015,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .api-row-sub { font: var(--t-footnote); color: var(--label-2); overflow-wrap: anywhere; }
 .api-row-note { font: var(--t-footnote); color: var(--label-2); }
 .api-row.dim .api-row-title strong { color: var(--label-2); font-weight: 500; }
+.chip.scope-live { background: hsl(var(--danger) / 0.14); color: hsl(var(--danger-ink)); }
 .chip.own-key { background: hsl(var(--accent) / 0.12); color: hsl(var(--accent-ink)); }
 @container (max-width: 560px) {
   .api-row { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "tile main" ". aside" ". act"; }
@@ -2173,7 +2097,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ac-path { font-family: var(--font-mono); font-size: 14px; }
 .ac-send { --btn-h: var(--field-h); gap: 8px; }
 .ac-send-keys { display: inline-flex; gap: 3px; margin-left: 4px; }
-.ac-send-keys kbd { color: hsl(var(--on-accent)); background: hsl(var(--on-accent) / 0.2); }
+.ac-send-keys kbd { color: inherit; background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--on-accent) / 0.55); }
 @media (pointer: coarse) { .ac-send-keys { display: none; } }
 @container (max-width: 560px) { .ac-line { grid-template-columns: auto minmax(0, 1fr); } .ac-send { grid-column: 1 / -1; } .ac-method { width: 96px; } }
 .ac-hint { display: flex; align-items: center; gap: 6px; margin: 0; font: var(--t-footnote); color: var(--label-2); }

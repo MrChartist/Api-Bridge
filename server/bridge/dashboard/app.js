@@ -499,7 +499,6 @@ export const ICONS = {
   refresh: '<path d="M18.6 12.2a6.6 6.6 0 1 1-1.9-4.7"/><path d="M17.4 3.8v3.9h-3.9"/>',
   plus: '<path d="M12 5.5v13M5.5 12h13"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2.8"/>',
-  power: '<path d="M12 3.5v8"/><path d="M7.2 6.9a7.5 7.5 0 1 0 9.6 0"/>',
   info: '<circle cx="12" cy="12" r="8.8"/><path d="M12 11.2v5"/><path d="M12 7.9h.01" stroke-width="2.4"/>',
   warn: '<path d="M10.3 4.7 3 17.3a2 2 0 0 0 1.7 3h14.6a2 2 0 0 0 1.7-3L13.7 4.7a2 2 0 0 0-3.4 0z"/><path d="M12 9.6v3.9"/><path d="M12 16.8h.01" stroke-width="2.4"/>',
   plug: '<path d="M9 3.5v4M15 3.5v4"/><path d="M6.5 7.5h11V11a5.5 5.5 0 0 1-11 0z"/><path d="M12 16.5V21"/>',
@@ -518,14 +517,9 @@ export const ICONS = {
   wallet: '<rect x="3.5" y="6.5" width="17" height="12.5" rx="3"/><path d="M20.5 11.5h-4a2 2 0 0 0 0 4h4"/><path d="M16.8 13.5h.01" stroke-width="2.4"/>',
   clock: '<circle cx="12" cy="12" r="8.8"/><path d="M12 7.5V12l3 2"/>',
   list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="3"/>',
-  grip: '<path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3"/>',
   up: '<path d="m6.5 14.5 5.5-5.5 5.5 5.5"/>',
   down: '<path d="m6.5 9.5 5.5 5.5 5.5-5.5"/>',
-  expand: '<path d="M4.5 9.5v-3a2 2 0 0 1 2-2h3M19.5 9.5v-3a2 2 0 0 0-2-2h-3M4.5 14.5v3a2 2 0 0 0 2 2h3M19.5 14.5v3a2 2 0 0 1-2 2h-3"/>',
-  shrink: '<path d="M9.5 4.5v3a2 2 0 0 1-2 2h-3M14.5 4.5v3a2 2 0 0 0 2 2h3M9.5 19.5v-3a2 2 0 0 0-2-2h-3M14.5 19.5v-3a2 2 0 0 1 2-2h3"/>',
   scale: '<path d="M12 4.5v15M7 19.5h10M5 7.5h14"/><path d="m5 7.5-2.5 6a2.5 2.5 0 0 0 5 0zM19 7.5l-2.5 6a2.5 2.5 0 0 0 5 0z"/>',
-  columns: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.2 4.5v15M14.8 4.5v15"/>',
-  people: '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19.5c.4-3.2 2.7-5 5.5-5s5.1 1.8 5.5 5"/><circle cx="17.5" cy="9.5" r="2.3"/><path d="M16 14.8c2.4.1 4.1 1.6 4.5 4.2"/>',
   user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.5-3.8 3.4-6 7-6s6.5 2.2 7 6"/>',
   download: '<path d="M12 4.5v10M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
   sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="3.5"/><path d="M9.5 4.5v15"/><path d="m16 9.5-2.5 2.5 2.5 2.5"/>',
@@ -534,7 +528,6 @@ export const ICONS = {
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeoff: '<path d="M9.9 5.7A9.4 9.4 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.5 3.3M6.5 7.3C3.9 9.1 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3-.4 4.3-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m4 4 16 16"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.8"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
-  help: '<circle cx="12" cy="12" r="8.8"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1.1 1-1.1 1.8"/><path d="M12 16.9h.01" stroke-width="2.4"/>',
   trash: '<path d="M4.5 7h15M9.5 7V5.2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7M6.5 7l.8 11.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v5M14 11v5"/>',
   arrow: '<path d="M5 12h14M13.5 6.5 19 12l-5.5 5.5"/>',
 };
@@ -934,14 +927,6 @@ export function card({ title, sub, actions, body, flush = false, cls = "", id, g
       : null,
     h("div", { class: flush ? "card-body flush" : "card-body" }, body),
   );
-}
-
-export function meterRow(name, used, limit, valueText) {
-  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const span = h("span");
-  span.style.width = `${Math.max(pct, used > 0 ? 3 : 0)}%`;
-  const cls = pct >= 90 ? "bad" : pct >= 60 ? "warn" : "ok";
-  return h("div", { class: "meter" }, h("span", { class: "name" }, name), h("div", { class: `bar ${cls}` }, span), h("span", { class: "val" }, valueText ?? `${used} / ${limit}`));
 }
 
 const IST_TIME = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });

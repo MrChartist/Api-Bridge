@@ -218,7 +218,7 @@ function ticketCard(t, byId, { review, onDecline }) {
  * @returns {{ el: HTMLElement, update: (tickets: object[]|null, error?: object|null) => void }}
  */
 export function pendingSection({ tickets, error, byId, review, setup, retry }) {
-  const el = h("section", { class: "ob-pending", "aria-label": "Pending confirmations", "data-fixed": "" });
+  const el = h("section", { class: "sec ob-pending", "aria-label": "Pending confirmations", "data-fixed": "" });
   const live = h("p", { class: "sr-only", role: "status", "aria-live": "polite" });
   let signature = null;
   let shown = [];
@@ -246,7 +246,7 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
       }
       const n = shown.length;
       el.replaceChildren(
-        h("header", { class: "ob-sec-head" }, h("h2", {}, "Waiting for your confirmation"), h("span", { class: "pill info" }, `${formatInt(n)} waiting`), h("p", {}, "Check every field. Nothing is sent until you confirm, and a request that is not confirmed in time expires on its own.")),
+        h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Waiting for your confirmation"), h("p", {}, "Check every field. Nothing is sent until you confirm, and a request that is not confirmed in time expires on its own.")), h("div", { class: "sec-acts" }, h("span", { class: "pill info" }, `${formatInt(n)} waiting`))),
         h("div", { class: "ob-tickets" }, ...shown.map((t) => ticketCard(t, byId, { review, onDecline }))),
         live,
       );
@@ -579,7 +579,7 @@ export function fundsSection(accs) {
   const list = accs.filter((a) => a.broker !== "demo");
   if (!list.length) return null;
   const grid = h("div", { class: "ob-funds" }, ...list.map(() => skeletonCard(3)));
-  const el = h("section", { class: "ob-funds-sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "ob-sec-head" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it.")), grid);
+  const el = h("section", { class: "sec ob-funds-sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it."))), grid);
   Promise.all(
     list.map(async (a) => {
       const [funds, pos] = await Promise.all([optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`))]);
