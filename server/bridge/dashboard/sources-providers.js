@@ -342,6 +342,10 @@ export async function renderProviders() {
     setData(poolCard, "on", pool.on ? "1" : "0");
     setText(poolSub, pool.on ? `${plural(pool.inPoolCount, "account")} ${pool.inPoolCount === 1 ? "shares" : "share"} their room` : pool.canPool ? "Off. Each account serves only its own calls." : "Off. Needs two or more of your accounts.");
     poolChange.hidden = !pool.on;
+    // The accounts are drawn again only when they changed, so a poll never replaces what is on screen (or has focus).
+    const drawn = JSON.stringify(pool.groups);
+    if (poolBody.dataset.drawn === drawn) return;
+    poolBody.dataset.drawn = drawn;
     const nodes = [];
     if (!pool.groups.length) nodes.push(emptyState("accounts", "No broker accounts yet", "Connect two or more of your broker accounts and you can pool them here.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = "#/accounts") }, "Go to Accounts")));
     for (const g of pool.groups) {

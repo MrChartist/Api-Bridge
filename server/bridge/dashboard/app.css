@@ -2164,11 +2164,11 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .api-skel .skel-block { height: 56px; }
 
 /* Disclosure rows (details): a chevron that turns, a 44px target. */
-.api-tab details > summary { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 40px 8px var(--card-pad); cursor: pointer; list-style: none; font: var(--t-callout); }
-.api-tab details > summary::-webkit-details-marker { display: none; }
-.api-tab details > summary::after { content: ""; position: absolute; right: 18px; top: 50%; width: 8px; height: 8px; margin-top: -6px; border-right: 2px solid var(--label-3); border-bottom: 2px solid var(--label-3); rotate: -45deg; transition: rotate var(--dur-2) var(--ease-out); }
-.api-tab details[open] > summary::after { rotate: 45deg; margin-top: -8px; }
-.api-tab details > summary:focus-visible { outline-offset: -2px; border-radius: var(--r-md); }
+:is(.api-tab details, .sx-policy-item) > summary { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 40px 8px var(--card-pad); cursor: pointer; list-style: none; font: var(--t-callout); }
+:is(.api-tab details, .sx-policy-item) > summary::-webkit-details-marker { display: none; }
+:is(.api-tab details, .sx-policy-item) > summary::after { content: ""; position: absolute; right: 18px; top: 50%; width: 8px; height: 8px; margin-top: -6px; border-right: 2px solid var(--label-3); border-bottom: 2px solid var(--label-3); rotate: -45deg; transition: rotate var(--dur-2) var(--ease-out); }
+:is(.api-tab details[open], .sx-policy-item[open]) > summary::after { rotate: 45deg; margin-top: -8px; }
+:is(.api-tab details, .sx-policy-item) > summary:focus-visible { outline-offset: -2px; border-radius: var(--r-md); }
 
 /* A gallery of choices: a radiogroup (the key form) or a tablist (Integrations). */
 .api-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 8px; min-width: 0; }
@@ -2306,8 +2306,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-today { margin: 6px 0 0; font: var(--t-footnote); color: var(--label-2); }
 .sx-policy-item { border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); overflow: clip; }
 .sx-policy-item + .sx-policy-item { margin-top: 8px; }
-.sx-policy-item > summary { justify-content: space-between; min-height: 36px; }
-@media (pointer: coarse), (max-width: 719px) { .sx-policy-item > summary { min-height: 44px; } }
+.sx-policy-item > summary { justify-content: space-between; }
 .sx-policy-item .table-wrap { padding-bottom: 8px; }
 
 /* Activity */
@@ -2458,7 +2457,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-card-sub { font: var(--t-subhead); color: var(--label-2); }
 .sx-class-meters { display: flex; flex-direction: column; gap: 14px; }
 .sx-class[hidden] { display: none; }
-.sx-class-more { align-self: flex-start; }
+.sx-class-more { align-self: flex-start; margin-left: -12px; }
 /* The two groups behind "More detail"; the disclosure is not drawn while both are empty. */
 .sx-more { min-width: 0; }
 .sx-more > .sx-group + .sx-group { margin-top: var(--panel-gap); }
@@ -2524,7 +2523,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-pool-acts { display: flex; gap: 8px; }
 .sx-pool-acts button[hidden] { display: none; }
 .sx-pool-group .list { box-shadow: inset 0 0 0 var(--hl) var(--separator); background: var(--fill-1); }
-@container sx (max-width: 460px) { .sx-acct { flex-wrap: wrap; row-gap: 6px; } .sx-acct > .names { flex: 1 1 0; min-width: 8ch; } .sx-acct > .pill { margin-left: 48px; } }
+@container sx (max-width: 460px) { .sx-acct { flex-wrap: wrap; row-gap: 6px; } .sx-acct > .names { flex: 1 1 calc(100% - 60px); min-width: 0; } .sx-acct > .pill { margin-left: 48px; } }
 .sx-switch-wrap .switch input, .sx-prov-head .switch input { inset: -9px -3px; width: calc(100% + 6px); height: calc(100% + 18px); }
 .sx-fallback { padding-inline: var(--space-4); font: var(--t-footnote); color: var(--label-2); }
 .sx-fallback[hidden] { display: none; }

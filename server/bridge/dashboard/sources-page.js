@@ -624,13 +624,20 @@ export async function renderOverview() {
     const reorder = force || first || (at - lastSortAt >= 5000 && !busy);
     if (reorder) lastSortAt = at;
     rowsList.sync(sortRows(rows, sortMode), { reorder });
-    const total = (got.sources?.data?.data ?? []).length;
-    const off = (got.sources?.data?.data ?? []).filter((s) => !s.enabled).length;
+    const list = withSwitches(got.sources?.data?.data ?? []);
+    const total = list.length;
+    const off = list.filter((s) => !s.enabled).length;
     const missing = got.sources?.error ? isMissing(got.sources.error) : false;
+    // The sentence with its link is drawn once per count, so a poll never replaces a link that has focus.
+    const foot = missing || got.sources?.error ? "" : total && off ? String(off) : "";
+    if (!foot) delete rowsFoot.dataset.off;
     if (missing) setText(rowsFoot, "Free data sources and route traces need a newer Bridge. Your broker accounts are shown above.");
     else if (got.sources?.error) setText(rowsFoot, "The list of free sources could not be read just now. Broker accounts are still shown.");
     else if (total && off) {
-      rowsFoot.replaceChildren(`${off === 1 ? "1 source is" : `${off} sources are`} switched off. `, h("a", { href: "#/sources/providers" }, "Turn them on in Providers"), ".");
+      if (rowsFoot.dataset.off !== foot) {
+        rowsFoot.dataset.off = foot;
+        rowsFoot.replaceChildren(`${off === 1 ? "1 source is" : `${off} sources are`} switched off. `, h("a", { href: "#/sources/providers" }, "Turn them on in Providers"), ".");
+      }
     } else setText(rowsFoot, rows.length ? "Sorted by risk: what is busiest or in trouble comes first. Select a source for its details." : "");
   }
 
