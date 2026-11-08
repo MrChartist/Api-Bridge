@@ -10,7 +10,6 @@ import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
-import { triggersCard } from "./triggers.js";
 import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
@@ -2086,9 +2085,7 @@ async function renderOrders() {
     }),
   );
 
-  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js), above the day's orders so an
-  // open stop is never below a long list; it refreshes itself.
-  nodes.push(triggersCard(byId));
+  // v2 has no trigger engine (no /v1/triggers route), so the Triggers card (triggers.js) is not shown.
 
   const ord = orders.data?.data ?? [];
   // The day's orders with status and side filters, a search and Cancel all (orders-book.js).

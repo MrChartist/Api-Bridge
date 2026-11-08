@@ -142,8 +142,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
             h("label", { class: "check" }, also, `Also cancel ${formatInt(theirs)} order${theirs === 1 ? "" : "s"} placed outside the Bridge`),
           )
         : null,
-      h("p", { class: "muted" }, "Triggers (GTT, stops and targets) are not touched: cancel those in Triggers above."),
-    ),
+          ),
     buttons: [
       { label: "Keep them", value: false },
       { label: "Cancel orders", cls: "primary", value: true },
