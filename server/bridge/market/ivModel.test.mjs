@@ -34,9 +34,14 @@ async function chains(model, marketCfg = {}) {
 
 /** The contract-fact fields are additive; every legacy byte is still compared. */
 const P1_6_FIELDS = ["underlyingKind", "settlement", "strikeStep", "tickSize"];
+/** The data-quality fields added to every Freshness label are additive as well. */
+const QUALITY_FIELDS = ["class", "delaySec", "official", "confidence", "flags"];
 function legacyOnly(out) {
   const copy = {};
-  for (const [k, c] of Object.entries(out)) copy[k] = Object.fromEntries(Object.entries(c).filter(([f]) => !P1_6_FIELDS.includes(f)));
+  for (const [k, c] of Object.entries(out)) {
+    copy[k] = Object.fromEntries(Object.entries(c).filter(([f]) => !P1_6_FIELDS.includes(f)));
+    if (copy[k].freshness) copy[k].freshness = Object.fromEntries(Object.entries(copy[k].freshness).filter(([f]) => !QUALITY_FIELDS.includes(f)));
+  }
   return copy;
 }
 

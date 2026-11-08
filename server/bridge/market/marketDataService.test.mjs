@@ -36,7 +36,7 @@ describe("ltp and quotes read path", () => {
     expect(ra.items[0]).toEqual({
       symbol: "NSE:RELIANCE",
       ltp: priceForToken("Z3"),
-      freshness: { source: "broker", asOf: expect.stringMatching(/\+05:30$/), ageMs: 0, stale: false, accountId: "zerodha-main", broker: "zerodha" },
+      freshness: { source: "broker", asOf: expect.stringMatching(/\+05:30$/), ageMs: 0, stale: false, accountId: "zerodha-main", broker: "zerodha", class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] },
     });
     expect(rb.items.map((i) => i.symbol)).toEqual(["NSE:INFY", "NSE:NIFTY"]);
     expect(md.stats().coalesced).toBeGreaterThanOrEqual(1);

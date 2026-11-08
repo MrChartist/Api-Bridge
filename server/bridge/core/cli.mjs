@@ -138,10 +138,17 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       /* account manager not available */
     }
   }
-  const backup = config.backup;
-  if (config.demo) add("ok", "backup-data", "Backup data sources are off in demo mode");
-  else if (backup?.enabled) add("ok", "backup-data", `Backup data on (${["yahoo", "nse"].filter((p) => backup.providers?.[p]?.enabled !== false).join(", ")}): reads no broker can answer fall back to it, labelled source "backup"`);
-  else add("ok", "backup-data", 'Backup data off. To fall back to Yahoo Finance / NSE when no broker can answer, set "backup": { "enabled": true }');
+  if (deps && !isStub(deps.backupData)) {
+    try {
+      const st = deps.backupData.status();
+      const on = st.providers.filter((p) => p.enabled);
+      if (config.demo) add("ok", "data-sources", `Demo mode: ${on.length} of ${st.providers.length} sample sources switched on. They show how delayed and end-of-day data is labelled; no network is used`);
+      else if (on.length) add("ok", "data-sources", `Extra data sources on: ${on.map((p) => `${p.id} (${p.class})`).join(", ")}${st.autoFallback ? "; reads no broker can answer fall back to them, labelled with their data class" : "; used only when a request asks for them"}`);
+      else add("ok", "data-sources", "No extra data sources are switched on. Your broker accounts answer every read. Add free delayed or end-of-day sources on the Sources page");
+    } catch {
+      /* sources service not available */
+    }
+  }
   if (portCheck) {
     const free = await new Promise((r) => {
       const srv = net.createServer();

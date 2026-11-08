@@ -176,7 +176,17 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       if (!ctx.loopback) return basic;
       const services = {};
       for (const name of Object.keys(SERVICE_CONTRACTS).filter((k) => !SERVICES_NOT_IN_V2.includes(k))) services[name] = isStub(deps[name]) ? "not_built" : "ready";
-      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services };
+      // Data sources beyond the broker accounts: how many exist and how many are on (details: GET /v1/sources).
+      let sources;
+      try {
+        if (!isStub(deps.backupData)) {
+          const st = deps.backupData.status();
+          sources = { enabled: st.providers.filter((p) => p.enabled).length, total: st.providers.length, autoFallback: st.autoFallback };
+        }
+      } catch {
+        sources = undefined;
+      }
+      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}) };
     },
     { auth: "none", summary: "Liveness; detail only for loopback callers" },
   );
