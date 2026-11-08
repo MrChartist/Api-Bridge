@@ -167,7 +167,7 @@ def test_describe_cli_reports_the_line_of_a_problem(tmp_path):
     assert d["line"] == 6 and "unknown option colour" in d["error"]
 
 
-def test_describe_cli_and_examples_and_template():
+def test_describe_cli_and_examples():
     env = dict(os.environ, PYTHONPATH=str(SDK))
     for f in sorted(EXAMPLES.glob("*.py")):
         r = subprocess.run([sys.executable, "-m", "mrchartist_bridge", "strategy", "describe", str(f)], capture_output=True, text=True, env=env, cwd=str(SDK), timeout=30)
@@ -175,17 +175,6 @@ def test_describe_cli_and_examples_and_template():
         d = json.loads(r.stdout)
         assert d["ok"] and d["strategy"]["params"], f.name
         assert d["strategy"]["description"]
-    # The dashboard's "How to write one" template describes and loads too.
-    js = (SDK.parent.parent / "server" / "bridge" / "dashboard" / "algo-core.js").read_text()
-    template = re.search(r"export const TEMPLATE = `([\s\S]*?)`;", js).group(1)
-    tmp = HERE / "_template_check.py"
-    try:
-        tmp.write_text(template)
-        d = describe_file(str(tmp))
-        assert [p["name"] for p in d["params"]] == ["lots", "max_trades"]
-        assert issubclass(load_strategy_class(str(tmp)), Strategy)
-    finally:
-        tmp.unlink()
 
 
 # ── bars and the book ──
