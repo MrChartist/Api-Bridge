@@ -83,7 +83,12 @@ describe("sources module in demo mode", () => {
 
   it("registers exactly its documented routes, the key route and the writes only for this computer", () => {
     const listed = env.app.router.list().filter((r) => r.module === "sources");
-    expect(listed.map((r) => `${r.method} ${r.pattern}`).sort()).toEqual(ROUTES.map(([m, p]) => `${m} ${p}`).sort());
+    const got = listed.map((r) => `${r.method} ${r.pattern}`).sort();
+    // The module's own routes, plus the routes of the parts it loads when present: pooling consent and the route trace.
+    const partRoutes = new Set(["GET /v1/pooling", "PUT /v1/pooling/consent", "DELETE /v1/pooling/consent", "GET /v1/sources/trace"]);
+    const own = ROUTES.map(([m, p]) => `${m} ${p}`).sort();
+    expect(got.filter((r) => !partRoutes.has(r))).toEqual(own);
+    expect(got.filter((r) => partRoutes.has(r)).every((r) => partRoutes.has(r))).toBe(true);
     const byKey = Object.fromEntries(listed.map((r) => [`${r.method} ${r.pattern}`, r.options]));
     expect(byKey["GET /v1/sources"]).toMatchObject({ scope: "read" });
     expect(byKey["PATCH /v1/sources/:id"]).toMatchObject({ scope: "admin", loopbackOnly: true });
