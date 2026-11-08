@@ -293,6 +293,36 @@ export function sourceHealth(src, { time = (iso) => String(iso) } = {}) {
   return { state: "working", tone: "ok", word: "Working", detail: Number.isFinite(h.p50Ms) && h.p50Ms > 0 ? `Usually answers in about ${formatInt(h.p50Ms)} ms.` : "Answering normally." };
 }
 
+// ── A switch you just made ──
+
+/**
+ * The Bridge's router remembers which sources are on for about a second, so a read right after a switch can still show
+ * the old answer. A switch is remembered here and applied to what the pages read until the Bridge agrees or the grace
+ * runs out; then the Bridge's answer wins, so a page corrects itself when the Bridge disagrees.
+ */
+export const SWITCH_GRACE_MS = 2500;
+const switches = new Map();
+export function rememberSwitch(id, enabled, now = Date.now()) {
+  switches.set(id, { enabled: Boolean(enabled), until: now + SWITCH_GRACE_MS });
+}
+export function forgetSwitch(id) {
+  switches.delete(id);
+}
+/** The rows of GET /v1/sources with any recent switch applied. A row that is not being switched is returned as it is. */
+export function withSwitches(list, now = Date.now()) {
+  if (!Array.isArray(list)) return list;
+  return list.map((src) => {
+    const want = switches.get(src?.id);
+    if (!want) return src;
+    if (Boolean(src.enabled) === want.enabled || now > want.until) {
+      switches.delete(src.id);
+      return src;
+    }
+    const state = want.enabled ? (src.health?.state === "disabled" ? "ok" : src.health?.state) : "disabled";
+    return { ...src, enabled: want.enabled, health: { ...src.health, state } };
+  });
+}
+
 /** Health of a broker account from a /v1/usage row. */
 export function accountHealth(acct) {
   const back = Math.max(0, ...Object.values(acct?.classes ?? {}).map((c) => c.backoffMs ?? 0), acct?.backoffMs ?? 0);

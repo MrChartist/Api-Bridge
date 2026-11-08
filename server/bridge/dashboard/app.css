@@ -717,9 +717,9 @@ div.field.seg-field .segmented button { flex: 1 1 auto; min-width: 0; padding: 0
 .page-tabs-row { display: flex; min-width: 0; }
 .segmented.page-tabs { flex: none; min-height: var(--page-tabs-h); }
 .segmented.page-tabs button { flex: none; min-height: calc(var(--page-tabs-h) - 4px); padding: 0 16px; font-size: 13px; }
-.segmented.page-tabs.fade-r, .tabs.fade-r { -webkit-mask-image: linear-gradient(to left, transparent, #000 24px); mask-image: linear-gradient(to left, transparent, #000 24px); }
-.segmented.page-tabs.fade-l, .tabs.fade-l { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px); mask-image: linear-gradient(to right, transparent, #000 24px); }
-:is(.segmented.page-tabs, .tabs).fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); }
+.segmented.fade-r, .tabs.fade-r { -webkit-mask-image: linear-gradient(to left, transparent, #000 24px); mask-image: linear-gradient(to left, transparent, #000 24px); }
+.segmented.fade-l, .tabs.fade-l { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px); mask-image: linear-gradient(to right, transparent, #000 24px); }
+:is(.segmented, .tabs).fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); }
 
 /* Chips you can press (filters, presets): outlined, accent-tinted when on. */
 button.chip-btn {
@@ -1035,6 +1035,11 @@ dialog.sheet::backdrop { background: var(--scrim); -webkit-backdrop-filter: blur
 .sheet-title { flex: 1; min-width: 0; font: var(--t-title3); letter-spacing: -0.016em; overflow-wrap: anywhere; }
 .sheet-close { --btn-bg: var(--fill-2); --btn-h: 30px; --btn-ic: 14px; width: 30px; min-height: 30px; }
 .sheet-close[hidden] { display: none; }
+/* On touch the hit area is 44px; the circle you see stays 30px (and the quiet icon buttons keep their footprint). */
+@media (pointer: coarse) {
+  .sheet-close { --btn-bg: transparent; --btn-bg-h: transparent; --btn-h: 44px; width: 44px; min-height: 44px; margin: -7px -7px -7px 0; background-image: radial-gradient(circle closest-side, var(--fill-2) 14.5px, transparent 15px); }
+  .icon-btn.tiny:not(.input-affix > .icon-btn) { --btn-h: 44px; margin: -9px; }
+}
 .dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
 .dialog-actions { flex: none; display: flex; justify-content: flex-end; gap: 10px; padding: 12px 20px calc(16px + var(--safe-b)); box-shadow: inset 0 var(--hl) 0 var(--separator); }
 .dialog-actions button { min-width: 96px; }
@@ -1252,7 +1257,7 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
   .toolbar-title { display: none; }
 }
 @media (pointer: coarse) { :root { --ctl-h: 44px; } .toolbar .icon-btn { --btn-h: 44px; } }
-@media (pointer: coarse) and (max-width: 359px) { :root { --ctl-h: 36px; } .toolbar .icon-btn { --btn-h: 36px; } }
+@media (pointer: coarse) and (max-width: 359px) { .toolbar, .toolbar-actions { gap: 2px; } button.toolbar-budget-btn { --btn-px: 8px; } }
 :root[data-density="compact"] { --toolbar-h: 44px; --ctl-h: 32px; --page-tabs-h: 32px; --panel-head-h: 44px; --panel-gap: 14px; --card-pad: 14px; --th-py: 7px; --td-py: 7px; --cell-px: 12px; --list-row-h: 44px; --field-h: 36px; }
 @media (pointer: coarse) { :root[data-density="compact"] { --ctl-h: 44px; --toolbar-h: 56px; --field-h: 44px; } }
 
@@ -1728,6 +1733,7 @@ dialog.sheet::backdrop { opacity: var(--sheet-p, 1); }
 .bud-saved-parts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
 .bud-part { display: inline-flex; gap: 6px; }
 .bud-more { font-weight: 500; }
+@media (pointer: coarse) { .bud-more { display: inline-flex; align-items: center; min-height: 44px; } }
 .bud-jobs { display: grid; gap: 6px; padding: 12px 14px; border-radius: var(--r-md); background: var(--fill-1); }
 .bud-saved { padding: 0 4px; }
 /* Rate limits tab: calls per second against the limit over two minutes, and who used the budget. */
@@ -2056,8 +2062,10 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 /* Trades: the three figures above the book. */
 .ob-trades-top { min-width: 0; }
 .ob-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--panel-gap); }
-.ob-stat .label { font: var(--t-label); }
-.ob-stat .value { font-size: clamp(22px, 2.2vw, 28px); }
+.ob-stat { display: flex; flex-direction: column; gap: 2px; padding: var(--card-pad); }
+.ob-stat .label { font: var(--t-label); color: var(--label-2); }
+.ob-stat .value { font: 700 clamp(22px, 2.2vw, 28px)/1.15 var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ob-stat .sub { font: var(--t-footnote); color: var(--label-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 @media (max-width: 719px) { .ob-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ob-stat:last-child { grid-column: 1 / -1; } .ob-stat .value { font-size: 22px; } }
 
 /* Narrow card (phones, tablets, a sidebar-wide window): each order is a few short lines, no column headings. */
@@ -2438,7 +2446,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-empty-acts { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 
 /* Broker budgets: one card per account, a meter per kind of call. */
-.sx-budgets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: var(--panel-gap); }
+.sx-budgets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--panel-gap); }
 .sx-budget-card .card-head { align-items: center; }
 .sx-card-title { font: var(--t-headline); letter-spacing: -0.012em; }
 .sx-card-sub { font: var(--t-subhead); color: var(--label-2); }
@@ -2492,7 +2500,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-skel-meter { width: 28%; flex: none; }
 
 /* Providers. */
-.sx-pool-why, .sx-prov-intro { font: var(--t-callout); color: var(--label-2); max-width: 72ch; }
+.sx-pool-why, .sx-prov-intro { font: var(--t-subhead); color: var(--label-2); max-width: 72ch; }
 .sx-prov-intro { padding-inline: var(--space-4); }
 .sx-switch-wrap { gap: 10px; }
 .sx-pool-status { font: var(--t-label); color: var(--label-2); min-width: 2.5ch; text-align: right; }
@@ -2500,6 +2508,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-pool-acts { display: flex; gap: 8px; }
 .sx-pool-acts button[hidden] { display: none; }
 .sx-pool-group .list { box-shadow: inset 0 0 0 var(--hl) var(--separator); background: var(--fill-1); }
+@container sx (max-width: 460px) { .sx-acct { flex-wrap: wrap; row-gap: 6px; } .sx-acct > .names { flex: 1 1 0; min-width: 8ch; } .sx-acct > .pill { margin-left: 48px; } }
 .sx-switch-wrap .switch input, .sx-prov-head .switch input { inset: -9px -3px; width: calc(100% + 6px); height: calc(100% + 18px); }
 .sx-fallback { padding-inline: var(--space-4); font: var(--t-footnote); color: var(--label-2); }
 .sx-fallback[hidden] { display: none; }
@@ -2577,8 +2586,8 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .rt-word.fallback { color: hsl(var(--accent-ink)); background: hsl(var(--accent) / var(--chip-tint)); }
 
 /* Quotas. */
-.sx-q-lead { font: var(--t-body); color: var(--label-2); max-width: 70ch; }
-.sx-q-default { font: var(--t-callout); color: var(--label-2); }
+.sx-q-lead { font: var(--t-subhead); color: var(--label-2); max-width: 70ch; }
+.sx-q-default { font: var(--t-subhead); color: var(--label-2); }
 .sx-qrow { grid-template-areas: "tile main chev" "gauge gauge gauge" "end end end"; }
 .sx-qrow > .sx-q-end { grid-area: end; }
 .sx-q-held { font: var(--t-footnote); color: var(--label-2); }

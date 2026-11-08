@@ -16,6 +16,7 @@ import {
   attentionRows,
   attentionText,
   buildRows,
+  withSwitches,
   capabilityForPath,
   classAdvice,
   classLabel,
@@ -537,7 +538,7 @@ export async function renderOverview() {
   }
 
   function paint(at) {
-    const sources = got.sources?.data?.data ?? null;
+    const sources = withSwitches(got.sources?.data?.data ?? null);
     const usage = got.usage?.data?.data ?? null;
     const rows = buildRows({ sources, usage, time: istTime });
     annotateRows(rows, { ...trackers, at });

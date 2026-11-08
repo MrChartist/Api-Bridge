@@ -4,7 +4,7 @@
 // and test (key-based sources). Keys are sent once and never shown again.
 
 import { alertBox, api, emptyState, h, icon, iconTile, istTime, modal, optional, toast } from "./app.js";
-import { capabilityText, classAdvice, consentProblem, enableSteps, poolingModel, providerState, shortWait, tierText, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
+import { capabilityText, classAdvice, consentProblem, enableSteps, forgetSwitch, poolingModel, providerState, rememberSwitch, shortWait, tierText, withSwitches, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
 import { brokerTile, classPill, createKeyedList, createPoller, healthTag, officialBadge, setAttr, setData, setText, updateClassPill } from "./sources-ui.js";
 import { formatInt, plural } from "./format.js";
 
@@ -259,6 +259,13 @@ export async function renderProviders() {
   let polls = 0;
   const pending = new Set();
   const tests = new Map();
+  // A switch is shown the moment it is made (sources-core withSwitches) and the Bridge's own answer takes over when it agrees.
+  function showAs(id, enabled) {
+    rememberSwitch(id, enabled);
+    paintSources();
+  }
+  /** Read the Bridge again once its one-second memory has expired, in case it still disagreed. */
+  const settle = () => setTimeout(() => root.isConnected && poller.tick(), 1300);
 
   // ── Your brokers ──
   const poolSwitch = h("input", { type: "checkbox", role: "switch", id: "pool-switch", "aria-label": "Pool my broker accounts" });
@@ -388,8 +395,13 @@ export async function renderProviders() {
     state.append(retry);
     input.addEventListener("change", () => onToggle(el._src, input));
     keyBtn.addEventListener("click", async () => {
-      if (await openKeySheet(el._src, { replacing: el._src.configured })) toast(`${el._src.name} is on`);
+      const src = el._src;
+      if (await openKeySheet(src, { replacing: src.configured })) {
+        showAs(src.id, true);
+        toast(`${src.name} is on`);
+      }
       await poller.tick();
+      settle();
     });
     testBtn.addEventListener("click", () => runTest(el));
     return el;
@@ -442,16 +454,18 @@ export async function renderProviders() {
     if (pending.has(src.id)) return;
     if (!want) {
       pending.add(src.id);
-      paintSources();
+      showAs(src.id, false);
       try {
         await api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: false } });
         toast(`${src.name} is off`);
       } catch (err) {
+        forgetSwitch(src.id);
         toast(err?.message ?? "It could not be turned off", { tone: "error" });
       } finally {
         pending.delete(src.id);
       }
       await poller.tick();
+      settle();
       return;
     }
     const steps = enableSteps(src);
@@ -460,18 +474,23 @@ export async function renderProviders() {
     else if (steps.includes("notice")) on = await openNoticeSheet(src);
     else {
       pending.add(src.id);
-      paintSources();
+      showAs(src.id, true);
       try {
         await api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, ...(src.noticeVersion ? { acknowledge: src.noticeVersion } : {}) } });
         on = true;
       } catch (err) {
+        forgetSwitch(src.id);
         toast(err?.message ?? "It could not be turned on", { tone: "error" });
       } finally {
         pending.delete(src.id);
       }
     }
-    if (on) toast(`${src.name} is on. Its answers are labelled ${classLabel(src.class, src.delaySec)}.`);
+    if (on) {
+      showAs(src.id, true);
+      toast(`${src.name} is on. Its answers are labelled ${classLabel(src.class, src.delaySec)}.`);
+    } else paintSources();
     await poller.tick();
+    if (on) settle();
   }
 
   async function runTest(el) {
@@ -504,7 +523,7 @@ export async function renderProviders() {
     } else if (!free.length) {
       gridEmpty.replaceChildren(emptyState("sources", "No free sources here yet", "A source is a small read-only module. When one is installed it appears here, off, until you turn it on.", null));
     }
-    list.sync(free, { reorder: false });
+    list.sync(withSwitches(free), { reorder: false });
     if (typeof autoFallback === "boolean") {
       fallbackRow.hidden = false;
       setText(fallbackRow, autoFallback ? "Automatic fallback is on: when your broker cannot answer, the Bridge may try these sources and labels the result." : "Automatic fallback is off: the Bridge asks these sources only when a call says it accepts delayed data.");

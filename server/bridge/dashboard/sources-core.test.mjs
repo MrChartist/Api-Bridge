@@ -608,3 +608,34 @@ describe("provider cards", () => {
     expect(C.tierText("byok")).toBe("Needs your own key");
   });
 });
+
+describe("a switch you just made", () => {
+  const rows = () => [{ id: "a", enabled: false, health: { state: "disabled" } }, { id: "b", enabled: true, health: { state: "ok" } }];
+
+  it("shows the new state at once, even while the Bridge still reports the old one", () => {
+    C.rememberSwitch("a", true, 1000);
+    const [a, b] = C.withSwitches(rows(), 1100);
+    expect(a).toMatchObject({ enabled: true, health: { state: "ok" } });
+    expect(b).toEqual(rows()[1]);
+    C.rememberSwitch("b", false, 1000);
+    expect(C.withSwitches(rows(), 1100)[1]).toMatchObject({ enabled: false, health: { state: "disabled" } });
+    C.forgetSwitch("a");
+    C.forgetSwitch("b");
+  });
+
+  it("lets go once the Bridge agrees, and corrects itself when the Bridge still disagrees after the grace", () => {
+    C.rememberSwitch("a", true, 1000);
+    const agreed = [{ id: "a", enabled: true, health: { state: "ok" } }];
+    expect(C.withSwitches(agreed, 1200)).toEqual(agreed);
+    // Agreement forgot the switch: a later disagreement is the Bridge's own news.
+    expect(C.withSwitches(rows(), 1300)[0].enabled).toBe(false);
+
+    C.rememberSwitch("a", true, 1000);
+    expect(C.withSwitches(rows(), 1000 + C.SWITCH_GRACE_MS + 1)[0].enabled).toBe(false);
+    expect(C.withSwitches(rows(), 1000 + C.SWITCH_GRACE_MS + 2)[0].enabled).toBe(false);
+  });
+
+  it("passes a missing list through", () => {
+    expect(C.withSwitches(null)).toBeNull();
+  });
+});

@@ -106,6 +106,7 @@ export function segmented(label, options, initial = options[0][0]) {
     pick(buttons[(i + step + buttons.length) % buttons.length].dataset.value, true);
   });
   el.append(thumb, ...buttons);
+  edgeFades(el);
   Object.defineProperty(el, "value", { get: () => value, set: (v) => pick(String(v), false) });
   pick(initial, false);
   return el;
@@ -195,7 +196,7 @@ export const PAGES = [
     defaultTab: "overview",
     tabs: [
       {
-        id: "overview", label: "Overview", page: "sources", sub: "How much room your brokers and sources have, what is using it, and why a request went where it did", command: "Sources and rate limits", icon: "sources", tint: "teal", keywords: "sources limits rate limits budget usage room health forecast throttle pooled requests recent", render: renderSourcesOverview,
+        id: "overview", label: "Overview", page: "sources", sub: "How much room your brokers and sources have, and why requests go where they do", command: "Sources and rate limits", icon: "sources", tint: "teal", keywords: "sources limits rate limits budget usage room health forecast throttle pooled requests recent", render: renderSourcesOverview,
         extras: [{ id: "trace", label: "Why this source?", route: "sources/overview?trace=1", keywords: "route trace explain source why which broker answered", sub: "Sources › Overview › Route trace" }],
       },
       { id: "providers", label: "Providers", page: "providers", sub: "Your brokers and the free and key-based sources you can turn on", command: "Data providers", icon: "sources", tint: "teal", keywords: "providers free sources key yahoo delayed pooling brokers terms notice switch", render: renderSourcesProviders },

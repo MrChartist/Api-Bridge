@@ -665,7 +665,7 @@ export async function renderTradesPage() {
     icon("download"),
     "Export CSV",
   );
-  const stat = (label, value, subText, tip) => h("div", { class: "card stat ob-stat" }, h("div", { class: "stat-head" }, h("span", { class: "label", title: tip }, label)), h("div", { class: "value" }, value), h("div", { class: "sub" }, subText));
+  const stat = (label, value, subText, tip) => h("div", { class: "card ob-stat" }, h("span", { class: "label", title: tip }, label), h("div", { class: "value" }, value), h("div", { class: "sub" }, subText));
   const today = () => istDayOf(Date.now());
 
   function draw() {
