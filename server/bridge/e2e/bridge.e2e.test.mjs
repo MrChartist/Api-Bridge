@@ -56,7 +56,7 @@ describe("Mr. Chartist API Bridge end to end", () => {
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toMatch(/text\/html/);
     expect(page.headers.get("content-security-policy")).toMatch(/script-src 'self'/);
-    expect(page.text).toMatch(/Mr\. Chartist API Bridge/);
+    expect(page.text).toMatch(/<title>API Bridge<\/title>/);
     expect((await bridge.http("/dashboard/app.js")).headers.get("content-type")).toMatch(/javascript/);
     expect((await bridge.http("/dashboard/..%2Fapp.mjs")).status).toBe(404);
   });

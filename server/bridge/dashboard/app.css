@@ -379,7 +379,6 @@ html {
   text-size-adjust: 100%;
   background: hsl(var(--background));
   scroll-padding-top: calc(var(--toolbar-h) + var(--safe-t) + 16px);
-  scrollbar-gutter: stable;
 }
 html.sheet-open { overflow: hidden; }
 body {
