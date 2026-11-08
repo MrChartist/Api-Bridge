@@ -1,16 +1,15 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
 // except small conveniences in localStorage (theme, density, the last tab of each page).
-import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, meterRow, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
+import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
 import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
-import { DASH, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
+import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
 import { configureOrdersBook, fundsSection, ordersBook, pendingSection, renderTradesPage, sidePill } from "./orders-book.js";
-import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,7 +28,6 @@ const busy = (b, on) => {
   if (on) b.setAttribute("aria-busy", "true");
   else b.removeAttribute("aria-busy");
 };
-const scopeChip = (s) => h("span", { class: `chip scope-${s}` }, s);
 /** Sentence case for a status word from the API ("filled" → "Filled"). */
 export const cap = (s) => (s ? `${String(s)[0].toUpperCase()}${String(s).slice(1)}` : DASH);
 const sum = (o) => Object.values(o ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -168,11 +166,6 @@ export function keepFocus(container, fn) {
   restoreFocus(container, sig);
   return r;
 }
-async function keepFocusAsync(container, fn) {
-  const sig = focusSignature(container);
-  await fn();
-  restoreFocus(container, sig);
-}
 function focusSignature(container) {
   const a = document.activeElement;
   if (!a || a === document.body || !container.contains(a)) return null;
@@ -202,39 +195,39 @@ const INTEGRATION_TOOLS = [
 /**
  * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the Ctrl K palette
  * `group` is the sidebar group, `tint` an iOS system
- * colour name (the page's glyph colour everywhere), `key` the curated Ctrl 1 to Ctrl 9 shortcut, `tab: true` puts it in the
+ * colour name (the page's glyph colour everywhere), `key` the Ctrl 1 to Ctrl 4 shortcut (one per page), `tab: true` puts it in the
  * phone tab bar (`short` labels it there),  `headline` is the large title when it differs from `title`. A page with `tabs` is one page with a tab strip: each tab names the page id it renders as (`page`, the
  * `:root[data-page]` value that scopes its CSS and the id older links used), may set its own `sub`, and `command` is its
  * Ctrl K label; `extras` are further Ctrl K destinations inside it.
  */
 export const PAGES = [
-  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, key: 1, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   {
-    id: "api", label: "API", icon: "keys", tint: "pink", tab: true, key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
+    id: "api", label: "API", icon: "keys", tint: "pink", tab: true, key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
     defaultTab: "keys",
     tabs: [
-      { id: "keys", label: "Keys", page: "keys", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
+      { id: "keys", label: "Keys", page: "keys", sub: "One key per tool, with only the access it needs", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
       {
-        id: "integrations", label: "Integrations", page: "integrations", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
+        id: "integrations", label: "Integrations", page: "integrations", sub: "Connect Excel, a script, an AI assistant or a webhook", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
         extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
       },
-      { id: "console", label: "Test console", page: "console", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
-      { id: "limits", label: "Rate limits", page: "limits", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
+      { id: "console", label: "Test console", page: "console", sub: "Try any call and see what a script would get back", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
+      { id: "limits", label: "Rate limits", page: "limits", sub: "How much of each broker's call budget is in use", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
       {
-        id: "activity", label: "Activity", page: "activity", command: "Activity", icon: "activity", tint: "gray", keywords: "activity requests log", render: renderActivity,
+        id: "activity", label: "Activity", page: "activity", sub: "Every request the Bridge handled, and its audit log", command: "Activity", icon: "activity", tint: "gray", keywords: "activity requests log", render: renderActivity,
         extras: [{ id: "audit", label: "Audit log", route: "api/activity?view=audit", keywords: "audit log hash chain tamper", sub: "API › Activity › Audit log" }],
       },
     ],
   },
   {
-    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 5, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
+    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 3, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
     defaultTab: "book",
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
       { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
     ],
   },
-  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, key: 4, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
 ];
 
 /** Old page ids that became tabs: an old link or bookmark opens the tab, keeping its ?query. */
@@ -478,7 +471,7 @@ function accountPopover(trigger) {
   const body = h(
     "div",
     { class: "acct-pop" },
-    h("div", { class: "acct-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
+    h("div", { class: "acct-pop-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
     h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-appearance" }, "Appearance"), appearanceControl("acct-appearance")),
     h("section", { class: "group density-ctl" }, h("h3", { class: "group-title", id: "acct-density" }, "Density"), densityControl("acct-density")),
     h(
@@ -603,6 +596,8 @@ async function show(opts) {
   $("page-sub").textContent = tab?.sub ?? page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
   const seq = ++renderSeq;
+  // A redraw replaces the page's controls (the tab strip too): remember which one had focus, put it back when it is done.
+  const focusId = root.contains(document.activeElement) && document.activeElement.id ? document.activeElement.id : null;
   // Its first reads may paint from what the dashboard already has (app.js api), then refresh behind it.
   if (!reload) beginNavigation(route.view);
   redrawnFor = reload ? seq : 0;
@@ -632,6 +627,8 @@ async function show(opts) {
     const target = pendingFocus === true ? null : root.querySelector(pendingFocus);
     pendingFocus = null;
     (target ?? root).focus({ preventScroll: !target });
+  } else if (focusId && (!document.activeElement || document.activeElement === document.body)) {
+    document.getElementById(focusId)?.focus({ preventScroll: true });
   }
   if (changed) window.scrollTo({ top: 0 });
   const anim = motionHooks?.animatePage;
@@ -863,11 +860,6 @@ export async function startRouter() {
   }
   window.addEventListener("hashchange", show);
   show();
-}
-
-/** A metric card: tinted icon and label, the figure, a footnote. */
-function stat(label, value, sub, glyph, tint) {
-  return h("section", { class: "card stat" }, h("div", { class: "stat-head" }, glyph ? iconTile(glyph, tint, "sm") : null, h("span", { class: "label" }, label)), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub));
 }
 
 // ── Accounts ──
@@ -1638,8 +1630,8 @@ function brokerCatalog(list, ctx) {
 function acctSection(id, title, sub, actions, ...body) {
   return h(
     "section",
-    { class: "acct-section", "aria-labelledby": id, "data-fixed": "" },
-    h("header", { class: "acct-head" }, h("div", { class: "acct-head-titles" }, h("h2", { id }, title), sub ? h("p", {}, sub) : null), actions ? h("div", { class: "acct-head-actions" }, actions) : null),
+    { class: "sec", "aria-labelledby": id, "data-fixed": "" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id }, title), sub ? h("p", {}, sub) : null), actions ? h("div", { class: "sec-acts" }, actions) : null),
     ...body,
   );
 }
@@ -1678,7 +1670,7 @@ async function renderAccounts() {
     "acct-h-accounts",
     "Your accounts",
     null,
-    h("div", { class: "row nowrap" }, excel, addBtn()),
+    h("div", { class: "row nowrap" }, excel, addBtn(accs.length ? "primary small" : "tinted small")),
     accs.length
       ? h("div", { class: "list acct-list", role: "list", "aria-labelledby": "acct-h-accounts" }, rows)
       : h("div", { class: "card" }, emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addBtn("primary"))),
@@ -2194,6 +2186,8 @@ async function renderOrders() {
   const accs = accounts.data?.data ?? [];
   const byId = new Map(accs.map((a) => [a.id, a]));
   const send = () => (location.hash = "#/api/console?endpoint=order");
+  // Paper orders are priced from a data source: the demo, or any connected broker account. Without one the console answers 404.
+  const canSend = Boolean(app.state.demo) || accs.some((a) => a.broker !== "paper");
 
   // What waits for a person, first and unmistakable; then the day's orders; then the money behind them (it fills in
   // as each account answers, so a slow broker never holds the page).
@@ -2205,7 +2199,7 @@ async function renderOrders() {
     setup: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
     retry: () => show({ refresh: true }),
   });
-  const book = ordersBook({ ord: orders.data?.data ?? [], error: orders.error ?? null, byId, actions: orderActions, refresh: () => show(), send });
+  const book = ordersBook({ ord: orders.data?.data ?? [], error: orders.error ?? null, byId, actions: orderActions, refresh: () => show(), send, canSend });
   const funds = fundsSection(accs);
 
   // A ticket or an order that arrives while the page is open shows up without a reload (and the nav count follows).
@@ -2455,8 +2449,8 @@ async function renderSafety() {
   });
   const limits = h(
     "section",
-    { class: "sf-sec", "aria-labelledby": "sf-lim-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-lim-h" }, "Daily limits"), h("p", { class: "sf-sec-sub" }, `Per account, for the IST day ${s.day ?? ""}. The figures add paper and live orders.`))),
+    { class: "sec", "aria-labelledby": "sf-lim-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-lim-h" }, "Daily limits"), h("p", {}, `Per account, for the IST day ${s.day ?? ""}. The figures add paper and live orders.`))),
     limitCards.length ? h("div", { class: "sf-lim-grid" }, limitCards) : h("div", { class: "sf-card" }, emptyState("safety", "No accounts", "Daily limits appear once an account is configured.", nextStep("Go to Accounts", "#/accounts"), { compact: true })),
   );
 
@@ -2464,8 +2458,8 @@ async function renderSafety() {
   const answer = (v) => (v === "yes" ? pill("Yes", "ok") : v === "no" ? pill("No") : pill("Per order", "info"));
   const liveGroup = h(
     "section",
-    { class: "sf-sec", "aria-labelledby": "sf-live-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-live-h" }, "Live trading"), h("p", { class: "sf-sec-sub" }, "A live order needs all five. Nothing in the API, a webhook or an AI tool can switch live trading on.")), h("div", { class: "sf-sec-acts" }, s.liveTrading ? pill("On", "bad") : pill("Off: paper only"))),
+    { class: "sec", "aria-labelledby": "sf-live-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-live-h" }, "Live trading"), h("p", {}, "A live order needs all five. Nothing in the API, a webhook or an AI tool can switch live trading on.")), h("div", { class: "sec-acts" }, s.liveTrading ? pill("On", "bad") : pill("Off: paper only"))),
     h("div", { class: "list" }, liveConditions(s).map((c) => h("div", { class: "list-row static sf-cond" }, h("span", { class: "names" }, h("span", { class: "nm" }, c.text), c.detail ? h("span", { class: "sub" }, c.detail) : null), answer(c.value)))),
     demo ? h("div", { class: "alert info sf-demo-note" }, icon("info"), h("div", {}, h("strong", {}, "Demo mode forces live trading off."))) : null,
   );
@@ -2487,8 +2481,8 @@ async function renderSafety() {
   });
   const audit = h(
     "section",
-    { class: "sf-sec", "aria-labelledby": "sf-audit-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-audit-h" }, "Audit log"), h("p", { class: "sf-sec-sub" }, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."))),
+    { class: "sec", "aria-labelledby": "sf-audit-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-audit-h" }, "Audit log"), h("p", {}, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."))),
     h("div", { class: "list" }, h("div", { class: "list-row static sf-audit-row" }, iconTile("activity", "indigo", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Hash chain"), h("span", { class: "sub" }, "Admin key, this computer only")), verifyBtn)),
     verifyOut,
   );
@@ -2701,7 +2695,7 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
 
 async function renderKeys() {
   const root = h("div", { class: "api-tab ak" });
-  const createdBox = h("div", { class: "ak-created", "aria-live": "polite" });
+  const createdBox = h("div", { class: "ak-created" });
   const cols = h("div", { class: "ak-cols" });
   root.append(createdBox, cols);
   const ownId = String(currentKey() ?? "").split("_")[1] ?? null;
@@ -2725,7 +2719,9 @@ async function renderKeys() {
     const caps = h("div", { class: "ak-caps", "aria-live": "polite" });
     const acct = h("select", { id: "key-accounts" }, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, `${a.label} (${a.id})`)));
     const expires = segmented("Expires", [["", "Never"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]], "");
-    const urlUse = h("input", { type: "checkbox", id: "key-url", role: "switch" });
+    const urlUse = h("input", { type: "checkbox", id: "key-url", role: "switch", "aria-describedby": "key-url-warn" });
+    const urlWarn = h("p", { id: "key-url-warn", class: "ak-url-warn", role: "status" });
+    const drawUrlWarn = () => (urlWarn.textContent = urlUse.checked ? "A key in a URL shows in the address bar, in the spreadsheet and in browser history. Keep it read only, give it an expiry, and revoke it when you are done." : "");
     const summary = h("p", { class: "ak-summary", "aria-live": "polite" });
     const createBtn = h("button", { type: "button", class: "primary lg full" }, icon("plus"), "Create key");
     // What the person changed by hand is kept when they pick another tool; the rest follows the tool.
@@ -2735,7 +2731,7 @@ async function renderKeys() {
       access.addEventListener(ev, () => (touched.scope = true));
       expires.addEventListener(ev, () => (touched.expires = true));
     }
-    urlUse.addEventListener("change", () => (touched.url = true));
+    urlUse.addEventListener("change", () => ((touched.url = true), drawUrlWarn()));
     const drawCaps = () => {
       const lvl = ACCESS_LEVELS.find((a) => a.value === access.value) ?? ACCESS_LEVELS[0];
       const list = (cls, head, items, glyph) => h("div", { class: `ak-caps-col ${cls}` }, h("h4", {}, head), h("ul", {}, items.map((t) => h("li", {}, icon(glyph), h("span", {}, t)))));
@@ -2754,6 +2750,7 @@ async function renderKeys() {
       if (!touched.scope) access.value = u.scopes.join(",");
       if (!touched.expires) expires.value = u.expiresDays ? String(u.expiresDays) : "";
       if (!touched.url) urlUse.checked = u.allowQuery;
+      drawUrlWarn();
       drawCaps();
       drawSummary();
     }
@@ -2870,7 +2867,7 @@ async function renderKeys() {
           "div",
           { class: "ak-step" },
           h("h3", {}, h("span", { class: "ak-n", "aria-hidden": "true" }, "2"), "Check what it can do"),
-          h("div", { class: "stack" }, h("label", { class: "field", for: "key-label" }, h("span", {}, "Name"), label), segField("Access", access, { wide: true }), caps, h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct), segField("Expires", expires, { wide: true }), h("label", { class: "ak-switch", for: "key-url" }, h("span", { class: "names" }, h("strong", {}, "Allow in URLs"), h("span", { class: "hint" }, "For Excel and Google Sheets, which can only send a key in the address (?key=). Read only keys.")), h("span", { class: "switch" }, urlUse, h("i")))),
+          h("div", { class: "stack" }, h("label", { class: "field", for: "key-label" }, h("span", {}, "Name"), label), segField("Access", access, { wide: true }), caps, h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct), segField("Expires", expires, { wide: true }), h("label", { class: "ak-switch", for: "key-url" }, h("span", { class: "names" }, h("strong", {}, "Allow in URLs"), h("span", { class: "hint" }, "For Excel and Google Sheets, which can only send a key in the address (?key=). Read only keys.")), h("span", { class: "switch" }, urlUse, h("i"))), urlWarn),
         ),
         h("div", { class: "ak-go" }, summary, formErr, createBtn),
       ),
@@ -3062,7 +3059,7 @@ async function renderActivity() {
   let view = hashParams().get("view") === "audit" ? "audit" : "requests";
   const seg = segmented("Log", [["requests", "Requests"], ["audit", "Audit log"]], view);
   const body = h("div", { class: "aa-body" });
-  const head = h("div", { class: "aa-head" }, seg);
+  const head = h("div", { class: "aa-head" }, h("h2", { class: "sr-only" }, "Activity"), seg);
   root.append(head, body);
   let token = 0;
   seg.addEventListener("change", () => {

@@ -7,7 +7,7 @@
  *    endpoint. The fill rules are in fillModel.mjs (docs/ARCHITECTURE.md §7).
  *  - Order states: open, trigger_pending, filled, cancelled, rejected, expired. Fills are whole (v1).
  *  - Positions per (symbol, product) with average price and realised/unrealised P&L; funds with approximate margin
- *    blocking: F&O legs are margined together per underlying (dashboard/span-margin.js, an approximate SPAN-like scan
+ *    blocking: F&O legs are margined together per underlying (calc/span-margin.js, an approximate SPAN-like scan
  *    plus exposure, so hedges get their benefit), equity by percentage; INTRADAY positions and orders are squared off at the configured IST time (15:20 for NSE/BSE).
  *  - State per account in <dataDir>/paper/<accountId>.json, written atomically after every change (paperStore.mjs),
  *    and restored on start, including pending orders, which keep being evaluated.
@@ -33,7 +33,7 @@ import { isStub } from "../core/contracts.mjs";
 import { applyFill, brokerageFor, evaluate, isTickMultiple, marginFor, marketFillPrice, round2, round4, stopTriggered } from "./fillModel.mjs";
 import { ACCOUNT_ID_RE, STATE_VERSION, createFileStore } from "./paperStore.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
-import { SPAN_METHOD, SPAN_PARAMS, marginRequired, portfolioMargin, standaloneMargin } from "../dashboard/span-margin.js";
+import { SPAN_METHOD, SPAN_PARAMS, marginRequired, portfolioMargin, standaloneMargin } from "../calc/span-margin.js";
 import { istDay, istDayCompact, istTimeOnDay, toIstIso } from "./time.mjs";
 
 export const PENDING = Object.freeze(["open", "trigger_pending"]);

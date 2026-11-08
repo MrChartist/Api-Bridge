@@ -11,7 +11,7 @@
  *    session a seeded Brownian bridge from the previous close to the day's close; outside the session the price holds
  *    at the last close with a tiny wiggle), so the same instant always gives the same price, history candles and live
  *    quotes agree, and ticks keep moving even when the real market is shut;
- *  - option chains: Black-76 prices on the vol-time clock (dashboard/pricing.js, the same core the server and pages
+ *  - option chains: Black-76 prices on the vol-time clock (calc/pricing.js, the same core the server and pages
  *    use) from a smile around a time-varying IV level anchored to the demo's own realised vol, with open interest
  *    peaking near the money that changes through the day (whole lots), and bid/ask sizes; ±45 strikes per chain;
  *    INDIA VIX (Demo) follows NIFTY's 30-day IV;
@@ -27,7 +27,7 @@ export const DEMO_BROKER_ID = "demo";
 export const DEMO_BROKER_NAME = "Demo market data (sample, not live)";
 export const DEMO_NOTICE = "Demo data: sample prices generated on this computer. Not live market data; no broker is connected.";
 
-import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
+import { black76, realisedVol, volTime } from "../calc/pricing.js";
 import { DEFAULT_RATE, DEFAULT_SESSIONS } from "../reference/defaults.mjs";
 import { DEMO_STOCK_LOT, demoCalendar, demoLotFor } from "../reference/demoTables.mjs";
 import { clockSettings } from "../vol/config.mjs";
@@ -503,7 +503,7 @@ const MIN_SMILE_YEARS = 1 / CAL_DAYS;
 
 /**
  * Demo option price at `t`: Black-76 on F = S·e^(r·Tcal), discounted by e^(−r·Tcal), with σ√T on the vol-time clock
- * (dashboard/pricing.js) and σ from the smile at the day's IV level. The pricing engine therefore recovers the demo
+ * (calc/pricing.js) and σ from the smile at the day's IV level. The pricing engine therefore recovers the demo
  * smile vol (up to tick rounding). After the settlement the price is intrinsic (never below one tick).
  */
 export function optionPrice(symbol, expiry, strike, right, t) {

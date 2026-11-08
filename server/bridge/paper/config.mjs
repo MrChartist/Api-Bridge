@@ -80,7 +80,7 @@ export const PAPER_CONFIG_SCHEMA = z
       .object({
         /**
          * "portfolio" (default): F&O legs are margined together per underlying with the approximate SPAN-like scan in
-         * dashboard/span-margin.js, so hedges get their benefit. "simple": every leg on its own with the percentages
+         * calc/span-margin.js, so hedges get their benefit. "simple": every leg on its own with the percentages
          * below (the model before October 2026). Equity always uses the percentages.
          */
         model: z.enum(["portfolio", "simple"]).default("portfolio"),

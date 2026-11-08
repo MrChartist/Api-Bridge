@@ -1,7 +1,7 @@
 # Paper margin: how the Bridge estimates it
 
 **Approximate, not the exchange's SPAN.** The paper engine, the order preview and the margin route all use one function,
-`portfolioMargin()` in `server/bridge/dashboard/span-margin.js`, so they always agree. Your broker's figure is the one that counts for live orders.
+`portfolioMargin()` in `server/bridge/calc/span-margin.js`, so they always agree. Your broker's figure is the one that counts for live orders.
 
 ## What it does
 

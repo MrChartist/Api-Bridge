@@ -1,6 +1,6 @@
 /** `vol` config section. */
 import { describe, expect, it } from "vitest";
-import { yearBasisOf } from "../dashboard/pricing.js";
+import { yearBasisOf } from "../calc/pricing.js";
 import { clockSettings, parseVolConfig } from "./config.mjs";
 
 describe("vol config", () => {

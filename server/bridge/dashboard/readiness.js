@@ -6,7 +6,7 @@
 // readiness.test.mjs; DOM code runs only in a browser. Numbers become text through format.js only. Copy is descriptive:
 // what was checked and where the fact came from, never advice. Every reading is local: the badge polls
 // GET /v1/readiness, which answers from the monitor's cache and never calls a broker.
-import { api, app, codeBlock, h, icon, iconTile, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
+import { api, app, codeBlock, h, icon, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
 import { DASH, formatInt, formatRupeeGrouped, isFigure } from "./format.js";
 
 /** How often the badge reads /v1/readiness while the tab is visible. */
@@ -729,14 +729,14 @@ export function readinessSection({ demo = false, initial = { snap: null, history
   const checks = h("div", { class: "sf-checks" });
   const aside = h("div", { class: "sf-aside" });
   const pillSlot = h("span", { class: "sf-head-pill" });
-  const sub = h("p", { class: "sf-sec-sub" });
+  const sub = h("p");
   const announce = h("span", { class: "sr-only", role: "status" });
   const checkBtn = h("button", { type: "button", class: "tinted" }, icon("refresh"), "Check now");
   const working = h("span", { class: "sf-working", hidden: true }, "Checking…");
   const main = h(
     "section",
-    { class: "sf-sec sf-ready", "aria-labelledby": "sf-ready-h" },
-    h("header", { class: "sf-sec-head" }, h("div", { class: "sf-sec-titles" }, h("h2", { id: "sf-ready-h" }, "Trading readiness"), sub), h("div", { class: "sf-sec-acts" }, working, pillSlot, checkBtn)),
+    { class: "sec sf-ready", "aria-labelledby": "sf-ready-h" },
+    h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-ready-h" }, "Trading readiness"), sub), h("div", { class: "sec-acts" }, working, pillSlot, checkBtn)),
     h("div", { class: "sf-ready-grid" }, checks, aside),
     announce,
   );
@@ -798,14 +798,14 @@ export function readinessSection({ demo = false, initial = { snap: null, history
           }),
         )
       : h("p", { class: "sf-note" }, "Nothing yet. A change is recorded when an account moves between Ready, Check and Cannot trade.");
-    return h("section", { class: "sf-group", "aria-labelledby": "sf-hist-h" }, h("h3", { class: "sf-group-title", id: "sf-hist-h" }, "Recent changes"), h("div", { class: "sf-card" }, body));
+    return h("section", { class: "group", "aria-labelledby": "sf-hist-h" }, h("h3", { class: "group-title", id: "sf-hist-h" }, "Recent changes"), h("div", { class: "sf-card" }, body));
   }
   function howChecked(snap) {
     const eg = egressModel(snap);
     const parts = methodParts(snap.method);
     return h(
       "section",
-      { class: "sf-group" },
+      { class: "group" },
       h(
         "div",
         { class: "sf-card sf-disc-card" },
@@ -870,6 +870,6 @@ export function readinessSection({ demo = false, initial = { snap: null, history
     );
     d.open = open;
     d.addEventListener("toggle", () => (d.open ? state.open.add("demo-tools") : state.open.delete("demo-tools")));
-    return h("section", { class: "sf-group sf-demo" }, h("div", { class: "sf-card sf-disc-card" }, d));
+    return h("section", { class: "group sf-demo" }, h("div", { class: "sf-card sf-disc-card" }, d));
   }
 }

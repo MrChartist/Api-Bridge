@@ -218,7 +218,7 @@ function ticketCard(t, byId, { review, onDecline }) {
  * @returns {{ el: HTMLElement, update: (tickets: object[]|null, error?: object|null) => void }}
  */
 export function pendingSection({ tickets, error, byId, review, setup, retry }) {
-  const el = h("section", { class: "ob-pending", "aria-label": "Pending confirmations", "data-fixed": "" });
+  const el = h("section", { class: "sec ob-pending", "aria-label": "Pending confirmations", "data-fixed": "" });
   const live = h("p", { class: "sr-only", role: "status", "aria-live": "polite" });
   let signature = null;
   let shown = [];
@@ -246,7 +246,7 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
       }
       const n = shown.length;
       el.replaceChildren(
-        h("header", { class: "ob-sec-head" }, h("h2", {}, "Waiting for your confirmation"), h("span", { class: "pill info" }, `${formatInt(n)} waiting`), h("p", {}, "Check every field. Nothing is sent until you confirm, and a request that is not confirmed in time expires on its own.")),
+        h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Waiting for your confirmation"), h("p", {}, "Check every field. Nothing is sent until you confirm, and a request that is not confirmed in time expires on its own.")), h("div", { class: "sec-acts" }, h("span", { class: "pill info" }, `${formatInt(n)} waiting`))),
         h("div", { class: "ob-tickets" }, ...shown.map((t) => ticketCard(t, byId, { review, onDecline }))),
         live,
       );
@@ -303,7 +303,7 @@ const curlExample = (account) =>
 function rowMenu(o, { modify, cancel }) {
   const name = contractName(o.symbol);
   const working = ["pending", "open", "trigger_pending", "partially_filled"].includes(o.status);
-  const btn = h("button", { type: "button", class: "icon-btn ob-more", "data-fid": `menu:${o.orderId}`, "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${o.side === "BUY" ? "buy" : "sell"} ${name}` }, icon("more"));
+  const btn = h("button", { type: "button", class: "icon-btn ob-more", "data-fid": `menu:${o.orderId}`, "aria-haspopup": "dialog", "aria-expanded": "false", "aria-label": `Actions for ${o.side === "BUY" ? "buy" : "sell"} ${name}, ${o.quantity != null ? `${o.quantity} qty, ` : ""}${istTime(o.placedAt)}` }, icon("more"));
   btn.addEventListener("click", () => {
     btn.setAttribute("aria-expanded", "true");
     let handle = null;
@@ -364,7 +364,7 @@ const ordersHead = () =>
  * `actions(o)` gives { modify, cancel } for the row menu. `update(list)` redraws with fresh orders, keeping the filters.
  * @param {{ ord: object[], error: object|null, byId: Map<string, { label: string, id: string, broker?: string }>, actions: (o: object) => { modify: () => void, cancel: () => void }, refresh: () => void, send: () => void }} o
  */
-export function ordersBook({ ord, error, byId, actions, refresh, send }) {
+export function ordersBook({ ord, error, byId, actions, refresh, send, canSend = true }) {
   const f = loadFilters();
   const labelOf = (id) => byId.get(id)?.label ?? id;
   let list = ord;
@@ -400,9 +400,13 @@ export function ordersBook({ ord, error, byId, actions, refresh, send }) {
       { class: "empty ob-empty" },
       iconTile("orders", "gray", "lg"),
       h("strong", {}, "No orders today"),
-      h("p", {}, "Orders placed through the API, a webhook or an AI assistant show up here as they happen. To try one without risk, send a paper order."),
-      h("div", { class: "empty-acts" }, h("button", { type: "button", class: "primary small", onclick: send }, "Send a paper order")),
-      h("div", { class: "ob-empty-code" }, codeBlock(curlExample(firstPaper), { title: "Or place one with the API (paper)" })),
+      canSend
+        ? h("p", {}, "Orders placed through the API, a webhook or an AI assistant show up here as they happen. To try one without risk, send a paper order.")
+        : h("p", {}, "Orders show up here as they happen. A paper order needs prices to check it against, and no broker or demo is connected yet."),
+      canSend
+        ? h("div", { class: "empty-acts" }, h("button", { type: "button", class: "primary small", onclick: send }, "Send a paper order"))
+        : h("div", { class: "empty-acts" }, h("a", { class: "btn primary small", href: "#/accounts" }, "Add a broker or run demo")),
+      canSend ? h("div", { class: "ob-empty-code" }, codeBlock(curlExample(firstPaper), { title: "Or place one with the API (paper)" })) : null,
     );
   const quiet = (err) => h("div", { class: "card-body" }, alertBox(err), h("div", { class: "alert-actions ob-retry" }, h("button", { type: "button", class: "small", onclick: refresh }, "Try again")));
 
@@ -418,9 +422,9 @@ export function ordersBook({ ord, error, byId, actions, refresh, send }) {
       else body.replaceChildren(h("div", { class: "ob-table", role: "table", "aria-label": "Today's orders" }, ordersHead(), h("div", { class: "ob-rows", role: "rowgroup" }, ...rows.map((o) => orderRow(o, { labelOf, actions })))));
     });
     bar.hidden = Boolean(error) || !list.length;
-    sendBtn.hidden = !list.length;
+    sendBtn.hidden = !list.length || !canSend;
   }
-  const sendBtn = h("button", { type: "button", class: "small tinted", onclick: send }, icon("plus"), "Send a paper order");
+  const sendBtn = h("button", { type: "button", class: "small primary", onclick: send }, icon("plus"), "Send a paper order");
   draw();
 
   const el = card({
@@ -579,7 +583,7 @@ export function fundsSection(accs) {
   const list = accs.filter((a) => a.broker !== "demo");
   if (!list.length) return null;
   const grid = h("div", { class: "ob-funds" }, ...list.map(() => skeletonCard(3)));
-  const el = h("section", { class: "ob-funds-sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "ob-sec-head" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it.")), grid);
+  const el = h("section", { class: "sec ob-funds-sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it."))), grid);
   Promise.all(
     list.map(async (a) => {
       const [funds, pos] = await Promise.all([optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`))]);

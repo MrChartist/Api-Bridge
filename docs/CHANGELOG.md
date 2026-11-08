@@ -5,7 +5,7 @@ API changes that need a migration window. Each entry keeps its anchor so `Link` 
 ## paper-margin-portfolio
 
 Paper accounts margin F&O legs together per underlying (`paper.margin.model`, default `"portfolio"`), with the
-approximate SPAN-like scan in `server/bridge/dashboard/span-margin.js` (docs/guides/paper-margin.md). Hedged spreads,
+approximate SPAN-like scan in `server/bridge/calc/span-margin.js` (docs/guides/paper-margin.md). Hedged spreads,
 iron condors and futures-covered shorts now block far less: a NIFTY iron condor about ₹87k instead of ₹5.33L. Paper
 `usedMargin`, `availableCash` and the order preview's `margin.required` change accordingly; a preview now reports
 what the order adds to the book (a hedge can add 0). `"model": "simple"` keeps the per-leg percentages. New:
@@ -16,7 +16,7 @@ what the order adds to the book (a hedge can add 0). `"model": "simple"` keeps t
 `GET /v1/optionchain` gains `ivModel`.
 
 - `ivModel=b76-forward`: every leg's `iv`, `delta`, `gamma`, `theta` and `vega` come from Black-76 on the 5-strike
-  put-call-parity forward, mid prices and the vol-time clock (`server/bridge/dashboard/pricing.js`, the same code the
+  put-call-parity forward, mid prices and the vol-time clock (`server/bridge/calc/pricing.js`, the same code the
   dashboard runs). Theta is per trading-day unit. The broker's own IV, when it sent one, is kept in `brokerIv`. The
   chain carries a `pricing` object (forward, rate, clock). A leg without an IV says why in `ivReason` (`SETTLING`
   inside the expiry-day settlement window, `NOQUOTE`, `TICK`, `INTRINSIC`, `RANGE`, `SETTLED`, `NOFORWARD`).

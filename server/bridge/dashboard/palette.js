@@ -4,7 +4,6 @@ import { app, chooseDensity, chooseTheme, copyText, h, icon, iconTile, lockScrol
 
 /** The modifier shown in every shortcut hint. One label for everyone: the key handler accepts Control or Command alike. */
 export const MOD = "Ctrl";
-export const modKey = () => MOD;
 /**
  * The one helper for shortcut hints. shortcut("K") gives { keys: ["Ctrl", "K"], label: "Ctrl K", aria: "Control+K Meta+K" }:
  * `keys` for kbd(), `label` for a title or visible text, `aria` for aria-keyshortcuts.
@@ -122,6 +121,7 @@ let ctx = null; // { pages, go, refresh }
 let dlg = null;
 let input = null;
 let list = null;
+let say = null;
 let results = [];
 let activeIndex = 0;
 let returnFocus = null;
@@ -208,6 +208,8 @@ function build() {
     spellcheck: "false",
   });
   list = h("ul", { id: "palette-list", class: "palette-list", role: "listbox", "aria-label": "Results" });
+  // What the list says, for screen readers: how many results, or that there are none.
+  say = h("div", { class: "pal-sr-only", role: "status", "aria-live": "polite", "aria-atomic": "true" });
   const footer = h(
     "div",
     { class: "palette-foot", "aria-hidden": "true" },
@@ -222,6 +224,7 @@ function build() {
     { class: "palette", "aria-modal": "true", "aria-label": "Command palette" },
     h("div", { class: "palette-search" }, searchIcon(), input, closeBtn),
     list,
+    say,
     footer,
   );
   input.addEventListener("input", () => {
@@ -293,6 +296,8 @@ function draw() {
   }
   list.replaceChildren(...items);
   markActive();
+  if (q || !results.length) say.textContent = results.length ? `${results.length} ${results.length === 1 ? "result" : "results"}` : `No results for ${q}`;
+  else say.textContent = "";
 }
 
 function markActive() {
@@ -401,7 +406,7 @@ export function showShortcuts() {
       "div",
       { class: "stack shortcuts-sheet" },
       h("table", { class: "shortcuts" }, h("caption", { class: "pal-sr-only" }, "Keyboard shortcuts"), h("thead", { class: "pal-sr-only" }, h("tr", {}, h("th", { scope: "col" }, "Keys"), h("th", { scope: "col" }, "Action"))), h("tbody", {}, rows)),
-      h("p", { class: "muted small" }, "On a Mac, Command works in place of Ctrl. Some browsers keep Ctrl 1 to Ctrl 9 for switching tabs; the search (Ctrl K) always works."),
+      h("p", { class: "muted small" }, "On a Mac, Command works in place of Ctrl. Some browsers keep Ctrl and a number for switching tabs; the search (Ctrl K) always works."),
     ),
     buttons: [{ label: "Done", cls: "primary", value: true }],
   });

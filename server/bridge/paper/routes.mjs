@@ -7,7 +7,7 @@
  *   GET  /v1/paper/accounts/{accountId}/daily    scope read    the daily P&L snapshots (end of day, and on demand)
  *   POST /v1/paper/accounts/{accountId}/daily    scope paper   take today's snapshot now
  *   POST /v1/paper/accounts/{accountId}/margin   scope read    body: { legs: [{ symbol, side, quantity|lots, price? }] }
- *        the basket's margin against the book, portfolio model (dashboard/span-margin.js); nothing is placed
+ *        the basket's margin against the book, portfolio model (calc/span-margin.js); nothing is placed
  *
  * The key must be allowed to use the account (ctx.requireAccountAccess) before anything else happens. A reset is
  * written to the audit log when the audit service is available (it is optional here so the routes work before safety).

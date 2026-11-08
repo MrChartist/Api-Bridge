@@ -236,7 +236,7 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
 
   it("curates the shortcuts", () => {
     const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
-    expect(keys).toEqual({ 5: "orders", 6: "safety", 9: "api" });
+    expect(keys).toEqual({ 1: "accounts", 2: "api", 3: "orders", 4: "safety" });
   });
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
@@ -292,7 +292,7 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
     const cmds = pageCommands(PAGES, "Ctrl");
     const byLabel = Object.fromEntries(cmds.map((c) => [c.label, c]));
     for (const l of ["API keys", "Integrations", "Test console", "Rate limits", "Activity", "Trade book", "Python snippet", "Webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
-    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "9"] });
+    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "2"] });
     expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
     expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
     expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Bridge", "Trade"]);

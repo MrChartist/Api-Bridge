@@ -73,7 +73,7 @@ describe("dashboard number format", () => {
   });
 
   it("no other dashboard file hand-builds a hyphen sign for a figure (MINUS from format.js instead)", () => {
-    for (const f of sourceFiles(["pricing.js", "span-margin.js", "expiry-costs.js"])) {
+    for (const f of sourceFiles()) {
       expect(read(new URL(`./${f}`, import.meta.url), "utf8"), f).not.toMatch(/\? "-" :|: "-"\)|-\$\{(?:format|fmt|rupee|money)|["`]-₹/);
     }
   });
