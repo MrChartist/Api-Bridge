@@ -24,7 +24,7 @@ describe("Create a key", () => {
       // Every snippet a tool points at exists.
       for (const id of u.snippets) expect(snippets({ base: "http://127.0.0.1:4300" })[id], `${u.id} → ${id}`).toBeTruthy();
     }
-    expect(keyUse("excel")).toMatchObject({ scopes: ["read"], allowQuery: true, clientKind: "excel" });
+    expect(keyUse("excel")).toMatchObject({ scopes: ["read"], allowQuery: false, clientKind: "excel" });
     expect(keyUse("python").scopes).toEqual(["paper"]);
   });
 

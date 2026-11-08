@@ -96,11 +96,11 @@ export function clearFieldError(input) {
  * ready-to-paste setups follow the new key (ids from snippets.js).
  */
 export const KEY_USES = Object.freeze([
-  { id: "excel", label: "Excel or Google Sheets", word: "Excel", clientKind: "excel", scopes: ["read"], allowQuery: true, expiresDays: 90, snippets: ["excel"] },
+  { id: "excel", label: "Excel or Google Sheets", word: "Excel", clientKind: "excel", scopes: ["read"], allowQuery: false, expiresDays: 90, snippets: ["excel"] },
   { id: "claude", label: "Claude or another AI assistant", word: "AI", clientKind: "mcp", scopes: ["read"], allowQuery: false, expiresDays: null, snippets: ["claude", "chatgpt"] },
   { id: "python", label: "Python script", word: "Python", clientKind: "script", scopes: ["paper"], allowQuery: false, expiresDays: null, snippets: ["python", "rest"] },
   { id: "node", label: "Node script", word: "Node", clientKind: "script", scopes: ["paper"], allowQuery: false, expiresDays: null, snippets: ["node", "rest"] },
-  { id: "amibroker", label: "AmiBroker", word: "AmiBroker", clientKind: "other", scopes: ["read"], allowQuery: true, expiresDays: 90, snippets: ["amibroker"] },
+  { id: "amibroker", label: "AmiBroker", word: "AmiBroker", clientKind: "other", scopes: ["read"], allowQuery: false, expiresDays: 90, snippets: ["amibroker"] },
   { id: "app", label: "My own app", word: "App", clientKind: "ui", scopes: ["read"], allowQuery: false, expiresDays: null, snippets: ["rest", "node"] },
   { id: "other", label: "Something else", word: "API", clientKind: "other", scopes: ["read"], allowQuery: false, expiresDays: null, snippets: ["rest", "python"] },
 ]);

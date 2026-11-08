@@ -596,6 +596,8 @@ async function show(opts) {
   $("page-sub").textContent = tab?.sub ?? page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
   const seq = ++renderSeq;
+  // A redraw replaces the page's controls (the tab strip too): remember which one had focus, put it back when it is done.
+  const focusId = root.contains(document.activeElement) && document.activeElement.id ? document.activeElement.id : null;
   // Its first reads may paint from what the dashboard already has (app.js api), then refresh behind it.
   if (!reload) beginNavigation(route.view);
   redrawnFor = reload ? seq : 0;
@@ -625,6 +627,8 @@ async function show(opts) {
     const target = pendingFocus === true ? null : root.querySelector(pendingFocus);
     pendingFocus = null;
     (target ?? root).focus({ preventScroll: !target });
+  } else if (focusId && (!document.activeElement || document.activeElement === document.body)) {
+    document.getElementById(focusId)?.focus({ preventScroll: true });
   }
   if (changed) window.scrollTo({ top: 0 });
   const anim = motionHooks?.animatePage;
@@ -2182,6 +2186,8 @@ async function renderOrders() {
   const accs = accounts.data?.data ?? [];
   const byId = new Map(accs.map((a) => [a.id, a]));
   const send = () => (location.hash = "#/api/console?endpoint=order");
+  // Paper orders are priced from a data source: the demo, or any connected broker account. Without one the console answers 404.
+  const canSend = Boolean(app.state.demo) || accs.some((a) => a.broker !== "paper");
 
   // What waits for a person, first and unmistakable; then the day's orders; then the money behind them (it fills in
   // as each account answers, so a slow broker never holds the page).
@@ -2193,7 +2199,7 @@ async function renderOrders() {
     setup: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
     retry: () => show({ refresh: true }),
   });
-  const book = ordersBook({ ord: orders.data?.data ?? [], error: orders.error ?? null, byId, actions: orderActions, refresh: () => show(), send });
+  const book = ordersBook({ ord: orders.data?.data ?? [], error: orders.error ?? null, byId, actions: orderActions, refresh: () => show(), send, canSend });
   const funds = fundsSection(accs);
 
   // A ticket or an order that arrives while the page is open shows up without a reload (and the nav count follows).
@@ -2689,7 +2695,7 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
 
 async function renderKeys() {
   const root = h("div", { class: "api-tab ak" });
-  const createdBox = h("div", { class: "ak-created", "aria-live": "polite" });
+  const createdBox = h("div", { class: "ak-created" });
   const cols = h("div", { class: "ak-cols" });
   root.append(createdBox, cols);
   const ownId = String(currentKey() ?? "").split("_")[1] ?? null;
@@ -2713,7 +2719,9 @@ async function renderKeys() {
     const caps = h("div", { class: "ak-caps", "aria-live": "polite" });
     const acct = h("select", { id: "key-accounts" }, h("option", { value: "*" }, "All accounts"), accs.map((a) => h("option", { value: a.id }, `${a.label} (${a.id})`)));
     const expires = segmented("Expires", [["", "Never"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]], "");
-    const urlUse = h("input", { type: "checkbox", id: "key-url", role: "switch" });
+    const urlUse = h("input", { type: "checkbox", id: "key-url", role: "switch", "aria-describedby": "key-url-warn" });
+    const urlWarn = h("p", { id: "key-url-warn", class: "ak-url-warn", role: "status" });
+    const drawUrlWarn = () => (urlWarn.textContent = urlUse.checked ? "A key in a URL shows in the address bar, in the spreadsheet and in browser history. Keep it read only, give it an expiry, and revoke it when you are done." : "");
     const summary = h("p", { class: "ak-summary", "aria-live": "polite" });
     const createBtn = h("button", { type: "button", class: "primary lg full" }, icon("plus"), "Create key");
     // What the person changed by hand is kept when they pick another tool; the rest follows the tool.
@@ -2723,7 +2731,7 @@ async function renderKeys() {
       access.addEventListener(ev, () => (touched.scope = true));
       expires.addEventListener(ev, () => (touched.expires = true));
     }
-    urlUse.addEventListener("change", () => (touched.url = true));
+    urlUse.addEventListener("change", () => ((touched.url = true), drawUrlWarn()));
     const drawCaps = () => {
       const lvl = ACCESS_LEVELS.find((a) => a.value === access.value) ?? ACCESS_LEVELS[0];
       const list = (cls, head, items, glyph) => h("div", { class: `ak-caps-col ${cls}` }, h("h4", {}, head), h("ul", {}, items.map((t) => h("li", {}, icon(glyph), h("span", {}, t)))));
@@ -2742,6 +2750,7 @@ async function renderKeys() {
       if (!touched.scope) access.value = u.scopes.join(",");
       if (!touched.expires) expires.value = u.expiresDays ? String(u.expiresDays) : "";
       if (!touched.url) urlUse.checked = u.allowQuery;
+      drawUrlWarn();
       drawCaps();
       drawSummary();
     }
@@ -2858,7 +2867,7 @@ async function renderKeys() {
           "div",
           { class: "ak-step" },
           h("h3", {}, h("span", { class: "ak-n", "aria-hidden": "true" }, "2"), "Check what it can do"),
-          h("div", { class: "stack" }, h("label", { class: "field", for: "key-label" }, h("span", {}, "Name"), label), segField("Access", access, { wide: true }), caps, h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct), segField("Expires", expires, { wide: true }), h("label", { class: "ak-switch", for: "key-url" }, h("span", { class: "names" }, h("strong", {}, "Allow in URLs"), h("span", { class: "hint" }, "For Excel and Google Sheets, which can only send a key in the address (?key=). Read only keys.")), h("span", { class: "switch" }, urlUse, h("i")))),
+          h("div", { class: "stack" }, h("label", { class: "field", for: "key-label" }, h("span", {}, "Name"), label), segField("Access", access, { wide: true }), caps, h("label", { class: "field", for: "key-accounts" }, h("span", {}, "Accounts"), acct), segField("Expires", expires, { wide: true }), h("label", { class: "ak-switch", for: "key-url" }, h("span", { class: "names" }, h("strong", {}, "Allow in URLs"), h("span", { class: "hint" }, "For Excel and Google Sheets, which can only send a key in the address (?key=). Read only keys.")), h("span", { class: "switch" }, urlUse, h("i"))), urlWarn),
         ),
         h("div", { class: "ak-go" }, summary, formErr, createBtn),
       ),

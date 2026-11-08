@@ -550,29 +550,69 @@ export function iconTile(name, tint = "blue", size = "md") {
   return h("span", { class: `icon-tile tint-${tint} tile-${size}`, "aria-hidden": "true" }, icon(name));
 }
 
-/** A confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
+/**
+ * A confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`.
+ * Two fixed live regions inside it carry the words: a polite one for a done action, an assertive one for a failure
+ * (a role that changes on one region is not announced reliably). It pauses while the pointer or focus is on it; a
+ * failure stays until dismissed, a caution 8 s, the rest 4 s.
+ */
 export function toast(text, { tone = "ok" } = {}) {
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
   // Tones: "ok" a done action (green check); "info" a refused or not-yet-possible action (neutral ⓘ); "warn" a caution
-  // (amber !); "error" a failure (red !, read out at once, stays a little longer). Never the green check for a problem.
+  // (amber !); "error" a failure (red !, announced at once, stays until dismissed). Never the green check for a problem.
   const kind = TOAST_TONES.has(tone) ? tone : "ok";
   const glyph = kind === "ok" ? "check" : kind === "info" ? "info" : "warn";
   t.dataset.tone = kind;
-  t.setAttribute("role", kind === "error" ? "alert" : "status");
-  t.replaceChildren(h("span", { class: `toast-icon${kind === "ok" ? "" : ` ${kind}`}` }, icon(glyph)), h("span", { class: "toast-text" }, text));
+  const polite = t.querySelector("#toast-polite");
+  const assertive = t.querySelector("#toast-assertive");
+  const [live, other] = kind === "error" ? [assertive, polite] : [polite, assertive];
+  other.replaceChildren();
+  live.replaceChildren(h("span", { class: `toast-icon${kind === "ok" ? "" : ` ${kind}`}` }, icon(glyph)), h("span", { class: "toast-text" }, text));
   t.hidden = false;
   raiseToast(t);
   placeToast(t);
   if (wasHidden) bannerIn(t);
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => {
+  const close = () => {
+    clearTimeout(toast.timer);
     // Hide after sliding out, unless another toast took over meanwhile.
     bannerOut(t).then(() => {
       if (toast.gen === gen) t.hidden = true;
     });
-  }, kind === "error" || kind === "warn" ? 4200 : 2600);
+  };
+  const wait = kind === "error" ? 0 : kind === "warn" ? 8000 : 4000;
+  const arm = (ms) => {
+    clearTimeout(toast.timer);
+    if (ms > 0) toast.timer = setTimeout(close, ms);
+  };
+  arm(wait);
+  toast.arm = (ms) => arm(ms ? Math.max(ms, 2000) : 0);
+  toast.wait = wait;
+  toast.close = close;
+}
+function setupToast() {
+  const t = document.getElementById("toast");
+  if (!t || t.dataset.ready) return;
+  t.dataset.ready = "1";
+  const hold = () => {
+    if (toast.timer) clearTimeout(toast.timer);
+  };
+  const release = () => {
+    if (!t.hidden && toast.wait) toast.arm(toast.wait);
+  };
+  t.addEventListener("pointerenter", hold);
+  t.addEventListener("pointerleave", release);
+  t.addEventListener("focusin", hold);
+  t.addEventListener("focusout", release);
+  t.querySelector(".toast-close")?.addEventListener("click", () => toast.close?.());
+  t.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") toast.close?.();
+  });
+}
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setupToast);
+  else setupToast();
 }
 const TOAST_TONES = new Set(["ok", "info", "warn", "error"]);
 
