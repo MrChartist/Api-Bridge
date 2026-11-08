@@ -6,6 +6,7 @@
  * Rule for missing data: a field the broker did not send is null, never 0 (0 is a real price for nothing and a real
  * open interest). The only exception is a candle's volume, which the contract defines as a number.
  */
+import { dataQuality } from "../sources/contract.mjs";
 import { toIstIso } from "./time.mjs";
 
 /** Finite number or null. Accepts numeric strings (several brokers send them). */
@@ -27,17 +28,34 @@ const round = (n, dp) => {
 };
 
 /**
- * Build a Freshness label.
+ * Build a Freshness label. Besides where an answer came from it says how current the data is (class, delaySec),
+ * whether the source is official, how far to trust it (confidence) and any flags. Broker, stream, paper and cache
+ * answers are realtime, official and high confidence; a source passes its own values for the rest. A realtime
+ * answer served from a stale cache entry keeps its class but gets the flag "stale".
  * @param {{ source: "stream"|"cache"|"broker"|"paper"|"backup", at: number, now: number, targetMs: number, stale?: boolean,
- *   accountId?: string | null, broker?: string | null, provider?: string }} p
+ *   accountId?: string | null, broker?: string | null, provider?: string, class?: "realtime"|"delayed"|"eod",
+ *   delaySec?: number | null, official?: boolean, confidence?: "high"|"medium"|"low", flags?: string[] }} p
  *   stale defaults to "older than the target"; pass it explicitly to force a label (live stream ticks are never stale).
+ *   A "backup" answer with no class given is labelled delayed with an unknown delay, never realtime.
  * @returns {import("../core/contracts.mjs").Freshness}
  */
-export function freshness({ source, at, now, targetMs, stale, accountId = null, broker = null, provider }) {
+export function freshness({ source, at, now, targetMs, stale, accountId = null, broker = null, provider, class: dataClass, delaySec, official, confidence, flags }) {
   const ageMs = Math.max(0, Math.round(now - at));
-  const out = { source, asOf: toIstIso(at), ageMs, stale: stale ?? ageMs > targetMs, accountId: accountId ?? null, broker: broker ?? null };
+  const isStale = stale ?? ageMs > targetMs;
+  const out = { source, asOf: toIstIso(at), ageMs, stale: isStale, accountId: accountId ?? null, broker: broker ?? null };
   if (provider) out.provider = provider;
-  return out;
+  const cls = dataClass ?? (source === "backup" ? "delayed" : "realtime");
+  const given = flags ?? [];
+  const quality = dataQuality({
+    class: cls,
+    delaySec: delaySec ?? null,
+    official: official ?? source !== "backup",
+    confidence: confidence ?? (source === "backup" ? "medium" : "high"),
+    // "stale" (older than its freshness target) is a different label from "delayed" (slow by nature): only a
+    // realtime answer that has gone stale carries the flag.
+    flags: isStale && cls === "realtime" && !given.includes("stale") ? [...given, "stale"] : given,
+  });
+  return { ...out, ...quality };
 }
 
 /**
