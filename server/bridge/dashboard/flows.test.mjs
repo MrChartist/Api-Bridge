@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, modifyChange, riskAfterCharges, sessionText, startupText, ticketRisk } from "./flows.js";
+import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -38,28 +38,6 @@ describe("Create a key", () => {
   it("fills the new key into every setup it shows", () => {
     const s = snippets({ base: "http://127.0.0.1:4300", key: "mcb_abc_secret" });
     for (const id of ["excel", "python", "node", "claude", "rest"]) expect(JSON.stringify(s[id]), id).toContain("mcb_abc_secret");
-  });
-});
-
-describe("Trade ticket risk", () => {
-  it("works out max loss, max profit and breakeven for one option order", () => {
-    expect(ticketRisk({ side: "BUY", right: "CE", strike: 26400, price: 300, qty: 65 })).toEqual({ maxLoss: 19500, maxProfit: null, breakeven: 26700, premium: 19500 });
-    expect(ticketRisk({ side: "BUY", right: "PE", strike: 26400, price: 250, qty: 65 })).toEqual({ maxLoss: 16250, maxProfit: (26400 - 250) * 65, breakeven: 26150, premium: 16250 });
-    expect(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 })).toMatchObject({ maxLoss: null, maxProfit: 19500, breakeven: 26700 });
-    expect(ticketRisk({ side: "SELL", right: "PE", strike: 26400, price: 250, qty: 65 })).toMatchObject({ maxLoss: (26400 - 250) * 65, maxProfit: 16250 });
-    for (const bad of [{ kind: "FUT" }, { price: 0 }, { qty: null }, { right: "XX" }]) expect(ticketRisk({ side: "BUY", right: "CE", strike: 100, price: 1, qty: 1, ...bad })).toBeNull();
-  });
-});
-
-describe("Ticket risk after charges", () => {
-  it("adds entry charges to max loss and moves breakeven by the round trip per unit", () => {
-    const buyCe = riskAfterCharges(ticketRisk({ side: "BUY", right: "CE", strike: 26400, price: 300, qty: 65 }), { side: "BUY", right: "CE", qty: 65, entry: 30, exit: 35 });
-    expect(buyCe).toEqual({ charges: 65, entry: 30, exit: 35, maxLoss: 19530, breakeven: 26701 });
-    expect(riskAfterCharges(ticketRisk({ side: "BUY", right: "PE", strike: 26400, price: 250, qty: 65 }), { side: "BUY", right: "PE", qty: 65, entry: 65 }).breakeven).toBe(26148);
-    const sellCe = riskAfterCharges(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 }), { side: "SELL", right: "CE", qty: 65, entry: 65, exit: 0 });
-    expect(sellCe).toMatchObject({ maxLoss: null, breakeven: 26699 });
-    expect(riskAfterCharges(null, { side: "BUY", right: "CE", qty: 1, entry: 1 })).toBeNull();
-    expect(riskAfterCharges({ maxLoss: 1, breakeven: 1 }, { side: "BUY", right: "CE", qty: 0, entry: 1 })).toBeNull();
   });
 });
 
@@ -118,16 +96,6 @@ describe("Accounts in plain words", () => {
     expect(sessionText("missing")).toEqual({ text: "Not logged in", tone: "warn" });
     expect(sessionText("expired").tone).toBe("bad");
     expect(sessionText("connected").text).toBe("Logged in");
-  });
-
-  it("says what the Bridge is doing at start (GET /v1/health startup), never a partial count as done", () => {
-    const seed = (done, total) => ({ ready: false, jobs: [{ name: "demo book seed", done, total }] });
-    expect(startupText(seed(6, 9))).toBe("Setting up the demo book · 6 of 9 legs");
-    expect(startupText(seed(0, null))).toBe("Setting up the demo book");
-    expect(startupText(seed(12, 9))).toBe("Setting up the demo book · 9 of 9 legs");
-    expect(startupText({ ready: false, jobs: [{ name: "other", done: null, total: null }] })).toBe("The Bridge is starting");
-    expect(startupText(null)).toBeNull();
-    expect(startupText({ ready: true, jobs: [] })).toBeNull();
   });
 });
 

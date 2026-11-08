@@ -1,6 +1,6 @@
 /**
- * The pricing core (stream S18, docs/spec/p1-03-pricing-vol.md §6). Shared with server/bridge (market, vol). Pure: no
- * DOM, no fetch, no session literals; callers pass the clock context.
+ * The pricing core, used by server/bridge (market, vol, demo). Pure: no DOM, no fetch, no session literals; callers
+ * pass the clock context.
  *
  * One implementation of: the normal CDF/PDF, Black-76 on the forward (price, Greeks, the single IV solver), the leg
  * price basis, the put-call-parity forward, smile points, ATM IV at the forward, IV at a delta, skew metrics, the
@@ -51,7 +51,7 @@ export function black76(forward, strike, years, ivPct, right) {
 }
 
 /**
- * Black-76 Greeks per unit on the forward (§6.5): Δ = N(d1) (CE) or N(d1) − 1 (PE); Γ = n(d1)/(F·σ√T); vega per vol
+ * Black-76 Greeks per unit on the forward: Δ = N(d1) (CE) or N(d1) − 1 (PE); Γ = n(d1)/(F·σ√T); vega per vol
  * point = F·n(d1)·√T / 100; theta = −F·n(d1)·σ / (2√T) per year, divided by `yearBasis` when given (so with the clock's
  * year basis it is the decay of one unit of vol-time: "per trading day"). At or after expiry: Δ 1 / −1 in the money, 0
  * out of it, the rest 0.
@@ -99,7 +99,7 @@ export function sigmaMove(forward, ivPct, years) {
 }
 
 /**
- * σ bands and expected move (§6.8): σ_T = σ·√T; band k = [F·e^(−kσ_T), F·e^(kσ_T)]; move = F·(e^σ_T − e^−σ_T)/2;
+ * σ bands and expected move: σ_T = σ·√T; band k = [F·e^(−kσ_T), F·e^(kσ_T)]; move = F·(e^σ_T − e^−σ_T)/2;
  * expected absolute move ≈ √(2/π)·σ·F·√T. Null without inputs.
  */
 export function bands(forward, ivPct, years) {
@@ -189,7 +189,7 @@ const twoSidedMid = (leg) => {
 };
 
 /**
- * The parity forward (§6.3): F_k = K + e^(r·Tcal)·(C_mid − P_mid) for the `strikes` (5) strikes nearest spot with both
+ * The parity forward: F_k = K + e^(r·Tcal)·(C_mid − P_mid) for the `strikes` (5) strikes nearest spot with both
  * legs two-sided (bid > 0, ask ≥ bid); F = the median. Without spot (and no atmStrike) the strikes are centred on the
  * two-sided strike with the smallest |C − P| (the one nearest the forward), so a chain with no underlying price still
  * gets a parity forward. Spot when no strike qualifies (source "spot"); { F: null } with neither.
@@ -214,7 +214,7 @@ export function parityForward(chain, { rate = 0, Tcal = 0, strikes = 5 } = {}) {
 }
 
 /**
- * One leg's IV on the forward (§6.4): price from `basis`, solved by impliedVolB76 with discount factor `df`.
+ * One leg's IV on the forward: price from `basis`, solved by impliedVolB76 with discount factor `df`.
  * `out` says why there is no IV: "noquote", "tick" (≤ 0.05), "intrinsic", "range" (outside 1–300 %) or "settling"
  * (`settling` true — expiry day inside the settlement window — and the price within 2 ticks of intrinsic on F).
  * @returns {{ price: number|null, q: string, iv: number|null, bidIv: number|null, askIv: number|null,
@@ -360,7 +360,7 @@ export function skewMetrics(points, atmIv) {
   };
 }
 
-// ── The vol-time clock (A15, §6.1) ──
+// ── The vol-time clock ──
 
 export const CLOCK_VERSION = "vt1";
 export const CLOCK_MODES = Object.freeze(["weighted", "trading", "calendar"]);
@@ -392,7 +392,7 @@ export function calendarYears(nowMs, endMs) {
   return Math.max(0, endMs - nowMs) / DAY / calendarYearDays();
 }
 
-/** The clock settings with their defaults filled in (weights are stated assumptions, §6.1). */
+/** The clock settings with their defaults filled in (weights are stated assumptions). */
 export function clockSettings(ctx = {}) {
   const mode = CLOCK_MODES.includes(ctx?.mode) ? ctx.mode : "weighted";
   const w = num(ctx?.nonTradingDayWeight) ?? 0.15;
@@ -426,7 +426,7 @@ function tradingDayFn(ctx) {
 }
 
 /**
- * Time to an expiry's settlement on the clock (§6.1). Each trading day D ≤ expiry contributes a gap block at its open
+ * Time to an expiry's settlement on the clock. Each trading day D ≤ expiry contributes a gap block at its open
  * (m_D·φ + Σ w·m_N over the non-trading days N since the previous trading day; only while now is before D's open) and
  * a session block (1 − φ)·m_D spread over its session minutes; on the expiry day the settlement window [close − W,
  * close] counts W/3 before it starts and (B − now)³ / (3·W²) inside it. U is the sum; T = U / Y.
@@ -504,7 +504,7 @@ export function volTime(ctx, nowMs, expiry, { parts: wantParts = false } = {}) {
   return out;
 }
 
-/** Convert an IV between clocks through total variance (§6.2): σ_x = σ_y·√(T_y / T_x). Null without inputs. */
+/** Convert an IV between clocks through total variance: σ_x = σ_y·√(T_y / T_x). Null without inputs. */
 export function convertIv(ivPct, fromT, toT) {
   const s = num(ivPct);
   const a = num(fromT);
@@ -514,7 +514,7 @@ export function convertIv(ivPct, fromT, toT) {
 }
 
 /**
- * Constant-maturity IV (§6.6) at clock time `Tstar`: total variance interpolated linearly in T between the two listed
+ * Constant-maturity IV at clock time `Tstar`: total variance interpolated linearly in T between the two listed
  * expiries bracketing it (rows with `skip`, an expiry on its own expiry day, are left out). Beyond the last or before
  * the first: flat from that expiry (method "flat-extrapolated"). Rows: [{ expiry, T, iv }].
  * @returns {{ iv: number|null, method: "interpolated"|"flat-extrapolated"|"unavailable", expiries: string[] }}
@@ -536,7 +536,7 @@ export function constantMaturity(rows, Tstar) {
 }
 
 /**
- * IV rank and IV percentile (§6.7) of `current` against past values (numbers or { iv, date }): IVR = (c − min) /
+ * IV rank and IV percentile of `current` against past values (numbers or { iv, date }): IVR = (c − min) /
  * (max − min) × 100; IVP = share strictly below × 100. IVR and IVP are null with reason "COLLECTING" when n < minN;
  * IVR is null with reason "FLAT" when max = min (IVP is still given).
  * @returns {{ n: number, min: {iv:number,date:string|null}|null, max: {iv:number,date:string|null}|null,
@@ -561,7 +561,7 @@ export function ivRank(values, current, { minN = 20 } = {}) {
 }
 
 /**
- * Same-DTE comparison set (§6.9): past rows { date, units, ... } with |units − U| ≤ band, one per date (the closest).
+ * Same-DTE comparison set: past rows { date, units, ... } with |units − U| ≤ band, one per date (the closest).
  * Sorted by date.
  */
 export function sameDteRows(rows, units, band = 0.5) {
@@ -577,7 +577,7 @@ export function sameDteRows(rows, units, band = 0.5) {
   return [...best.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
-// ── Realised volatility (§6.11) ──
+// ── Realised volatility ──
 
 /** Annualised realised vol (percent) of the last `n` daily log returns: sample stdev × √252. Null under n + 1 closes. */
 export function realisedVol(closes, n) {

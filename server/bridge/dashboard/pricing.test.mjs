@@ -1,10 +1,9 @@
 /**
- * The pricing core (docs/spec/p1-03-pricing-vol.md §6, §9.1): every worked example as a reference-value test.
+ * The pricing core: every worked example as a reference-value test.
  * Holidays here are fixtures, not claims about the real calendar.
  */
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import * as O from "./options.js";
 import {
   atmIvAt,
   bands,
@@ -36,7 +35,7 @@ const tick = (p) => Math.round(p / 0.05) * 0.05;
 /** ATM call (F = K = 25,150, σ = 12 %) discounted on calendar time and rounded to the 0.05 tick. */
 const atmCall = (c) => tick(Math.exp(-RATE * c.Tcal) * black76(25150, 25150, c.T, 12, "CE"));
 
-describe("vol-time clock (§6.1)", () => {
+describe("vol-time clock", () => {
   it("defaults: Y = 252 + 113 × 0.15 = 268.95", () => {
     expect(yearBasisOf(CTX)).toBeCloseTo(268.95, 10);
     expect(yearBasisOf({ ...CTX, mode: "trading" })).toBe(252);
@@ -90,7 +89,7 @@ describe("vol-time clock (§6.1)", () => {
     const fri = volTime(CTX, at("2026-10-30T15:29:00"), EXP);
     const mon = volTime(CTX, at("2026-11-02T09:16:00"), EXP);
     expect(atmCall(fri)).toBeCloseTo(110.3, 6);
-    // The spec table prints 97.20; Black-76 at these inputs rounds to 97.25 (the IVs below match the spec either way).
+    // The reference table prints 97.20; Black-76 at these inputs rounds to 97.25 (the IVs below match either way).
     expect(atmCall(mon)).toBeCloseTo(97.25, 6);
     for (const c of [fri, mon]) {
       const df = Math.exp(-RATE * c.Tcal);
@@ -169,7 +168,7 @@ describe("vol-time clock (§6.1)", () => {
   });
 });
 
-describe("clock conversion (§6.2) and constant maturity (§6.6)", () => {
+describe("clock conversion and constant maturity", () => {
   it("converts through total variance", () => {
     expect(convertIv(12.86, 0.0824242, 0.0794616)).toBeCloseTo(13.1, 2);
     expect(convertIv(null, 1, 1)).toBeNull();
@@ -204,7 +203,7 @@ describe("clock conversion (§6.2) and constant maturity (§6.6)", () => {
   });
 });
 
-describe("parity forward (§6.3) and the IV function (§6.4)", () => {
+describe("parity forward and the IV function", () => {
   const legs = (c, p) => ({ ce: { bid: c - 0.05, ask: c + 0.05, ltp: c }, pe: { bid: p - 0.05, ask: p + 0.05, ltp: p } });
   const EX5 = [
     [25050, 205.0, 112.6],
@@ -308,13 +307,10 @@ describe("parity forward (§6.3) and the IV function (§6.4)", () => {
     expect(pts).toHaveLength(rows.length);
     const atm = atmIvAt(pts, F);
     expect(Math.abs(atm - 12)).toBeLessThan(0.02);
-    // The options.js wrapper with an explicit Tcal and a T above its floor is the same maths.
-    const viaOptions = O.smilePoints({ rows }, { F, years: T, rate: RATE, Tcal });
-    expect(viaOptions.map((p) => p.ce?.iv)).toEqual(pts.map((p) => p.ce?.iv));
   });
 });
 
-describe("Greeks and theta (§6.5)", () => {
+describe("Greeks and theta", () => {
   it("match finite differences of the Black-76 price", () => {
     const F = 25150;
     const T = 0.02;
@@ -336,26 +332,15 @@ describe("Greeks and theta (§6.5)", () => {
 
   it("decay to the next session: Thu→Fri 21.9 and Fri→Mon 37.6 points (ATM, F = 25,150, σ = 12 %)", () => {
     const px = (s) => black76(25150, 25150, volTime(CTX, at(s), EXP).T, 12, "CE");
-    // The spec prints 21.90 and 37.62; the exact Black-76 differences are 21.94 and 37.66.
+    // The reference prints 21.90 and 37.62; the exact Black-76 differences are 21.94 and 37.66.
     expect(Math.abs(px("2026-10-29T15:00:00") - px("2026-10-30T15:00:00") - 21.9)).toBeLessThan(0.05);
     expect(Math.abs(px("2026-10-30T15:00:00") - px("2026-11-02T15:00:00") - 37.62)).toBeLessThan(0.05);
     const dU = volTime(CTX, at("2026-10-30T15:00:00"), EXP).units - volTime(CTX, at("2026-11-02T15:00:00"), EXP).units;
     expect(dU).toBeCloseTo(1.3, 10);
   });
-
-  it("options.js black76Greeks gives theta per trading-day unit of the page's clock through greeks76", () => {
-    const a = O.black76Greeks(25150, 25150, 0.02, 12, "CE");
-    const b = greeks76(25150, 25150, 0.02, 12, "CE");
-    // Default (weighted) clock: Y = 252 + 113 × 0.15 = 268.95 units a year.
-    expect(a.theta * 268.95).toBeCloseTo(b.theta, 8);
-    expect(a.delta).toBe(b.delta);
-    // A calendar context reproduces the per-calendar-day theta.
-    const cal = O.black76Greeks(25150, 25150, 0.02, 12, "CE", { mode: "calendar", session: { open: "09:15", close: "15:30" } });
-    expect(cal.theta * 365).toBeCloseTo(b.theta, 8);
-  });
 });
 
-describe("IV rank and percentile (§6.7), bands (§6.8), same-DTE (§6.9)", () => {
+describe("IV rank and percentile, bands, same-DTE", () => {
   const V = [11.2, 12.5, 14.1, 9.8, 13.0, 15.6, 10.4, 12.0, 16.3, 11.9];
 
   it("example 7: IVR 55.38, IVP 70", () => {
@@ -394,7 +379,7 @@ describe("IV rank and percentile (§6.7), bands (§6.8), same-DTE (§6.9)", () =
   });
 });
 
-describe("realised vol (§6.11)", () => {
+describe("realised vol", () => {
   it("HV5 = 11.75 % on the worked closes", () => {
     expect(realisedVol([25000, 25210, 25080, 25300, 25190, 25420], 5)).toBeCloseTo(11.75, 2);
   });

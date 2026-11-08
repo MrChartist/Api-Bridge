@@ -1,10 +1,9 @@
-// Expiry and physical delivery maths (docs/spec/p1-06-stocks.md §6.2–6.7, F7). PURE: no imports, no DOM, no fetch,
-// no clock. The server's /v1/options/expiry-costs route (fno/routes.mjs) imports this file, and the dashboard pages
-// import the same file, so both always agree (the dashboard/pricing.js pattern).
+// Expiry and physical delivery maths. PURE: no imports, no DOM, no fetch, no clock. Used by the order service in
+// server/bridge/orders (the dashboard pages do not load it).
 //
 // Every rate comes from the charge table passed in (reference.charges(): opt, physical, margin, sebiPerCrore, gst,
 // brokerage); this file holds none. Money is in rupees, unrounded (format.js rounds for display). The physical
-// settlement rates and the delivery-margin schedule are unverified (spec §8.3); callers show that.
+// settlement rates and the delivery-margin schedule are unverified; callers show that.
 //
 // Leg: { strike, right: "CE"|"PE", qty (signed units: + long, − short), exchange?: "NFO"|"BFO", bid?, ask? }.
 
@@ -26,7 +25,7 @@ export function intrinsicOf(strike, right, spot) {
 }
 
 /**
- * Moneyness (§6.2). ITM: CE with S > K or PE with S < K. CTM (our display band, not an exchange definition): not ITM
+ * Moneyness. ITM: CE with S > K or PE with S < K. CTM (our display band, not an exchange definition): not ITM
  * and |K − S| ≤ ctmStrikes × step. OTM otherwise. With no step the band is empty.
  * @returns {{ moneyness: "ITM"|"CTM"|"OTM"|null, intrinsic: number|null, distance: number|null }}
  */
@@ -43,7 +42,7 @@ export function moneynessOf({ strike, right, spot, step = null, ctmStrikes = 1 }
 }
 
 /**
- * E-n day and the warning window (§6.3). `cal.tradingDaysBetween(a, b)` counts trading days after a up to b.
+ * E-n day and the warning window. `cal.tradingDaysBetween(a, b)` counts trading days after a up to b.
  * @returns {{ day: string|null, n: number|null, inWindow: boolean, after: boolean }}
  */
 export function expiryDay({ asOf, expiry, cal, warnFrom = 4 }) {
@@ -54,7 +53,7 @@ export function expiryDay({ asOf, expiry, cal, warnFrom = 4 }) {
 }
 
 /**
- * Delivery obligation if a stock option leg settles ITM (§6.4).
+ * Delivery obligation if a stock option leg settles ITM.
  * @returns {{ kind: "receive-shares"|"deliver-shares", shares: number, cash: number, value: number, buyer: boolean, text: string } | null}
  */
 export function obligationOf({ strike, right, qty, underlying = "" }) {
@@ -83,7 +82,7 @@ export function coveredBy(obligation, heldShares) {
 }
 
 /**
- * Delivery margin (§6.5): the schedule percentage for `day`, and an indicative rupee figure only when the caller
+ * Delivery margin: the schedule percentage for `day`, and an indicative rupee figure only when the caller
  * supplies `varElmPct` (VaR + ELM rate in percent, from their broker). Never a default VaR.
  * @param {{ day: string|null, schedule: Array<{ day: string, pct: number, date?: string }>, spot: number, qty: number, varElmPct?: number|null }} p
  */
@@ -98,7 +97,7 @@ export function deliveryMarginOf({ day, schedule, spot, qty, varElmPct = null })
 }
 
 /**
- * Charges if a stock option leg settles by delivery (§6.6): delivery STT, stamp (share buyer), cash-segment txn,
+ * Charges if a stock option leg settles by delivery: delivery STT, stamp (share buyer), cash-segment txn,
  * SEBI and GST on (txn + SEBI), all on V = K × |q|. The broker's own physical-delivery charge is excluded (unknown).
  */
 export function settleStockCost({ strike, right, qty, exchange = "NFO" }, rates) {
@@ -123,7 +122,7 @@ export function settleStockCost({ strike, right, qty, exchange = "NFO" }, rates)
 }
 
 /**
- * Charges if a long ITM index option settles in cash (§6.7): exercise STT on intrinsic × units, plus the profile's
+ * Charges if a long ITM index option settles in cash: exercise STT on intrinsic × units, plus the profile's
  * exercise brokerage (one order) and GST on it. Short legs pay none here.
  * @param {{ intrinsic: number, qty: number }} leg
  * @param {object} rates  charge table
@@ -150,7 +149,7 @@ export function settleIndexCost({ intrinsic, qty }, rates, profile = {}) {
 }
 
 /**
- * Charges to square off an option leg now (§6.6): the reverse order at the bid (long) or ask (short), with a flat
+ * Charges to square off an option leg now: the reverse order at the bid (long) or ask (short), with a flat
  * brokerage per order. Same formula as options.js orderCharges for options.
  * @param {{ qty: number, bid?: number|null, ask?: number|null, exchange?: string }} leg
  */
@@ -209,11 +208,11 @@ export function legExpiryCosts(leg, c) {
   return out;
 }
 
-/** The disclaimer every expiry-costs result and the positions panel carry (spec §8.2). */
+/** The disclaimer every expiry-costs result and the positions panel carry. */
 export const EXPIRY_COSTS_NOTE = "Calculated from the rate table and your inputs. Not tax or investment advice; your broker's contract note decides.";
 
 /**
- * The "Expiry today" chip title, rendered from the rate table (spec §5.3). `pct` formats a decimal rate as percent
+ * The "Expiry today" chip title, rendered from the rate table. `pct` formats a decimal rate as percent
  * text; it is passed in so this file stays free of number formatting.
  * @param {{ kind: "index"|"stock", rates: object, pct: (v: number) => string }} p
  */

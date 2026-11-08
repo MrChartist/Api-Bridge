@@ -3,16 +3,16 @@
 // several rules (INVALID_ORDER), on the Bridge's own wording. Null when there is nothing useful to add.
 
 // A fix may depend on the account's mode: a paper user is never pointed at a broker. While the daily gate also stops
-// exits (the open reduce-only question, ux-audit.md "Safety pass"), no fix says "close from Positions".
+// exits, no fix says "close from Positions".
 const KILL = (mode) => `Find out why it is on, then release it on the Safety page.${mode === "live" ? " Your broker's app can still close positions." : ""}`;
 const RULES = [
   [/kill switch/i, "KILL_SWITCH_ACTIVE", KILL],
   [/loss of .* today|daily limit of ₹|dailyMaxLoss/i, "DAILY_LIMIT_REACHED", (mode) => (mode === "live" ? "To cut risk today, close in your broker's app. The daily loss limit is set on the Safety page." : "Paper orders resume tomorrow (IST). Raise or reset the paper limit on the Safety page.")],
   [/orders today|daily limit \(/i, "DAILY_LIMIT_REACHED", "The count resets at midnight IST; the limit (dailyMaxOrders) is on the Safety page."],
-  [/lots is above the per-order limit|order value .* is above the per-order limit/i, "INVALID_ORDER", "Send fewer lots, or place it from the Strategy Builder as a basket: it slices to your per-order limits."],
+  [/lots is above the per-order limit|order value .* is above the per-order limit/i, "INVALID_ORDER", "Send fewer lots, or split it into several smaller orders to stay inside your per-order limits."],
   [/away from the last traded price/i, "INVALID_ORDER", "Move the limit nearer the last price, or use a market order (sent with protection at LTP ± 2 %)."],
   [/orders are turned off \(safety\.marketOrders/i, "INVALID_ORDER", "Use a limit order."],
-  [/not open for orders now|is closed today|market is not open/i, "MARKET_CLOSED", "Set it as an after-market order or a GTT (When: At a price) to go out when the market opens."],
+  [/not open for orders now|is closed today|market is not open/i, "MARKET_CLOSED", "Send it again when the market opens."],
   [/order rate cap|order-rate cap/i, "ORDER_RATE_LIMITED", "Wait a second and send it again."],
   [/Live trading is off|not enabled for account|are not allowed for account|is a paper account/i, "PAPER_ONLY", "Send it as paper, or turn live trading on in bridge.config.json (safety.liveTrading, the account's live.enabled and live.allowedSources)."],
   [/needs a human confirmation|confirmToken/i, "CONFIRMATION_REQUIRED", "Check and confirm it in Orders › Pending confirmations."],

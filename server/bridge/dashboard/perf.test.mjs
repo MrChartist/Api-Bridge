@@ -1,4 +1,4 @@
-// The dashboard's fetch layer, live connection and budget indicator: pure parts (docs/perf/README.md).
+// The dashboard's fetch layer, live connection and budget indicator: pure parts.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_FILES } from "../core/app.mjs";
@@ -126,19 +126,19 @@ describe("served and lazy", () => {
 describe("live paths stay cheap", () => {
   const read = (f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
 
-  it("styles no page container by :has(): a :has() on .content or .app-main restyled the whole page on every chain tick", () => {
+  it("styles no page container by :has(): a :has() on .content or .app-main restyled the whole page on every live update", () => {
     // Measured in Chromium: such a rule made every change inside #content a style recalculation of the 2000 nodes
-    // under it (40-90 ms a tick on the chain). Page-specific layout keys off :root[data-page] instead.
+    // under it (40-90 ms a tick). Page-specific layout keys off :root[data-page] instead.
     const css = read("app.css");
     expect(css).not.toMatch(/(\.content|\.app-main)(?:[.:#[\w-]|\([^)]*\))*:has\(/);
   });
 
   it("animates live indicators and tick flashes on the compositor (opacity and transform), never the page's paint", () => {
     // Measured in headless Chromium: Motion's breathing `scale` on the sidebar dot repainted the whole page layer every
-    // frame, and the chain's background-color flash repainted the whole table on every frame of every flash.
+    // frame, and a background-color flash repainted a whole table on every frame.
     const css = read("app.css");
     const frames = (name) => css.match(new RegExp(`^@keyframes ${name} \\{.*\\}$`, "m"))?.[0] ?? "";
-    for (const k of ["dv-breathe", "dv-ring", "dv-ring-b", "chain-tick", "chain-tick-b"]) {
+    for (const k of ["dv-breathe"]) {
       expect(frames(k), k).not.toBe("");
       expect(frames(k), k).not.toMatch(/background|box-shadow|color/);
     }

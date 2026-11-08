@@ -47,38 +47,3 @@ export function toggleSidebar(current, width) {
   return resolveSidebar("auto", width) === next ? "auto" : next;
 }
 
-/**
- * Wide-screen extra chain columns (docs/design/ui-pass-3.md, space pass): when a preset's columns all fit with room
- * to spare, these are added (in order) while the room lasts. Only the presets: a custom column list is the user's own.
- */
-export const WIDE_EXTRAS = Object.freeze({
-  oi: ["delta", "theta", "vega", "gamma", "pitm"],
-  buyer: ["iv", "oi", "chg", "vega"],
-  seller: ["iv", "chg", "vol", "theta"],
-  hedger: ["iv", "oi", "theta"],
-  arb: ["oi", "vol"],
-  greeks: ["oi", "chg", "potm"],
-  value: ["oi", "delta", "theta"],
-});
-
-/**
- * Pick the extra columns that fit: `slack` is the room left (px) once the chosen columns are laid at their minimum
- * widths; each extra costs `sides` × its minimum width plus a share of `spare` (0.12 = keep 12 % breathing room on the
- * whole row). Pure: returns the keys to add, in order.
- */
-export function wideExtras({ preset, cols = [], slack = 0, sides = 2, widths = {}, used = 0, spare = 0.12 } = {}) {
-  const list = WIDE_EXTRAS[preset];
-  if (!list || sides <= 0) return [];
-  const have = new Set(cols);
-  const w = (k) => widths[k] ?? widths.default ?? 64;
-  const out = [];
-  let room = Number(slack) - Number(used) * spare;
-  for (const k of list) {
-    if (have.has(k)) continue;
-    const cost = sides * w(k) * (1 + spare);
-    if (cost > room) break;
-    out.push(k);
-    room -= cost;
-  }
-  return out;
-}

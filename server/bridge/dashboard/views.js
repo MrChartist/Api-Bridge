@@ -1,5 +1,5 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
-// except small conveniences in localStorage (theme, a dismissed checklist, "you copied a snippet").
+// except small conveniences in localStorage (theme, density, the last tab of each page).
 import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, meterRow, modal, optional, pill, table, ticketFields, toast, sheetPopover, confirmEngageKillSwitch, DEMO_EXPLAINER, beginNavigation, onRevalidated, prefetchPage } from "./app.js";
 import { STATE_TEXT, STATE_TONE, readinessCard, refreshReadiness } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
@@ -9,32 +9,21 @@ import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
-import { PAGE_CODES } from "./workspace.js";
 import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
 
-// ── Page modules, loaded on first visit ──
-// The heavy pages (the Options desk, screeners, calendar, recorder, live events) are ES modules imported when first
-// opened, so Home, Orders, Accounts and API start without them. Hovering or focusing a menu item loads its module and
-// warms its data (prefetchPage), so the click paints at once.
-/** Page modules loaded on demand (none in this build: every page renders from this file). */
-const PAGE_MODULES = Object.freeze({});
-
-/** Load a page's module and warm its data ahead of a click (menu hover or focus). Idempotent and cheap. */
+/** Warm the data of a page ahead of a click (menu hover or focus). Idempotent and cheap. */
 export function preloadPage(pageId) {
   const page = PAGES.find((p) => p.id === pageId);
   if (!page) return;
   const tab = page.tabs ? page.tabs.find((t) => t.id === (readLastTab(page.id) ?? page.defaultTab)) ?? page.tabs[0] : null;
-  const render = tab?.render ?? page.render;
-  if (render?.module) PAGE_MODULES[render.module]().catch(() => {});
   prefetchPage(tab?.page ?? page.id);
 }
 const local = app.local;
-const FLAG = { copied: "mcb.dashboard.copied", tested: "mcb.dashboard.tested", hideChecklist: "mcb.dashboard.hideChecklist", hideOwn: "mcb.dashboard.hideOwnRequests", chain: "mcb.dashboard.chainOpened", traded: "mcb.dashboard.paperTraded", checklistOpen: "mcb.dashboard.checklistOpen" };
-const markCopied = () => local.set(FLAG.copied, "1");
-/** A button at work (BUTTON-SYSTEM.md §9): disabled, its label swapped for a turning ring, its width kept. */
+const HIDE_OWN_SLOT = "mcb.dashboard.hideOwnRequests";
+/** A button at work: disabled, its label swapped for a turning ring, its width kept. */
 const busy = (b, on) => {
   b.disabled = on;
   if (on) b.setAttribute("aria-busy", "true");
@@ -220,12 +209,12 @@ const INTEGRATION_TOOLS = [
 
 /**
  * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette
- * (docs/design/ui-pass-3.md §5). `group` is the sidebar group ("" for Home, which has no label), `tint` an iOS system
+ * `group` is the sidebar group, `tint` an iOS system
  * colour name (the page's glyph colour everywhere), `key` the curated ⌘1 to ⌘9 shortcut, `tab: true` puts it in the
  * phone tab bar (`short` labels it there), `headline` is the large title when it differs from `title` (one serif accent
- * word at most). A page with `tabs` is one page with a tab strip: each tab names the legacy page id it renders (`page`,
- * which keeps every `:root[data-page]` rule and old link working), may set its own `layout` and `sub`, and `command`
- * is its ⌘K label; `extras` are further ⌘K destinations inside it.
+ * word at most). A page with `tabs` is one page with a tab strip: each tab names the page id it renders as (`page`, the
+ * `:root[data-page]` value that scopes its CSS and the id older links used), may set its own `sub`, and `command` is its
+ * ⌘K label; `extras` are further ⌘K destinations inside it.
  */
 export const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
@@ -257,9 +246,7 @@ export const PAGES = [
   { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
 ];
 
-/**
- * Old page ids that became tabs (ui-pass-3.md §5.2): an old link or bookmark opens the tab, keeping its ?query.
- */
+/** Old page ids that became tabs: an old link or bookmark opens the tab, keeping its ?query. */
 export const LEGACY = {
   console: "api/console",
   limits: "api/limits",
@@ -269,10 +256,10 @@ export const LEGACY = {
 };
 
 /**
- * Where a hash leads (pure): { page, tab, query, redirect, view, layout }. `#/<page>/<tab>?query`; a LEGACY id is
+ * Where a hash leads (pure): { page, tab, query, redirect, view }. `#/<page>/<tab>?query`; a LEGACY id is
  * rewritten (`redirect` is the hash to put in its place; Integrations' old `?tab=` becomes `?tool=`); an unknown page
- * is Home, an unknown or missing tab the page's last tab (`lastTab(pageId)`) or its default. `view` is the legacy page
- * id the view renders as (the `data-page` value), `layout` the tab's layout, else the page's.
+ * is the first page, an unknown or missing tab the page's last tab (`lastTab(pageId)`) or its default. `view` is the legacy page
+ * id the view renders as (the `data-page` value).
  */
 export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {}) {
   let raw = String(hash ?? "").replace(/^#\/?/, "");
@@ -302,7 +289,7 @@ export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {})
     // A tab that no longer exists (#/api/nope) shows its stand-in under the stand-in's own address.
     if (tabId && tab.id !== tabId) redirect = `#/${page.id}/${tab.id}${query ? `?${query}` : ""}`;
   }
-  return { page, tab, query, redirect, view: tab?.page ?? page.id, layout: tab?.layout ?? page.layout ?? "" };
+  return { page, tab, query, redirect, view: tab?.page ?? page.id };
 }
 
 const TAB_SLOT = (pageId) => `mcb.tab.${pageId}`;
@@ -337,7 +324,7 @@ function nav(active) {
   for (const p of PAGES) {
     if (p.group !== group) {
       group = p.group;
-      // The first group (Home) has no label.
+      // A group label heads each run of pages.
       if (group) out.push(h("div", { class: "nav-group" }, group));
     }
     const sc = pageShortcut(p);
@@ -359,7 +346,7 @@ function nav(active) {
 }
 
 /**
- * Overflow hints (ui-pass-3.md §1.4): a scroller gets fade-l / fade-r (or fade-b, axis "y") only while there is more
+ * Overflow hints: a scroller gets fade-l / fade-r (or fade-b, axis "y") only while there is more
  * to see on that side. Wired once per element; call again after its content changes.
  */
 export function edgeFades(el, axis = "x") {
@@ -382,7 +369,7 @@ export function edgeFades(el, axis = "x") {
 }
 
 /**
- * Card tables (ui-pass-3.md §4): a table that fits its card is not a scroll box (.fits), so its sticky head sticks to
+ * Card tables: a table that fits its card is not a scroll box (.fits), so its sticky head sticks to
  * the page; a wider one scrolls sideways with a fade on the side that has more.
  */
 function fitTables(root) {
@@ -562,8 +549,6 @@ function densityControl(labelledBy) {
   );
 }
 
-/** Stop the page's refresh timer (a page that pauses its own refresh). */
-export const stopTimer = () => clearInterval(timer);
 /** Re-run `fn` every `ms` while this page is shown and the tab is visible. */
 export function every(ms, fn) {
   clearInterval(timer);
@@ -582,9 +567,6 @@ let redrawTimer = null;
 function headline(page) {
   return (page.headline ?? [page.title]).map((part) => (typeof part === "string" ? part : h("em", { class: "serif" }, part.serif)));
 }
-/** Home's eyebrow is today's date in IST; every other page names its group. */
-const IST_DAY = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" });
-
 /**
  * Draw the page the hash names. `opts.refresh`: the Reload button, the palette or a redraw after fresh data came in;
  * a reload never paints from remembered answers.
@@ -596,34 +578,25 @@ async function show(opts) {
   if (route.redirect && typeof history !== "undefined") history.replaceState(history.state, "", route.redirect);
   const { page, tab } = route;
   if (tab) rememberTab(page.id, tab.id);
-  if (page.id === "chain") local.set(FLAG.chain, "1"); // ticks the Home checklist step
   const changed = route.view !== shownPage;
   shownPage = route.view;
   clearInterval(timer);
   $("toast").hidden = true;
   nav(page.id);
-  // Pages can restyle the shell (the Option Desk hides the large title and runs edge to edge). data-page is the view's
-  // own id (a tab's legacy page id), data-route the page in the menu.
+  // data-page is the view's own id (a tab's page id, for CSS), data-route the page in the menu.
   const root = $("content");
   document.documentElement.dataset.page = route.view;
   document.documentElement.dataset.route = page.id;
-  document.documentElement.dataset.layout = route.layout;
   document.documentElement.classList.remove("panel-max-open");
   root.classList.toggle("api-page", page.id === "api");
   document.title = tab ? `${tab.label} · ${page.label} · Mr. Chartist API Bridge` : `${page.label} · Mr. Chartist API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   // The page name only: the tab strip right under it names the tab ("API: Integrations" clipped on phones).
   $("toolbar-label").textContent = page.label;
-  $("page-eyebrow").textContent = page.id === "home" ? IST_DAY.format(new Date()) : page.group;
+  $("page-eyebrow").textContent = page.group;
   $("page-title").replaceChildren(...headline(page));
   $("page-sub").textContent = tab?.sub ?? page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
-  // The Options pages mount their context (underlying, expiry, spot, live) here on render; every other page has none.
-  const ctx = $("toolbar-ctx");
-  if (changed || route.layout !== "desk") {
-    ctx.replaceChildren();
-    ctx.hidden = true;
-  }
   const seq = ++renderSeq;
   // Its first reads may paint from what the dashboard already has (app.js api), then refresh behind it.
   if (!reload) beginNavigation(route.view);
@@ -676,7 +649,7 @@ function revealActiveTab(bar) {
 }
 
 /**
- * The tab strip of a tabbed page (ui-pass-3.md §5.2): a segmented tab list, the page's first row. Picking a tab goes
+ * The tab strip of a tabbed page: a segmented tab list, the page's first row. Picking a tab goes
  * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. #content is its tab panel.
  */
 function pageTabs(page, tab, panel) {
@@ -886,13 +859,8 @@ function setupChrome() {
   if (budgetSlot && !budgetSlot.dataset.ready) {
     budgetSlot.dataset.ready = "1";
     mountBudget(budgetSlot, live);
-    // A saved scan's new matches (Screeners › Stocks) as a toast on any page; they are rows in Live events too.
-    live.onScanAlerts((m) => {
-      const names = (m.newMatches ?? []).map((s) => String(s).split(":").pop());
-      if (names.length) toast(`Scan "${m.name ?? "Saved scan"}": ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` and ${formatInt(names.length - 4)} more` : ""} new`, { tone: "info" });
-    });
   }
-  // Hover or focus a menu item: load that page's module and warm its data, so the click paints at once.
+  // Hover or focus a menu item: warm that page's data, so the click paints at once.
   const warmed = new Map();
   const warm = (e) => {
     const id = e.target?.closest?.("a[data-page]")?.dataset.page;
@@ -906,13 +874,13 @@ function setupChrome() {
     bar.addEventListener("pointerover", warm, { passive: true });
     bar.addEventListener("focusin", warm);
   }
-  // A page painted from remembered answers is drawn again once, when a fresh answer differs. The Options pages
-  // refresh themselves every few seconds, and a person typing or reading a dialog is never interrupted.
+  // A page painted from remembered answers is drawn again once, when a fresh answer differs. A person typing or
+  // reading a dialog is never interrupted.
   onRevalidated(() => {
     if (redrawnFor === renderSeq) return;
     clearTimeout(redrawTimer);
     redrawTimer = setTimeout(() => {
-      if (redrawnFor === renderSeq || document.documentElement.dataset.layout === "desk") return;
+      if (redrawnFor === renderSeq) return;
       const busy = document.activeElement?.closest?.("input, textarea, select, dialog[open], .popover") || $("dialog")?.open;
       if (busy) return;
       redrawnFor = renderSeq + 1;
@@ -984,27 +952,10 @@ async function refreshTicketCount() {
 // Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
 let motionHooks = null;
 
-/**
- * PR 17's page codes that open a page here, with the page's name (the palette's command line, "banknifty oc", and
- * the g-key sequences). A code whose page id does not resolve (it would land on Home) is left out. Pure.
- */
-const CODE_ROUTES = Object.freeze({ gex: "exposure/strike", payoff: "strategy" }); // PR 17 ids with no LEGACY entry of their own
-export function paletteCodes() {
-  const out = [];
-  for (const id of Object.keys(PAGE_CODES)) {
-    const route = CODE_ROUTES[id] ?? id;
-    const r = resolveRoute(`#/${route}`);
-    if (r.page.id === "home" && id !== "home") continue;
-    if (r.page.id !== route.split("/")[0] && !Object.hasOwn(LEGACY, route)) continue;
-    out.push({ id, route, label: r.tab ? `${r.page.label} › ${r.tab.label}` : r.page.label });
-  }
-  return out;
-}
-
 export async function startRouter() {
   setupA11y();
   setupChrome();
-  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }), codes: paletteCodes });
+  initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }) });
   try {
     motionHooks = await import("./motion.js");
   } catch {
@@ -1013,7 +964,6 @@ export async function startRouter() {
   window.addEventListener("hashchange", show);
   show();
 }
-
 
 /**
  * An account's capabilities on one line: the first as a chip, then a "+N" chip (two chips at most) that opens the rest in a popover,
@@ -1032,7 +982,7 @@ function capabilityChips(a) {
   return h("div", { class: "chips acct-caps" }, caps.length ? h("span", { class: "chip" }, capabilitySummary(caps)) : null, more);
 }
 
-/** A metric card: tinted icon and label, the figure, a footnote (IPO Decode's Metric). */
+/** A metric card: tinted icon and label, the figure, a footnote. */
 function stat(label, value, sub, glyph, tint) {
   return h("section", { class: "card stat" }, h("div", { class: "stat-head" }, glyph ? iconTile(glyph, tint, "sm") : null, h("span", { class: "label" }, label)), h("span", { class: "value" }, value), h("span", { class: "sub" }, sub));
 }
@@ -1493,53 +1443,6 @@ async function paperResetSheet(a) {
   if (done) show().then(() => toast(h("span", { class: "toast-undo-row" }, `${a.label} starts again with ${formatRupeeGrouped(Number(pick.value))} · `, h("button", { type: "button", class: "toast-undo", onclick: undo }, "Undo"))));
 }
 
-/** The holder text an account card shows (P1-13 §6.8): "Asha · Spouse · Family" / "friend · Other · Outside family". */
-export function holderText(entry) {
-  if (!entry) return null;
-  const rel = entry.relationship ? HOLDER_REL[entry.relationship] ?? entry.relationship : "No relationship";
-  const who = entry.label || entry.holder;
-  return `${who} · ${rel} · ${entry.inFamily ? "Family" : "Outside family"}`;
-}
-/** The Accounts row's holder line under its Family pill: "You (demo) · Self". */
-const holderWhoText = (e) => `${e.label || e.holder} · ${e.relationship ? HOLDER_REL[e.relationship] ?? e.relationship : "No relationship"}`;
-const HOLDER_REL = { self: "Self", spouse: "Spouse", "dependent-child": "Dependent child", "dependent-parent": "Dependent parent", huf: "HUF", other: "Other" };
-
-/** Edit a holder's relationship and label (PUT /v1/book/holders/{holder}: admin, this computer). */
-function holderSheet(entry, relationships) {
-  const err = h("div", { "aria-live": "polite" });
-  const sel = h("select", { "aria-label": "Relationship" }, relationships.map((r) => h("option", { value: r.value, selected: r.value === entry.relationship }, `${r.label}${r.inFamily ? " · family" : ""}`)));
-  const label = h("input", { type: "text", maxlength: "40", value: entry.label && entry.label !== entry.holder ? entry.label : "", placeholder: "A name you recognise (optional)" });
-  return modal({
-    title: `Holder: ${entry.holder}`,
-    body: h(
-      "div",
-      { class: "stack" },
-      h("p", { class: "muted small" }, `Accounts: ${entry.accounts.join(", ") || "none visible"}. The relationship decides whether guards and alert actions may act on these accounts.`),
-      h("label", { class: "field" }, "Relationship", sel),
-      h("label", { class: "field" }, "Label", label),
-      err,
-    ),
-    buttons: [
-      { label: "Cancel", value: false },
-      {
-        label: "Save",
-        cls: "primary",
-        onClick: async () => {
-          try {
-            await api(`/v1/book/holders/${encodeURIComponent(entry.holder)}`, { method: "PUT", body: { relationship: sel.value, ...(label.value.trim() ? { label: label.value.trim() } : {}) } });
-            return true;
-          } catch (e) {
-            err.replaceChildren(errorBox(e));
-            return false;
-          }
-        },
-      },
-    ],
-  }).then((saved) => {
-    if (saved) show().then(() => toast(`Saved the relationship for ${entry.holder}`));
-  });
-}
-
 /** The Accounts "Today" cell: a placeholder that fills itself (positions, funds, today's orders; today-core.js). */
 const todayCells = new Map();
 function todayCell(a) {
@@ -1571,25 +1474,6 @@ async function fillToday(accs) {
 async function renderAccounts() {
   const [accounts, brokers] = await Promise.all([api("/v1/accounts"), api("/v1/brokers")]);
   const accs = accounts.data.data ?? [];
-  // v2 has no holder book (no /v1/book/holders route), so no holder cell is shown.
-  const book = null;
-  const holderOfAcc = (id) => book?.holders.find((x) => x.accounts.includes(id)) ?? null;
-  const holderCell = (a) => {
-    const e = holderOfAcc(a.id);
-    if (!e) return null;
-    // Two short lines, like the Account cell beside it: the deciding Family pill and Edit, then who and how related.
-    return h(
-      "div",
-      { class: "acct-holder", title: `Holder: ${holderText(e)}` },
-      h(
-        "span",
-        { class: "acct-holder-top" },
-        h("span", { class: "bk-rel", "data-tone": e.inFamily ? "ok" : "warn" }, e.inFamily ? "Family" : "Outside family"),
-        e.locked ? h("span", { class: "muted small" }, "set in bridge.config.json") : h("button", { type: "button", class: "small link-btn", "aria-label": `Edit the relationship of holder ${e.holder}`, onclick: () => holderSheet(e, book.relationships) }, "Edit"),
-      ),
-      h("span", { class: "muted small acct-holder-who" }, holderWhoText(e)),
-    );
-  };
   const list = brokers.data.data ?? [];
   const brokerOf = (a) => list.find((b) => b.id === a.broker);
   const paperCount = accs.filter((a) => a.broker === "paper").length;
@@ -1618,7 +1502,6 @@ async function renderAccounts() {
     body: table(
       [
         { label: "Account", wrap: true, cell: (a) => h("div", {}, h("strong", {}, a.label), h("div", { class: "muted small mono" }, a.id)) },
-        ...(book ? [{ label: "Holder", cell: (a) => holderCell(a) ?? h("span", { class: "muted small" }, "No holder") }] : []),
         // Broker and what it can do share a cell, and Session carries the mode under its pill, so the table fits its
         // card from 1100px up without a sideways scroll (two fewer columns).
         { label: "Broker", wrap: true, cell: (a) => h("div", { class: "acct-broker" }, a.broker === "paper" ? h("span", {}, "Paper (simulator)") : brokerCell(a.broker, brokerOf(a)?.name ?? a.broker), capabilityChips(a)) },
@@ -1668,12 +1551,6 @@ async function renderAccounts() {
       { mobile: "stack-wide" },
     ),
   });
-  // P1-13 §6.8: what "family" means here, under the accounts.
-  if (book && accs.length) {
-    const fam = book.relationships.filter((r) => r.inFamily).map((r) => r.label.toLowerCase());
-    accountsCard.querySelector(".card-body")?.append(h("p", { class: "muted small acct-family-note" }, `Family = ${fam.join(", ")} (book.family in the config file). Guards and alert actions work only on family accounts. Managing money for anyone else needs SEBI registration.`));
-  }
-
   // Directory
   const search = h("input", { type: "search", class: "dir-search", placeholder: "Search 41 brokers…", "aria-label": "Search brokers" });
   const grid = h("div", { class: "brokers" });
@@ -1709,19 +1586,6 @@ async function renderAccounts() {
     body: grid,
   });
 
-  // #/accounts?reset=<paper id>, from a "short of margin" block: open the reset sheet for that paper account.
-  const resetId = /[?&]reset=([a-z0-9-]+)/.exec(location.hash)?.[1];
-  if (resetId) {
-    history.replaceState(null, "", "#/accounts");
-    const acc = accs.find((x) => x.id === resetId && x.broker === "paper");
-    if (acc) setTimeout(() => paperResetSheet(acc), 0);
-  }
-  // #/accounts?add=1 (or ?add=<broker id>), from the Home page: open the sheet once the page is drawn.
-  const want = /[?&]add=([a-z0-9]+)/.exec(location.hash)?.[1];
-  if (want) {
-    history.replaceState(null, "", "#/accounts");
-    setTimeout(() => addAccountFlow(list, { preselect: want }), 0);
-  }
   setTimeout(() => fillToday(accs).catch(() => {}), 0);
   return [accountsCard, dirCard];
 }
@@ -1779,7 +1643,7 @@ async function renderConsole() {
     }
     const base = location.origin;
     const cmd = b.ep.method === "POST" ? `curl -X POST "${base}${b.url}" -H "Authorization: Bearer $MCB_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: $(node -e "console.log(crypto.randomUUID())")" -d '${JSON.stringify(b.body)}'` : `curl -H "Authorization: Bearer $MCB_API_KEY" "${base}${b.url}"`;
-    curlBox.replaceChildren(codeBlock(cmd, { title: "Same call from a terminal", onCopy: markCopied }));
+    curlBox.replaceChildren(codeBlock(cmd, { title: "Same call from a terminal" }));
   };
   const drawFields = async () => {
     const ep = ENDPOINTS.find((e) => e.id === select.value);
@@ -1823,7 +1687,6 @@ async function renderConsole() {
         const text = await res.text();
         r = { status: res.status, headers: res.headers, text, ms: 0, data: (() => { try { return JSON.parse(text); } catch { return text; } })() };
       } else r = await api(b.url, opts);
-      local.set(FLAG.tested, "1");
       const pretty = typeof r.data === "string" ? r.data : JSON.stringify(r.data, null, 2);
       const pre = h("pre");
       pre.innerHTML = highlightJson(pretty);
@@ -2086,8 +1949,6 @@ async function renderOrders() {
     }),
   );
 
-  // v2 has no trigger engine (no /v1/triggers route), so the Triggers card (triggers.js) is not shown.
-
   const ord = orders.data?.data ?? [];
   // The day's orders with status and side filters, a search and Cancel all (orders-book.js).
   nodes.push(
@@ -2096,11 +1957,8 @@ async function renderOrders() {
       error: orders.error ?? null,
       byId,
       refresh: () => show(),
-      // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
-      actions: [
-        h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send as JSON"),
-        h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/chain") }, "Trade from the chain"),
-      ],
+      // Orders come in through the API; the test console sends one as JSON (API › Test console).
+      actions: [h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send a paper order")],
       columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
               { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
@@ -2123,7 +1981,7 @@ async function renderOrders() {
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
               { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
       ],
-      empty: emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
+      empty: emptyState("orders", "No orders today", "Paper orders from your scripts, webhooks and AI assistants show up here.", nextStep("Send a paper order", "#/api/console?endpoint=order")),
     }),
   );
 
@@ -2365,7 +2223,7 @@ async function renderSafety() {
     title: "Audit log",
     body: h("div", { class: "stack" }, h("p", { class: "muted" }, "Every order, key change and kill-switch action is written to a hash chain. Verify checks that no record was changed or removed."), h("div", { class: "row" }, verifyBtn)),
   });
-  // Trading readiness (docs/spec/p1-05-readiness.md §6.4): between the kill switch and live trading.
+  // Trading readiness: between the kill switch and live trading.
   const ready = await readinessCard({ cardFn: card, demo: app.state.demo }).catch(() => null);
   return [killCard, ready, limits, h("div", { class: "grid side safety-row" }, live, audit)].filter(Boolean);
 }
@@ -2388,7 +2246,7 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
   const all = snippets({ base: location.origin, key, account, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined });
   const body = h("div", { class: "stack" });
   const seg = segmented("Paste it into", usable.map((id) => [id, SNIPPET_TABS[id]]), usable[0]);
-  const draw = () => body.replaceChildren(...(all[seg.value] ?? []).map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied })));
+  const draw = () => body.replaceChildren(...(all[seg.value] ?? []).map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json" })));
   seg.addEventListener("change", draw);
   draw();
   const keyCode = h("code", { class: "new-key-value" }, key);
@@ -2397,7 +2255,7 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
     { class: "new-key", "aria-label": `New key ${label}`, tabindex: "-1" },
     h("div", { class: "new-key-head" }, h("span", { class: "new-key-tick", "aria-hidden": "true" }, icon("check")), h("div", { class: "grow" }, h("strong", {}, `Key created: ${label}`), h("span", { class: "muted small" }, `${scopes.join(" + ")} access · ${use.label}`))),
     alertBox({ title: "Copy it now. It is shown only once.", detail: "The Bridge keeps only a fingerprint of it. If you lose it, revoke it below and create another." }, "warn"),
-    h("div", { class: "new-key-row" }, keyCode, copyButton(key, { label: "Copy key", toastLabel: "Key copied", cls: "primary", onCopy: markCopied })),
+    h("div", { class: "new-key-row" }, keyCode, copyButton(key, { label: "Copy key", toastLabel: "Key copied", cls: "primary" })),
     h("div", { class: "new-key-snips stack" }, h("div", { class: "row" }, h("strong", {}, "Paste it into"), seg), body),
     h("div", { class: "row" }, h("span", { class: "grow muted small" }, "Leaving this page hides the key for good."), h("button", { type: "button", class: "small", onclick: onDone }, "I have copied it, hide it")),
   );
@@ -2636,7 +2494,7 @@ async function renderIntegrations() {
     );
     const parts = [intro];
     if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
-    if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
+    if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json" }))));
     panel.replaceChildren(...parts.filter(Boolean));
   };
   await draw();
@@ -2689,9 +2547,9 @@ async function webhookPanel(paperAcc) {
       list.push(d);
       drawTable();
       box.replaceChildren(...[
-        h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), copyButton(d.url, { cls: "small primary", toastLabel: "URL copied", onCopy: markCopied })),
-        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), copyButton(d.signingSecret, { cls: "small primary", toastLabel: "Secret copied", onCopy: markCopied })) : null,
-        ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{"), onCopy: markCopied })),
+        h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), copyButton(d.url, { cls: "small primary", toastLabel: "URL copied" })),
+        d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), copyButton(d.signingSecret, { cls: "small primary", toastLabel: "Secret copied" })) : null,
+        ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{") })),
         ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")),
         h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."),
       ].filter(Boolean));
@@ -2722,9 +2580,9 @@ async function renderActivity() {
   let active = hashParams().get("view") === "audit" ? "audit" : "requests";
   let showAll = false;
   const hideOwn = h("input", { type: "checkbox" });
-  hideOwn.checked = local.get(FLAG.hideOwn) !== "0";
+  hideOwn.checked = local.get(HIDE_OWN_SLOT) !== "0";
   hideOwn.addEventListener("change", () => {
-    local.set(FLAG.hideOwn, hideOwn.checked ? null : "0");
+    local.set(HIDE_OWN_SLOT, hideOwn.checked ? null : "0");
     draw();
   });
   const draw = () => keepFocusAsync(body, drawActivity);
