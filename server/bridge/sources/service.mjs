@@ -24,6 +24,7 @@ import { BridgeError, ERROR_CODES } from "../core/errors.mjs";
 import { sourcesConfigSchema } from "./config.mjs";
 import { classAllowedFor, classRank, meetsMaxAge } from "./contract.mjs";
 import { createSourceState } from "./state.mjs";
+import { outcomeKindOf } from "./health.mjs";
 
 const MINUTE_MS = 60_000;
 const HEALTH_WINDOW_MS = 5 * MINUTE_MS;
@@ -59,6 +60,8 @@ export function createSourcesService(deps) {
   const state = deps.state ?? createSourceState({ dataDir: deps.paths.dataDir, logger: log, clock });
   /** @type {null | { state(id: string): object | undefined, record?(id: string, r: object): void }} */
   let healthTracker = null;
+  /** Whether callOne() reports its outcomes to the attached tracker (false when the caller of the facade does it, as the market service does). */
+  let trackerRecordsCalls = true;
   let picker = typeof deps.pickSources === "function" ? deps.pickSources : null;
 
   const timeoutMs = () => Math.min(cfg.timeoutMs, 15_000);
@@ -95,31 +98,58 @@ export function createSourcesService(deps) {
     while (u.stamps.length && u.stamps[0] <= t - MINUTE_MS) u.stamps.shift();
     return { lastMinute: u.stamps.length, today: u.day === istDate(t) ? u.today : 0 };
   }
-  function recordOutcome(id, { ok, ms, kind, message }) {
+  function recordOutcome(id, { ok, ms, kind, message }, { toTracker = true } = {}) {
     const o = outcomes.get(id) ?? { results: [], lastError: null };
     o.results.push({ at: nowMs(), ok, ms });
     if (o.results.length > HEALTH_KEEP) o.results.shift();
     if (!ok) o.lastError = message ?? "failed";
     outcomes.set(id, o);
+    if (!toTracker) return;
     try {
-      healthTracker?.record?.(id, { ok, ms, kind });
+      healthTracker?.record?.(id, { ok, ms, kind, ...(message ? { message: String(message).slice(0, 200) } : {}) });
     } catch {
       // health is advisory; it never fails a read
     }
   }
+  /** A tracker's lastError ({ kind, message } or text) as the plain sentence the API shows. */
+  const errorText = (e) => (e && typeof e === "object" ? (typeof e.message === "string" && e.message ? e.message : (e.kind ?? null)) : (e ?? null));
+  /** An epoch-ms or ISO time as ISO text, or null. */
+  const isoOrNull = (t) => (Number.isFinite(t) ? new Date(t).toISOString() : typeof t === "string" && t ? t : null);
+  const SEVERITY = { ok: 0, degraded: 1, open: 2, disabled: 3 };
+  /** What a plugin's host says about its own child process, when the provider has health(). */
+  function providerHealth(id) {
+    const p = registry.get(id);
+    if (typeof p?.health !== "function") return null;
+    try {
+      const h = p.health();
+      return h && typeof h === "object" && Object.hasOwn(SEVERITY, h.state) ? h : null;
+    } catch {
+      return null;
+    }
+  }
   function healthOf(id, enabled) {
     if (!enabled) return { state: "disabled", errorRate: 0, p50Ms: null, lastError: null, nextTryAt: null };
+    let base = null;
     try {
       const h = healthTracker?.state?.(id);
-      if (h && typeof h === "object") return { state: h.state ?? "ok", errorRate: h.errorRate ?? 0, p50Ms: h.p50Ms ?? null, lastError: h.lastError ?? null, nextTryAt: h.nextTryAt ?? null };
+      if (h && typeof h === "object") base = { state: h.state ?? "ok", errorRate: h.errorRate ?? 0, p50Ms: h.p50Ms ?? null, lastError: errorText(h.lastError), nextTryAt: isoOrNull(h.nextTryAt) };
     } catch {
       // fall back to the local numbers
     }
-    const o = outcomes.get(id);
-    const recent = (o?.results ?? []).filter((r) => r.at > nowMs() - HEALTH_WINDOW_MS);
-    const errorRate = recent.length ? recent.filter((r) => !r.ok).length / recent.length : 0;
-    const bad = recent.length >= 3 && errorRate >= 0.5;
-    return { state: bad ? "degraded" : "ok", errorRate: Math.round(errorRate * 1000) / 1000, p50Ms: median(recent.filter((r) => r.ok).map((r) => r.ms)), lastError: o?.lastError ?? null, nextTryAt: null };
+    if (!base) {
+      const o = outcomes.get(id);
+      const recent = (o?.results ?? []).filter((r) => r.at > nowMs() - HEALTH_WINDOW_MS);
+      const errorRate = recent.length ? recent.filter((r) => !r.ok).length / recent.length : 0;
+      const bad = recent.length >= 3 && errorRate >= 0.5;
+      base = { state: bad ? "degraded" : "ok", errorRate: Math.round(errorRate * 1000) / 1000, p50Ms: median(recent.filter((r) => r.ok).map((r) => r.ms)), lastError: o?.lastError ?? null, nextTryAt: null };
+    }
+    // A plugin knows what the call counters cannot (its process was restarted, or switched off after crashing): the
+    // worse of the two states wins, and the plugin's own reason is shown when it decided.
+    const ph = providerHealth(id);
+    if (ph && ph.state !== "ok" && SEVERITY[ph.state] >= SEVERITY[base.state]) {
+      return { ...base, state: ph.state, lastError: errorText(ph.lastError) ?? base.lastError, nextTryAt: isoOrNull(ph.nextTryAt) ?? base.nextTryAt };
+    }
+    return base;
   }
 
   // ── Secrets ──
@@ -262,7 +292,7 @@ export function createSourcesService(deps) {
     } catch (err) {
       const latencyMs = Math.round(performance.now() - t0);
       const info = toProblem(err, key);
-      recordOutcome(id, { ok: false, ms: latencyMs, kind: info.code, message: info.message });
+      recordOutcome(id, { ok: false, ms: latencyMs, kind: outcomeKindOf(info), message: info.message });
       return { ok: false, latencyMs, detail: info.message };
     }
   }
@@ -342,7 +372,9 @@ export function createSourcesService(deps) {
   async function pickSources(capability, req = {}) {
     const chosen = picker ? await picker(capability, req, { eligibleSources: () => eligibleSources(capability, req), registry }) : eligibleSources(capability, req);
     const seen = new Set();
-    return (Array.isArray(chosen) ? chosen : []).filter((p) => p?.descriptor && registry.get(p.descriptor.id) === p && !seen.has(p) && seen.add(p) && eligible(p, capability, req) === null);
+    // `sourceId` is the router's choice: this read goes to that source only (it still has to be eligible), never to another.
+    const only = typeof req.sourceId === "string" ? req.sourceId : null;
+    return (Array.isArray(chosen) ? chosen : []).filter((p) => p?.descriptor && (only === null || p.descriptor.id === only) && registry.get(p.descriptor.id) === p && !seen.has(p) && seen.add(p) && eligible(p, capability, req) === null);
   }
 
   /** Call one source, count the call, record the outcome. Throws a BridgeError (or AbortError). */
@@ -353,13 +385,13 @@ export function createSourcesService(deps) {
     touch(d.id);
     try {
       const out = await runWithLimits(fn, { key, signal: opts.signal, deadlineMs: opts.deadlineMs });
-      recordOutcome(d.id, { ok: true, ms: Math.round(performance.now() - t0), kind: "ok" });
+      recordOutcome(d.id, { ok: true, ms: Math.round(performance.now() - t0), kind: "ok" }, { toTracker: trackerRecordsCalls });
       return out;
     } catch (err) {
       if (err?.name === "AbortError") throw err;
       const info = toProblem(err, key);
       // A 429, an auth failure or a not-found says nothing about the source being down; the router decides what trips.
-      recordOutcome(d.id, { ok: false, ms: Math.round(performance.now() - t0), kind: info.code, message: info.message });
+      recordOutcome(d.id, { ok: false, ms: Math.round(performance.now() - t0), kind: outcomeKindOf(info), message: info.message }, { toTracker: trackerRecordsCalls });
       log?.warn?.("source call failed", { id: d.id, capability, code: info.code });
       throw new BridgeError(info.code, `${d.name}: ${info.message}`);
     }
@@ -370,7 +402,7 @@ export function createSourcesService(deps) {
     return { provider: d.id, class: d.class, delaySec: d.class === "realtime" ? 0 : (d.delaySec ?? null), official: d.official };
   };
   const atOf = (out) => (Number.isFinite(out?.at) ? out.at : nowMs());
-  const reqOf = (capability, opts, extra) => ({ capability, purpose: opts?.purpose ?? "display", maxAgeMs: opts?.maxAgeMs ?? null, ...extra });
+  const reqOf = (capability, opts, extra) => ({ capability, purpose: opts?.purpose ?? "display", maxAgeMs: opts?.maxAgeMs ?? null, ...(typeof opts?.sourceId === "string" ? { sourceId: opts.sourceId } : {}), ...extra });
   const noneEnabled = (what) => new BridgeError("CAPABILITY_UNSUPPORTED", `No enabled data source can answer ${what}. Switch one on under Sources.`);
   const unusable = (p) => new BridgeError("UPSTREAM_ERROR", `${p.descriptor.name} returned an answer the Bridge cannot read.`);
 
@@ -436,7 +468,7 @@ export function createSourcesService(deps) {
      * @param {{ maxAgeMs?: number, purpose?: string, signal?: AbortSignal, deadlineMs?: number }} [opts]
      */
     async history(req, opts = {}) {
-      const merged = { ...opts, purpose: req?.purpose ?? opts.purpose, maxAgeMs: req?.maxAgeMs ?? opts.maxAgeMs };
+      const merged = { ...opts, purpose: req?.purpose ?? opts.purpose, maxAgeMs: req?.maxAgeMs ?? opts.maxAgeMs, sourceId: req?.sourceId ?? opts.sourceId };
       const { p, out } = await firstAnswer(
         "history",
         reqOf("history", merged, { symbols: [req?.symbol] }),
@@ -510,9 +542,13 @@ export function createSourcesService(deps) {
       if (fn !== null && typeof fn !== "function") throw new TypeError("setPicker needs a function or null");
       picker = fn;
     },
-    /** Let a health tracker (router) supply `state(id)` for the list and receive `record(id, ...)` after every call. */
-    attachHealth(tracker) {
+    /**
+     * Let a health tracker supply `state(id)` for the list. By default the service also reports every call's outcome to
+     * it; pass `{ recordsCalls: false }` when the caller of the facade (the market service) records them itself, so no call counts twice.
+     */
+    attachHealth(tracker, { recordsCalls = true } = {}) {
       healthTracker = tracker ?? null;
+      trackerRecordsCalls = recordsCalls !== false;
     },
     refresh,
     usage: usageOf,

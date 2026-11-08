@@ -488,7 +488,7 @@ describe("usage and health", () => {
     svc.attachHealth({ state: (id) => ({ state: "open", errorRate: 1, p50Ms: 5, lastError: "x", nextTryAt: 99, id }), record: (id, r) => seen.push([id, r.ok]) });
     await svc.quotes(["NSE:A"]);
     expect(seen).toEqual([["slow-src", true]]);
-    expect(svc.describe("slow-src").health).toEqual({ state: "open", errorRate: 1, p50Ms: 5, lastError: "x", nextTryAt: 99 });
+    expect(svc.describe("slow-src").health).toEqual({ state: "open", errorRate: 1, p50Ms: 5, lastError: "x", nextTryAt: new Date(99).toISOString() });
     // a disabled source is "disabled" whatever the tracker says
     expect(svc.describe("my-broker").health.state).toBe("open");
     await svc.setEnabled("slow-src", false);

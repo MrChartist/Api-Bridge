@@ -5434,7 +5434,7 @@ components:
             errorRate: { type: number }
             p50Ms: { type: [number, "null"] }
             lastError: { type: [string, "null"] }
-            nextTryAt: { type: [string, integer, "null"] }
+            nextTryAt: { type: [string, "null"], format: date-time }
         terms: { type: [object, "null"], properties: { url: { type: string }, note: { type: string } } }
         noticeVersion: { type: string, description: "Opt-in sources: send this as `acknowledge` to switch the source on." }
         needsKey: { type: boolean }
