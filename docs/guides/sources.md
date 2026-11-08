@@ -242,6 +242,14 @@ as off. If you or anyone edits the plugin later, the Bridge
 refuses it until you run `pin` again and update the line. A plugin that crashes four times in ten minutes is switched off,
 and the reason shows in its health on the Sources page.
 
+**Acknowledgements for opt-in sources.** Switching an opt-in source on needs you to acknowledge its notice. If you switch it off and
+on again within 24 hours, one click is enough. If it has been off for more than 24 hours, or its notice changed, the notice is
+shown again and the new acknowledgement is recorded (`needsAcknowledgement` in `GET /v1/sources` says which). At start, the Bridge
+checks every source its state file marks as on: an opt-in source with no acknowledgement for the current notice is treated as off,
+and a warning in the log names it. Those files (`sources/state.json`, the secrets store, the config) are **trusted local state, not
+tamper-proof**: anyone who can write to the Bridge's data folder can change them, and the checks catch an honest mistake or a
+restored backup, not a determined person.
+
 ## Configuration
 
 ```json

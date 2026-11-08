@@ -64,7 +64,7 @@ Every source has a descriptor. The router, the dashboard and `GET /v1/sources` r
 |---|---|
 | `builtin` | Nothing: your broker accounts |
 | `byok` | Saving a key (`PUT /v1/sources/{id}/config`) and enabling |
-| `opt-in` | Enabling with `acknowledge` equal to `noticeVersion` |
+| `opt-in` | Enabling with `acknowledge` equal to `noticeVersion` (again after more than 24 hours off, or a new notice) |
 | `plugin` | The owner granting it in `sources.plugins` (with its sha256), and enabling |
 
 Free and plugin sources never claim `realtime`: the conformance harness fails them if they do, and the plugin manifest does
