@@ -424,7 +424,7 @@ export function ordersBook({ ord, error, byId, actions, refresh, send, canSend =
     bar.hidden = Boolean(error) || !list.length;
     sendBtn.hidden = !list.length || !canSend;
   }
-  const sendBtn = h("button", { type: "button", class: "small tinted", onclick: send }, icon("plus"), "Send a paper order");
+  const sendBtn = h("button", { type: "button", class: "small primary", onclick: send }, icon("plus"), "Send a paper order");
   draw();
 
   const el = card({
