@@ -163,6 +163,23 @@ describe("a real plugin process", () => {
     expect((await host.call("quotes", { symbols: ["NSE:X"] })).items).toHaveLength(1);
   }, 30_000);
 
+  it("passes every capability's arguments through and validates every answer (real process)", async () => {
+    const entry = `
+export default {
+  async quotes(symbols, ctx) { return { items: symbols.map((s) => ({ symbol: s, at: ctx.now - 5000, fields: { ltp: 10 } })) }; },
+  async history(req, ctx) { return { candles: [{ time: Math.floor(req.fromMs / 1000), open: 1, high: 2, low: 1, close: 2, volume: 3 }], at: ctx.now - 5000 }; },
+  async expiries(u, ctx) { return { expiries: ["2026-10-29", "2026-11-26"], at: ctx.now - 5000 }; },
+  async optionChain(u, expiry, ctx) { return { underlyingLtp: expiry ? 24500 : 1, rows: [{ strike: 24500, ce: { ltp: 5 }, pe: null }], at: ctx.now - 5000 }; },
+};`;
+    const dir = plugin(entry, { capabilities: ["quotes", "history", "expiries", "optionChain"] });
+    const host = start(dir);
+    expect((await host.call("quotes", { symbols: ["NSE:A", "NSE:B"] })).items.map((i) => i.symbol)).toEqual(["NSE:A", "NSE:B"]);
+    expect((await host.call("history", { symbol: "NSE:A", interval: "1d", fromMs: 1_792_000_000_000, toMs: 1_792_100_000_000 })).candles[0].time).toBe(1_792_000_000);
+    expect((await host.call("expiries", { underlying: "NIFTY" })).expiries).toEqual(["2026-10-29", "2026-11-26"]);
+    expect((await host.call("optionChain", { underlying: "NIFTY", expiry: "2026-10-29" })).underlyingLtp).toBe(24500);
+    expect((await host.call("optionChain", { underlying: "NIFTY" })).underlyingLtp).toBe(1);
+  }, 30_000);
+
   it("through the loader: a granted, pinned plugin answers, and Bridge-side data is labelled as a plugin's", async () => {
     const dir = plugin();
     const pin = inspectPluginFolder(dir).pin;
