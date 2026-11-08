@@ -18,6 +18,10 @@
   source health shows the outcome of real calls, and a plugin's own health appears in `GET /v1/sources`. `health.nextTryAt`
   is always ISO text and `health.lastError` plain text.
 - Pooling needs your consent: it stays off until you accept a versioned notice (`GET`, `PUT` and `DELETE /v1/pooling`).
+- `GET /v1/sources` rows carry `health.lastErrorKind` (`none`, `auth`, `rate-limit`, `not-found`, `hard`) so a refused key or a
+  vendor limit is not shown as working, and the response `meta` carries `autoFallback`. The Sources page says when a free
+  source on will actually be asked, switches show their new state at once, and the dashboard's counted words, motion, touch
+  targets and sheets were tidied across pages.
 
 ## 2.0.0
 
