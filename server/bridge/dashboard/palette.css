@@ -49,7 +49,7 @@ mark.pal-mark { background: none; color: hsl(var(--accent-ink)); font-weight: 70
 .palette-option[aria-selected="true"] mark.pal-mark { color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
 .palette-option[aria-selected="true"] { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); }
 .palette-option[aria-selected="true"] .palette-sub { color: hsl(var(--sel-fg)); }
-.palette-option[aria-selected="true"] .kbd { background: hsl(var(--sel-fg) / 0.16); color: hsl(var(--sel-fg)); }
+.palette-option[aria-selected="true"] .kbd { background: transparent; color: hsl(var(--sel-fg)); box-shadow: inset 0 0 0 1px hsl(var(--sel-fg) / 0.6); }
 .palette-right { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 8px; }
 .palette-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 32px 16px 36px; text-align: center; color: var(--label-2); font: var(--t-callout); text-wrap: balance; }
 .palette-empty svg { width: 28px; height: 28px; color: var(--label-3); }
