@@ -8,9 +8,20 @@
  *  - a priority queue (priorityQueue.mjs): order > live > interactive > background, with ageing. A request that
  *    cannot run RESERVES its buckets for the rest of that dispatch pass, so lower-priority work on the same buckets
  *    waits behind it while work on other buckets still flows;
- *  - per-class upstream back-off: a broker 429 / UPSTREAM_RATE_LIMIT pauses only that (account, class), honouring
- *    Retry-After, else 1 s, 2 s, 4 s ... up to backoff.maxMs. Throttled calls are never retried here (an order must
- *    never be resent blindly, and some brokers block the user for the day after repeated breaches);
+ *  - fairness (priorityQueue.mjs): inside a lane, consumers (API keys) share the budget by weight with start-time fair
+ *    queueing; a consumer may have at most queue.maxQueuedPerConsumer (200) requests waiting and, while others wait
+ *    too, ceil(maxInFlightPerAccount / 2) calls in flight. The admission estimate counts only the work that would
+ *    really run before the new request, so a flood does not make a well-behaved consumer look blocked, and a full
+ *    queue drops the newest request of the biggest consumer instead of refusing everyone;
+ *  - upstream back-off, per POOL: a broker 429 / UPSTREAM_RATE_LIMIT pauses every class of that account that shares
+ *    a budget with the throttled class (a group bucket's classes together), honouring Retry-After, else 1 s, 2 s,
+ *    4 s ... up to backoff.maxMs, plus 0 to 250 ms of jitter (never before Retry-After). Throttled calls are never
+ *    retried here (an order must never be resent blindly, and some brokers block the user for the day after
+ *    repeated breaches);
+ *  - adaptive budget (AIMD): each pool has a scale below the policy ceiling. A throttle episode (the 429s of one
+ *    back-off window count once) halves it (floor 0.25); every clean 60 s with traffic adds 0.05; three episodes in
+ *    an hour cap it at 0.8 x its value before the last drop for 24 h (the policy figure is probably too high; a
+ *    warning says so). The scale only ever lowers the limits (tokenBucket.mjs setScale), in memory only;
  *  - health: a session error from a scheduled call emits "account.session_rejected" and keeps the account out of
  *    pooled routing until AccountManager reports it connected again.
  *
@@ -29,12 +40,13 @@
 import { ENDPOINT_CLASSES, PRIORITIES } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { createClientLimiter } from "./clientLimiter.mjs";
-import { parseRatelimitConfig } from "./config.mjs";
+import { DEFAULT_MAX_QUEUED_PER_CONSUMER, parseRatelimitConfig } from "./config.mjs";
 import { bucketPlan, resolvePolicy } from "./policy.mjs";
 import { MAX_BACKGROUND_SHARE } from "./backgroundGate.mjs";
 import { BROKER_POLICIES } from "./brokerPolicies.mjs";
 import { PRIORITY_RANK, createPriorityQueue } from "./priorityQueue.mjs";
-import { currentConsumer } from "./consumer.mjs";
+import { currentConsumer, currentConsumerInfo } from "./consumer.mjs";
+import { createQuotaStore } from "./quotaStore.mjs";
 import { createRateLimiter, istDay, nextIstMidnight, toIstIso } from "./tokenBucket.mjs";
 
 const SESSION_CODES = new Set(["SESSION_LOGIN_REQUIRED", "UPSTREAM_AUTH", "SESSION_EXPIRED"]);
@@ -43,6 +55,10 @@ const UNHEALTHY_STATES = new Set(["expired", "missing", "error"]);
 const MAX_COST = 10_000;
 const MAX_CALLER_WAIT_MS = 3_600_000;
 const MAX_RETRY_AFTER_MS = 3_600_000;
+/** Back-off jitter: 0 to this many ms are added to every pause (never subtracted). */
+const BACKOFF_JITTER_MS = 250;
+/** AIMD: multiplicative decrease, floor, additive step per clean minute, freeze rule. */
+const AIMD = Object.freeze({ decrease: 0.5, floor: 0.25, step: 0.05, periodMs: 60_000, episodesToFreeze: 3, episodeWindowMs: 3_600_000, freezeFactor: 0.8, freezeMs: 86_400_000 });
 /** Seconds of per-second call history kept per account (usage({ series: true }), the Rate limits chart). */
 export const SERIES_SECONDS = 120;
 /** Distinct consumer names kept per day; later ones are counted under "Other". */
@@ -93,6 +109,8 @@ export function recordSaving(kind, count = 1) {
   current?.recordSaving(kind, count);
 }
 
+const finiteOrNull = (n) => (Number.isFinite(n) ? n : null);
+
 function abortReason(signal) {
   return signal?.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
@@ -109,6 +127,8 @@ const secondsText = (ms) => {
  */
 export function createScheduler(deps, options = {}) {
   const { config, bus, clock } = deps;
+  /** 0 <= random() < 1; tests pass a fixed one so back-off delays are exact. */
+  const random = typeof options.random === "function" ? options.random : Math.random;
   const log = deps.logger?.child ? deps.logger.child({ module: "ratelimit" }) : deps.logger;
   const accounts = deps.accounts;
   const table = options.policies ?? BROKER_POLICIES;
@@ -123,7 +143,10 @@ export function createScheduler(deps, options = {}) {
   const inflight = new Map();
   /** @type {Map<string, any>} brokerId -> effective policy (broker-level overrides only) */
   const policyCache = new Map();
-  const client = createClientLimiter(rl.client, clock);
+  const quotas = options.quotas ?? createQuotaStore({ dir: typeof config?.dataDir === "string" ? config.dataDir : null, config: rl.client, logger: log });
+  const client = createClientLimiter(rl.client, clock, { quotas });
+  const maxQueuedPerConsumer = rl.queue.maxQueuedPerConsumer ?? DEFAULT_MAX_QUEUED_PER_CONSUMER;
+  const maxInFlightPerConsumer = rl.maxInFlightPerConsumer ?? Math.max(1, Math.ceil(rl.maxInFlightPerAccount / 2));
   const savings = { day: istDay(now()), servedFromStream: 0, servedFromCache: 0, coalesced: 0, batched: 0 };
   /** consumer name -> { calls, saved } for the IST day in `savings.day` */
   const consumers = new Map();
@@ -146,6 +169,46 @@ export function createScheduler(deps, options = {}) {
     }
   }
 
+  /**
+   * Pools: the classes of an account that share a budget (a group bucket lists them together) form one pool. They
+   * pause together after a 429 and share one AIMD scale. A class with no budget of its own is a pool by itself.
+   * @returns {{ comps: any[], compOf: Map<string, any> }}
+   */
+  function buildPools(plan, t) {
+    const parent = new Map(ENDPOINT_CLASSES.map((c) => [c, c]));
+    const find = (c) => {
+      while (parent.get(c) !== c) {
+        parent.set(c, parent.get(parent.get(c)));
+        c = parent.get(c);
+      }
+      return c;
+    };
+    for (const b of plan) {
+      if (!b.key.startsWith("group:")) continue;
+      for (const c of b.classes.slice(1)) parent.set(find(c), find(b.classes[0]));
+    }
+    const byRoot = new Map();
+    for (const c of ENDPOINT_CLASSES) {
+      const root = find(c);
+      if (!byRoot.has(root)) byRoot.set(root, { name: null, classes: [], bucketKeys: [], groups: [] });
+      byRoot.get(root).classes.push(c);
+    }
+    for (const b of plan) {
+      const comp = byRoot.get(find(b.classes[0]));
+      comp.bucketKeys.push(b.key);
+      if (b.key.startsWith("group:")) comp.groups.push(b.key.slice(6));
+    }
+    const comps = [];
+    const compOf = new Map();
+    for (const comp of byRoot.values()) {
+      comp.name = comp.groups.length ? comp.groups.join("+") : comp.classes[0];
+      Object.assign(comp, { scale: 1, ceiling: 1, ceilingUntil: 0, episodes: [], backoffUntil: 0, streak: 0, periodStart: t, periodHadCalls: false });
+      comps.push(comp);
+      for (const c of comp.classes) compOf.set(c, comp);
+    }
+    return { comps, compOf };
+  }
+
   function newClassStats() {
     return { calls: 0, units: 0, coalesced: 0, errors: 0, throttled: 0, rejected: 0 };
   }
@@ -155,20 +218,27 @@ export function createScheduler(deps, options = {}) {
     if (st) return st;
     const broker = brokerOf(accountId);
     const policy = resolvePolicy(broker, { broker: rl.brokers[broker], account: rl.accounts[accountId] }, table);
+    const plan = bucketPlan(policy);
     const buckets = new Map();
     /** @type {Map<string, Array<{ key: string, lim: import("./tokenBucket.mjs").RateLimiter }>>} */
     const classLimiters = new Map(ENDPOINT_CLASSES.map((c) => [c, []]));
-    for (const b of bucketPlan(policy)) {
+    for (const b of plan) {
       const lim = createRateLimiter(b.windows, { paddingMs: rl.windowPaddingMs });
       buckets.set(b.key, lim);
       for (const c of b.classes) classLimiters.get(c).push({ key: b.key, lim });
     }
+    const { comps, compOf } = buildPools(plan, now());
     st = {
       accountId,
       broker,
       policy,
       buckets,
       classLimiters,
+      /** pools: classes that share a budget back off and scale together */
+      comps,
+      compOf,
+      /** fairKey -> { label, weight, queued, inFlight } for consumers with work waiting or running on this account */
+      cons: new Map(),
       queue: createPriorityQueue({ ageingMs: rl.queue.ageingMs }),
       /** bucket key -> queued units per priority rank (for wait estimates) */
       bucketQueued: new Map([...buckets.keys()].map((k) => [k, PRIORITIES.map(() => 0)])),
@@ -294,6 +364,64 @@ export function createScheduler(deps, options = {}) {
     return n;
   }
 
+  // ── Adaptive budget (AIMD) ──
+
+  const round6 = (x) => Math.round(x * 1e6) / 1e6;
+
+  function applyScale(st, comp) {
+    for (const key of comp.bucketKeys) st.buckets.get(key)?.setScale(comp.scale);
+  }
+
+  /** Additive increase: +step for the clean minute that had traffic. Lazy: runs whenever the pool is looked at. */
+  function syncScale(st, comp, t) {
+    if (comp.ceilingUntil && t >= comp.ceilingUntil) {
+      comp.ceiling = 1;
+      comp.ceilingUntil = 0;
+    }
+    if (comp.scale >= comp.ceiling) {
+      comp.periodStart = Math.max(comp.periodStart, t);
+      comp.periodHadCalls = false;
+      return;
+    }
+    const periods = Math.floor((t - comp.periodStart) / AIMD.periodMs);
+    if (periods <= 0) return;
+    // Only the first elapsed minute can have seen traffic: a later one would have synced when its call started.
+    const gain = comp.periodHadCalls ? AIMD.step : 0;
+    comp.periodStart += periods * AIMD.periodMs;
+    comp.periodHadCalls = false;
+    if (gain > 0) {
+      comp.scale = round6(Math.min(comp.ceiling, comp.scale + gain));
+      applyScale(st, comp);
+    }
+  }
+
+  function syncAll(st, t) {
+    for (const comp of st.comps) if (comp.scale < comp.ceiling || comp.ceilingUntil) syncScale(st, comp, t);
+  }
+
+  /** Multiplicative decrease, once per throttle episode. */
+  function decreaseScale(st, comp, t, pauseMs) {
+    syncScale(st, comp, t);
+    const before = comp.scale;
+    comp.scale = round6(Math.max(AIMD.floor, comp.scale * AIMD.decrease));
+    comp.episodes = comp.episodes.filter((e) => t - e < AIMD.episodeWindowMs);
+    comp.episodes.push(t);
+    if (comp.episodes.length >= AIMD.episodesToFreeze) {
+      comp.ceiling = round6(Math.max(AIMD.floor, AIMD.freezeFactor * before));
+      comp.ceilingUntil = t + AIMD.freezeMs;
+      comp.scale = Math.min(comp.scale, comp.ceiling);
+      log?.warn?.("the broker throttled this pool three times within an hour; its limit in the policy table looks too high. Lower it in ratelimit.brokers or ratelimit.accounts", {
+        accountId: st.accountId,
+        broker: st.broker,
+        pool: comp.name,
+        ceiling: comp.ceiling,
+      });
+    }
+    comp.periodStart = t + pauseMs;
+    comp.periodHadCalls = false;
+    applyScale(st, comp);
+  }
+
   // ── Budget helpers ──
 
   function backoffRemaining(st, cls, t) {
@@ -315,14 +443,26 @@ export function createScheduler(deps, options = {}) {
     return wait;
   }
 
-  /** Estimated start time for a new request, counting queued work ahead of it on the same buckets. */
-  function estimateStart(st, cls, priority, cost, t) {
+  /**
+   * Estimated start time for a new request, counting the queued work that would really run before it on the same
+   * buckets: everything in the lanes above its own, and in its own lane the items of its consumer and the items of
+   * other consumers that the fair queue serves first (start tag at or below the new request's). Another consumer's
+   * deeper backlog is not counted, so a flood does not make a well-behaved consumer look blocked.
+   */
+  function estimateStart(st, cls, priority, cost, t, fairKey = "") {
     let wait = backoffRemaining(st, cls, t);
     const rank = PRIORITY_RANK[priority];
-    for (const { key, lim } of limitersOf(st, cls)) {
+    const lims = limitersOf(st, cls);
+    /** queued units ahead in the same lane, by endpoint class */
+    const sameLane = new Map();
+    if (lims.length) {
+      st.queue.aheadUnits(priority, fairKey, (c, units) => sameLane.set(c, (sameLane.get(c) ?? 0) + units));
+    }
+    for (const { key, lim } of lims) {
       const queued = st.bucketQueued.get(key);
       let ahead = 0;
-      for (let r = 0; r <= rank; r++) ahead += queued[r];
+      for (let r = 0; r < rank; r++) ahead += queued[r];
+      for (const [c, units] of sameLane) if (limitersOf(st, c).some((l) => l.key === key)) ahead += units;
       const cap = lim.capacity();
       const w = lim.waitMs(Math.min(ahead + Math.min(cost, cap), cap), t);
       const base = Number.isFinite(w) ? w : nextIstMidnight(t) - t;
@@ -369,14 +509,33 @@ export function createScheduler(deps, options = {}) {
 
   // ── Queue bookkeeping ──
 
-  function trackQueued(st, sh, sign) {
+  function trackQueued(st, sh, sign, served = false) {
     const rank = PRIORITY_RANK[sh.priority];
     for (const { key } of limitersOf(st, sh.endpointClass)) st.bucketQueued.get(key)[rank] += sign * sh.cost;
     st.queuedByClass.set(sh.endpointClass, st.queuedByClass.get(sh.endpointClass) + sign);
+    consumerRowFor(st, sh).queued += sign;
+    // A served call becomes in flight a moment later (start): keep its consumer's row rather than drop and rebuild it.
+    if (!served) dropIdleConsumer(st, sh.fairKey);
   }
 
-  function dequeue(st, sh) {
-    if (sh.item && st.queue.remove(sh.item)) trackQueued(st, sh, -1);
+  /** The consumer's row on this account (created on demand). */
+  function consumerRowFor(st, sh) {
+    let row = st.cons.get(sh.fairKey);
+    if (!row) {
+      row = { label: sh.label, weight: sh.weight, kind: sh.clientKind, queued: 0, inFlight: 0 };
+      st.cons.set(sh.fairKey, row);
+    }
+    return row;
+  }
+
+  function dropIdleConsumer(st, fairKey) {
+    const row = st.cons.get(fairKey);
+    if (row && row.queued <= 0 && row.inFlight <= 0) st.cons.delete(fairKey);
+  }
+
+  /** Take a waiting call out of the queue. `served` when it is about to start (advances the lane's virtual time). */
+  function dequeue(st, sh, served = false) {
+    if (sh.item && st.queue.remove(sh.item, { served })) trackQueued(st, sh, -1, served);
   }
 
   function settle(sh, ok, value) {
@@ -387,14 +546,32 @@ export function createScheduler(deps, options = {}) {
     else sh.reject(value);
   }
 
-  function refuse(st, sh, retryAfterMs, why) {
+  /** The budget that said no, as the refusal's `limit`: the back-off when it is what blocks, else the binding window. */
+  function upstreamLimit(st, cls, t) {
+    const h = headroomOf(st, cls, t);
+    const bo = backoffRemaining(st, cls, t);
+    if (bo > 0 && bo >= h.resetMs) return { name: `${st.accountId}:${cls}:backoff`, remaining: 0, resetMs: Math.ceil(bo) };
+    return { name: `${st.accountId}:${cls}:${h.window}`, remaining: Number.isFinite(h.remaining) ? Math.max(0, h.remaining) : 0, resetMs: Math.ceil(h.resetMs) };
+  }
+
+  /**
+   * Refuse a request. scope "upstream" (the shared broker budget cannot serve it in time) and "queue" (the shared queue
+   * is full) are UPSTREAM_RATE_LIMITED; "consumer-cap" (this consumer has too many requests waiting) is RATE_LIMITED:
+   * it is the caller's own cap. Every refusal carries scope, retryAfterMs and the limit that said no.
+   */
+  function refuse(st, sh, retryAfterMs, why, scope = "upstream") {
     const retry = Math.max(1, Math.ceil(retryAfterMs));
+    const t = now();
     stats(st, sh.endpointClass).rejected += 1;
-    const err = new BridgeError(
-      "UPSTREAM_RATE_LIMITED",
-      `The ${st.broker} ${sh.endpointClass} budget for account ${st.accountId} is fully used ${why}. Try again in ${secondsText(retry)}.`,
-      { retryAfterMs: retry },
-    );
+    let limit;
+    if (scope === "consumer-cap") limit = { name: `${st.accountId}:consumer-queue`, remaining: 0, resetMs: retry };
+    else if (scope === "queue") limit = { name: `${st.accountId}:queue`, remaining: Math.max(0, rl.queue.maxQueuedPerAccount - st.queue.size), resetMs: retry };
+    else limit = upstreamLimit(st, sh.endpointClass, t);
+    const detail =
+      scope === "consumer-cap"
+        ? `This client already has ${maxQueuedPerConsumer} requests waiting for the ${st.broker} ${sh.endpointClass} budget of account ${st.accountId} ${why}. Try again in ${secondsText(retry)}.`
+        : `The ${st.broker} ${sh.endpointClass} budget for account ${st.accountId} is fully used ${why}. Try again in ${secondsText(retry)}.`;
+    const err = new BridgeError(scope === "consumer-cap" ? "RATE_LIMITED" : "UPSTREAM_RATE_LIMITED", detail, { retryAfterMs: retry, scope, limit });
     bus?.emit("limits.throttled", { accountId: st.accountId, endpointClass: sh.endpointClass, retryAfterMs: retry, upstream: false });
     settle(sh, false, err);
   }
@@ -418,9 +595,23 @@ export function createScheduler(deps, options = {}) {
 
   // ── Dispatch ──
 
+  /**
+   * How many calls one consumer may have in flight while others have work on the account: half the slots
+   * (maxInFlightPerConsumer), or its weighted share of the slots when that is more, so a heavily weighted consumer
+   * (the dashboard) is never held below the share the fair queue gives it. The account total still caps everything.
+   */
+  function inFlightCap(st, fairKey) {
+    const row = st.cons.get(fairKey);
+    let total = 0;
+    for (const r of st.cons.values()) total += r.weight;
+    const share = row && total > 0 ? Math.ceil((rl.maxInFlightPerAccount * row.weight) / total) : 0;
+    return Math.min(rl.maxInFlightPerAccount, Math.max(maxInFlightPerConsumer, share));
+  }
+
   function dispatch(st) {
     if (stopped || st.queue.size === 0) return;
     const t = now();
+    syncAll(st, t);
     const reserved = new Set();
     let readsBlocked = st.inFlightReads >= rl.maxInFlightPerAccount;
     let nextWake = Infinity;
@@ -434,6 +625,8 @@ export function createScheduler(deps, options = {}) {
       nextWake = Math.min(nextWake, sh.deadline);
       const isOrder = sh.endpointClass === "order";
       if (!isOrder && readsBlocked) continue;
+      // While other consumers have work here, one consumer may hold at most its in-flight cap (see inFlightCap).
+      if (!isOrder && sh.fairKey !== "" && st.cons.size > 1 && (st.cons.get(sh.fairKey)?.inFlight ?? 0) >= inFlightCap(st, sh.fairKey)) continue;
       const lims = limitersOf(st, sh.endpointClass);
       if (lims.some((l) => reserved.has(l.key))) continue;
       const bo = backoffRemaining(st, sh.endpointClass, t);
@@ -448,7 +641,7 @@ export function createScheduler(deps, options = {}) {
           nextWake = Math.min(nextWake, t + Math.max(1, fw));
           continue;
         }
-        dequeue(st, sh);
+        dequeue(st, sh, true);
         start(st, sh, t);
         if (!isOrder) readsBlocked = st.inFlightReads >= rl.maxInFlightPerAccount;
         continue;
@@ -465,6 +658,11 @@ export function createScheduler(deps, options = {}) {
     st.inFlight += 1;
     const isOrder = sh.endpointClass === "order";
     if (!isOrder) st.inFlightReads += 1;
+    const row = consumerRowFor(st, sh);
+    row.inFlight += 1;
+    const comp = st.compOf.get(sh.endpointClass);
+    syncScale(st, comp, t);
+    comp.periodHadCalls = true;
     const s = stats(st, sh.endpointClass);
     s.calls += 1;
     s.units += sh.cost;
@@ -474,8 +672,8 @@ export function createScheduler(deps, options = {}) {
       .then(() => sh.fn({ signal: sh.controller.signal, accountId: st.accountId, endpointClass: sh.endpointClass }))
       .then(
         (value) => {
-          const b = st.backoff.get(sh.endpointClass);
-          if (b) b.streak = 0;
+          // A call that started before the pause and ends during it says nothing about the budget being healthy again.
+          if (backoffRemaining(st, sh.endpointClass, now()) === 0) comp.streak = 0;
           settle(sh, true, value);
         },
         (err) => {
@@ -494,41 +692,89 @@ export function createScheduler(deps, options = {}) {
       .finally(() => {
         st.inFlight -= 1;
         if (!isOrder) st.inFlightReads -= 1;
+        row.inFlight -= 1;
+        dropIdleConsumer(st, sh.fairKey);
         dispatch(st);
       });
   }
 
+  /** The consumer holding the most queued requests on this account (never `except`), or null. */
+  function heaviestConsumer(st, except, evictableOnly) {
+    let best = null;
+    for (const [key, row] of st.cons) {
+      if (key === except || row.queued <= 0) continue;
+      if (evictableOnly && !st.queue.newestOf(key)) continue;
+      if (!best || row.queued > best.row.queued) best = { key, row };
+    }
+    return best;
+  }
+
   function enqueue(st, sh) {
     const t = now();
+    syncAll(st, t);
     const lims = limitersOf(st, sh.endpointClass);
     if (lims.some(({ lim }) => !lim.fitsDay(sh.cost))) {
       refuse(st, sh, nextIstMidnight(t) - t, "for today (this request needs more than a whole day's budget)");
       return;
     }
-    if (st.queue.size >= rl.queue.maxQueuedPerAccount) {
-      refuse(st, sh, Math.max(1000, budgetWait(st, sh.endpointClass, sh.cost, t)), `and ${st.queue.size} requests are already waiting`);
+    const isOrder = sh.endpointClass === "order";
+    // One consumer's own cap (orders and unattributed internal calls are exempt).
+    const own = st.cons.get(sh.fairKey)?.queued ?? 0;
+    if (!isOrder && sh.fairKey !== "" && own >= maxQueuedPerConsumer) {
+      refuse(st, sh, Math.max(1000, budgetWait(st, sh.endpointClass, sh.cost, t)), `(the limit is ${maxQueuedPerConsumer} waiting per client)`, "consumer-cap");
       return;
     }
-    const est = estimateStart(st, sh.endpointClass, sh.priority, sh.cost, t);
+    let victim = null;
+    if (st.queue.size >= rl.queue.maxQueuedPerAccount) {
+      // A full queue must not be held by one consumer. Make room by dropping the newest waiting request of the consumer
+      // that holds the most, if it holds clearly more than this one; otherwise this request is the one refused.
+      const heavy = heaviestConsumer(st, isOrder ? null : sh.fairKey, true);
+      victim = heavy && (isOrder || heavy.row.queued > own + 1) ? st.queue.newestOf(heavy.key) : null;
+      if (!victim) {
+        refuse(st, sh, Math.max(1000, budgetWait(st, sh.endpointClass, sh.cost, t)), `and ${st.queue.size} requests are already waiting`, "queue");
+        return;
+      }
+    }
+    const est = estimateStart(st, sh.endpointClass, sh.priority, sh.cost, t, sh.fairKey);
     if (est > sh.deadline) {
       refuse(st, sh, est - t, "for now");
       return;
     }
-    sh.item = st.queue.push(sh, { priority: sh.priority, now: t });
+    if (victim) {
+      const vsh = victim.value;
+      dequeue(st, vsh);
+      refuse(st, vsh, Math.max(1000, budgetWait(st, vsh.endpointClass, vsh.cost, t)), `and ${st.queue.size + 1} requests are already waiting (this was the newest request of the client with the most waiting)`, "queue");
+    }
+    sh.item = st.queue.push(sh, { priority: sh.priority, now: t, consumer: sh.fairKey, weight: sh.weight, cost: sh.cost, group: sh.endpointClass });
     trackQueued(st, sh, +1);
     dispatch(st);
   }
 
-  /** Raise a waiting shared call's priority when a more urgent caller joins it, and keep it alive for the most patient. */
-  function promote(st, sh, priority, deadline) {
+  /**
+   * A caller joined a waiting shared call. Keep the call alive for the most patient caller, raise its priority when
+   * the joiner is more urgent, and hand it to the joiner's consumer when that consumer would be served sooner than
+   * the one that opened it: a shared call waits where its best-placed caller would, so a light consumer that asks for
+   * what a flood already asked for is not held behind the flood's queue.
+   */
+  function promote(st, sh, priority, deadline, joiner) {
     sh.deadline = Math.max(sh.deadline, deadline);
     if (sh.started || sh.settled || !sh.item?.queued) return;
-    if (PRIORITY_RANK[priority] >= PRIORITY_RANK[sh.priority]) return;
+    const raise = PRIORITY_RANK[priority] < PRIORITY_RANK[sh.priority];
+    const lane = raise ? priority : sh.priority;
+    const ownerTag = raise ? st.queue.startTag(lane, sh.fairKey) : sh.item.tag;
+    const rehome = Boolean(joiner) && joiner.fairKey !== "" && joiner.fairKey !== sh.fairKey && st.queue.startTag(lane, joiner.fairKey) < ownerTag;
+    if (!raise && !rehome) return;
     const enqueuedAt = sh.item.enqueuedAt;
     dequeue(st, sh);
-    sh.priority = priority;
-    sh.floorShare = null; // a more urgent caller now waits on this call: it is no longer background work
-    sh.item = st.queue.push(sh, { priority, now: enqueuedAt });
+    if (rehome) {
+      sh.fairKey = joiner.fairKey;
+      sh.weight = joiner.weight;
+      sh.label = joiner.label;
+      sh.clientKind = joiner.clientKind;
+    }
+    sh.priority = lane;
+    if (raise) sh.floorShare = null; // a more urgent caller now waits on this call: it is no longer background work
+    sh.item = st.queue.push(sh, { priority: lane, now: enqueuedAt, consumer: sh.fairKey, weight: sh.weight, cost: sh.cost, group: sh.endpointClass });
     trackQueued(st, sh, +1);
     queueMicrotask(() => dispatch(st));
   }
@@ -601,17 +847,40 @@ export function createScheduler(deps, options = {}) {
     const consumer = currentConsumer() ?? (priority === "background" ? "Background jobs" : null);
     // A person (or their tool) is asking: background pre-warms wait while this is recent (userActiveAt).
     if (priority !== "background") lastUserAt = t;
+    // Fairness identity: the API key (else the principal kind, else the job name); unattributed internal work shares one "" consumer.
+    const info = currentConsumerInfo();
+    const fairKey = info?.fairKey ?? "";
+    const weight = info ? client.weightFor(info.keyId, info.clientKind) : 1;
     const existing = key ? inflight.get(key) : null;
     if (existing && !existing.settled) {
       existing.waiters += 1;
       stats(existing.st, existing.endpointClass).coalesced += 1;
       bumpSaving("coalesced", 1, consumer);
       if (floorShare == null) existing.floorShare = null; // a caller without a floor is waiting too
-      promote(existing.st, existing, priority, deadline);
+      promote(existing.st, existing, priority, deadline, { fairKey, weight, label: info?.label ?? consumer ?? "Other", clientKind: info?.clientKind ?? "other" });
       return waitFor(existing.st, existing, signal);
     }
 
-    const sh = { key, st, endpointClass, priority, cost, floorShare, deadline, fn, consumer, waiters: 1, settled: false, started: false, item: null, controller: new AbortController() };
+    const sh = {
+      key,
+      st,
+      endpointClass,
+      priority,
+      cost,
+      floorShare,
+      deadline,
+      fn,
+      consumer,
+      fairKey,
+      weight,
+      label: info?.label ?? consumer ?? "Other",
+      clientKind: info?.clientKind ?? "other",
+      waiters: 1,
+      settled: false,
+      started: false,
+      item: null,
+      controller: new AbortController(),
+    };
     sh.promise = new Promise((resolve, reject) => {
       sh.resolve = resolve;
       sh.reject = reject;
@@ -632,6 +901,7 @@ export function createScheduler(deps, options = {}) {
     const n = normaliseCost(cost);
     const st = stateFor(accountId);
     const t = now();
+    syncAll(st, t);
     const bo = backoffRemaining(st, endpointClass, t);
     if (bo > 0) return { ok: false, retryAfterMs: Math.ceil(bo) };
     const lims = limitersOf(st, endpointClass);
@@ -643,9 +913,12 @@ export function createScheduler(deps, options = {}) {
       s.calls += 1;
       s.units += n;
       noteCall(st, endpointClass, n, currentConsumer() ?? "Background jobs", t);
+      const comp = st.compOf.get(endpointClass);
+      syncScale(st, comp, t);
+      comp.periodHadCalls = true;
       return { ok: true, retryAfterMs: 0 };
     }
-    const est = waiting ? estimateStart(st, endpointClass, "background", n, t) - t : budgetWait(st, endpointClass, n, t);
+    const est = waiting ? estimateStart(st, endpointClass, "background", n, t, currentConsumerInfo()?.fairKey ?? "") - t : budgetWait(st, endpointClass, n, t);
     return { ok: false, retryAfterMs: Math.max(1, Math.ceil(est)) };
   }
 
@@ -653,7 +926,9 @@ export function createScheduler(deps, options = {}) {
   function headroom(accountId, endpointClass) {
     checkAccountId(accountId);
     checkClass(endpointClass);
-    const h = headroomOf(stateFor(accountId), endpointClass, now());
+    const st = stateFor(accountId);
+    syncAll(st, now());
+    const h = headroomOf(st, endpointClass, now());
     return { remaining: h.remaining, limit: h.limit, resetMs: Math.ceil(h.resetMs) };
   }
 
@@ -669,6 +944,7 @@ export function createScheduler(deps, options = {}) {
     checkClass(endpointClass);
     const st = stateFor(accountId);
     const t = now();
+    syncAll(st, t);
     const windows = [];
     for (const { key, lim } of limitersOf(st, endpointClass)) {
       const queued = st.bucketQueued.get(key).reduce((a, b) => a + b, 0);
@@ -710,22 +986,34 @@ export function createScheduler(deps, options = {}) {
     return best?.id ?? null;
   }
 
-  /** Pause (account, class) after a broker throttle. Emits "limits.throttled". */
+  /**
+   * The broker throttled (account, class): pause every class of that account that shares a budget with it (the whole
+   * pool), for Retry-After or 1 s, 2 s, 4 s ... plus 0 to 250 ms of jitter (never less than Retry-After), and lower the
+   * pool's adaptive scale once per throttle episode. Emits "limits.throttled".
+   */
   function noteUpstreamThrottle(accountId, endpointClass, retryAfterMs) {
     checkAccountId(accountId);
     checkClass(endpointClass);
     const st = stateFor(accountId);
     const t = now();
-    const b = st.backoff.get(endpointClass) ?? { until: 0, streak: 0 };
-    b.streak += 1;
+    const comp = st.compOf.get(endpointClass);
+    comp.streak += 1;
     const given = Number(retryAfterMs);
-    const delay = Number.isFinite(given) && given > 0 ? Math.min(given, MAX_RETRY_AFTER_MS) : Math.min(rl.backoff.maxMs, rl.backoff.initialMs * 2 ** (b.streak - 1));
-    b.until = Math.max(b.until, t + delay);
-    st.backoff.set(endpointClass, b);
+    const base = Number.isFinite(given) && given > 0 ? Math.min(given, MAX_RETRY_AFTER_MS) : Math.min(rl.backoff.maxMs, rl.backoff.initialMs * 2 ** (comp.streak - 1));
+    const delay = base + Math.floor(random() * BACKOFF_JITTER_MS);
+    // Many in-flight calls fail together when a budget is hit: the ones inside the pause already in force are one episode.
+    const newEpisode = t >= comp.backoffUntil;
+    comp.backoffUntil = Math.max(comp.backoffUntil, t + delay);
+    for (const c of comp.classes) {
+      const b = st.backoff.get(c) ?? { until: 0 };
+      b.until = Math.max(b.until, t + delay);
+      st.backoff.set(c, b);
+    }
     stats(st, endpointClass).throttled += 1;
-    log?.warn?.("broker rate limit hit; pausing this account and class", { accountId, broker: st.broker, endpointClass, retryAfterMs: delay });
+    if (newEpisode) decreaseScale(st, comp, t, delay);
+    log?.warn?.("broker rate limit hit; pausing this account and its shared budget", { accountId, broker: st.broker, endpointClass, pool: comp.name, retryAfterMs: delay, backoffFactor: comp.scale });
     bus?.emit("limits.throttled", { accountId, endpointClass, retryAfterMs: delay, upstream: true });
-    if (st.queue.size) wakeAt(b.until);
+    if (st.queue.size) wakeAt(t + delay);
   }
 
   function rollSavings() {
@@ -799,6 +1087,7 @@ export function createScheduler(deps, options = {}) {
         continue;
       }
       if (st.policy.unlimited) continue;
+      syncAll(st, t);
       const classes = {};
       for (const cls of ENDPOINT_CLASSES) {
         const h = headroomOf(st, cls, t);
@@ -838,6 +1127,97 @@ export function createScheduler(deps, options = {}) {
     };
   }
 
+  /**
+   * Adaptive state of every budget pool (a pool is the classes of one account that share a budget), for
+   * GET /v1/limits?explain=1. `backoffFactor` is the AIMD scale (1 = the policy figure; lower after broker 429s),
+   * `ceiling` the most it may recover to (below 1 for 24 h after three episodes in an hour), `spare` the share of the
+   * tightest window still free after queued work (0 to 1).
+   * @param {{ accountIds?: Iterable<string> | "*" }} [opts]  only these accounts (default all that have been used or exist)
+   * @returns {Array<{ group: string, accountId: string, broker: string, classes: string[], accounts: string[], spare: number, remaining: number, limit: number, ceiling: number, backoffFactor: number, backoffMs: number, episodesLastHour: number, frozen: boolean }>}
+   */
+  function pools({ accountIds = "*" } = {}) {
+    const t = now();
+    const allow = accountIds === "*" ? null : new Set(accountIds);
+    const ids = [];
+    try {
+      for (const a of accounts.list()) if (a.broker !== "paper" && a.enabled !== false) ids.push(a.id);
+    } catch {
+      // AccountManager not built: report what the scheduler has seen
+    }
+    for (const id of states.keys()) if (!ids.includes(id)) ids.push(id);
+    const out = [];
+    for (const id of ids) {
+      if (allow && !allow.has(id)) continue;
+      let st;
+      try {
+        st = stateFor(id);
+      } catch {
+        continue;
+      }
+      if (st.policy.unlimited) continue;
+      syncAll(st, t);
+      for (const comp of st.comps) {
+        if (!comp.bucketKeys.length) continue;
+        let spare = 1;
+        let remaining = Infinity;
+        let limit = Infinity;
+        for (const cls of comp.classes) {
+          if (!limitersOf(st, cls).length) continue;
+          const h = headroomOf(st, cls, t);
+          const queued = st.queuedByClass.get(cls);
+          const share = Number.isFinite(h.limit) && h.limit > 0 ? Math.max(0, h.remaining - queued) / h.limit : 1;
+          if (share < spare || !Number.isFinite(limit)) {
+            spare = Math.min(spare, share);
+            remaining = h.remaining;
+            limit = h.limit;
+          }
+        }
+        const backoffMs = Math.max(0, ...comp.classes.map((c) => backoffRemaining(st, c, t)));
+        out.push({
+          group: `${id}/${comp.name}`,
+          accountId: id,
+          broker: st.broker,
+          classes: [...comp.classes],
+          accounts: [id],
+          spare: Math.round(spare * 1000) / 1000,
+          remaining: finiteOrNull(remaining),
+          limit: finiteOrNull(limit),
+          ceiling: comp.ceiling,
+          backoffFactor: comp.scale,
+          backoffMs: Math.ceil(backoffMs),
+          episodesLastHour: comp.episodes.filter((e) => t - e < AIMD.episodeWindowMs).length,
+          frozen: comp.ceiling < 1,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Consumers with work waiting or running now, across accounts: `{ id, label, kind, weight, queued, inFlight, share }`.
+   * `share` is the consumer's weight over the total weight of the consumers that are competing (its fair share of a
+   * contended budget, 0 to 1).
+   */
+  function consumersNow() {
+    /** @type {Map<string, { id: string, label: string, kind: string, weight: number, queued: number, inFlight: number }>} */
+    const byKey = new Map();
+    for (const st of states.values()) {
+      for (const [key, row] of st.cons) {
+        let c = byKey.get(key);
+        if (!c) {
+          c = { id: key, label: row.label, kind: row.kind, weight: row.weight, queued: 0, inFlight: 0 };
+          byKey.set(key, c);
+        }
+        c.queued += row.queued;
+        c.inFlight += row.inFlight;
+      }
+    }
+    const total = [...byKey.values()].reduce((a, c) => a + c.weight, 0);
+    return [...byKey.values()]
+      .map((c) => ({ ...c, id: c.id === "" ? "internal" : c.id, share: total > 0 ? Math.round((c.weight / total) * 1000) / 1000 : 0 }))
+      .sort((a, b) => b.queued + b.inFlight - (a.queued + a.inFlight) || (a.id < b.id ? -1 : 1));
+  }
+
   /** Inbound per-key budget (RateLimit headers). */
   function checkClient(ctx) {
     return client.check(ctx);
@@ -869,6 +1249,14 @@ export function createScheduler(deps, options = {}) {
     headroomWindows,
     pickAccount,
     noteUpstreamThrottle,
+    pools,
+    consumers: consumersNow,
+    /** The per-key quota store (overrides over config over defaults) and usage counters: GET/PUT/DELETE /v1/quotas. */
+    quotas,
+    clientUsage: (keyId) => client.usageOf(keyId),
+    clientWeights: () => client.kindWeights(),
+    clientLimits: () => ({ defaults: quotas.defaults(), maxConcurrent: client.maxConcurrent }),
+    weightFor: (keyId, clientKind) => client.weightFor(keyId, clientKind),
     policyFor,
     usage,
     checkClient,

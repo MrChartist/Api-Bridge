@@ -80,7 +80,7 @@ async function authenticate(ctx, deps) {
   if (!isStub(deps.scheduler)) {
     const verdict = deps.scheduler.checkClient(ctx);
     Object.assign(ctx.responseHeaders, verdict.headers ?? {});
-    if (!verdict.ok) throw new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
+    if (!verdict.ok) throw verdict.error ?? new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
   }
   return body;
 }

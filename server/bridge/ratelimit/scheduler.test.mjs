@@ -21,14 +21,15 @@ const TEST_POLICIES = Object.freeze({
   daily: { brokerId: "daily", limits: { quote: v({ perSecond: 10, perDay: 3 }) }, groups: {}, maxQuoteBatch: 1, feed: {}, pooling: "unknown" },
 });
 
-function setup({ accounts = [{ id: "z1", broker: "zerodha" }], ratelimit = {}, policies, start } = {}) {
+function setup({ accounts = [{ id: "z1", broker: "zerodha" }], ratelimit = {}, policies, start, random = () => 0 } = {}) {
   const clock = createManualClock(start);
   const logger = createLogger({ level: "silent" });
   const bus = createEventBus({ logger, topics: TOPICS });
   const events = [];
   for (const topic of ["limits.throttled", "account.session_rejected"]) bus.on(topic, (p) => events.push({ topic, ...p }));
   const accountsSvc = createFakeAccountManager({ accounts, bus });
-  const s = createScheduler({ config: { ratelimit }, logger, bus, clock, accounts: accountsSvc }, policies ? { policies } : {});
+  // `random` fixes the 0-250 ms back-off jitter (0 by default) so delays are exact; the jitter has its own tests.
+  const s = createScheduler({ config: { ratelimit }, logger, bus, clock, accounts: accountsSvc }, { random, ...(policies ? { policies } : {}) });
   /** Broker-call recorder: start times per (account, class). */
   const starts = [];
   const call = (accountId, endpointClass, opts = {}, result = "ok") =>

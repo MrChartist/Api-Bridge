@@ -15,6 +15,12 @@
  * allows (a reservation), so later requests wait while the adapter paces its own sub-calls. A request is runnable
  * when its first min(cost, smallest capacity) units fit now.
  *
+ * ADAPTIVE SCALE. setScale(s), 0 < s <= 1, lowers the sustained rate of every sub-day window to s x its configured
+ * rate (the scheduler's AIMD back-off after upstream 429s; the daily counter is never scaled). A window keeps
+ * max(1, floor(limit x s)) units; when flooring loses rate (a 1 a second window at s = 0.5) the window is stretched
+ * instead (1 unit per 2 s), so the rate really is s x configured. A window is never shorter than configured, so the
+ * scaled limiter can only ever admit LESS than the broker's own window allows, never more.
+ *
  * Time is whatever the caller passes (`now`, epoch ms); nothing here reads the clock, so tests use a fake clock.
  */
 
@@ -73,11 +79,23 @@ class SlidingLog {
   constructor(name, windowMs, limit, padMs) {
     this.name = name;
     this.windowMs = windowMs;
+    /** The configured limit; `limit` is the effective one after setScale(). */
+    this.baseLimit = limit;
     this.limit = limit;
+    this.padMs = padMs;
     this.span = windowMs + padMs;
     /** @type {number[]} */
     this.stamps = [];
     this.head = 0;
+  }
+
+  /** Scale the sustained rate to `scale` x configured (0 < scale <= 1); see the file comment. */
+  setScale(scale) {
+    const exact = this.baseLimit * scale;
+    const limit = Math.max(1, Math.floor(exact));
+    const stretch = Math.max(1, limit / exact);
+    this.limit = limit;
+    this.span = Math.ceil(this.windowMs * stretch) + this.padMs;
   }
 
   prune(now) {
@@ -173,7 +191,9 @@ class DayCounter {
  * @property {(now: number) => { remaining: number, limit: number, resetMs: number, used: number, window: string }} headroom
  *   The binding window: the one with the fewest units left.
  * @property {(now: number) => Array<{ window: string, used: number, limit: number, resetMs: number }>} windows
- * @property {() => number} capacity   Smallest sub-day limit (units a single request may take at once).
+ * @property {() => number} capacity   Smallest effective sub-day limit (units a single request may take at once).
+ * @property {(scale: number) => void} setScale   Scale every sub-day window to scale x configured, 0 < scale <= 1.
+ * @property {() => number} scale      The current scale (1 = as configured).
  * @property {(cost: number) => boolean} fitsDay  Whether `cost` can ever fit in one IST day.
  * @property {() => number} unitsPerMs  Sustained rate allowed by the strictest sub-day window.
  * @property {(now: number) => void} fill  Mark every window as full right now (used after an upstream 429).
@@ -197,7 +217,9 @@ export function createRateLimiter(specs, { paddingMs = 0 } = {}) {
       logs.push(new SlidingLog(s.name, s.windowMs, Math.floor(s.limit), Math.max(0, paddingMs)));
     }
   }
-  const capacity = logs.length ? Math.min(...logs.map((l) => l.limit)) : Infinity;
+  const computeCapacity = () => (logs.length ? Math.min(...logs.map((l) => l.limit)) : Infinity);
+  let capacity = computeCapacity();
+  let scale = 1;
 
   /** Units that must fit now for a request of `cost`. */
   const nowUnits = (cost) => Math.min(cost, capacity);
@@ -277,6 +299,14 @@ export function createRateLimiter(specs, { paddingMs = 0 } = {}) {
     }
   }
 
+  function setScale(next) {
+    const n = Number(next);
+    if (!(n > 0) || n > 1 || !Number.isFinite(n)) throw new RangeError("scale must be a number above 0 and at most 1");
+    scale = n;
+    for (const l of logs) l.setScale(n);
+    capacity = computeCapacity();
+  }
+
   return Object.freeze({
     canTake,
     waitMs,
@@ -284,6 +314,8 @@ export function createRateLimiter(specs, { paddingMs = 0 } = {}) {
     headroom,
     windows,
     capacity: () => capacity,
+    setScale,
+    scale: () => scale,
     fitsDay: (cost) => !day || cost <= day.limit,
     unitsPerMs,
     fill,

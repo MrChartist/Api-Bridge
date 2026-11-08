@@ -2,7 +2,7 @@
  * ratelimit module: Rate-limit engine and routing.
  *
  * Provides deps.scheduler (scheduler.mjs), owns the `ratelimit` config section (config.mjs) and serves
- * GET /v1/limits and GET /v1/usage (routes.mjs). stop() refuses whatever is still queued and clears the timer.
+ * GET /v1/limits, GET /v1/usage and the per-key quotas GET /v1/quotas, PUT and DELETE /v1/quotas/{keyId} (routes.mjs). stop() refuses whatever is still queued and clears the timer.
  */
 import { defineModule } from "../core/modules.mjs";
 import { ratelimitConfigSchema } from "./config.mjs";
@@ -15,6 +15,9 @@ import { DEMO_BROKER_ID, DEMO_POLICY } from "../demo/demoMode.mjs";
 export const ROUTES = Object.freeze([
   ["GET", "/v1/limits", { scope: "read" }, "getLimits"],
   ["GET", "/v1/usage", { scope: "read" }, "getUsage"],
+  ["GET", "/v1/quotas", { scope: "read" }, "getQuotas"],
+  ["PUT", "/v1/quotas/:keyId", { scope: "admin", loopbackOnly: true }, "putQuota"],
+  ["DELETE", "/v1/quotas/:keyId", { scope: "admin", loopbackOnly: true, body: "none" }, "deleteQuota"],
 ]);
 
 export default defineModule({
