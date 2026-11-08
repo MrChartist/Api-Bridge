@@ -1656,7 +1656,8 @@ dialog.sheet::backdrop { opacity: var(--sheet-p, 1); }
 .list-row:not(.static):is(button, a, [role="button"]):active { transition-duration: 0ms; }
 
 /* Meters and bars: a short critically damped spring; their parent contains the paint so nothing else repaints. */
-.al-track > i, .bar > span { transition: width var(--spring-brisk-dur) var(--spring-brisk), background-color var(--dur-3); }
+.al-track > i, .bar > span, .bud-bar i { transition: width var(--spring-brisk-dur) var(--spring-brisk), background-color var(--dur-3); }
+.bud-accts { display: contents; }
 .al-track, .bar, .bud-bar { contain: layout paint; }
 
 /* Pull to refresh (phones): the page follows the finger, an arrow turns over as it arms. */

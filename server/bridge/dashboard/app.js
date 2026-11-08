@@ -4,7 +4,7 @@
 // (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
-import { bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
+import { bannerIn, bannerOut, fadeOut, installAutoAnimations, pulse, reducedMotion, setText, sheetIn, sheetOut, shake, stackGhost, swipeDismiss } from "./motion.js";
 import { DASH, formatRupee } from "./format.js";
 import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
 import { watch as liveWatch } from "./live.js";
@@ -568,12 +568,27 @@ export function toast(text, { tone = "ok" } = {}) {
   const polite = t.querySelector("#toast-polite");
   const assertive = t.querySelector("#toast-assertive");
   const [live, other] = kind === "error" ? [assertive, polite] : [polite, assertive];
+  const wait = kind === "error" ? 0 : kind === "warn" ? 8000 : 4000;
+  // The same words again within 2 s: one toast with a count, its timer restarted (nothing re-announced or re-animated).
+  const key = typeof text === "string" ? `${kind}|${text}` : null;
+  if (!wasHidden && key && toast.last?.key === key && Date.now() - toast.last.at < 2000) {
+    toast.last.at = Date.now();
+    const n = ++toast.last.n;
+    let count = live.querySelector(".toast-count");
+    if (!count) live.querySelector(".toast-text")?.after((count = h("span", { class: "toast-count" })));
+    setText(count, `×${n}`);
+    toast.arm?.(wait);
+    return;
+  }
+  toast.last = key ? { key, at: Date.now(), n: 1 } : null;
+  // The toast that is still showing stays behind as a shrunken copy that slides away (at most two copies).
+  if (!wasHidden) stackGhost(t);
   other.replaceChildren();
   live.replaceChildren(h("span", { class: `toast-icon${kind === "ok" ? "" : ` ${kind}`}` }, icon(glyph)), h("span", { class: "toast-text" }, text));
   t.hidden = false;
   raiseToast(t);
   placeToast(t);
-  if (wasHidden) bannerIn(t);
+  bannerIn(t, t.dataset.place === "top" || (!t.dataset.place && window.matchMedia?.("(min-width: 1024px)").matches) ? "up" : "down");
   const close = () => {
     clearTimeout(toast.timer);
     // Hide after sliding out, unless another toast took over meanwhile.
@@ -581,7 +596,6 @@ export function toast(text, { tone = "ok" } = {}) {
       if (toast.gen === gen) t.hidden = true;
     });
   };
-  const wait = kind === "error" ? 0 : kind === "warn" ? 8000 : 4000;
   const arm = (ms) => {
     clearTimeout(toast.timer);
     if (ms > 0) toast.timer = setTimeout(close, ms);
@@ -608,6 +622,18 @@ function setupToast() {
   t.querySelector(".toast-close")?.addEventListener("click", () => toast.close?.());
   t.addEventListener("keydown", (e) => {
     if (e.key === "Escape") toast.close?.();
+  });
+  // Swipe toward the edge the toast sits on to dismiss it (60 px or 500 px/s); otherwise it springs back.
+  swipeDismiss(t, {
+    axis: "y",
+    directions: () => [t.getBoundingClientRect().top < window.innerHeight / 2 ? -1 : 1],
+    onStart: hold,
+    onEnd: release,
+    onDismiss: () => {
+      clearTimeout(toast.timer);
+      toast.gen = (toast.gen ?? 0) + 1;
+      t.hidden = true;
+    },
   });
 }
 if (typeof document !== "undefined") {
@@ -869,15 +895,26 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
   const outside = (e) => {
     if (el && !el.contains(e.target) && !trigger?.contains(e.target)) close();
   };
+  let closing = false;
   function close() {
-    if (closed) return;
+    if (closed || closing) return;
     if (phone) {
       const d = document.getElementById("dialog");
-      if (d.open) d.close();
-      else done();
+      if (!d.open) return done();
+      // The sheet slides away on the same spring as a swipe, then the dialog closes (focus returns to the trigger).
+      closing = true;
+      d.inert = true;
+      sheetOut(d, d).then(() => {
+        d.inert = false;
+        if (d.open) d.close();
+        else done();
+      });
       return;
     }
-    el?.remove();
+    // A popover leaves with a 100 ms fade; it is inert meanwhile.
+    closing = true;
+    if (el) el.inert = true;
+    fadeOut(el).then(() => el?.remove());
     done();
   }
   trigger?.setAttribute("aria-expanded", "true");

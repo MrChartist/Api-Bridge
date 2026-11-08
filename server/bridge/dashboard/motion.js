@@ -799,16 +799,25 @@ export function viewTransition(update, { type, names = [] } = {}) {
  * dragging the thumb moves it 1:1 (rubber-banded beyond the ends) and releases to the segment nearest to where it would
  * land; `onCommit(item)` is called then.
  * @param {HTMLElement} container
- * @param {{ indicator: HTMLElement, items: () => HTMLElement[], current: () => HTMLElement | null | undefined, axes?: "x" | "xy", spec?: string, drag?: false | { onCommit: (el: HTMLElement) => void, onPeek?: (el: HTMLElement | null) => void } }} o
+ * @param {{ indicator: HTMLElement, items: () => HTMLElement[], current: () => HTMLElement | null | undefined, axes?: "x" | "xy", spec?: string, placedClass?: string, drag?: false | { onCommit: (el: HTMLElement) => void, onPeek?: (el: HTMLElement | null) => void } }} o
  */
-export function trackSelection(container, { indicator, items, current, axes = "x", spec = "thumb", drag = false }) {
+export function trackSelection(container, { indicator, items, current, axes = "x", spec = "thumb", drag = false, placedClass = "" }) {
   const xy = axes === "xy";
   const sp = { x: new Spring(0, spec), y: new Spring(0, spec), w: new Spring(0, spec), h: new Spring(0, spec) };
   const keys = xy ? ["x", "y", "w", "h"] : ["x", "w"];
   let placed = false;
   let dragging = false;
   const write = () => {
-    indicator.style.translate = `${sp.x.value}px ${xy ? sp.y.value : 0}px`;
+    if (reducedMotion()) {
+      // Placed, not moved: plain offsets, no transform at all.
+      indicator.style.translate = "";
+      indicator.style.left = `${sp.x.value}px`;
+      if (xy) indicator.style.top = `${sp.y.value}px`;
+    } else {
+      indicator.style.left = "";
+      if (xy) indicator.style.top = "";
+      indicator.style.translate = `${sp.x.value}px ${xy ? sp.y.value : 0}px`;
+    }
     indicator.style.width = `${sp.w.value}px`;
     if (xy) indicator.style.height = `${sp.h.value}px`;
   };
@@ -822,6 +831,7 @@ export function trackSelection(container, { indicator, items, current, axes = "x
     const r = measure();
     if (!r) return;
     indicator.dataset.placed = "";
+    if (placedClass) container.classList.add(placedClass);
     if (!placed || !animate || !live() || dragging) {
       for (const k of keys) sp[k].set(r[k]);
       write();
@@ -914,9 +924,9 @@ export function trackSelection(container, { indicator, items, current, axes = "x
       drag.onPeek?.(null);
       peek = null;
       // The click that follows a drag must not pick the segment under the finger.
-      const swallow = (ev) => ev.stopImmediatePropagation();
-      container.addEventListener("click", swallow, { capture: true, once: true });
-      setTimeout(() => container.removeEventListener("click", swallow, { capture: true }), 0);
+      const swallow = (ev) => ev.isTrusted && ev.stopImmediatePropagation(); // the real click, not onCommit's own
+      container.addEventListener("click", swallow, { capture: true });
+      setTimeout(() => container.removeEventListener("click", swallow, { capture: true }), 60);
       drag.onCommit(pick);
       update({ velocity: vx }); // same selection: spring back with the release velocity
     };
@@ -935,6 +945,61 @@ export function trackSelection(container, { indicator, items, current, axes = "x
       for (const k of keys) sp[k].cancel();
     },
   };
+}
+
+/**
+ * Give a hand-built segmented control (buttons with `aria-pressed` or `aria-selected`, switched by someone else's click
+ * handler) the sliding thumb: a thumb element is added, a MutationObserver follows the pressed button, and on touch the thumb
+ * can be dragged (releasing clicks the button nearest to where it lands). Idempotent; controls made by views.js `segmented()`
+ * and the page tab strips already have their own.
+ * @param {HTMLElement} el
+ */
+export function enhanceSegmented(el) {
+  if (!isEl(el) || el.__selection || el.querySelector(":scope > .seg-thumb")) return;
+  const buttons = () => [...el.querySelectorAll(":scope > button")];
+  const thumb = document.createElement("i");
+  thumb.className = "seg-thumb";
+  thumb.setAttribute("aria-hidden", "true");
+  el.prepend(thumb);
+  const on = () => buttons().find((b) => b.getAttribute("aria-pressed") === "true" || b.getAttribute("aria-selected") === "true");
+  el.__selection = trackSelection(el, {
+    indicator: thumb,
+    items: buttons,
+    current: on,
+    placedClass: "has-thumb",
+    drag: {
+      onCommit: (b) => b !== on() && b.click(),
+      onPeek: (b) => {
+        for (const x of buttons()) setAttr(x, "data-peek", x === b);
+      },
+    },
+  });
+  el.classList.add("seg-drag");
+  if (typeof MutationObserver === "function") new MutationObserver(() => el.__selection.update()).observe(el, { attributes: true, attributeFilter: ["aria-pressed", "aria-selected"], subtree: true });
+  el.__selection.update();
+}
+
+/** Enhance every segmented control now in `root` and any that appear later (one observer on the document, run once a frame). */
+function watchSegmented(root = document) {
+  const sweep = (node) => {
+    if (!isEl(node)) return;
+    for (const el of node.matches(".segmented") ? [node] : node.querySelectorAll(".segmented")) if (!el.classList.contains("page-tabs") && !el.matches('[role="tablist"]')) enhanceSegmented(el);
+  };
+  sweep(root.documentElement ?? root);
+  if (typeof MutationObserver !== "function") return;
+  let queue = [];
+  let scheduled = false;
+  new MutationObserver((records) => {
+    for (const r of records) for (const n of r.addedNodes) if (isEl(n)) queue.push(n);
+    if (scheduled || !queue.length) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const q = queue;
+      queue = [];
+      for (const n of q) if (n.isConnected) sweep(n);
+    });
+  }).observe(root.body ?? root, { childList: true, subtree: true });
 }
 
 // ── Bottom sheet ──
@@ -999,7 +1064,7 @@ export function sheetDrag(el, opts = {}) {
       y.set(closedOf());
       write();
       will(true);
-      return y.to(rests[idx], { spec: "sheet", velocity: 0, onUpdate: (v) => write(clamp(v, rests[0], closedOf())) }).then(() => {
+      return y.to(rests[idx], { spec: { ...SPRINGS.sheet, precision: 0.1 }, velocity: 0, onUpdate: (v) => write(clamp(v, rests[0], closedOf())) }).then(() => {
         write(rests[idx]);
         settled();
         onDetent?.(idx);
@@ -1012,7 +1077,7 @@ export function sheetDrag(el, opts = {}) {
       if (i >= 0) idx = at;
       will(true);
       const lo = Math.min(rests[0], y.value);
-      return y.to(rests[at], { spec: i < 0 ? { response: 0.3, bounce: 0 } : "sheet", velocity, onUpdate: (v) => write(clamp(v, lo, closedOf())) }).then(() => {
+      return y.to(rests[at], { spec: i < 0 ? { response: 0.3, bounce: 0, precision: 6 } : { ...SPRINGS.sheet, precision: 0.1 }, velocity, onUpdate: (v) => write(clamp(v, lo, closedOf())) }).then(() => {
         write(rests[at]);
         settled();
         if (i >= 0) onDetent?.(idx);
@@ -1378,6 +1443,12 @@ export function bannerOut(el) {
   return r.done.then(() => setTimeout(() => r.anim?.cancel(), 0));
 }
 
+/** A short opacity-only exit (popovers and menus: 100 ms, no scale, no slide). Resolves when done or at once without motion; the caller removes the element. */
+export function fadeOut(el, ms = 100) {
+  if (!live() || !isEl(el)) return done();
+  return play(el, { opacity: [1, 0] }, { duration: ms, easing: EASE_EXIT, fill: "forwards" }, { cap: ms + 100 }).done;
+}
+
 // ── Small feedback ──
 
 /** The "wrong password" shake. */
@@ -1573,9 +1644,12 @@ export function installPullToRefresh({ target, indicator, refresh, enabled = () 
 
 // ── Pages ──
 
+/** What changes between pages: the children of the container except a persistent tab strip (`.page-tabs-row`). */
+const contentOf = (container) => [...container.children].filter((el) => !el.hidden && !el.classList.contains("page-tabs-row"));
+
 /** The things worth staggering in a page: descend through single wrappers to the first level with siblings. */
 function pageItems(container) {
-  let items = [...container.children];
+  let items = contentOf(container);
   for (let depth = 0; depth < 3 && items.length === 1 && items[0].children.length > 1; depth++) items = [...items[0].children];
   return items.filter((el) => !el.hidden);
 }
@@ -1594,27 +1668,33 @@ export function navigationHint(h) {
 export function pageEnter(container, { axis = "y", dir = 1 } = {}) {
   if (!live() || !isEl(container)) return done();
   const x = axis === "x";
-  const items = x ? [container] : pageItems(container).slice(0, 4);
+  const items = x ? contentOf(container).slice(0, 12) : pageItems(container).slice(0, 4);
   return Promise.all(items.map((el, i) => play(el, { opacity: [0, 1], translate: [x ? `${16 * dir}px 0px` : "0px 6px", "0px 0px"] }, { duration: x ? 180 : 160, delay: x ? 0 : i * 20, easing: EASE_OUT, fill: "backwards" }, { cap: 400 }).done)).then(() => {});
 }
 
 /**
- * The old page going out: 90 ms fade (and an 8 px slide along X for sub-tabs). Resolves when it is over, with the container
- * already restored, so the caller can swap its content in the next line. Skipped (resolves at once) when the last
- * navigation was under 400 ms ago (rapid tabbing), with reduced motion, or when there is nothing to fade.
+ * The old page going out: 90 ms fade (and an 8 px slide along X for sub-tabs) of everything except the tab strip. Resolves when
+ * it is over, with the elements already restored, so the caller can swap the content in the next line. Skipped (resolves at
+ * once) when the last navigation was under 400 ms ago (rapid tabbing), with reduced motion, or when there is nothing to fade.
  */
 export function pageLeave(container, { axis = "y", dir = 1 } = {}) {
-  if (!live() || !isEl(container) || !container.children.length) return done();
-  if (frames.now() - lastNavAt < 400) return done();
-  const r = play(container, { opacity: [1, 0], translate: ["0px 0px", axis === "x" ? `${-8 * dir}px 0px` : "0px 0px"] }, { duration: 90, easing: EASE_EXIT, fill: "forwards" }, { cap: 160 });
-  return r.done.then(() => r.anim?.cancel());
+  if (!live() || !isEl(container)) return done();
+  const items = contentOf(container).slice(0, 12);
+  if (!items.length || frames.now() - lastNavAt < 400) return done();
+  const runs = items.map((el) => play(el, { opacity: [1, 0], translate: ["0px 0px", axis === "x" ? `${-8 * dir}px 0px` : "0px 0px"] }, { duration: 90, easing: EASE_EXIT, fill: "forwards" }, { cap: 160 }));
+  return Promise.all(runs.map((r) => r.done)).then(() => {
+    for (const r of runs) r.anim?.cancel();
+  });
 }
 
 const routeOf = () => (typeof location !== "undefined" ? (location.hash.replace(/^#\/?/, "").split("?")[0] || "home").toLowerCase() : "");
 const lastRoute = new WeakMap(); // container -> route last animated
 
 /** True while the container shows only the loading skeleton (or nothing). */
-const isPlaceholder = (root) => root.children.length === 0 || (root.children.length === 1 && root.firstElementChild.matches(".page-skeleton, p.muted"));
+const isPlaceholder = (root) => {
+  const c = contentOf(root);
+  return c.length === 0 || (c.length === 1 && c[0].matches(".page-skeleton, p.muted"));
+};
 
 /**
  * Entrance for a freshly rendered page. Runs only when the route differs from the last one animated in this container (first
@@ -1636,6 +1716,7 @@ export function installAutoAnimations({ content = "content" } = {}) {
   watchReducedMotion();
   if (typeof document === "undefined" || typeof MutationObserver !== "function" || document.__mcbAuto) return;
   document.__mcbAuto = true;
+  watchSegmented(document);
   const c = document.getElementById(content);
   if (c) new MutationObserver(() => animatePage(c)).observe(c, { childList: true });
 }

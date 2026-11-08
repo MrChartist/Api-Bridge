@@ -8,6 +8,7 @@
 // GET /v1/readiness, which answers from the monitor's cache and never calls a broker.
 import { api, app, codeBlock, h, icon, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
 import { DASH, formatInt, formatRupeeGrouped, isFigure } from "./format.js";
+import { setAttr, setText } from "./motion.js";
 
 /** How often the badge reads /v1/readiness while the tab is visible. */
 export const POLL_MS = 30_000;
@@ -664,11 +665,21 @@ function drawBadge() {
     btn = h("button", { type: "button", class: "toolbar-ready-btn glass", "aria-haspopup": "dialog", "aria-expanded": "false", onclick: () => openPopover(btn) });
     slot.replaceChildren(btn);
   }
-  btn.replaceChildren(h("span", { class: "rd-glyph", "aria-hidden": "true" }, icon("safety"), h("span", { class: "pdot" })), h("span", { class: "rd-long" }, m.text), h("span", { class: "rd-short" }, m.short));
-  btn.setAttribute("aria-label", m.aria);
-  btn.title = m.title;
-  slot.dataset.ready = m.dot;
-  slot.dataset.state = m.state;
+  // Built once; each reading only patches the two texts, the labels and the data attributes, so the badge never loses
+  // focus or a running transition and a screen reader does not re-read it for an unchanged state.
+  let long = btn.querySelector(".rd-long");
+  let short = btn.querySelector(".rd-short");
+  if (!long || !short) {
+    long = h("span", { class: "rd-long" });
+    short = h("span", { class: "rd-short" });
+    btn.replaceChildren(h("span", { class: "rd-glyph", "aria-hidden": "true" }, icon("safety"), h("span", { class: "pdot" })), long, short);
+  }
+  setText(long, m.text);
+  setText(short, m.short);
+  setAttr(btn, "aria-label", m.aria);
+  setAttr(btn, "title", m.title);
+  setAttr(slot, "data-ready", m.dot);
+  setAttr(slot, "data-state", m.state);
   slot.hidden = false;
   // The toolbar folds on tablets and phones; the ⋯ button there shows the state dot instead (app.css).
   document.documentElement.dataset.ready = m.dot;
