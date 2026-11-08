@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DRY_RUN_REUSE_MS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo } from "./orders-core.js";
+import { DRY_RUN_REUSE_MS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, ago, clockText, dayHeading, groupByDay, orderStatusLook, orderTypeText, qtyText, ticketLife, ticketSource, tradesCsv, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -129,5 +129,59 @@ describe("Cancel all's dry run on the Orders page (perf round 5)", () => {
     const flow = src.slice(src.indexOf("async function cancelAllFlow"));
     expect(flow).toMatch(/const dry = await optional\(api\("\/v1\/orders\/cancel-all", \{ method: "POST", body: \{ dryRun: true \} \}\)\)/);
     expect(flow.slice(0, 400)).not.toContain("buttonDryRun");
+  });
+});
+
+describe("how a row reads on the Orders page", () => {
+  it("gives every status a plain word and a tone", () => {
+    expect(orderStatusLook("open")).toEqual({ text: "Open", tone: "info" });
+    expect(orderStatusLook("filled").tone).toBe("ok");
+    expect(orderStatusLook("rejected").tone).toBe("bad");
+    expect(orderStatusLook("cancelled").tone).toBe("");
+    expect(orderStatusLook("partially_filled").text).toBe("Part filled");
+  });
+  it("says how long ago, short, and gives up after a day", () => {
+    const now = Date.parse("2026-11-08T12:00:00Z");
+    expect(ago("2026-11-08T11:59:55Z", now)).toBe("just now");
+    expect(ago("2026-11-08T11:59:10Z", now)).toBe("50 s ago");
+    expect(ago("2026-11-08T11:55:00Z", now)).toBe("5 min ago");
+    expect(ago("2026-11-08T09:00:00Z", now)).toBe("3 h ago");
+    expect(ago("2026-11-06T09:00:00Z", now)).toBeNull();
+    expect(ago("nonsense", now)).toBeNull();
+  });
+  it("counts a ticket down and flags the last 20 seconds and the end", () => {
+    const t = { createdAt: "2026-11-08T12:00:00Z", expiresAt: "2026-11-08T12:01:00Z" };
+    const at = (s) => Date.parse("2026-11-08T12:00:00Z") + s * 1000;
+    expect(ticketLife(t, at(12))).toMatchObject({ text: "0:48 left", level: "ok", over: false });
+    expect(ticketLife(t, at(12)).share).toBeCloseTo(0.8);
+    expect(ticketLife(t, at(45))).toMatchObject({ text: "0:15 left", level: "warn" });
+    expect(ticketLife(t, at(61))).toMatchObject({ text: "Expired", level: "bad", over: true, left: 0 });
+    expect(ticketLife({}, 0).known).toBe(false);
+    expect(clockText(61_000)).toBe("1:01");
+    expect(clockText(-5)).toBe("0:00");
+  });
+  it("names who prepared a ticket", () => {
+    expect(ticketSource({ source: "mcp", client: "claude-desktop" })).toEqual({ kind: "AI assistant", label: "claude-desktop" });
+    expect(ticketSource({ source: "webhook" }).kind).toBe("Webhook");
+  });
+  it("writes sizes and types in words", () => {
+    expect(qtyText({ quantity: 10, filledQuantity: 4 })).toBe("4 of 10");
+    expect(qtyText({ quantity: 10, filledQuantity: 10 })).toBe("10");
+    expect(orderTypeText("SL-M")).toBe("Stop-loss market");
+  });
+  it("groups the trade book by day and labels the days", () => {
+    const day = (iso) => iso.slice(0, 10);
+    const rows = [{ tradedAt: "2026-11-08T10:00" }, { tradedAt: "2026-11-08T09:00" }, { tradedAt: "2026-11-06T09:00" }];
+    expect(groupByDay(rows, day).map((g) => [g.day, g.rows.length])).toEqual([["2026-11-08", 2], ["2026-11-06", 1]]);
+    expect(dayHeading("2026-11-08", "2026-11-08")).toBe("Today, Sun 8 Nov");
+    expect(dayHeading("2026-11-07", "2026-11-08")).toBe("Yesterday, Sat 7 Nov");
+    expect(dayHeading("2026-11-06", "2026-11-08")).toBe("Fri 6 Nov");
+  });
+  it("exports the trade book as CSV with quoting and the charges estimate where there is one", () => {
+    const csv = tradesCsv([{ tradedAt: "t1", accountId: "a", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", qty: 75, price: 100.5, product: "INTRADAY", orderId: "O1", tradeId: "T1" }, { tradedAt: "t2", accountId: "a", symbol: "NSE:TCS", side: "SELL", qty: 1, price: 10, product: "CNC", orderId: "O2" }], { labelOf: () => "Paper, main", chargesOf: (t) => (t.orderId === "O1" ? { total: 12.3456 } : null) });
+    const lines = csv.trim().split("\r\n");
+    expect(lines[0]).toBe("Time (IST),Account,Symbol,Contract,Side,Quantity,Price,Value,Product,Order id,Trade id,Estimated charges");
+    expect(lines[1]).toBe("t1,\"Paper, main\",NFO:NIFTY-2026-11-03-25850-CE,NIFTY 3 Nov 25850 CE,BUY,75,100.5,7537.5,INTRADAY,O1,T1,12.35");
+    expect(lines[2]).toBe("t2,\"Paper, main\",NSE:TCS,TCS,SELL,1,10,10,CNC,O2,,");
   });
 });
