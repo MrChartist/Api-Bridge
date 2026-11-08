@@ -1,0 +1,6 @@
+{
+  "quotes": [
+    { "symbol": "NSE:RELIANCE", "last": 2891.4, "open": 2880, "high": 2899.9, "low": 2872.1, "prevClose": 2875.55, "volume": 4182211, "asOf": "2026-10-19T09:45:00+05:30" },
+    { "symbol": "NSE:TCS", "last": 3902.15, "open": 3890, "high": 3915, "low": 3881.6, "prevClose": 3894.3, "volume": 1250933, "asOf": "2026-10-19T09:45:00+05:30" }
+  ]
+}
