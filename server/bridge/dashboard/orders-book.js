@@ -251,7 +251,8 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
         h("div", { class: "ob-tickets" }, ...shown.map((t) => ticketCard(t, byId, { review, onDecline }))),
         live,
       );
-      live.textContent = `${plural(n, "order")} waiting for your confirmation`;
+      const said = `${plural(n, "order")} waiting for your confirmation`;
+      if (live.textContent !== said) live.textContent = said;
     });
   }
   function tick() {

@@ -644,11 +644,10 @@ async function show(opts) {
   if (!reload) beginNavigation(route.view);
   redrawnFor = reload ? seq : 0;
   // A tabbed page: the tab strip is the first row of the page; only the chosen tab renders (and refreshes).
-  const tabs = tab ? pageTabs(page, tab, root) : null;
-  if (!tabs) {
-    root.removeAttribute("role");
-    root.setAttribute("aria-labelledby", "page-title");
-  }
+  const tabs = tab ? pageTabs(page, tab) : null;
+  // #content names itself by the page; the tab panel is the part below the tab strip (pageTabs), never the strip's own parent.
+  root.removeAttribute("role");
+  root.setAttribute("aria-labelledby", "page-title");
   root.setAttribute("aria-busy", "true");
   // Navigating (not reloading): the old page fades out in 90 ms (sub-tabs slide along X), then the new one starts.
   const way = travel(page, tab);
@@ -699,15 +698,19 @@ function revealActiveTab(bar) {
 
 /**
  * The tab strip of a tabbed page: a segmented tab list, the page's first row. Picking a tab goes
- * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. #content is its tab panel.
+ * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. The tab panel is the block under the strip
+ * (kept on the returned row as `__panel`), so the tab list is not inside the panel it controls.
  */
-function pageTabs(page, tab, panel) {
+function pageTabs(page, tab) {
   // Moving between the tabs of one page keeps the strip: its buttons, its scroll position and the thumb that slides under it.
   const kept = document.getElementById(`page-tabs-${page.id}`);
   const bar = kept?.__selection && kept.parentElement?.classList.contains("page-tabs-row") ? kept : h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
+  const panel = (bar === kept && kept.parentElement?.__panel) || h("div", { class: "tab-panel", id: `page-panel-${page.id}` });
   drawTabs(bar, panel, page.tabs.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
   // A full-width row of its own (pages that lay their panels out in a wrapping row stretch every child).
-  return bar.parentElement?.classList.contains("page-tabs-row") ? bar.parentElement : h("div", { class: "page-tabs-row" }, bar);
+  const row = bar.parentElement?.classList.contains("page-tabs-row") ? bar.parentElement : h("div", { class: "page-tabs-row" }, bar);
+  row.__panel = panel;
+  return row;
 }
 
 /**
@@ -716,11 +719,13 @@ function pageTabs(page, tab, panel) {
  */
 function setPage(root, tabs, nodes) {
   const rest = [nodes].flat().filter(Boolean);
-  if (tabs && tabs.parentNode === root) {
-    while (tabs.previousSibling) tabs.previousSibling.remove();
-    while (tabs.nextSibling) tabs.nextSibling.remove();
-    root.append(...rest);
-  } else root.replaceChildren(...[tabs, ...rest].filter(Boolean));
+  if (!tabs) return root.replaceChildren(...rest);
+  const panel = tabs.__panel;
+  panel.replaceChildren(...rest);
+  if (tabs.parentNode === root) {
+    for (const c of [...root.childNodes]) if (c !== tabs && c !== panel) c.remove();
+    if (panel.parentNode !== root) root.append(panel);
+  } else root.replaceChildren(tabs, panel);
 }
 
 /** Which way a tab change travels, for the shared-axis slide: by the index of the tab among its page's tabs. */

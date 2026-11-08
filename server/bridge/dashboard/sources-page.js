@@ -231,9 +231,9 @@ export async function renderOverview() {
   let onlySlow = false;
   let live = null;
   /** The last answers: each is { data } or { error }. */
-  const got = { sources: null, usage: null, requests: null, limits: null };
+  const got = { sources: null, usage: null, requests: null, limits: null, accounts: null };
   let model = { rows: [], pool: null, tone: "calm" };
-  const spoken = { tone: null, at: 0 };
+  const spoken = { tone: null, at: 0, conn: "" };
 
   const nameOf = (id) => {
     const r = model.rows.find((x) => x.id === id);
@@ -249,7 +249,7 @@ export async function renderOverview() {
   const suffix = document.createTextNode("");
   const figure = countingNumber({ className: "sx-figure" });
   const detail = h("p", { class: "sx-detail" }, prefix, figure.el, suffix);
-  const updated = h("span", { class: "pill sx-updated", role: "status" }, "Updating…");
+  const updated = h("span", { class: "pill sx-updated" }, "Updating…");
   const poolMeter = createMeter({ label: "Room used across all sources", tall: true });
   const capL = h("span", {}, "");
   const capR = h("span", {}, "");
@@ -276,7 +276,7 @@ export async function renderOverview() {
       const title = h("strong", {});
       const text = h("span", { class: "detail" });
       const show = h("button", { type: "button", class: "small" }, "Show it");
-      const el = h("div", { class: "alert warn sx-alert", role: "status" }, icon("warn"), h("div", {}, title, text, h("div", { class: "alert-actions" }, show)));
+      const el = h("div", { class: "alert warn sx-alert" }, icon("warn"), h("div", {}, title, text, h("div", { class: "alert-actions" }, show)));
       el._parts = { title, text, show };
       return el;
     },
@@ -540,7 +540,8 @@ export async function renderOverview() {
   function paint(at) {
     const sources = withSwitches(got.sources?.data?.data ?? null);
     const usage = got.usage?.data?.data ?? null;
-    const rows = buildRows({ sources, usage, time: istTime });
+    const labels = Object.fromEntries((got.accounts?.data?.data ?? []).map((a) => [a.id, a.label]));
+    const rows = buildRows({ sources, usage, time: istTime, labels });
     annotateRows(rows, { ...trackers, at });
     const keep = new Set(rows.map((r) => r.key));
     trackers.rates.prune(new Set([...keep, ...rows.flatMap((r) => r.classes.map((c) => `${r.key}:${c.cls}`))]));
@@ -691,12 +692,13 @@ export async function renderOverview() {
     const slow = pollCount === 1 || pollCount % BROKER_POLICY_EVERY === 0;
     // A Bridge without the route is asked again only now and then, not every poll.
     const skipSources = got.sources?.error && isMissing(got.sources.error) && pollCount % 30 !== 0;
-    const [s, u, r, l] = await Promise.all([skipSources ? Promise.resolve(got.sources) : optional(api("/v1/sources", { fresh: true })), optional(api("/v1/usage", { fresh: true })), optional(api("/v1/requests?limit=60", { fresh: true })), slow && !policyBox.dataset.done ? optional(api("/v1/limits", { fresh: true })) : Promise.resolve(null)]);
+    const [s, u, r, l, acc] = await Promise.all([skipSources ? Promise.resolve(got.sources) : optional(api("/v1/sources", { fresh: true })), optional(api("/v1/usage", { fresh: true })), optional(api("/v1/requests?limit=60", { fresh: true })), slow && !policyBox.dataset.done ? optional(api("/v1/limits", { fresh: true })) : Promise.resolve(null), slow ? optional(api("/v1/accounts")) : Promise.resolve(null)]);
     if (!root.isConnected && pollCount > 1) return;
     got.sources = s;
     got.usage = u;
     got.requests = r;
     if (l) got.limits = l;
+    if (acc?.data) got.accounts = acc;
     const ok = Boolean(s.data || u.data);
     if (!built && !ok) {
       showFailure(u.error ?? s.error);
@@ -726,6 +728,12 @@ export async function renderOverview() {
     else if (stale) setText(updated, `Not updating, last ${istTime(new Date(lastOkAt).toISOString())}`);
     else setText(updated, `Updated ${agoText(age)}`);
     lost.hidden = !(lastOkAt && (age > LOST_MS || offline));
+    // The pill above changes every second and is not a live region; only a change of connection is said.
+    const conn = offline ? "offline" : stale ? "stale" : "live";
+    if (conn !== spoken.conn) {
+      if (lastOkAt && conn !== "live") setText(live, offline ? "You are offline. These numbers are the last ones read." : "These numbers have stopped updating.");
+      spoken.conn = conn;
+    }
     for (const t of root.querySelectorAll("time.sx-reset[data-until]")) {
       const left = Number(t.dataset.until) - now;
       setText(t, left > 0 ? `, room back in ${shortWait(left)}` : "");

@@ -3,7 +3,7 @@
 // it was held back today; a sheet edits one key with presets (Light, Normal, Heavy) and plain explanations.
 
 import { alertBox, api, emptyState, h, icon, iconTile, istTime, modal, optional, toast } from "./app.js";
-import { dayShare, kindLabel, matchPreset, quotaLine, quotaPresets, quotaSourceText, sortKeys, validateQuota, toneForShare, TONE_WORD } from "./sources-core.js";
+import { dayShare, fairShare, kindLabel, matchPreset, quotaLine, quotaPresets, quotaSourceText, sortKeys, validateQuota, toneForShare, TONE_WORD } from "./sources-core.js";
 import { chevron, createKeyedList, createMeter, createPoller, setData, setText } from "./sources-ui.js";
 import { formatInt, plural } from "./format.js";
 
@@ -74,7 +74,7 @@ export function openQuotaSheet(key, defs) {
     if (!quiet) showErrors(v.ok ? {} : v.errors);
     if (v.ok) {
       const b = v.body;
-      setText(preview, `This key could make up to ${plural(b.perSecond, "call")} a second, in short bursts of ${formatInt(b.burst)}${b.perDay ? `, and ${formatInt(b.perDay)} a day` : ", with no daily cap"}.`);
+      setText(preview, `This key could make up to ${plural(b.perSecond, "call")} a second, up to ${formatInt(b.burst)} at once${b.perDay ? `, and ${formatInt(b.perDay)} a day` : ", with no daily cap"}.`);
     } else setText(preview, "Fix the highlighted fields to see what this key could do.");
     if (!fromPreset && seg.value !== undefined) {
       guard = true;
@@ -154,7 +154,7 @@ export function openQuotaSheet(key, defs) {
       { class: "sx-sheet sx-q-sheet" },
       h("p", { class: "sx-q-who" }, h("span", { class: "chip" }, kindLabel(key.clientKind)), " ", h("span", { class: "sx-q-src" }, quotaSourceText(key.source))),
       h("div", { class: "field seg-field" }, h("span", { id: "q-preset-l" }, "How much may it use"), seg, presetNote),
-      h("div", { class: "form-grid sx-q-grid" }, field("Calls per second", fields.perSecond, "How fast it may go, on average.", "q-ps"), field("Burst", fields.burst, "How many it may send at once.", "q-bu"), field("Share of the queue", fields.weight, "A bigger number waits less when things are busy.", "q-wt"), field("Calls per day", fields.perDay, "Leave empty for no daily cap.", "q-pd")),
+      h("div", { class: "form-grid sx-q-grid" }, field("Calls per second", fields.perSecond, "How fast it may go, on average.", "q-ps"), field("Most at once", fields.burst, "How many it may send in one go.", "q-bu"), field("Fair share", fields.weight, "A bigger number waits less when things are busy.", "q-wt"), field("Calls per day", fields.perDay, "Leave empty for no daily cap.", "q-pd")),
       preview,
       h(
         "div",
@@ -178,6 +178,7 @@ export async function renderQuotas() {
   let lastOk = 0;
   let polls = 0;
   const rowsBox = h("div", { class: "list sx-q-rows", role: "group", "aria-label": "API keys and tools, most used first" });
+  let totalWeight = 0;
   const list = createKeyedList(rowsBox, { key: (k) => k.keyId, create: createRow, update: updateRow });
   const intro = h("section", { class: "card sx-q-intro" }, h("div", { class: "card-body stack" }, h("p", { class: "sx-q-lead" }, "Every API key has its own quota, so one busy tool cannot use up everyone's room. The numbers below are what each key may ask for, and how much it used."), h("p", { class: "sx-q-default" })));
   const defaultLine = intro.querySelector(".sx-q-default");
@@ -213,7 +214,7 @@ export async function renderQuotas() {
     setText(p.title, k.label);
     setText(p.kind, kindLabel(k.clientKind));
     p.custom.hidden = k.source !== "override";
-    setText(p.line, `${quotaLine(k)}. Share of the queue: ${formatInt(k.weight)}.`);
+    setText(p.line, `${quotaLine(k)}. ${fairShare(k.weight, totalWeight)}.`);
     p.meter.set({ share: u.share, tone, speech: `${u.label}: ${u.text}, ${TONE_WORD[tone].toLowerCase()}` });
     setText(p.use, u.text);
     setText(p.word, TONE_WORD[tone]);
@@ -240,8 +241,9 @@ export async function renderQuotas() {
       return;
     }
     const keys = sortKeys(data.keys ?? []);
+    totalWeight = keys.reduce((n, k) => n + (Number(k.weight) || 0), 0);
     const d = data.default ?? {};
-    setText(defaultLine, `Default for a new key: ${plural(d.perSecond, "call")} a second, in bursts of ${formatInt(d.burst)}.`);
+    setText(defaultLine, `Default for a new key: ${plural(d.perSecond, "call")} a second, up to ${formatInt(d.burst)} at once.`);
     emptyBox.hidden = keys.length > 0;
     rowsBox.hidden = keys.length === 0;
     foot.hidden = keys.length === 0;

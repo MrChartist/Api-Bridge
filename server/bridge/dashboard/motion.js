@@ -1778,8 +1778,8 @@ export function installPullToRefresh({ target, indicator, refresh, enabled = () 
 
 // ── Pages ──
 
-/** What changes between pages: the children of the container except a persistent tab strip (`.page-tabs-row`). */
-const contentOf = (container) => [...container.children].filter((el) => !el.hidden && !el.classList.contains("page-tabs-row"));
+/** What changes between pages: the children of the container except a persistent tab strip (`.page-tabs-row`); a tab panel is looked through. */
+const contentOf = (container) => [...container.children].flatMap((el) => (el.classList.contains("tab-panel") ? [...el.children] : [el])).filter((el) => !el.hidden && !el.classList.contains("page-tabs-row"));
 
 /** The things worth staggering in a page: descend through single wrappers to the first level with siblings. */
 function pageItems(container) {

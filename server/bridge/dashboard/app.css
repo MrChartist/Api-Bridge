@@ -715,6 +715,8 @@ div.field.seg-field .segmented button { flex: 1 1 auto; min-width: 0; padding: 0
 
 /* A page's tab strip: left-aligned, its panel gap below. */
 .page-tabs-row { display: flex; min-width: 0; }
+/* The block under a page's tab strip: it lays its children out as #content does. */
+.tab-panel { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
 .segmented.page-tabs { flex: none; min-height: var(--page-tabs-h); }
 .segmented.page-tabs button { flex: none; min-height: calc(var(--page-tabs-h) - 4px); padding: 0 16px; font-size: 13px; }
 .segmented.fade-r, .tabs.fade-r { -webkit-mask-image: linear-gradient(to left, transparent, #000 24px); mask-image: linear-gradient(to left, transparent, #000 24px); }
@@ -1023,13 +1025,12 @@ dialog.sheet {
   position: fixed; inset: auto 0 0 0; margin: 0 auto; padding: 0; border: 0;
   width: 100%; max-width: 560px; max-height: min(90dvh, 820px);
   border-radius: var(--r-sheet) var(--r-sheet) 0 0; overflow: hidden;
-  background: var(--mat-thick);
-  -webkit-backdrop-filter: var(--mat-blur-thick);
-  backdrop-filter: var(--mat-blur-thick);
+  /* Solid and unblurred: a sheet moves while it opens, and a blur behind a moving surface is repainted every frame. */
+  background: hsl(var(--elevated));
   box-shadow: var(--edge-1), var(--shadow-float);
 }
 dialog.sheet[open] { display: flex; flex-direction: column; }
-dialog.sheet::backdrop { background: var(--scrim); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+dialog.sheet::backdrop { background: var(--scrim); }
 .sheet-grabber { width: 36px; height: 5px; border-radius: 3px; background: hsl(var(--foreground) / 0.2); margin: 8px auto 0; flex: none; }
 .sheet-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px 12px 20px; flex: none; }
 .sheet-title { flex: 1; min-width: 0; font: var(--t-title3); letter-spacing: -0.016em; overflow-wrap: anywhere; }
@@ -1374,7 +1375,6 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
     -webkit-backdrop-filter: none; backdrop-filter: none;
     background: var(--surface);
   }
-  dialog.sheet::backdrop, dialog.palette::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 /* No backdrop-filter: the translucent chrome becomes solid, so text never sits on a busy page. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -2526,7 +2526,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-note[hidden] { display: none; }
 .sx-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 2px; padding: 10px 12px; border-radius: var(--r-md); background: var(--fill-1); font: var(--t-callout); color: var(--label-2); }
 .sx-prov[data-state="paused"] .sx-state { background: hsl(var(--danger) / 0.08); }
-.sx-prov[data-state="slow"] .sx-state, .sx-prov[data-state="setup"] .sx-state { background: hsl(var(--warning) / 0.1); }
+.sx-prov[data-state="slow"] .sx-state, .sx-prov[data-state="setup"] .sx-state, .sx-prov[data-state="rejected"] .sx-state, .sx-prov[data-state="limited"] .sx-state { background: hsl(var(--warning) / 0.1); }
 .sx-state-text { min-width: 0; overflow-wrap: anywhere; }
 .sx-prov-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .sx-prov-actions button[hidden] { display: none; }
