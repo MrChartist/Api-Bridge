@@ -33,6 +33,7 @@ import {
 } from "./orders-core.js";
 import { fillCharges, fillTotals, istDayOf } from "./charges.js";
 import { whatToDo } from "./reasons-core.js";
+import { swipeActions } from "./motion.js";
 
 const KEY = "mcb.orders.filters";
 const DECLINED = "mcb.orders.declined";
@@ -331,7 +332,7 @@ function orderRow(o, { labelOf, actions }) {
   const rejected = ["rejected", "expired", "outcome_unknown"].includes(o.status);
   const msg = o.statusMessage && (rejected || (o.status === "cancelled" && !/by request/i.test(o.statusMessage))) ? o.statusMessage : null;
   const fix = msg || o.status === "outcome_unknown" ? whatToDo({ code: o.status === "outcome_unknown" ? "OUTCOME_UNKNOWN" : null, message: msg ?? "", mode: o.mode }) : null;
-  return h(
+  const row = h(
     "div",
     { class: `ob-row ob-order ${rejected ? "refused" : ""}`.trim(), role: "row", "data-status": o.status },
     h("div", { class: "ob-cell c-time", role: "cell" }, timeCell(o.placedAt)),
@@ -350,6 +351,11 @@ function orderRow(o, { labelOf, actions }) {
       ? h("div", { class: "ob-why", role: "cell" }, icon("info"), h("div", {}, msg ? h("p", {}, msg) : null, fix ? h("p", { class: "ob-fix" }, fix) : null))
       : null,
   );
+  // Touch screens: swipe a working order left to Cancel it (the row menu keeps the same action, and asks the same question).
+  if (["pending", "open", "trigger_pending", "partially_filled"].includes(o.status) && typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches) {
+    swipeActions(row, { actions: [{ label: "Cancel", tone: "destructive", run: () => actions(o).cancel() }] });
+  }
+  return row;
 }
 
 const ordersHead = () =>

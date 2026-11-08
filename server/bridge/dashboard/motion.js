@@ -1002,6 +1002,170 @@ function watchSegmented(root = document) {
   }).observe(root.body ?? root, { childList: true, subtree: true });
 }
 
+// ── Swipe actions on rows (touch and pen) ──
+
+let openSwipe = null;
+let swipeGuard = false;
+
+/**
+ * Swipe a list row left to reveal its actions, for touch and pen only (the same actions stay in the row's menu and on
+ * the keyboard: a swipe is an accelerator, never the only way). The row follows the finger 1:1; it opens when it would
+ * land past half the revealed width (velocity projected), springs shut otherwise, and a long swipe (past 60 % of the row,
+ * or a fast one beyond the revealed width) runs the first action. One row is open at a time; a tap elsewhere, a scroll or
+ * another swipe closes it, and a tap on an open row closes it instead of opening whatever it holds.
+ * The actions sit in a layer just outside the row's right edge that moves with it (`.swipe-actions`, app.css).
+ * @param {HTMLElement} row  `position: relative`; its `touch-action` becomes `pan-y` (class `swipeable`)
+ * @param {{ actions: Array<{ label: string, tone?: string, run: () => void }>, width?: number }} o  `width` px per action
+ * @returns {{ close: () => void, destroy: () => void, readonly open: boolean }}
+ */
+export function swipeActions(row, { actions, width = 84 }) {
+  const full = width * actions.length;
+  const layer = document.createElement("div");
+  layer.className = "swipe-actions";
+  layer.setAttribute("aria-hidden", "true");
+  layer.style.setProperty("--w", `${full}px`);
+  for (const a of actions) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.tabIndex = -1;
+    b.className = `swipe-action${a.tone ? ` ${a.tone}` : ""}`;
+    b.textContent = a.label;
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      api.close();
+      a.run();
+    });
+    layer.append(b);
+  }
+  row.append(layer);
+  row.classList.add("swipeable");
+  const sp = new Spring(0, { response: 0.34, bounce: 0.08, precision: 0.2 });
+  let state = "closed";
+  let id = null;
+  let sx = 0;
+  let sy = 0;
+  let base = 0;
+  let locked = false;
+  let buf = [];
+  let wasOpen = false;
+  let raw = 0; // where the finger would have the row without the rubber band
+  const write = (v = sp.value) => {
+    row.style.translate = v === 0 ? "" : `${v}px 0px`;
+  };
+  const rest = (to) => {
+    state = to === 0 ? "closed" : "open";
+    sp.to(to, { onUpdate: write }).then(() => {
+      write(to);
+      row.style.willChange = "";
+      if (to === 0) delete row.dataset.swipe;
+      else row.dataset.swipe = "open";
+    });
+    if (to !== 0) {
+      if (openSwipe && openSwipe !== api) openSwipe.close();
+      openSwipe = api;
+    } else if (openSwipe === api) openSwipe = null;
+  };
+  const api = {
+    get open() {
+      return state === "open";
+    },
+    close() {
+      if (state === "closed" && sp.value === 0) return;
+      rest(0);
+    },
+    destroy() {
+      api.close();
+      layer.remove();
+      row.classList.remove("swipeable");
+    },
+  };
+  row.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" || e.button > 0 || id !== null) return;
+    if (e.target.closest?.(".swipe-actions")) return;
+    id = e.pointerId;
+    sx = e.clientX;
+    sy = e.clientY;
+    locked = false;
+    wasOpen = state === "open";
+    buf = [{ t: e.timeStamp, x: e.clientX, y: e.clientY }];
+  });
+  row.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== id) return;
+    buf.push({ t: e.timeStamp, x: e.clientX, y: e.clientY });
+    while (buf.length > 2 && e.timeStamp - buf[0].t > 100) buf.shift();
+    if (!locked) {
+      const a = lockAxis(e.clientX - sx, e.clientY - sy, 8);
+      if (a === "wait") return;
+      if (a !== "x") {
+        id = null;
+        return;
+      }
+      locked = true;
+      sp.grab();
+      base = sp.value;
+      sx = e.clientX;
+      row.setPointerCapture?.(e.pointerId);
+      row.style.willChange = "translate";
+      row.dataset.swipe = "drag";
+      if (openSwipe && openSwipe !== api) openSwipe.close();
+    }
+    let x = base + (e.clientX - sx);
+    raw = x;
+    if (x < -full) x = -full - rubber(-full - x, row.offsetWidth * 0.5);
+    else if (x > 0) x = rubber(x, 60);
+    sp.value = x;
+    write(x);
+  });
+  const end = (e, cancelled) => {
+    if (e.pointerId !== id) return;
+    id = null;
+    if (!locked) return;
+    locked = false;
+    row.releasePointerCapture?.(e.pointerId);
+    // The click that follows a drag must not open the row's own target.
+    swipeGuard = true;
+    setTimeout(() => (swipeGuard = false), 60);
+    const v = cancelled ? 0 : fitVelocity(buf, e.timeStamp).x;
+    const landing = raw + project(v, 0.99);
+    const far = -landing > 0.6 * row.offsetWidth || (v < -800 && raw < -full);
+    if (!cancelled && far && actions[0]) {
+      sp.to(-row.offsetWidth, { velocity: v, onUpdate: write }).then(() => {
+        actions[0].run();
+        sp.set(0);
+        write(0);
+        row.style.willChange = "";
+        delete row.dataset.swipe;
+        state = "closed";
+      });
+      return;
+    }
+    rest(!cancelled && landing < -full / 2 ? -full : 0);
+  };
+  row.addEventListener("pointerup", (e) => end(e, false));
+  row.addEventListener("pointercancel", (e) => end(e, true));
+  // A tap on an open row closes it instead of activating what it holds; a drag's trailing click is swallowed.
+  row.addEventListener(
+    "click",
+    (e) => {
+      if (swipeGuard || (wasOpen && !e.target.closest?.(".swipe-actions"))) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        wasOpen = false;
+        if (state === "open") api.close();
+      }
+    },
+    true,
+  );
+  if (!swipeActions.watching && typeof document !== "undefined") {
+    swipeActions.watching = true;
+    document.addEventListener("pointerdown", (e) => openSwipe && !openSwipe.row?.contains(e.target) && !e.target.closest?.(".swipeable[data-swipe]") && openSwipe.close(), true);
+    document.addEventListener("scroll", () => openSwipe?.close(), { capture: true, passive: true });
+  }
+  api.row = row;
+  return api;
+}
+
 // ── Bottom sheet ──
 
 /**

@@ -1660,6 +1660,16 @@ dialog.sheet::backdrop { opacity: var(--sheet-p, 1); }
 .bud-accts { display: contents; }
 .al-track, .bar, .bud-bar { contain: layout paint; }
 
+/* Swipe actions (touch only, motion.js swipeActions): the actions sit just outside the row's right edge and travel with it, so
+   they are revealed as the row slides left. The same actions stay in the row's menu; this layer is an accelerator. */
+.swipeable { touch-action: pan-y; }
+.swipe-actions { position: absolute; left: 100%; top: 0; bottom: 0; width: var(--w); display: flex; visibility: hidden; }
+.swipeable[data-swipe] { z-index: 1; }
+.swipeable[data-swipe] > .swipe-actions { visibility: visible; }
+.swipe-action { flex: 1 1 0; min-width: 44px; min-height: 0; border-radius: 0; box-shadow: none; --btn-bg: var(--fill-3); --btn-bg-h: var(--fill-3); --btn-fg: hsl(var(--foreground)); --press: 1; font-weight: 600; }
+.swipe-action.destructive { --btn-bg: hsl(var(--danger)); --btn-bg-h: hsl(var(--danger)); --btn-fg: hsl(var(--on-danger)); }
+@media (hover: hover) and (pointer: fine) { .swipe-actions { display: none; } }
+
 /* Pull to refresh (phones): the page follows the finger, an arrow turns over as it arms. */
 .ptr {
   position: fixed; z-index: var(--z-chrome); left: 50%; top: calc(var(--toolbar-h) + var(--safe-t) + 8px); width: 36px; height: 36px; margin-left: -18px;
