@@ -1435,62 +1435,172 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
    Page-specific rules, owned by each page (Accounts, API, Orders, Safety) plus the shared chrome widgets (budget chip and
    readiness badge). They build on the foundation above: tokens, never raw colours; the components, never their own buttons,
    inputs or cards. */
-/* ───────────────────────── 11 · ACCOUNTS, BROKERS, SHEETS ───────────────────────── */
-/* Six broker cards across at 1920 px: the name may take two lines (never three, as at 250 px) and the foot (chips and
-   Set up) sits on each card's bottom edge, so the cards in a row line up. */
-.brokers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 12px; padding: 4px var(--card-pad) var(--card-pad); }
-.broker { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 20px; background: var(--mat-fill-1); min-width: 0; transition: background-color var(--dur-fast); }
-.broker:hover { background: var(--mat-fill-2); }
-.broker .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.broker .names { flex: 1; min-width: 0; }
-.broker .nm { font: 500 14.5px/1.25 var(--font-body); overflow-wrap: break-word; text-wrap: balance; }  /* wraps: "Motilal Oswal" was cut to "Motilal O…" at 1280 */
-.broker .id { font: 400 12px/1.3 var(--font-mono); color: hsl(var(--foreground) / var(--a-quiet)); }
-.broker-foot { gap: 8px; flex-wrap: nowrap; align-items: flex-end; margin-top: auto; }
-.broker-foot > .chips { gap: 4px 6px; }
-.dir-search { width: min(280px, 100%); }
-/* Accounts "Can do": three chips and a "+N" chip on one line (the rest open in a popover), so rows keep one height. */
-.chips.acct-caps { flex-wrap: nowrap; }
-.chips.acct-caps > .chip { display: block; max-width: 120px; overflow: hidden; text-overflow: ellipsis; line-height: 22px; }
-button.chip-btn.acct-caps-more { min-height: 22px; padding: 0 9px; font: 500 12px/1 var(--font-body); }
-.chips.acct-caps-all { gap: 6px; max-width: 320px; padding: 4px 16px 16px; }
-@media (max-width: 719px) { .chips.acct-caps-all { max-width: none; } }
-/* Your accounts: Broker holds the "can do" chips under the name and Session holds the mode pill, so the table has five
-   columns. From 1100px (where it stops stacking) the card is the container: under 1000px wide (about 1100-1365px
-   windows) the Test / Log in / Remove row becomes one ⋯ menu and the account, holder and broker names may wrap, so the table
-   always fits with no sideways scroll. */
-.accounts-card { container: acct / inline-size; }
-.acct-broker, .acct-session { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
-.acct-session-pills { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-.acct-session .muted.small { margin-top: 0; }
-.accounts-card td.wrap { min-width: 150px; }
-.acct-acts { display: flex; justify-content: flex-end; }
-.acct-acts-inline { flex-wrap: nowrap; }
-button.icon-btn.acct-acts-more { display: none; width: 36px; height: 36px; }
-button.icon-btn.acct-acts-more svg { width: 18px; height: 18px; fill: currentColor; stroke: currentColor; }
-@media (min-width: 1100px) {
-  @container acct (max-width: 1079px) {
-    .accounts-card .table-wrap td.lead strong { white-space: normal; }
-    .accounts-card .table-wrap .broker-cell { min-width: 0; }
-    .acct-acts-inline { display: none; }
-    button.icon-btn.acct-acts-more { display: inline-grid; }
-  }
+/* === PAGE: accounts ===
+   Accounts: "Your accounts" is an inset list (one row per account: tile, name and id, status, today, the next step) and
+   "Supported brokers" a searchable catalogue of tiles. The row is one grid whose columns follow the list's own width
+   (container query), so the sidebar, the rail and the phone all get the layout that fits. Rows open details through a
+   button laid over them; the next step is a button above that. The Add sheet, the log-in sheet and the details sheet share
+   the tile and name styles below. */
+.acct-section { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.acct-section + .acct-section { margin-top: var(--space-4); }
+.acct-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding: 0; }
+.acct-head-titles { flex: 1 1 150px; min-width: 0; }
+.acct-head h2 { font: var(--t-title3); letter-spacing: -0.016em; }
+.acct-head p { margin-top: 2px; max-width: 72ch; font: var(--t-subhead); color: var(--label-2); }
+.acct-head-actions { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.acct-head-actions > .row { gap: var(--space-2); }
+
+/* Tile, name and sub: the same three parts in every row, tile and sheet. */
+.acct-names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.acct-nm { font: 600 15px/1.3 var(--font-body); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.acct-nm .pill { margin-left: 8px; min-height: 20px; padding: 2px 8px; vertical-align: 1px; }
+.acct-sub { font: var(--t-footnote); color: var(--label-3); overflow-wrap: anywhere; }
+.acct-sub .mono { font-size: 12px; }
+:is(.acct-row, .acct-tile, .acct-chosen, .acct-sheet-head, .acct-pick-row) > :is(.avatar, .icon-tile) { width: 40px; height: 40px; border-radius: 11px; font-size: 13px; }
+:is(.acct-row, .acct-tile, .acct-chosen, .acct-sheet-head, .acct-pick-row) > .icon-tile svg { width: 20px; height: 20px; }
+.acct-pick-row > :is(.avatar, .icon-tile) { width: 36px; height: 36px; border-radius: 10px; }
+
+/* Your accounts. */
+.acct-list { container: acct / inline-size; }
+.acct-row {
+  position: relative; display: grid; align-items: center; column-gap: 14px; min-height: 68px; padding: 12px 16px;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(150px, 190px) 220px 104px 16px;
+  grid-template-areas: "tile names status today act chev";
 }
-@media (max-width: 1099px) { .acct-broker, .acct-session { align-items: flex-end; } .acct-acts { justify-content: flex-start; } }
-.card-actions > .dir-search { flex: 1 1 200px; }
+.acct-row + .acct-row::before { content: ""; position: absolute; top: 0; left: 70px; right: 0; height: var(--hl); background: var(--separator); pointer-events: none; }
+.acct-row > :not(.acct-open) { pointer-events: none; }
+.acct-row > :is(.avatar, .icon-tile) { grid-area: tile; }
+.acct-row > .acct-names { grid-area: names; }
+.acct-open {
+  --btn-bg: transparent; --btn-bg-h: var(--fill-1); --btn-r: 0; --press: 1;
+  position: absolute; inset: 0; z-index: 0; width: 100%; min-height: 0; padding: 0; border-radius: 0; box-shadow: none;
+}
+.acct-open::after { content: none; }
+.acct-open:focus-visible { outline-offset: -2px; }
+.acct-open:active { --btn-bg: var(--fill-2); }
+.acct-status { grid-area: status; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.acct-foot { font: var(--t-footnote); color: var(--label-3); overflow-wrap: anywhere; }
+.acct-today { grid-area: today; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
+.acct-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.acct-fig-v { font: 600 15px/1.25 var(--font-numeric); font-variant-numeric: tabular-nums; }
+.acct-fig small { font: var(--t-footnote); color: var(--label-3); }
+.acct-idle { grid-column: 1 / -1; font: var(--t-footnote); color: var(--label-3); }
+.acct-skel { width: 56px; height: 14px; margin: 3px 0 2px; }
+.acct-row > .acct-act { grid-area: act; justify-self: end; position: relative; z-index: 1; min-width: 96px; pointer-events: auto; }
+.acct-chev { grid-area: chev; display: grid; color: var(--label-3); }
+.acct-chev svg { width: 16px; height: 16px; stroke-width: 2.2; }
+@media (hover: hover) { .acct-row:hover { background: var(--fill-1); } }
+.acct-xl > span { white-space: nowrap; }
 
-.pick-row .avatar { width: 32px; height: 32px; border-radius: 9px; }
+/* Narrower list: margin moves to the details sheet. */
+@container acct (max-width: 899px) {
+  .acct-row { grid-template-columns: 40px minmax(0, 1fr) minmax(130px, 170px) 124px 96px 16px; }
+  .acct-today { grid-template-columns: minmax(0, 1fr); }
+  .acct-margin { display: none; }
+}
+/* A phone: two lines. Name and id on the left; the status over today's P&L (or Log in) on the right. */
+@container acct (max-width: 639px) {
+  .acct-row {
+    grid-template-columns: 40px minmax(0, 1fr) auto 16px; grid-template-areas: "tile names status chev" "tile names quick chev"; row-gap: 6px; column-gap: 12px; padding: 12px 14px;
+  }
+  .acct-row + .acct-row::before { left: 66px; }
+  .acct-status { align-items: flex-end; }
+  .acct-foot, .acct-margin, .acct-idle { display: none; }
+  .acct-today { grid-area: quick; display: flex; justify-self: end; align-items: baseline; }
+  .acct-fig { flex-direction: row; align-items: baseline; gap: 6px; }
+  .acct-row > .acct-act { grid-area: quick; display: none; min-width: 0; }
+  .acct-row[data-next="login"] .acct-act { display: inline-flex; }
+  .acct-row[data-next="login"] .acct-today { display: none; }
+}
+/* A small phone: the name gets the full width; the status and the next step share the line under it. */
+@container acct (max-width: 399px) {
+  .acct-row { grid-template-columns: 40px minmax(0, 1fr) 16px; grid-template-areas: "tile names chev" "tile bottom chev"; row-gap: 8px; }
+  .acct-status { grid-area: bottom; align-items: flex-start; justify-self: start; }
+  .acct-today, .acct-row > .acct-act { grid-area: bottom; justify-self: end; }
+}
+@media (max-width: 479px) {
+  .acct-xl { --btn-px: 0; width: var(--btn-h); }
+  .acct-xl > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+@media (max-width: 359px) { .acct-fig small { display: none; } }
 
-.pick-list { display: flex; flex-direction: column; max-height: min(320px, 40vh); overflow-y: auto; overscroll-behavior: contain; border-radius: var(--r-md); background: var(--mat-fill-1); padding: 4px; }
-.pick-row { display: grid; grid-template-columns: auto 32px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 52px; padding: 8px 10px; border-radius: 12px; cursor: pointer; transition: background-color var(--dur-fast); }
-.pick-row:hover { background: var(--mat-fill-1); }
-.pick-row:has(input:checked) { background: hsl(var(--accent) / 0.12); box-shadow: inset 0 0 0 1px hsl(var(--accent) / 0.25); }
-.pick-row .names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.pick-row .nm { font: 500 14.5px/1.25 var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick-row .sub { font-size: 12.5px; color: hsl(var(--foreground) / var(--a-quiet)); }
-.pick-empty { padding: 16px 12px; }
-.disclosure > summary { display: inline-flex; align-items: center; min-height: 32px; cursor: pointer; font: 500 14px/1.2 var(--font-body); color: hsl(var(--accent-ink)); border-radius: 8px; list-style-position: inside; }
-.disclosure[open] > summary { margin-bottom: 8px; }
-.secret-fields { padding: 14px 16px 16px; border-radius: var(--r-md); background: var(--mat-fill-1); }
+/* Supported brokers. */
+.acct-tools { display: flex; flex-direction: column; gap: var(--space-3); }
+.acct-tools .search-field { max-width: 440px; }
+.acct-filters { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.acct-filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.acct-chip-n { margin-left: 6px; font-weight: 500; opacity: 0.7; }
+.acct-count { margin: var(--space-3) var(--space-1) var(--space-2); font: var(--t-footnote); color: var(--label-3); }
+.acct-cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 10px; }
+.acct-cat > .empty { grid-column: 1 / -1; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); }
+.acct-tile {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 68px; padding: 12px 14px;
+  border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); min-width: 0;
+}
+.acct-more-row { display: flex; justify-content: center; margin-top: var(--space-3); }
+.acct-more-row[hidden], .acct-more-btn[hidden] { display: none; }
+.acct-more-btn { min-width: 220px; }
+.acct-retry { padding: var(--card-pad); }
+
+/* The Add sheet: two steps, then the broker list. */
+.acct-progress { display: flex; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.acct-progress li { flex: 1; display: flex; align-items: center; gap: var(--space-2); padding-top: 10px; border-top: 3px solid var(--fill-3); font: var(--t-caption); color: var(--label-3); min-width: 0; }
+.acct-progress li[aria-current="step"], .acct-progress li[data-done] { border-top-color: hsl(var(--accent)); }
+.acct-progress li[aria-current="step"] { color: hsl(var(--foreground)); font-weight: 600; }
+.acct-progress-n { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%; background: var(--fill-3); font: 600 12px/1 var(--font-numeric); }
+.acct-progress li[aria-current="step"] .acct-progress-n, .acct-progress li[data-done] .acct-progress-n { background: hsl(var(--accent)); color: hsl(var(--on-accent)); }
+.acct-progress-n svg { width: 12px; height: 12px; stroke-width: 2.6; }
+.acct-pick { display: flex; flex-direction: column; max-height: min(340px, 44dvh); overflow-y: auto; overscroll-behavior: contain; border-radius: var(--r-md); background: var(--fill-1); box-shadow: inset 0 0 0 var(--hl) var(--hairline); }
+.acct-pick-row { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr) 18px; align-items: center; gap: 12px; min-height: 56px; padding: 8px 14px; cursor: pointer; }
+.acct-pick-row + .acct-pick-row::before { content: ""; position: absolute; top: 0; left: 62px; right: 0; height: var(--hl); background: var(--separator); }
+.acct-pick-row > input[type="radio"] { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; border-radius: 0; cursor: pointer; }
+.acct-pick-row > svg.ic { width: 18px; height: 18px; color: hsl(var(--accent-ink)); stroke-width: 2.4; opacity: 0; }
+.acct-pick-row:has(input:checked) { background: hsl(var(--accent) / 0.12); }
+.acct-pick-row:has(input:checked) > svg.ic { opacity: 1; }
+.acct-pick-row:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
+@media (hover: hover) { .acct-pick-row:hover:not(:has(input:checked)) { background: var(--fill-1); } }
+.acct-pick-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 24px 16px; text-align: center; }
+.acct-chosen { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--fill-1); box-shadow: inset 0 0 0 var(--hl) var(--hairline); }
+.acct-need { display: flex; flex-direction: column; gap: 6px; }
+.acct-need .group-label { padding: 0; }
+.acct-foot-note { padding: 0; }
+.acct-steps { margin: 0; padding: 0; list-style: none; counter-reset: acct-step; gap: 14px; }
+.acct-steps li { position: relative; padding-left: 36px; counter-increment: acct-step; }
+.acct-steps li::before { content: counter(acct-step); position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--fill-2); font: 600 12px/1 var(--font-numeric); }
+.acct-more > summary { display: inline-flex; align-items: center; min-height: 36px; cursor: pointer; font: 500 14px/1.2 var(--font-body); color: hsl(var(--accent-ink)); border-radius: 8px; }
+.acct-more > summary { gap: 8px; list-style: none; }
+.acct-more > summary::-webkit-details-marker { display: none; }
+.acct-more > summary::after { content: ""; width: 7px; height: 7px; border: solid currentColor; border-width: 0 2px 2px 0; rotate: 45deg; translate: 0 -2px; transition: rotate var(--dur-2) var(--ease-out); }
+.acct-more[open] > summary::after { rotate: -135deg; translate: 0 2px; }
+.acct-more[open] > summary { margin-bottom: 8px; }
+@media (pointer: coarse) { .acct-more > summary { min-height: 44px; } }
+
+/* The log-in sheet. */
+.acct-help { display: flex; flex-direction: column; gap: 6px; margin: 0; padding-left: 20px; font: var(--t-callout); color: var(--label-2); }
+.acct-fieldset { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; margin: 0; padding: 0; border: 0; }
+.acct-fieldset > legend { margin-bottom: 6px; padding: 0; font: var(--t-headline); letter-spacing: -0.012em; }
+.acct-fieldset .form-grid { grid-template-columns: minmax(0, 1fr); }
+.acct-privacy { display: flex; align-items: flex-start; gap: var(--space-2); font: var(--t-footnote); color: var(--label-3); }
+.acct-privacy svg { width: 14px; height: 14px; margin-top: 2px; }
+
+/* The details sheet. */
+.acct-sheet-head { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.acct-caps-box > .group-label { padding: 0; }
+.acct-sheet .kv dd { font-family: var(--font-body); font-size: 14px; }
+.acct-actions .list-row { min-height: 56px; }
+.acct-actions .list-row .sub { white-space: normal; overflow: visible; }
+.acct-actions .list-row .icon-tile { width: 30px; height: 30px; }
+
+/* Step-by-step guides (Add a broker in demo mode, after a save). */
+.setup-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font: var(--t-callout); }
+.setup-steps li > strong { display: block; font-weight: 600; }
+.setup-steps li > span { display: block; color: var(--label-2); }
+.setup-steps .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+@media (forced-colors: active) {
+  .acct-pick-row:has(input:checked) { outline: 2px solid Highlight; outline-offset: -2px; }
+  .acct-row + .acct-row::before, .acct-pick-row + .acct-pick-row::before { background: CanvasText; }
+}
+/* === END PAGE: accounts === */
 
 /* Test console */
 .console { display: grid; grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.4fr); gap: var(--panel-gap); align-items: start; }
@@ -1771,34 +1881,8 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 @media (forced-colors: active) { .sf-glyph, .sf-hero-tile { border: 1px solid CanvasText; } .ks-list li::before { background: CanvasText; } }
 /* === END PAGE: safety === */
 
-/* ───────────────────────── 12t · ACCOUNTS: SESSION AND TODAY ───────────────────────── */
-
-/* Accounts › Session and today (views.js todayCell): the day's P&L, orders and margin under the session pills. */
-.acct-today { margin-top: 6px; font-size: 12.5px; line-height: 1.35; }
-.acct-today-pnl { font: 600 13px/1.3 var(--font-numeric); font-variant-numeric: tabular-nums; }
 @media (max-width: 719px) {
-  .card-actions:has(> .dir-search) { width: 100%; }
-  .card-actions > .dir-search { width: 100%; }
 }
-@media (min-width: 1100px) {
-  /* Slightly tighter cell gaps so the five columns fit (the narrow-card rules are with .accounts-card above). */
-  .accounts-card th, .accounts-card td { padding-inline: 8px; }
-  .accounts-card td { padding-block: 11px; }
-  .accounts-card th:first-child, .accounts-card td:first-child { padding-left: var(--card-pad); }
-  .accounts-card th:last-child, .accounts-card td:last-child { padding-right: var(--card-pad); }
-  .accounts-card td.lead strong { white-space: nowrap; }
-  .accounts-card .broker-cell { min-width: 190px; }
-}
-/* Step-by-step guides (Add a broker in demo mode, after a save). */
-.setup-guide { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: var(--r-inner); background: var(--mat-fill-1); }
-.setup-guide > p { margin: 0; }
-.setup-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.setup-head .avatar { width: 28px; height: 28px; border-radius: 8px; }
-.setup-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; font: 400 14px/1.45 var(--font-body); }
-.setup-steps li { padding-left: 4px; }
-.setup-steps li > strong { display: block; font-weight: 600; }
-.setup-steps li > span { display: block; color: hsl(var(--foreground) / var(--a-label)); }
-.setup-steps .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 /* The key just created (API › Keys). */
 .new-key { display: flex; flex-direction: column; gap: 14px; padding: 18px; border-radius: var(--r-inner); background: hsl(var(--success) / 0.07); box-shadow: inset 0 0 0 1px hsl(var(--success) / 0.3); outline: none; }
 .new-key-head { display: flex; align-items: center; gap: 12px; }
