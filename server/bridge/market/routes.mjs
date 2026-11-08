@@ -9,7 +9,8 @@
  *   GET /v1/expiries?underlying=NIFTY[&exchange=NFO][&account=]
  *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&ivModel=b76-forward][&account=][&maxAgeMs=]
  *
- * Every read also takes ?swr=true (stale-while-revalidate: an older cached value now, labelled `stale` and
+ * Every read also takes ?purpose= (display by default; alert, paper, risk and order accept only real-time data from a
+ * trusted source, never a delayed one) and ?swr=true (stale-while-revalidate: an older cached value now, labelled `stale` and
  * `revalidating`, refreshed in the background) and ?priority=background (a prefetch; it never runs ahead of a click).
  *
  * A pinned read (`account=`) is checked against the key's account list (ctx.requireAccountAccess) before anything
@@ -22,6 +23,7 @@ import { csv } from "../core/http.mjs";
 import { IV_MODELS } from "./chain.mjs";
 import { parseMarketConfig } from "./config.mjs";
 import { historyCsvRows } from "./history.mjs";
+import { PURPOSES } from "../sources/contract.mjs";
 import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
@@ -105,6 +107,12 @@ export function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {})
     if (m !== undefined) opts.maxAgeMs = m;
   }
   if (opts.accountId === undefined && boolParam(q, "backup", autoBackup)) opts.allowBackup = true;
+  // ?purpose=display|analysis|alert|paper|risk|order: what the read is for. The last four accept only trusted real-time data.
+  const purpose = opt(q, "purpose");
+  if (purpose !== undefined) {
+    if (!PURPOSES.includes(purpose)) throw invalid("purpose", `purpose must be one of ${PURPOSES.join(", ")}.`);
+    opts.purpose = purpose;
+  }
   // ?swr=true: an older cached value (labelled stale and revalidating) now, a fresh one for the next read.
   if (boolParam(q, "swr", false)) opts.staleWhileRevalidate = true;
   // ?priority=background: a prefetch. It may only lower the priority, so a person's click always goes first (a click

@@ -16,6 +16,15 @@
  * caller's deadline. Depth is never served when older than 5 s. Reads with a stale fallback wait at most
  * market.stale.waitMs for budget.
  *
+ * Routing (sources/router.mjs): an unpinned read asks the SourceRouter for up to two attempts. Pooled broker accounts are
+ * scored on spare budget, error rate and latency; an account whose breaker is open is skipped. Failover to the next
+ * account, or to a data source when the read allows backup (opts.allowBackup), is the retry: nothing is retried on the
+ * same source. A data source's answer is labelled (source "backup", provider, class, delay, official, confidence), never
+ * cached as broker data and never mixed into another source's item. opts.purpose (default "display") rules out sources:
+ * order, risk, paper and alert reads accept only real-time data from a trusted source (never a delayed source, a stale
+ * cached value or a stale-while-revalidate answer). Every real call's outcome goes to the health tracker, and a recent
+ * failure is remembered (2 s for an upstream error, 10 min not-found, 60 min unsupported) so it is not repeated.
+ *
  * Pinned reads (opts.accountId) never move to another account, and accept stream ticks and cached values only from
  * that account. Errors for single symbols go into `errors[]`; one bad symbol never fails the whole batch.
  *
@@ -29,6 +38,11 @@ import { BridgeError, fromBrokerError, fromValidation } from "../core/errors.mjs
 import { EXCHANGES, parseSymbol } from "../core/symbolFormat.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { DEFAULT_RATE } from "../reference/defaults.mjs";
+import { PURPOSES, classRank, dataQuality } from "../sources/contract.mjs";
+import { createFacadeRegistry } from "../sources/facadeRegistry.mjs";
+import { createFailureCache } from "../sources/failureCache.mjs";
+import { createHealthTracker, outcomeKindOf } from "../sources/health.mjs";
+import { createSourceRouter, historySupport } from "../sources/router.mjs";
 import { createBatcher } from "./batcher.mjs";
 import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, settlementOfKind, strikeStepOf, trimStrikes } from "./chain.mjs";
 import { kindOf, pricingContext } from "../vol/context.mjs";
@@ -63,6 +77,10 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PRESSURE_CODES = new Set(["UPSTREAM_RATE_LIMITED", "RATE_LIMITED", "UPSTREAM_TIMEOUT", "BROKER_UNAVAILABLE"]);
 /** Failures of an unpinned read after which a backup source may answer instead (when the read allows it). */
 const BACKUP_CODES = new Set([...PRESSURE_CODES, "UPSTREAM_ERROR", "SESSION_EXPIRED", "CAPABILITY_UNSUPPORTED", "SYMBOL_NOT_FOUND", "NOT_IMPLEMENTED"]);
+/** Purposes that accept only trusted real-time data (see sources/contract.mjs). */
+const STRICT_PURPOSES = new Set(["alert", "paper", "risk", "order"]);
+/** broker capability name -> the read capability the router and the sources know */
+const READ_CAPABILITY = { historical: "history" };
 const MASTER_PAGE_LIMIT = 500;
 const MASTER_MAX_PAGES = 20;
 const BSE_INDICES = new Set(["SENSEX", "BANKEX", "SENSEX50"]);
@@ -80,6 +98,11 @@ const readOptionsSchema = z
     exchange: z.string().nullable().optional(),
     /** Unpinned reads no broker can answer may fall back to BackupDataService (labelled source "backup"). */
     allowBackup: z.boolean().optional(),
+    /**
+     * What the read is for (default "display"). order, risk, paper and alert reads accept only real-time data from a
+     * trusted source: never a delayed or end-of-day source, never a stale cached value, never stale-while-revalidate.
+     */
+    purpose: z.enum(PURPOSES).optional(),
     /** The caller's account restriction (a key's accounts list); "*" or absent = any. Unpinned reads stay inside it. */
     allowedAccounts: z.union([z.literal("*"), z.array(z.string().min(1).max(64))]).optional(),
     /** Broker option-chain calls only: the longest the call may wait for budget (background jobs such as the recorder). */
@@ -138,6 +161,30 @@ export function createMarketDataService(deps) {
     }
   })();
   const now = () => clock.now();
+  /** Optional services the sources module injects; absent in tests and tools that build the service by hand. */
+  const optional = (name) => {
+    try {
+      return deps[name];
+    } catch {
+      return undefined;
+    }
+  };
+  const random = typeof optional("random") === "function" ? optional("random") : Math.random;
+  /** How each source (broker accounts and data sources) has been answering; shared with the router and /v1/sources. */
+  const health = optional("sourceHealth") ?? createHealthTracker({ clock, random });
+  const sourceRegistry = optional("sourceRegistry") ?? createFacadeRegistry({ backup, clock, usable });
+  const router =
+    optional("sourceRouter") ??
+    createSourceRouter({
+      registry: sourceRegistry,
+      health,
+      scheduler: deps.scheduler,
+      accounts: deps.accounts,
+      clock,
+      logger: log,
+    });
+  /** Recent failures per (source, read, key): a failing call is not repeated for a moment (or for good, for not-found). */
+  const failCache = createFailureCache({ clock, random });
   /** Optional: the reference rate. Absent in tests and tools that build the service by hand. */
   const reference = (() => {
     try {
@@ -219,8 +266,90 @@ export function createMarketDataService(deps) {
   }
 
   const isPressure = (err) => err instanceof BridgeError && PRESSURE_CODES.has(err.code);
-  /** This failed read may be answered by a backup source. */
-  const backupOk = (o, err) => o.allowBackup && usable(backup) && (!err || (err instanceof BridgeError && BACKUP_CODES.has(err.code)));
+  /** A failure another source may still answer (the first attempt's error is the failover's reason). */
+  const failoverable = (err) => err instanceof BridgeError && BACKUP_CODES.has(err.code);
+
+  /**
+   * The data source to try after `err` failed an unpinned read, or null: the read must allow backup sources (never for
+   * order, risk, paper or alert reads), the error must be one a source can still answer, and a source must qualify.
+   */
+  function sourceAfter(capability, o, err, symbols) {
+    if (!o.allowBackup || o.accountId) return null;
+    if (err && !failoverable(err)) return null;
+    return router.select({ capability, only: "sources", purpose: o.purpose, maxAgeMs: o.maxAgeMs, symbols, deadlineMs: o.maxWaitMs, allowSources: true })[0] ?? null;
+  }
+
+  /** Run `fn` unless this (source, read, key) failed a moment ago; remember a failure worth remembering. */
+  async function guarded(sourceId, kind, key, fn) {
+    const hit = failCache.get(sourceId, kind, key);
+    if (hit) throw new BridgeError(hit.code, hit.message || "This source failed a moment ago.");
+    try {
+      return await fn();
+    } catch (err) {
+      failCache.note(sourceId, kind, key, err);
+      throw err;
+    }
+  }
+
+  /** callBroker() behind the failure cache, for the reads that are one call per key (depth, expiries, chain). */
+  const guardedBroker = (kind, key) => (opts, fn) => guarded(opts.accountId, kind, key, () => callBroker(opts, fn));
+
+  /** One call to a data source through the BackupDataService facade, with its health recorded. */
+  async function viaSource(cand, call) {
+    const startedAt = now();
+    try {
+      const res = await call();
+      health.record(cand.id, { ok: true, ms: Math.max(0, now() - startedAt) });
+      return res;
+    } catch (err) {
+      const kind = outcomeKindOf(err);
+      if (kind) health.record(cand.id, { ok: false, ms: Math.max(0, now() - startedAt), kind, message: String(err?.message ?? "").slice(0, 200) });
+      else health.release?.(cand.id);
+      throw err;
+    }
+  }
+
+  /**
+   * The descriptor to label an answer with: the one the router chose, unless the facade says another provider really
+   * answered, in which case that provider's own descriptor. A provider the registry does not know gets the more
+   * cautious of the chosen descriptor and a plain delayed, unofficial source.
+   */
+  function descriptorFor(cand, provider) {
+    const chosen = cand.descriptor;
+    if (!provider || provider === cand.id) return chosen;
+    try {
+      const row = sourceRegistry.get?.(provider);
+      const known = row?.descriptor ?? row?.provider?.descriptor;
+      if (known) return known;
+    } catch {
+      // unknown provider: label cautiously
+    }
+    return { ...chosen, id: provider, class: classRank(chosen.class) >= 1 ? chosen.class : "delayed", delaySec: chosen.class === "realtime" ? chosen.delaySec || 900 : chosen.delaySec, official: false };
+  }
+
+  const CONFIDENCE_BY_CLASS = { realtime: "high", delayed: "medium", eod: "medium" };
+  /**
+   * Freshness label for an answer from a data source: source "backup", the provider, and the class, delay, official
+   * flag and confidence the descriptor states. `stale` for a delayed source means older than its own delay (plus a
+   * little), or than the caller's maxAgeMs: being delayed is a different label from being stale.
+   */
+  function sourceFreshness(cand, { at, provider, targetMs, maxAgeMs }) {
+    const d = descriptorFor(cand, provider);
+    const delayMs = d.class === "eod" ? 36 * 3_600_000 : (Number.isFinite(d.delaySec) ? d.delaySec : 0) * 1000;
+    const nowMs = now();
+    const stale = Math.max(0, nowMs - at) > (maxAgeMs ?? delayMs + 120_000);
+    const q = dataQuality({
+      class: d.class,
+      delaySec: d.class === "realtime" ? 0 : d.delaySec ?? null,
+      official: d.official === true,
+      confidence: d.official === true ? CONFIDENCE_BY_CLASS[d.class] ?? "low" : "low",
+      flags: d.tier === "plugin" ? ["untrusted_source"] : [],
+    });
+    const f = freshness({ source: "backup", at, now: nowMs, targetMs, stale, provider: provider ?? cand.id, ...q });
+    // Until freshness() itself carries the data-class fields they are added here: a source answer is never unlabelled.
+    for (const k of Object.keys(q)) if (f[k] === undefined) f[k] = q[k];
+    return f;
+  }
 
   function readOpts(opts) {
     const parsed = readOptionsSchema.safeParse(opts ?? {});
@@ -229,6 +358,8 @@ export function createMarketDataService(deps) {
     // Reads never run at order priority: orders must always stay ahead of market data.
     const priority = o.priority === "order" ? "live" : o.priority ?? "interactive";
     const allowedAccounts = Array.isArray(o.allowedAccounts) ? o.allowedAccounts : undefined;
+    const purpose = o.purpose ?? "display";
+    const strict = STRICT_PURPOSES.has(purpose);
     return {
       accountId: o.accountId ?? null,
       maxAgeMs: o.maxAgeMs,
@@ -236,10 +367,13 @@ export function createMarketDataService(deps) {
       signal: o.signal ?? undefined,
       exchange: o.exchange ?? undefined,
       allowedAccounts,
-      allowBackup: o.allowBackup === true && !o.accountId,
+      purpose,
+      strict,
+      // Strict purposes never see a backup source, a stale value or a value still being refreshed.
+      allowBackup: o.allowBackup === true && !o.accountId && !strict,
       maxWaitMs: o.maxWaitMs,
       backgroundShare: priority === "background" ? o.backgroundShare : undefined,
-      swr: o.staleWhileRevalidate === true,
+      swr: o.staleWhileRevalidate === true && !strict,
     };
   }
 
@@ -266,13 +400,22 @@ export function createMarketDataService(deps) {
    * Null when none can serve it (never borrows an account outside `allowed`).
    * @param {string[] | undefined} allowed  caller's account restriction; undefined = any account
    */
-  function chooseAccount(capability, endpointClass, pinned, allowed) {
-    const q = pinned ? { capability, accountId: pinned } : { capability };
-    if (allowed) q.allowedAccounts = allowed;
-    const candidates = accounts.marketDataCandidates(q);
-    if (!Array.isArray(candidates) || candidates.length === 0) return null;
-    if (candidates.length === 1) return candidates[0];
-    return scheduler.pickAccount({ candidates, endpointClass }) ?? candidates[0];
+  function chooseAccount(capability, endpointClass, pinned, allowed, o) {
+    if (pinned) {
+      const candidates = accounts.marketDataCandidates({ capability, accountId: pinned, ...(allowed ? { allowedAccounts: allowed } : {}) });
+      return Array.isArray(candidates) && candidates.length ? candidates[0] : null;
+    }
+    // Unpinned: the router scores the pooled accounts (spare budget, error rate, latency) and drops ejected ones.
+    const plan = router.select({
+      capability: READ_CAPABILITY[capability] ?? capability,
+      brokerCapability: capability,
+      endpointClass,
+      only: "brokers",
+      purpose: o?.purpose,
+      deadlineMs: o?.maxWaitMs,
+      allowedAccounts: allowed,
+    });
+    return plan[0]?.id ?? null;
   }
 
   /**
@@ -288,7 +431,7 @@ export function createMarketDataService(deps) {
     if (list.length < 2) return null;
     const q = { capability: "quotes" };
     if (allowed) q.allowedAccounts = allowed;
-    const candidates = accounts.marketDataCandidates(q);
+    const candidates = (accounts.marketDataCandidates(q) ?? []).filter((id) => health.canTry(id));
     if (!Array.isArray(candidates) || candidates.length < 2) return null;
     const slots = candidates.map((id, index) => {
       let batch = 1;
@@ -343,8 +486,9 @@ export function createMarketDataService(deps) {
   }
 
   /** A cached entry acceptable as a labelled-stale fallback for this read. */
-  function staleEntry(key, pinned, capMs = cfg.stale.maxStaleMs) {
-    if (!cfg.stale.enabled) return null;
+  function staleEntry(key, pinned, capMs = cfg.stale.maxStaleMs, o) {
+    // Orders, risk, paper and alerts never act on a value older than its freshness target.
+    if (!cfg.stale.enabled || o?.strict) return null;
     const e = cache.getStale(key, Math.min(capMs, cfg.stale.maxStaleMs));
     if (!e || (pinned && e.accountId !== pinned)) return null;
     return e;
@@ -367,15 +511,27 @@ export function createMarketDataService(deps) {
     if (signal) opts.signal = signal;
     if (maxWaitMs !== undefined) opts.maxWaitMs = maxWaitMs;
     if (backgroundShare !== undefined && priority === "background") opts.backgroundShare = backgroundShare;
+    // Only the caller that really ran the call records its outcome (a joiner of a coalesced call would count it twice),
+    // and time is taken inside the scheduled function so queueing is not counted as the broker's latency.
+    let startedAt = null;
     try {
-      return await scheduler.schedule(opts, async () => {
+      const res = await scheduler.schedule(opts, async () => {
         stats.brokerCalls += 1;
+        startedAt = now();
         const adapter = accounts.adapter(accountId);
         const creds = await accounts.creds(accountId);
         return fn(adapter, creds);
       });
+      if (startedAt !== null) health.record(accountId, { ok: true, ms: Math.max(0, now() - startedAt) });
+      return res;
     } catch (err) {
-      throw toBridge(err, broker);
+      const bridge = toBridge(err, broker);
+      if (startedAt !== null) {
+        const kind = outcomeKindOf(bridge);
+        if (kind) health.record(accountId, { ok: false, ms: Math.max(0, now() - startedAt), kind, message: String(bridge?.message ?? "").slice(0, 200) });
+        else health.release?.(accountId);
+      }
+      throw bridge;
     }
   }
 
@@ -680,41 +836,121 @@ export function createMarketDataService(deps) {
 
     if (pending.length) {
       const failures = new Map();
-      const quotesAccount = chooseAccount("quotes", "quote", pinned, o.allowedAccounts);
-      const ltpAccount = !quotesAccount && !wantQuote ? chooseAccount("ltp", "quote", pinned, o.allowedAccounts) : null;
-      const firstAccount = quotesAccount ?? ltpAccount;
-      const spread = quotesAccount && !pinned ? spreadQuotes(pending, o.allowedAccounts) : null;
+      // A pinned read stays on its account. An unpinned read gets up to two ordered attempts from the router: the best
+      // broker account, then the next broker or (when the read allows backup sources) a data source. Failover is the
+      // retry: nothing is retried on the same source.
+      let plan = [];
+      let viaLtp = false;
+      if (pinned) {
+        const quotesId = chooseAccount("quotes", "quote", pinned, o.allowedAccounts);
+        const id = quotesId ?? (!wantQuote ? chooseAccount("ltp", "quote", pinned, o.allowedAccounts) : null);
+        viaLtp = !quotesId && Boolean(id);
+        if (id) plan = [{ kind: "broker", id }];
+      } else {
+        const ask = (brokerCapability) =>
+          router.select({ capability: "quotes", brokerCapability, endpointClass: "quote", purpose: o.purpose, maxAgeMs: o.maxAgeMs, symbols: pending, deadlineMs: o.maxWaitMs, allowedAccounts: o.allowedAccounts, allowSources: o.allowBackup });
+        plan = ask("quotes");
+        if (!wantQuote && !plan.some((c) => c.kind === "broker")) {
+          const ltpPlan = ask("ltp");
+          if (ltpPlan.some((c) => c.kind === "broker")) {
+            plan = ltpPlan;
+            viaLtp = true;
+          }
+        }
+      }
+      const first = plan[0] ?? null;
+      const brokerFirst = first?.kind === "broker";
+      const spread = !viaLtp && brokerFirst && !pinned ? spreadQuotes(pending, o.allowedAccounts) : null;
+      /** symbol -> the account or source its first attempt used */
+      const used = new Map();
+      /** symbols whose first attempt was a data source: their failure is that source's, not the broker's */
+      const sourceFirst = new Set();
+      const callOpts = { maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
+
+      const fetchOn = async (accountId, symbol, hasStale) => {
+        const kind = viaLtp ? "ltp" : "quote";
+        const entry = await guarded(accountId, kind, symbol, () => (viaLtp ? fetchLtpOnly(accountId, symbol, o.priority, hasStale, callOpts) : fetchQuote(accountId, symbol, o.priority, hasStale, callOpts)));
+        if (wantQuote && !entry.value.full) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Only a last price is available for ${symbol}.`);
+        return entry;
+      };
+      const brokerItem = (symbol, entry) => toItem(symbol, entry.value.fields, freshness({ source: "broker", at: entry.at, now: now(), targetMs, accountId: entry.accountId, broker: entry.broker }));
+
+      /** Ask one data source for `list`; answered symbols leave `failures`, the rest keep (or get) an error. */
+      const answerFromSource = async (cand, list, { replaceErrors }) => {
+        const todo = [];
+        for (const symbol of list) {
+          const hit = failCache.get(cand.id, "quote", symbol);
+          if (hit) {
+            if (replaceErrors || !failures.has(symbol)) failures.set(symbol, new BridgeError(hit.code, hit.message));
+          } else todo.push(symbol);
+        }
+        if (!todo.length) return;
+        let b;
+        try {
+          b = await viaSource(cand, () => backup.quotes(todo, { maxAgeMs: o.maxAgeMs, sourceId: cand.id, signal: o.signal }));
+        } catch (err) {
+          if (err?.name === "AbortError") throw err;
+          const e = toBridge(err);
+          for (const symbol of todo) if (replaceErrors || !failures.has(symbol)) failures.set(symbol, e);
+          return;
+        }
+        const got = new Set();
+        for (const it of b?.items ?? []) {
+          if (!todo.includes(it.symbol) || got.has(it.symbol)) continue;
+          const full = quoteFields(it.fields) ?? it.fields;
+          if (!full || !Number.isFinite(full.ltp)) continue;
+          const fields = wantQuote ? full : { ltp: full.ltp };
+          items.set(it.symbol, toItem(it.symbol, fields, sourceFreshness(cand, { at: it.at ?? now(), provider: it.provider, targetMs, maxAgeMs: o.maxAgeMs })));
+          failures.delete(it.symbol);
+          got.add(it.symbol);
+          stats.backup += 1;
+        }
+        for (const symbol of todo) {
+          if (got.has(symbol)) continue;
+          const e = new BridgeError("SYMBOL_NOT_FOUND", `${cand.descriptor.name ?? cand.id} has no price for ${symbol}.`);
+          failCache.note(cand.id, "quote", symbol, e);
+          if (replaceErrors || !failures.has(symbol)) failures.set(symbol, e);
+        }
+      };
+
+      const toSource = [];
       await Promise.all(
         pending.map(async (symbol) => {
-          const accountId = spread?.get(symbol) ?? firstAccount;
-          if (!accountId) {
+          if (!first) {
             failures.set(symbol, noAccountError(wantQuote ? "quotes" : "prices", pinned));
             return;
           }
-          const stale = staleEntry(quoteKey(symbol), pinned);
+          const accountId = brokerFirst ? spread?.get(symbol) ?? first.id : null;
+          const stale = staleEntry(quoteKey(symbol), pinned, undefined, o);
           const staleOk = stale && (!wantQuote || stale.value.full) ? stale : null;
           const serveStale = () => {
             items.set(symbol, toItem(symbol, staleOk.value.fields, freshness({ source: "cache", at: staleOk.at, now: now(), targetMs, stale: true, accountId: staleOk.accountId, broker: staleOk.broker })));
             saving("cache");
             stats.stale += 1;
           };
-          if (staleOk && budgetExhausted(accountId, "quote")) return serveStale();
+          // A labelled-stale cached value beats a delayed source and beats queueing past the caller's deadline.
+          const pressureAccount = accountId ?? plan.find((c) => c.kind === "broker")?.id ?? null;
+          if (staleOk && pressureAccount && budgetExhausted(pressureAccount, "quote")) return serveStale();
           // The HTTP caller has gone away (closed tab, cancelled poll): do not queue for broker budget on its behalf.
           if (o.signal?.aborted) throw abortError(o.signal);
-          const callOpts = { maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
+          if (!accountId) {
+            sourceFirst.add(symbol);
+            used.set(symbol, first.id);
+            toSource.push(symbol);
+            return;
+          }
+          used.set(symbol, accountId);
           if (staleOk && o.swr) {
             // Answer now from the older value; the refresh joins any fetch already running and fills the cache.
             serveStale();
             const item = items.get(symbol);
             if (item?.freshness) item.freshness.revalidating = true;
-            const refresh = quotesAccount ? fetchQuote(accountId, symbol, o.priority, true, callOpts) : fetchLtpOnly(accountId, symbol, o.priority, true, callOpts);
+            const refresh = viaLtp ? fetchLtpOnly(accountId, symbol, o.priority, true, callOpts) : fetchQuote(accountId, symbol, o.priority, true, callOpts);
             refresh.catch(() => {});
             return;
           }
           try {
-            const entry = quotesAccount ? await fetchQuote(accountId, symbol, o.priority, Boolean(staleOk), callOpts) : await fetchLtpOnly(accountId, symbol, o.priority, Boolean(staleOk), callOpts);
-            if (wantQuote && !entry.value.full) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Only a last price is available for ${symbol}.`);
-            items.set(symbol, toItem(symbol, entry.value.fields, freshness({ source: "broker", at: entry.at, now: now(), targetMs, accountId: entry.accountId, broker: entry.broker })));
+            items.set(symbol, brokerItem(symbol, await fetchOn(accountId, symbol, Boolean(staleOk))));
           } catch (err) {
             if (err?.name === "AbortError") throw err;
             const e = toBridge(err);
@@ -723,21 +959,37 @@ export function createMarketDataService(deps) {
           }
         }),
       );
-      const forBackup = [...failures].filter(([, err]) => backupOk(o, err)).map(([symbol]) => symbol);
-      if (forBackup.length) {
-        try {
-          const b = await backup.quotes(forBackup, { maxAgeMs: o.maxAgeMs });
-          for (const it of b.items ?? []) {
-            if (!failures.has(it.symbol)) continue;
-            const full = quoteFields(it.fields) ?? it.fields;
-            const fields = wantQuote ? full : { ltp: full.ltp };
-            items.set(it.symbol, toItem(it.symbol, fields, freshness({ source: "backup", at: it.at, now: now(), targetMs, provider: it.provider })));
-            failures.delete(it.symbol);
-            stats.backup += 1;
-          }
-        } catch (err) {
-          log?.debug?.("backup quotes failed", { code: err?.code });
+      if (toSource.length) await answerFromSource(first, toSource, { replaceErrors: true });
+
+      // Second attempt (failover) for the symbols whose first attempt failed in a way another source can still answer.
+      if (!pinned && failures.size && plan.length > 1) {
+        const groups = new Map();
+        for (const [symbol, err] of failures) {
+          if (!failoverable(err)) continue;
+          const next = plan.find((c) => c.id !== used.get(symbol));
+          if (!next) continue;
+          let g = groups.get(next.id);
+          if (!g) groups.set(next.id, (g = { cand: next, list: [] }));
+          g.list.push(symbol);
         }
+        await Promise.all(
+          [...groups.values()].map(async ({ cand, list }) => {
+            if (cand.kind === "source") return answerFromSource(cand, list, { replaceErrors: false });
+            await Promise.all(
+              list.map(async (symbol) => {
+                if (o.signal?.aborted) throw abortError(o.signal);
+                try {
+                  items.set(symbol, brokerItem(symbol, await fetchOn(cand.id, symbol, false)));
+                  failures.delete(symbol);
+                } catch (err) {
+                  if (err?.name === "AbortError") throw err;
+                  // keep the first attempt's error unless that was a data source's (the broker's is more telling)
+                  if (sourceFirst.has(symbol)) failures.set(symbol, toBridge(err));
+                }
+              }),
+            );
+          }),
+        );
       }
       for (const [symbol, err] of failures) errors.push(itemError(symbol, err));
     }
@@ -766,9 +1018,9 @@ export function createMarketDataService(deps) {
       saving("cache");
       return { symbol, ...hit.value, freshness: freshness({ source: "cache", at: hit.at, now: now(), targetMs, accountId: hit.accountId, broker: hit.broker }) };
     }
-    const accountId = chooseAccount("depth", "depth", pinned, o.allowedAccounts);
+    const accountId = chooseAccount("depth", "depth", pinned, o.allowedAccounts, o);
     if (!accountId) throw noAccountError("market depth", pinned);
-    const stale = staleEntry(key, pinned, DEPTH_STALE_CAP_MS);
+    const stale = staleEntry(key, pinned, DEPTH_STALE_CAP_MS, o);
     const serveStale = () => {
       saving("cache");
       stats.stale += 1;
@@ -779,7 +1031,7 @@ export function createMarketDataService(deps) {
     try {
       const ref = await brokerRef(symbol, broker);
       const res = await raceSignal(
-        callBroker(
+        guardedBroker("depth", symbol)(
           { accountId, broker, endpointClass: "depth", priority: o.priority, coalesceKey: `depth:${accountId}:${symbol}`, maxWaitMs: stale ? cfg.stale.waitMs : undefined },
           (adapter, creds) => {
             if (typeof adapter.fetchDepth !== "function") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${broker} offers no market depth API.`);
@@ -850,25 +1102,38 @@ export function createMarketDataService(deps) {
       return { ...hit.value, candles: pick(hit.value.candles), freshness: freshness({ source: "cache", at: hit.at, now: t, targetMs, accountId: hit.accountId, broker: hit.broker }) };
     }
 
-    const fromBackup = async () => {
-      const b = await backup.history({ symbol, interval: p.interval, fromMs: fetchFromMs, toMs: fetchToMs });
+    const fromSource = async (cand) => {
+      const b = await viaSource(cand, () => backup.history({ symbol, interval: p.interval, fromMs: fetchFromMs, toMs: fetchToMs, sourceId: cand.id }, { sourceId: cand.id, signal: o.signal }));
       stats.backup += 1;
       // Not put in the shared cache: a later hit would be labelled "cache" and could be mistaken for broker data.
-      return { symbol, interval: p.interval, candles: pick(b.candles), partial: b.partial, freshness: freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }) };
+      return { symbol, interval: p.interval, candles: pick(b.candles), partial: b.partial, freshness: sourceFreshness(cand, { at: b.at, provider: b.provider, targetMs, maxAgeMs: o.maxAgeMs }) };
     };
-    try {
-      return await brokerHistory();
-    } catch (err) {
-      if (err?.name === "AbortError" || !backupOk(o, err)) throw err;
+    const supportsHistory = (id) => historySupport(accounts, id, p.interval, parts.exchange);
+    // Up to two attempts: the best broker that can serve this interval, then the next broker or (when the read allows
+    // backup sources) a data source. With no broker able to serve it, a source goes first and the broker path runs last
+    // so the caller still gets the broker's own explanation.
+    let attempts = [{ kind: "broker", id: null }];
+    if (!pinned) {
+      attempts = router.select({ capability: "history", brokerCapability: "historical", endpointClass: "history", purpose: o.purpose, maxAgeMs: o.maxAgeMs, deadlineMs: o.maxWaitMs, allowedAccounts: o.allowedAccounts, allowSources: o.allowBackup, supports: supportsHistory });
+      if (!attempts.some((c) => c.kind === "broker")) attempts = [...attempts, { kind: "broker", id: null }];
+    }
+    let brokerError = null;
+    let firstError = null;
+    for (const cand of attempts) {
       try {
-        return await fromBackup();
-      } catch {
-        throw err;
+        if (cand.kind === "source") return await fromSource(cand);
+        return await guarded(cand.id ?? pinned ?? "-", "history", `${symbol}|${p.interval}`, () => brokerHistory(cand.id));
+      } catch (err) {
+        if (err?.name === "AbortError") throw err;
+        firstError ??= err;
+        if (cand.kind === "broker") brokerError ??= err;
+        if (!failoverable(err)) throw brokerError ?? err;
       }
     }
+    throw brokerError ?? firstError;
 
-    async function brokerHistory() {
-      const accountId = chooseAccount("historical", "history", pinned, o.allowedAccounts);
+    async function brokerHistory(preselected) {
+      const accountId = preselected ?? chooseAccount("historical", "history", pinned, o.allowedAccounts, o);
       if (!accountId) throw noAccountError("historical candles", pinned);
       const broker = brokerOf(accountId);
       const caps = adapterCaps(accountId).historical;
@@ -972,31 +1237,32 @@ export function createMarketDataService(deps) {
       const at = now();
       return { underlying, expiries: list, freshness: freshness({ source: "cache", at, now: at, targetMs, accountId: null, broker: null }) };
     };
-    const fromBackup = async (err) => {
+    const fromBackup = async (cand, err) => {
       if (exchange && exchange !== "NFO") throw err;
       try {
-        const b = await backup.expiries(underlying);
+        const b = await viaSource(cand, () => backup.expiries(underlying, { sourceId: cand.id, signal: o.signal }));
         stats.backup += 1;
         const today = istDate(now());
-        return { underlying, expiries: b.expiries.filter((d) => d >= today), freshness: freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }) };
+        return { underlying, expiries: b.expiries.filter((d) => d >= today), freshness: sourceFreshness(cand, { at: b.at, provider: b.provider, targetMs, maxAgeMs: o.maxAgeMs }) };
       } catch {
         throw err;
       }
     };
-    const accountId = chooseAccount("expiries", "chain", pinned, o.allowedAccounts);
+    const accountId = chooseAccount("expiries", "chain", pinned, o.allowedAccounts, o);
     if (!accountId) {
       const m = pinned ? null : await fromMaster();
       if (m) return m;
       const err = noAccountError("expiry dates", pinned);
-      if (backupOk(o, err)) return fromBackup(err);
+      const src = sourceAfter("expiries", o, err);
+      if (src) return fromBackup(src, err);
       throw err;
     }
     const broker = brokerOf(accountId);
-    const stale = staleEntry(key, pinned, Math.max(cfg.stale.maxStaleMs, targetMs * 2));
+    const stale = staleEntry(key, pinned, Math.max(cfg.stale.maxStaleMs, targetMs * 2), o);
     let list;
     try {
       const res = await raceSignal(
-        callBroker(
+        guardedBroker("expiries", underlying)(
           { accountId, broker, endpointClass: "chain", priority: o.priority, coalesceKey: `expiries:${accountId}:${underlying}`, maxWaitMs: stale ? cfg.stale.waitMs : undefined },
           (adapter, creds) => adapter.fetchExpiryList(creds, underlying),
         ),
@@ -1013,7 +1279,8 @@ export function createMarketDataService(deps) {
       }
       const m = pinned ? null : await fromMaster().catch(() => null);
       if (m) return m;
-      if (backupOk(o, err)) return fromBackup(err);
+      const src = sourceAfter("expiries", o, err);
+      if (src) return fromBackup(src, err);
       throw err;
     }
     // fetchExpiryList takes no exchange, so the broker may answer for another segment (NFO for BFO, NFO for MCX).
@@ -1131,8 +1398,8 @@ export function createMarketDataService(deps) {
     return value;
   }
 
-  async function brokerChain({ underlying, expiry, greeks, pinned, priority, signal, stale, allowedAccounts, maxWaitMs, backgroundShare }) {
-    const accountId = chooseAccount("optionChain", "chain", pinned, allowedAccounts);
+  async function brokerChain({ underlying, expiry, greeks, pinned, priority, signal, stale, allowedAccounts, maxWaitMs, backgroundShare, purpose }) {
+    const accountId = chooseAccount("optionChain", "chain", pinned, allowedAccounts, { purpose, maxWaitMs });
     if (!accountId) return null;
     const broker = brokerOf(accountId);
     const declaredRaw = adapterCaps(accountId).optionChain?.greeks;
@@ -1140,7 +1407,7 @@ export function createMarketDataService(deps) {
     if (stale && budgetExhausted(accountId, "chain")) return { stale: true };
     const meta = await chainMeta(underlying, expiry);
     const res = await raceSignal(
-      callBroker(
+      guardedBroker("chain", `${underlying}|${expiry}`)(
         { accountId, broker, endpointClass: "chain", priority, coalesceKey: `chain:${accountId}:${underlying}:${expiry}`, maxWaitMs: maxWaitMs ?? (stale ? cfg.stale.waitMs : undefined), backgroundShare },
         (adapter, creds) => adapter.fetchOptionChain(creds, underlying, expiry),
       ),
@@ -1151,10 +1418,11 @@ export function createMarketDataService(deps) {
     return { value: { underlyingLtp: built.underlyingLtp, rows: built.rows, lotSize: meta.lotSize }, at: now(), accountId, broker, source: "broker" };
   }
 
-  async function builtChain({ underlying, expiry, greeks, pinned, priority, targetMs, allowedAccounts, maxWaitMs, backgroundShare }) {
+  async function builtChain({ underlying, expiry, greeks, pinned, priority, targetMs, allowedAccounts, maxWaitMs, backgroundShare, purpose }) {
+    const readExtra = { purpose, strict: STRICT_PURPOSES.has(purpose) };
     let legs = await masterLegs(underlying, expiry);
     if (!legs.length) throw new BridgeError("SYMBOL_NOT_FOUND", `No options were found for ${underlying} expiring ${expiry}.`);
-    const spotRead = await readPrices("ltp", [spotSymbol(underlying)], { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, maxWaitMs, backgroundShare });
+    const spotRead = await readPrices("ltp", [spotSymbol(underlying)], { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, maxWaitMs, backgroundShare, ...readExtra });
     const spot = spotRead.items[0]?.ltp ?? null;
     if (legs.length > cfg.chain.maxBuiltLegs) {
       // Keep the strikes nearest the money so a built chain never floods the quote budget.
@@ -1163,7 +1431,7 @@ export function createMarketDataService(deps) {
       const keep = new Set([...strikes].sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre)).slice(0, Math.floor(cfg.chain.maxBuiltLegs / 2)));
       legs = legs.filter((l) => keep.has(l.strike));
     }
-    const read = await readPrices("quote", legs.map((l) => l.canonical), { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, maxWaitMs, backgroundShare });
+    const read = await readPrices("quote", legs.map((l) => l.canonical), { accountId: pinned, maxAgeMs: targetMs, priority, allowedAccounts, maxWaitMs, backgroundShare, ...readExtra });
     if (!read.items.length && read.errors.length) {
       const first = read.errors[0];
       throw new BridgeError(first.code, first.message);
@@ -1203,10 +1471,10 @@ export function createMarketDataService(deps) {
   }
 
   /** Option chain from a backup source (NSE website), Greeks computed locally. Not cached; rethrows `err` on failure. */
-  async function backupChain(underlying, p, greeks, targetMs, err) {
+  async function backupChain(cand, underlying, p, greeks, targetMs, err, maxAgeMs) {
     let b;
     try {
-      b = await backup.optionChain(underlying, p.expiry);
+      b = await viaSource(cand, () => backup.optionChain(underlying, p.expiry, { sourceId: cand.id }));
     } catch {
       throw err;
     }
@@ -1234,7 +1502,7 @@ export function createMarketDataService(deps) {
       return row;
     });
     const value = { underlyingLtp: spot, rows, lotSize: null };
-    return chainResult(underlying, p.expiry, value, p.strikes, freshness({ source: "backup", at: b.at, now: now(), targetMs, provider: b.provider }), await chainFacts(underlying, p.expiry));
+    return chainResult(underlying, p.expiry, value, p.strikes, sourceFreshness(cand, { at: b.at, provider: b.provider, targetMs, maxAgeMs }), await chainFacts(underlying, p.expiry));
   }
 
   /**
@@ -1371,13 +1639,13 @@ export function createMarketDataService(deps) {
       if (live.quiet) fresh.quiet = live.quiet;
       return keyed(chainResult(underlying, p.expiry, live.value, p.strikes, fresh, facts), live.value.rows);
     }
-    const stale = staleEntry(key, pinned);
+    const stale = staleEntry(key, pinned, undefined, o);
     const serveStale = () => {
       stats.stale += 1;
       saving("cache");
       return chainResult(underlying, p.expiry, stale.value, p.strikes, freshness({ source: "cache", at: stale.at, now: now(), targetMs, stale: true, accountId: stale.accountId, broker: stale.broker }), facts);
     };
-    const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts, maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare };
+    const args = { underlying, expiry: p.expiry, greeks, pinned, priority: o.priority, signal: o.signal, stale: Boolean(stale), targetMs, allowedAccounts: o.allowedAccounts, maxWaitMs: o.maxWaitMs, backgroundShare: o.backgroundShare, purpose: o.purpose };
     if (stale && o.swr) {
       // Answer at once from the older chain (labelled), and refresh it for the next read; one refresh per chain.
       if (!revalidating.has(key)) {
@@ -1405,7 +1673,8 @@ export function createMarketDataService(deps) {
       if (!got) got = await raceSignal(builtChain(args), o.signal);
     } catch (err) {
       if (stale && isPressure(err)) return serveStale();
-      if (err?.name !== "AbortError" && backupOk(o, err)) return backupChain(underlying, p, greeks, targetMs, err);
+      const src = err?.name !== "AbortError" ? sourceAfter("optionChain", o, err) : null;
+      if (src) return backupChain(src, underlying, p, greeks, targetMs, err, o.maxAgeMs);
       throw err;
     }
     cache.set(key, got.value, { at: got.at, accountId: got.accountId, broker: got.broker });
@@ -1466,6 +1735,10 @@ export function createMarketDataService(deps) {
     stats: () => ({ ...stats, cacheEntries: cache.size }),
     /** The freshness cache (tests). */
     cache,
+    /** Routing parts shared with the trace route and the sources management API. */
+    sourceRouter: router,
+    sourceHealth: health,
+    failureCache: failCache,
     /** Flush any open batch (shutdown). */
     close() {
       batcher.flushAll();
