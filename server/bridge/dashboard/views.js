@@ -1,6 +1,6 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
 // except small conveniences in localStorage (theme, density, the last tab of each page).
-import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, meterRow, modal, optional, pill, table, ticketFields, toast, sheetPopover, confirmEngageKillSwitch, DEMO_EXPLAINER, beginNavigation, onRevalidated, prefetchPage } from "./app.js";
+import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, meterRow, modal, optional, pill, table, ticketFields, toast, sheetPopover, confirmEngageKillSwitch, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
 import { STATE_TEXT, STATE_TONE, readinessCard, refreshReadiness } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
@@ -8,7 +8,7 @@ import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } fro
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
-import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
+import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
 import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
@@ -195,7 +195,7 @@ function restoreFocus(container, saved) {
 
 // ── Pages ──
 
-/** The Integrations tab's tools (its inner segmented control; each is also a ⌘K destination). */
+/** The Integrations tab's tools (its inner segmented control; each is also a Ctrl K destination). */
 const INTEGRATION_TOOLS = [
   ["webhooks", "Webhooks"],
   ["python", "Python"],
@@ -208,18 +208,17 @@ const INTEGRATION_TOOLS = [
 ];
 
 /**
- * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the ⌘K palette
+ * The one list of pages: it feeds the sidebar, the phone tab bar, the More sheet and the Ctrl K palette
  * `group` is the sidebar group, `tint` an iOS system
- * colour name (the page's glyph colour everywhere), `key` the curated ⌘1 to ⌘9 shortcut, `tab: true` puts it in the
- * phone tab bar (`short` labels it there), `headline` is the large title when it differs from `title` (one serif accent
- * word at most). A page with `tabs` is one page with a tab strip: each tab names the page id it renders as (`page`, the
+ * colour name (the page's glyph colour everywhere), `key` the curated Ctrl 1 to Ctrl 9 shortcut, `tab: true` puts it in the
+ * phone tab bar (`short` labels it there),  `headline` is the large title when it differs from `title`. A page with `tabs` is one page with a tab strip: each tab names the page id it renders as (`page`, the
  * `:root[data-page]` value that scopes its CSS and the id older links used), may set its own `sub`, and `command` is its
- * ⌘K label; `extras` are further ⌘K destinations inside it.
+ * Ctrl K label; `extras` are further Ctrl K destinations inside it.
  */
 export const PAGES = [
-  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   {
-    id: "api", label: "API", icon: "keys", tint: "pink", key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
+    id: "api", label: "API", icon: "keys", tint: "pink", tab: true, key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
     defaultTab: "keys",
     tabs: [
       { id: "keys", label: "Keys", page: "keys", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
@@ -243,7 +242,7 @@ export const PAGES = [
       { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
     ],
   },
-  { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "safety", label: "Safety", icon: "safety", tint: "red", tab: true, key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
 ];
 
 /** Old page ids that became tabs: an old link or bookmark opens the tab, keeping its ?query. */
@@ -340,8 +339,6 @@ function nav(active) {
   }
   $("nav").replaceChildren(...out);
   edgeFades($("nav"), "y");
-  const anim = motionHooks?.animateNav;
-  if (typeof anim === "function") anim($("nav"));
   tabbar(active);
 }
 
@@ -403,13 +400,27 @@ function tabbar(active) {
   );
 }
 
+/** The bridge mark on its accent tile (the same mark as the sidebar and sign-in). */
+const markTile = (large = false) => h("span", { class: `lockup-mark${large ? " lg" : ""}`, "aria-hidden": "true" }, icon("bridge"));
+/** One row of an inset grouped list: an optional tile, a title with optional secondary line, and a trailing chevron or value. */
+function listRow({ tag = "button", tile, title, sub, value, cls = "", ...attrs }) {
+  const interactive = tag === "button";
+  return h(
+    tag,
+    { ...(interactive ? { type: "button" } : {}), class: `list-row ${interactive ? "" : "static"} ${cls}`.replace(/\s+/g, " ").trim(), ...attrs },
+    tile ?? null,
+    h("span", { class: "names" }, h("span", { class: "nm" }, title), sub ? h("span", { class: "sub" }, sub) : null),
+    value ? h("span", { class: "value" }, value) : null,
+    interactive && !attrs["data-action"] ? chevron() : null,
+  );
+}
+
 /**
- * "More" (phones and tablets): the pages not in the tab bar, grouped as in the sidebar (labels only, one row per page;
- * the current one filled with a trailing check), then appearance and the signed-in key.
+ * "More" (phones and tablets): any page that is not in the tab bar (grouped as in the sidebar, the current one filled with
+ * a check), then appearance, density and this browser (the signed-in key, keyboard shortcuts, About and Forget key).
  */
 function moreSheet(active) {
-  // Safety leads Trade here: it is the one trading page a phone keeps a tap away (the toolbar's readiness pill too).
-  const pages = PAGES.filter((p) => !p.tab).sort((a, b) => (b.id === "safety") - (a.id === "safety"));
+  const pages = PAGES.filter((p) => !p.tab);
   const groups = [...new Set(pages.map((p) => p.group))];
   return modal({
     title: "More",
@@ -421,106 +432,111 @@ function moreSheet(active) {
       return h(
         "div",
         { class: "more-sheet" },
-        h(
-          "div",
-          { class: "lockup" },
-          symbolSvg(),
-          h("span", { class: "lockup-text" }, h("span", { class: "lockup-name" }, "API Bridge"), h("span", { class: "lockup-sub" }, "by Mr. Chartist")),
-        ),
         groups.map((g) =>
           h(
             "section",
-            {},
-            g ? h("div", { class: "eyebrow list-label" }, g) : null,
+            { class: "group" },
+            g ? h("h3", { class: "group-title" }, g) : null,
             h(
               "div",
               { class: "list" },
-              pages.filter((p) => p.group === g).map((p) =>
-                h(
-                  "button",
-                  { type: "button", class: "list-row", "aria-current": p.id === active ? "page" : undefined, onclick: () => goTo(p.id) },
-                  iconTile(p.icon, p.tint, "md"),
-                  h("span", { class: "names" }, h("span", { class: "nm" }, p.label)),
-                  p.id === active ? checkMark() : chevron(),
-                ),
-              ),
+              pages.filter((p) => p.group === g).map((p) => {
+                const row = listRow({ tile: iconTile(p.icon, p.tint, "md"), title: p.label, "aria-current": p.id === active ? "page" : undefined, onclick: () => goTo(p.id) });
+                if (p.id === active) row.lastElementChild.replaceWith(checkMark());
+                return row;
+              }),
             ),
           ),
         ),
         h(
           "section",
-          {},
-          h("div", { class: "eyebrow list-label", id: "more-appearance" }, "Appearance"),
+          { class: "group" },
+          h("h3", { class: "group-title", id: "more-appearance" }, "Appearance"),
           appearanceControl("more-appearance"),
-          h("div", { class: "eyebrow list-label density-ctl more-density", id: "more-density" }, "Density"),
+        ),
+        h(
+          "section",
+          { class: "group density-ctl" },
+          h("h3", { class: "group-title", id: "more-density" }, "Density"),
           densityControl("more-density"),
         ),
         h(
           "section",
-          {},
-          h("div", { class: "eyebrow list-label" }, "This browser"),
+          { class: "group" },
+          h("h3", { class: "group-title" }, "This browser"),
           h(
             "div",
             { class: "list" },
-            h("div", { class: "list-row" }, h("span", { class: "dot", "aria-hidden": "true" }), h("span", { class: "names" }, h("span", { class: "nm" }, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
-            h("button", { type: "button", class: "list-row more-shortcuts", onclick: () => { close(undefined); showShortcutsLater(); } }, iconTile("info", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Keyboard shortcuts")), chevron()),
-            h("button", { type: "button", class: "list-row", "data-action": "logout" }, iconTile("logout", "red", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, "Forget key"), h("span", { class: "sub" }, "Sign out of this tab"))),
+            listRow({ tag: "div", tile: iconTile("user", "indigo", "md"), title: "Signed in", sub: app.state.who ?? "" }),
+            listRow({ tile: iconTile("bolt", "orange", "md"), title: "Keyboard shortcuts", cls: "more-shortcuts", onclick: () => { close(undefined); showShortcutsLater(); } }),
+            listRow({ tile: iconTile("info", "gray", "md"), title: "About API Bridge", onclick: () => { close(undefined); aboutLater(); } }),
+            listRow({ tile: iconTile("logout", "red", "md"), title: "Forget key", sub: "Sign out of this tab", cls: "destructive", "data-action": "logout" }),
           ),
         ),
-        h("p", { class: "type-credit" }, TYPE_CREDIT),
       );
     },
   });
 }
 
 /**
- * The sidebar's account row opens this (an L3 popover): appearance, keyboard shortcuts, the About line (the font
- * credit) and Forget key.
+ * The sidebar's account row opens this (a popover, a bottom sheet on phones): who is signed in, appearance, density,
+ * keyboard shortcuts, About and Forget key.
  */
 function accountPopover(trigger) {
   const body = h(
     "div",
     { class: "acct-pop" },
-    h("span", { class: "acct-pop-label", id: "acct-appearance" }, "Appearance"),
-    appearanceControl("acct-appearance"),
-    h("span", { class: "acct-pop-label density-ctl", id: "acct-density" }, "Density"),
-    densityControl("acct-density"),
+    h("div", { class: "acct-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
+    h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-appearance" }, "Appearance"), appearanceControl("acct-appearance")),
+    h("section", { class: "group density-ctl" }, h("h3", { class: "group-title", id: "acct-density" }, "Density"), densityControl("acct-density")),
     h(
       "div",
-      { class: "acct-pop-acts" },
-      h("button", { type: "button", class: "small", onclick: () => { pop.close(); showShortcutsLater(); } }, icon("info"), "Keyboard shortcuts"),
-      h("button", { type: "button", class: "small plain", "data-action": "logout" }, icon("logout"), "Forget key"),
+      { class: "list" },
+      listRow({ tile: iconTile("bolt", "orange", "sm"), title: "Keyboard shortcuts", onclick: () => { pop.close(); showShortcutsLater(); } }),
+      listRow({ tile: iconTile("info", "gray", "sm"), title: "About API Bridge", onclick: () => { pop.close(); aboutLater(); } }),
+      listRow({ tile: iconTile("logout", "red", "sm"), title: "Forget key", sub: "Sign out of this tab", cls: "destructive", "data-action": "logout" }),
     ),
-    h("p", { class: "type-credit" }, h("strong", {}, "About. "), TYPE_CREDIT),
   );
-  const pop = sheetPopover({ trigger, title: app.state.who ?? "Signed in", body, cls: "acct-popover" });
+  const pop = sheetPopover({ trigger, title: "Account", body, cls: "acct-popover" });
   return pop;
 }
+
+/** About: what this is, the version, the licence and the author credit (the credit also lives in LICENSE). */
+function aboutSheet() {
+  return modal({
+    title: "About",
+    body: () =>
+      h(
+        "div",
+        { class: "stack about-body" },
+        markTile(true),
+        h("h3", {}, "API Bridge"),
+        h("p", { class: "muted" }, `Version ${app.state.health?.version ?? ""}`),
+        h("p", { class: "muted small" }, "One local API for your broker accounts, with rate-limit-aware routing, streaming and safety gates. Paper trading is the default."),
+        h(
+          "div",
+          { class: "list" },
+          listRow({ tag: "div", title: "Licence", value: "MIT" }),
+          listRow({ tag: "div", title: "Created by", value: "Mr. Chartist" }),
+          listRow({ tag: "div", title: "Fonts", value: "Your system fonts" }),
+        ),
+      ),
+    buttons: [{ label: "Done", cls: "primary", value: true }],
+  });
+}
+const aboutLater = () => setTimeout(aboutSheet, 260);
 const showShortcutsLater = () => setTimeout(() => import("./palette.js").then((m) => m.showShortcuts()), 260);
 const chevron = () => {
   const s = icon("chevron");
   s.classList.add("chev");
   return s;
 };
-/** The More sheet's mark for the current page: a check in the selection ink, where the others have a chevron. */
+/** The More sheet's mark for the current page: a check in the accent, where the others have a chevron. */
 const checkMark = () => {
   const s = icon("check");
   s.classList.add("check");
-  s.setAttribute("aria-hidden", "true");
   return s;
 };
-/** The Mr. Chartist symbol (the sprite in index.html). */
-function symbolSvg(cls = "lockup-symbol") {
-  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  s.setAttribute("class", cls);
-  s.setAttribute("viewBox", "0 0 1024 1024");
-  s.setAttribute("aria-hidden", "true");
-  s.setAttribute("focusable", "false");
-  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", "#mc-symbol");
-  s.append(use);
-  return s;
-}
 /** Light / Dark / Auto, as in the sidebar (app.js handles the clicks for every copy). */
 function appearanceControl(labelledBy) {
   const current = document.documentElement.getAttribute("data-theme") ?? "auto";
@@ -533,7 +549,7 @@ function appearanceControl(labelledBy) {
 
 /**
  * Compact / Comfortable / Auto (app.js handles the clicks for every copy). Auto is compact with a mouse on a desktop;
- * touch screens are always comfortable, so the control is hidden there (app.css section 16).
+ * touch screens are always comfortable, so the control is hidden there (app.css section 11).
  */
 function densityControl(labelledBy) {
   let current = "auto";
@@ -563,10 +579,8 @@ let pendingFocus = null;
 let redrawnFor = 0;
 let redrawTimer = null;
 
-/** The page's large title: plain text, with at most one word in the serif accent. */
-function headline(page) {
-  return (page.headline ?? [page.title]).map((part) => (typeof part === "string" ? part : h("em", { class: "serif" }, part.serif)));
-}
+/** The page's large title: plain text. */
+const headline = (page) => page.headline ?? page.title;
 /**
  * Draw the page the hash names. `opts.refresh`: the Reload button, the palette or a redraw after fresh data came in;
  * a reload never paints from remembered answers.
@@ -589,12 +603,12 @@ async function show(opts) {
   document.documentElement.dataset.route = page.id;
   document.documentElement.classList.remove("panel-max-open");
   root.classList.toggle("api-page", page.id === "api");
-  document.title = tab ? `${tab.label} · ${page.label} · Mr. Chartist API Bridge` : `${page.label} · Mr. Chartist API Bridge`;
+  document.title = tab ? `${tab.label} · ${page.label} · API Bridge` : `${page.label} · API Bridge`;
   $("toolbar-icon").replaceChildren(pageGlyph(page));
   // The page name only: the tab strip right under it names the tab ("API: Integrations" clipped on phones).
   $("toolbar-label").textContent = page.label;
   $("page-eyebrow").textContent = page.group;
-  $("page-title").replaceChildren(...headline(page));
+  $("page-title").textContent = headline(page);
   $("page-sub").textContent = tab?.sub ?? page.sub;
   $("toolbar-demo").hidden = !app.state.demo;
   const seq = ++renderSeq;
@@ -608,7 +622,7 @@ async function show(opts) {
     root.setAttribute("aria-labelledby", "page-title");
   }
   root.setAttribute("aria-busy", "true");
-  root.replaceChildren(...[tabs, h("p", { class: "muted" }, "Loading…")].filter(Boolean));
+  root.replaceChildren(...[tabs, pageSkeleton()].filter(Boolean));
   if (tabs) edgeFades(tabs.firstElementChild);
   try {
     const nodes = await (tab?.render ?? page.render)();
@@ -844,16 +858,38 @@ function setupA11y() {
   mo.observe(content, { childList: true, subtree: true });
 }
 
-/** The toolbar's search (a labelled pill on wide screens, an icon on phones) and refresh, and the sidebar's search. */
+/**
+ * The compact toolbar title: the page's large title is watched with an IntersectionObserver (no scroll handler). Once it has
+ * scrolled up under the toolbar, <html> gets .title-collapsed (app.css 10): the bar frosts and shows the page name. The
+ * observer margin is the toolbar's height, read again when the density or the window changes.
+ */
+function watchTitleCollapse() {
+  const title = $("page-title");
+  const root = document.documentElement;
+  if (!title || typeof IntersectionObserver !== "function") return;
+  let io = null;
+  let margin = -1;
+  const observe = () => {
+    const bar = document.querySelector(".toolbar");
+    const m = Math.round(bar?.getBoundingClientRect().height || 52);
+    if (m === margin) return;
+    margin = m;
+    io?.disconnect();
+    io = new IntersectionObserver(([e]) => root.classList.toggle("title-collapsed", !e.isIntersecting && e.boundingClientRect.top < m), { rootMargin: `-${m}px 0px 0px 0px`, threshold: 0 });
+    io.observe(title);
+  };
+  observe();
+  addEventListener("resize", observe, { passive: true });
+}
+
+/** The toolbar's search and refresh icons, the budget and readiness slots, and the sidebar's search and account row. */
 function setupChrome() {
-  const mod = modKey();
-  const shortcut = mod === "⌘" ? "⌘K" : "Ctrl+K";
-  const aria = mod === "⌘" ? "Meta+K" : "Control+K";
+  const kc = shortcut("K");
   $("toolbar-actions").replaceChildren(
-    h("button", { type: "button", class: "toolbar-search search-hint", title: `Search pages and actions (${shortcut})`, "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon(), h("span", { class: "lbl" }, "Search pages and actions"), kbd(mod, "K")),
-    h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", "aria-keyshortcuts": aria, onclick: () => openPalette() }, searchIcon()),
+    h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", title: `Search pages and actions (${kc.label})`, "aria-keyshortcuts": kc.aria, onclick: () => openPalette() }, searchIcon()),
     h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
   );
+  watchTitleCollapse();
   // The API budget indicator (budget.js), fed by the shared live connection.
   const budgetSlot = $("toolbar-budget");
   if (budgetSlot && !budgetSlot.dataset.ready) {
@@ -904,11 +940,11 @@ function setupChrome() {
   const sb = $("sb-search");
   if (sb && !sb.dataset.ready) {
     sb.dataset.ready = "1";
-    sb.title = `Search pages and actions (${shortcut})`;
+    sb.title = `Search pages and actions (${kc.label})`;
     sb.setAttribute("aria-label", "Search pages and actions");
-    sb.setAttribute("aria-keyshortcuts", aria);
+    sb.setAttribute("aria-keyshortcuts", kc.aria);
     sb.prepend(searchIcon());
-    sb.append(kbd(mod, "K"));
+    sb.append(kbd(...kc.keys));
     sb.addEventListener("click", () => openPalette());
   }
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
@@ -949,7 +985,7 @@ async function refreshTicketCount() {
   }
 }
 
-// Motion helpers (animatePage / animateNav), when motion.js provides them. Loaded lazily so Node tests never touch it.
+// Motion helper (animatePage), when motion.js provides it. Loaded lazily so Node tests never touch it.
 let motionHooks = null;
 
 export async function startRouter() {
@@ -2576,7 +2612,7 @@ async function webhookPanel(paperAcc) {
 async function renderActivity() {
   const tabsBar = h("div", { class: "tabs", role: "tablist", "aria-label": "Activity" });
   const body = h("div");
-  // #/api/activity?view=audit opens the audit log (the ⌘K "Audit log" entry).
+  // #/api/activity?view=audit opens the audit log (the Ctrl K "Audit log" entry).
   let active = hashParams().get("view") === "audit" ? "audit" : "requests";
   let showAll = false;
   const hideOwn = h("input", { type: "checkbox" });

@@ -62,19 +62,19 @@ describe("app.css: the space and density tokens", () => {
   const firstRoot = css.slice(css.indexOf(":root {"), css.indexOf("color-scheme: light;"));
   it("declares the shell and density tokens in the first :root", () => {
     for (const t of ["--sidebar-w", "--rail-w", "--sb-w", "--page-gutter", "--th-py", "--td-py", "--cell-px", "--list-row-h"]) expect(firstRoot, t).toContain(`${t}:`);
-    expect(firstRoot).toMatch(/--content-max: none;/);
+    expect(firstRoot).toMatch(/--content-max: 1360px;/);
   });
   it("tightens them for compact and draws the rail from --rail-w", () => {
     const compact = css.slice(css.indexOf(':root[data-density="compact"] {'));
-    expect(compact).toMatch(/--td-py: 6px/);
+    expect(compact).toMatch(/--td-py: 7px/);
     expect(css).toMatch(/:root\[data-sb="rail"\] \{ --sb-w: var\(--rail-w\); \}/);
   });
   it("keeps the sidebar flush: no offset, no radius, one separator hairline", () => {
-    const at = css.indexOf("  .sidebar.glass {");
+    const at = css.indexOf("\n.sidebar {");
     const rule = css.slice(at, css.indexOf("}", at));
     expect(rule).toMatch(/top: 0; left: 0; bottom: 0;/);
-    expect(rule).toMatch(/border-radius: 0/);
-    expect(rule).toMatch(/inset calc\(-1 \* var\(--hl\)\) 0 0 var\(--mat-separator\)/);
+    expect(rule).not.toMatch(/border-radius/);
+    expect(rule).toMatch(/inset calc\(-1 \* var\(--hl\)\) 0 0 var\(--separator\)/);
   });
   it("closes every block it opens (a merge that drops a brace swallows every rule after it)", () => {
     for (const f of ["./app.css", "./palette.css"]) {

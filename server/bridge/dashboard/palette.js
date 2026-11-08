@@ -2,28 +2,24 @@
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
 import { chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast } from "./app.js";
 
-/** True on Apple platforms, where shortcuts use ⌘ instead of Ctrl. */
-export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
-/** The label of the modifier key: "⌘" on a Mac, "Ctrl" elsewhere. */
-export const modKey = () => (isMac() ? "⌘" : "Ctrl");
-const ariaMod = () => (isMac() ? "Meta" : "Control");
+/** The modifier shown in every shortcut hint. One label for everyone: the key handler accepts Control or Command alike. */
+export const MOD = "Ctrl";
+export const modKey = () => MOD;
+/**
+ * The one helper for shortcut hints. shortcut("K") gives { keys: ["Ctrl", "K"], label: "Ctrl K", aria: "Control+K Meta+K" }:
+ * `keys` for kbd(), `label` for a title or visible text, `aria` for aria-keyshortcuts.
+ */
+export function shortcut(key) {
+  return { keys: [MOD, String(key)], label: `${MOD} ${key}`, aria: `Control+${key} Meta+${key}` };
+}
 
-/** A key cap (or several, e.g. kbd("⌘", "K")). */
+/** A key cap (or several, e.g. kbd(...shortcut("K").keys)). */
 export function kbd(...keys) {
   return h("span", { class: "kbd-group" }, keys.map((k) => h("kbd", { class: "kbd" }, k)));
 }
 
 /** Magnifier icon (static markup from this file). */
-export function searchIcon() {
-  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  s.setAttribute("viewBox", "0 0 24 24");
-  s.setAttribute("aria-hidden", "true");
-  s.innerHTML = '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>';
-  return s;
-}
-
-/** The type credit the SIL Open Font License asks for (dashboard/fonts/LICENSE.md): the About line. */
-export const TYPE_CREDIT = "Type: Chartist Sans Flex (from Google Sans Flex by Google), Chartist Sans (from Plus Jakarta Sans by Tokotype) and Chartist Serif (from Instrument Serif by Instrument), under the SIL Open Font License 1.1.";
+export const searchIcon = () => icon("search");
 
 /**
  * Match a query against a label. Higher is better, -1 means no match. Tiers: exact or prefix (1000s) > a word start
@@ -330,23 +326,22 @@ export function showShortcuts() {
       "div",
       { class: "stack shortcuts-sheet" },
       h("table", { class: "shortcuts" }, h("caption", { class: "pal-sr-only" }, "Keyboard shortcuts"), h("thead", { class: "pal-sr-only" }, h("tr", {}, h("th", { scope: "col" }, "Keys"), h("th", { scope: "col" }, "Action"))), h("tbody", {}, rows)),
-      h("p", { class: "muted small" }, isMac() ? "Some browsers keep ⌘1 to ⌘9 for switching tabs; the search (⌘K) always works." : "Some browsers keep Ctrl+1 to Ctrl+9 for switching tabs; the search (Ctrl+K) always works."),
-      h("p", { class: "type-credit" }, h("strong", {}, "About. "), TYPE_CREDIT),
+      h("p", { class: "muted small" }, "On a Mac, Command works in place of Ctrl. Some browsers keep Ctrl 1 to Ctrl 9 for switching tabs; the search (Ctrl K) always works."),
     ),
     buttons: [{ label: "Done", cls: "primary", value: true }],
   });
 }
 
-/** The shortcut of a page (its curated `key`, 1 to 9) or of a key number, e.g. "⌘1"; null for a page without one. */
+/** The shortcut of a page (its curated `key`, 1 to 9) or of a key number, e.g. "Ctrl 1"; null for a page without one. */
 export function pageShortcut(pageOrKey) {
   const k = typeof pageOrKey === "object" ? pageOrKey?.key : pageOrKey;
   if (!Number.isInteger(k) || k < 1 || k > 9) return null;
-  return { label: isMac() ? `⌘${k}` : `Ctrl+${k}`, aria: `${ariaMod()}+${k}` };
+  return shortcut(k);
 }
 
 function onGlobalKey(e) {
   if (e.defaultPrevented || e.isComposing) return;
-  const mod = isMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  const mod = e.ctrlKey !== e.metaKey; // Control or Command, not both
   const key = e.key.toLowerCase();
   if (mod && !e.altKey && !e.shiftKey && key === "k") {
     e.preventDefault();

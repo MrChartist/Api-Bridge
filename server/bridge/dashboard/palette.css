@@ -1,6 +1,6 @@
-/* Command palette (Spotlight style), keyboard-shortcut sheet and small accessibility helpers. Uses the app.css tokens. */
-
-/* ── Palette panel (L4): thick glass, sheet corners, a big search field, rows with tinted icon tiles ── */
+/* Command palette (Spotlight style) and the keyboard-shortcut sheet. Uses the app.css tokens.
+   Markup is written by palette.js: dialog.palette > .palette-search (icon, .palette-input, .palette-x) + ul.palette-list
+   (.palette-group, .palette-option[aria-selected], .palette-empty) + .palette-foot. The selected option is the accent fill. */
 dialog.palette {
   position: fixed;
   inset: max(12vh, 64px) 0 auto 0;
@@ -13,115 +13,62 @@ dialog.palette {
   overflow: hidden;
   color: hsl(var(--foreground));
   background: var(--mat-thick);
-  -webkit-backdrop-filter: blur(44px) saturate(200%);
-  backdrop-filter: blur(44px) saturate(200%);
+  -webkit-backdrop-filter: var(--mat-blur-thick);
+  backdrop-filter: var(--mat-blur-thick);
   box-shadow: var(--edge-1), var(--shadow-float);
   flex-direction: column;
 }
-dialog.palette[open] { display: flex; animation: palette-in 220ms var(--ease-out); }
-dialog.palette::backdrop { background: hsl(240 20% 4% / 0.42); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+dialog.palette[open] { display: flex; animation: palette-in var(--dur-3) var(--ease-out); }
+dialog.palette::backdrop { background: var(--scrim); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
 @keyframes palette-in {
   from { opacity: 0; transform: translateY(-8px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { dialog.palette[open] { animation: none; } }
 
-.palette-search { display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 12px 0 18px; border-bottom: 0.5px solid var(--mat-separator); flex: none; }
-.palette-search > svg { width: 20px; height: 20px; flex: none; fill: none; stroke: hsl(var(--foreground) / var(--a-quiet)); stroke-width: 2; stroke-linecap: round; }
+.palette-search { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 12px 0 18px; box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--separator); flex: none; }
+.palette-search > svg { width: 20px; height: 20px; flex: none; color: var(--label-3); }
 dialog.palette .palette-input,
 dialog.palette .palette-input:focus {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  outline: none;
-  box-shadow: none;
-  background: transparent;
-  color: hsl(var(--foreground));
-  font: 400 20px/1 var(--font-body);
-  letter-spacing: -0.016em;
+  flex: 1; min-width: 0; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; outline: none; box-shadow: none; background: transparent;
+  color: hsl(var(--foreground)); font: 400 19px/1 var(--font-body); letter-spacing: -0.014em;
 }
-.palette-input::placeholder { color: hsl(var(--foreground) / var(--a-quiet)); }
-button.palette-x { width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 50%; background: transparent; color: hsl(var(--foreground) / var(--a-quiet)); }
-button.palette-x:hover { background: var(--mat-fill-1); color: hsl(var(--foreground)); }
-button.palette-x svg { width: 18px; height: 18px; }
-
+.palette-input::placeholder { color: var(--label-3); }
+button.palette-x { --btn-h: 28px; --btn-ic: 14px; --btn-r: 50%; --btn-bg: var(--fill-2); width: 28px; padding: 0; color: var(--label-2); }
 .palette-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0; }
-.palette-group { padding: 10px 12px 4px; font: var(--t-label); line-height: 1; color: hsl(var(--foreground) / var(--a-quiet)); }
+.palette-group { padding: 10px 12px 4px; font: 600 12px/1 var(--font-body); color: var(--label-3); }
 .palette-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 12px; border-radius: var(--r-ctl); cursor: pointer; font: 500 15px/1.25 var(--font-body); letter-spacing: -0.01em; }
+@media (hover: hover) { .palette-option:hover:not([aria-selected="true"]) { background: var(--fill-1); } }
 .palette-option .icon-tile { width: 32px; height: 32px; border-radius: 9px; }
 .palette-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-sub { font: 400 13px/1.25 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-kind { margin-left: 8px; padding: 3px 7px; border-radius: 6px; background: var(--mat-fill-1); font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; text-transform: uppercase; color: hsl(var(--foreground) / 0.66); }
-.palette-option[aria-selected="true"] .palette-sub { color: hsl(var(--sel-fg) / 0.72); }
+.palette-sub { font: var(--t-subhead); color: var(--label-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-kind { margin-left: 8px; padding: 3px 7px; border-radius: var(--radius-sm); background: var(--fill-2); font: 500 12px/1 var(--font-body); color: var(--label-2); }
+.palette-option[aria-selected="true"] { background: hsl(var(--sel-bg)); color: hsl(var(--sel-fg)); }
+.palette-option[aria-selected="true"] .palette-sub { color: hsl(var(--sel-fg) / 0.78); }
 .palette-option[aria-selected="true"] .palette-kind { background: transparent; box-shadow: inset 0 0 0 1px hsl(var(--sel-fg) / 0.5); color: hsl(var(--sel-fg)); }
-.palette-right { margin-left: auto; flex: none; display: inline-flex; }
-.palette-option[aria-selected="true"] .kbd { background: hsl(var(--sel-fg) / 0.15); color: hsl(var(--sel-fg)); }
-.palette-empty { padding: 24px 12px; text-align: center; color: hsl(var(--foreground) / var(--a-label)); }
-.palette-foot { display: flex; gap: 16px; padding: 10px 18px; border-top: 0.5px solid var(--mat-separator); font: 500 12px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); flex: none; }
+.palette-option[aria-selected="true"] .kbd { background: hsl(var(--sel-fg) / 0.16); color: hsl(var(--sel-fg)); }
+.palette-right { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.palette-empty { padding: 28px 12px; text-align: center; color: var(--label-2); }
+.palette-foot { display: flex; gap: 16px; padding: 10px 18px; box-shadow: inset 0 var(--hl) 0 var(--separator); font: 500 12px/1 var(--font-body); color: var(--label-3); flex: none; }
 .palette-foot > span { display: inline-flex; align-items: center; gap: 4px; }
 .palette-foot .kbd-group { gap: 2px; }
 /* Keyboard hints mean nothing on a touch screen; the rows are bigger targets there instead. */
 @media (pointer: coarse) {
   .palette-foot, .palette-right .kbd-group { display: none; }
   .palette-option { min-height: 56px; }
-  button.palette-x { width: 44px; height: 44px; }
+  button.palette-x { --btn-h: 44px; width: 44px; }
 }
 @media (max-width: 560px) {
+  dialog.palette .palette-input, dialog.palette .palette-input:focus { font-size: 17px; }
   dialog.palette { inset-block-start: max(12px, var(--safe-t)); max-height: calc(100dvh - 24px - var(--safe-t)); }
   .palette-foot { display: none; }
 }
 
-/* ── Toolbar and sidebar search buttons with their ⌘K hint ── */
-.search-hint svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.sb-search svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-
 /* ── Shortcuts sheet ── */
 table.shortcuts { width: 100%; border-collapse: collapse; }
-table.shortcuts td { padding: 10px 0; border-bottom: 0.5px solid var(--mat-separator); vertical-align: middle; white-space: normal; }
+table.shortcuts td { padding: 10px 0; border-bottom: var(--hl) solid var(--hairline); vertical-align: middle; white-space: normal; }
 table.shortcuts td:first-child, table.shortcuts td:last-child { padding-left: 0; padding-right: 0; }
 table.shortcuts tr:last-child td { border-bottom: 0; }
 table.shortcuts tr:hover td { background: transparent; }
-table.shortcuts td.shortcut-keys { width: 120px; white-space: nowrap; }
-
-/* ── Segmented controls used as form fields (views.js segField) ── */
-div.field.seg-field .segmented { display: flex; width: 100%; }
-div.field.seg-field .segmented button { flex: 1 1 auto; min-width: 0; padding: 0 12px; white-space: nowrap; }
-
-/* ── Accessibility helpers ── */
-.pal-sr-only {
-  position: absolute !important;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-.skip-link {
-  position: fixed;
-  top: max(10px, var(--safe-t));
-  left: 10px;
-  z-index: var(--z-toast);
-  padding: 10px 16px;
-  border-radius: 999px;
-  background: hsl(var(--ios-blue-fill));
-  color: #fff;
-  font: 500 14px/1 var(--font-body);
-  box-shadow: var(--shadow-3);
-  transform: translateY(-160%);
-  transition: transform 160ms var(--ease-out);
-}
-.skip-link:focus, .skip-link:focus-visible { transform: none; text-decoration: none; }
-
-.page-code { display: inline-flex; align-items: center; margin-left: 10px; min-height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--mat-hairline); background: var(--mat-fill-1); color: hsl(var(--foreground) / 0.78); font: 600 12px/1 var(--font-mono); letter-spacing: 0.06em; cursor: pointer; vertical-align: 1px; }
-.page-code:hover { background: hsl(var(--ios-blue) / 0.12); color: hsl(var(--ios-blue-ink)); }
-.page-code.static { margin-left: 0; cursor: default; }
-.page-code.static:hover { background: var(--mat-fill-1); color: hsl(var(--foreground) / 0.78); }
-.palette-right { display: inline-flex; align-items: center; gap: 8px; }
+table.shortcuts td.shortcut-keys { width: 140px; white-space: nowrap; }

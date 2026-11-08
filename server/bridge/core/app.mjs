@@ -96,7 +96,6 @@ export const DASHBOARD_FILES = Object.freeze({
   "layout-prefs.js": "text/javascript; charset=utf-8",
   "live.js": "text/javascript; charset=utf-8",
   "budget.js": "text/javascript; charset=utf-8",
-  "motion.min.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",
   "logo.svg": "image/svg+xml",
@@ -206,7 +205,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   );
   // ── Local dashboard (static files, this computer only; the page asks for an API key and keeps it in the tab) ──
   // DASHBOARD_FILES (module scope, above) lists what may be served.
-  const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   // Broker logos (dashboard/brokers/<id>.png, see its README), served as /dashboard/broker-<id>.png. Only ids with a
   // file present when the Bridge starts can be asked for, so no request can name another path.
   const BROKER_LOGOS = new Set(
@@ -218,18 +217,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
     })(),
   );
-  // The dashboard's self-hosted Chartist typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
-  // /dashboard/font-<file>.woff2. A fixed list, so no request can name another path.
-  const DASHBOARD_FONTS = Object.freeze({
-    "font-chartist-sans-flex.woff2": "chartist-sans-flex.woff2",
-    "font-chartist-sans-flex-symbols.woff2": "chartist-sans-flex-symbols.woff2",
-    "font-chartist-sans.woff2": "chartist-sans.woff2",
-    "font-chartist-serif-italic.woff2": "chartist-serif-italic.woff2",
-  });
   const dashboardFile = (name) => {
-    if (Object.hasOwn(DASHBOARD_FONTS, name)) {
-      return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard/fonts", DASHBOARD_FONTS[name])), { "Content-Type": "font/woff2", "Cache-Control": "public, max-age=604800", "Content-Security-Policy": DASHBOARD_CSP });
-    }
     const logo = /^broker-([a-z0-9]{2,32})\.png$/.exec(name);
     if (logo && BROKER_LOGOS.has(logo[1])) {
       return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard/brokers", `${logo[1]}.png`)), { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400", "Content-Security-Policy": DASHBOARD_CSP });

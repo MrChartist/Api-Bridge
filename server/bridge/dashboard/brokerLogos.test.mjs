@@ -42,18 +42,11 @@ describe("broker logos", () => {
       expect(Buffer.from(await r.arrayBuffer()).subarray(0, 8).equals(PNG)).toBe(true);
     });
 
-    it("the dashboard's Chartist typefaces as font/woff2, and the CSP allows only its own fonts", async () => {
-      for (const name of ["font-chartist-sans-flex.woff2", "font-chartist-sans-flex-symbols.woff2", "font-chartist-sans.woff2", "font-chartist-serif-italic.woff2"]) {
-        const r = await fetch(`${base}/dashboard/${name}`);
-        expect(r.status, name).toBe(200);
-        expect(r.headers.get("content-type")).toBe("font/woff2");
-        expect(Buffer.from(await r.arrayBuffer()).subarray(0, 4).toString("latin1")).toBe("wOF2");
-      }
+    it("ships no font files: the CSP names only the dashboard's own scripts, styles and images, and no font route exists", async () => {
       const csp = (await fetch(`${base}/dashboard`)).headers.get("content-security-policy");
-      expect(csp).toContain("font-src 'self'");
       expect(csp).toContain("script-src 'self';");
-      expect(csp).not.toMatch(/unsafe-inline|https?:/);
-      for (const name of ["font-inter-var-v3.woff2", "font-chartist.woff2", "fonts%2Fchartist-sans-flex.woff2", "font-..%2Fapp.js", "OFL-ChartistSansFlex.txt", "font-LICENSE.md", "font-chartist-sans-flex.woff2.map"]) {
+      expect(csp).not.toMatch(/font-src|unsafe-inline|https?:/);
+      for (const name of ["font-chartist-sans-flex.woff2", "font-chartist-serif-italic.woff2", "font-inter-var-v3.woff2", "fonts%2Fchartist-sans-flex.woff2", "font-..%2Fapp.js", "OFL-ChartistSansFlex.txt", "font-LICENSE.md", "motion.min.js"]) {
         expect((await fetch(`${base}/dashboard/${name}`)).status, name).toBe(404);
       }
     });
