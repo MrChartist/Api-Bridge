@@ -1,10 +1,12 @@
 /**
  * End-to-end, multi-account routing: unpinned read-only market data is spread across the user's OWN accounts only
- * when BOTH the account opts in (marketData.pooling) AND the broker's policy says pooling is "allowed". No real
- * broker is marked "allowed" today (every entry is "unknown", treated as not allowed), so this test adds one
- * hypothetical broker, "stubpool", to the policy table. Everything else is the real Bridge.
+ * when the account opts in (marketData.pooling), the broker's policy says pooling is "allowed" AND the person has
+ * accepted the pooling notice for the account (sources/pooling.mjs). No real broker is marked "allowed" today (every
+ * entry is "unknown", treated as not allowed), so this test adds one hypothetical broker, "stubpool", to the policy
+ * table. Everything else is the real Bridge.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { POOLING_NOTICE_VERSION } from "../sources/pooling.mjs";
 import { bootBridge, stubBroker } from "./fixtures.mjs";
 
 vi.mock("../ratelimit/brokerPolicies.mjs", async (importOriginal) => {
@@ -52,7 +54,20 @@ afterAll(async () => {
 const quotesBy = (account) => stubpool.calls.filter((c) => c.method === "fetchQuotes" && c.account === account);
 
 describe("multi-account routing", () => {
-  it("reports pooling per account from the account opt-in AND the broker policy", async () => {
+  it("pools nothing until the person accepts the pooling notice, even with opt-ins and an allowing policy", async () => {
+    const before = await bridge.http("/v1/accounts", { key });
+    expect(Object.fromEntries(before.json.data.map((a) => [a.id, a.pooling]))).toEqual({ "pool-a": false, "pool-b": false, "pool-c": false });
+    await bridge.http("/v1/ltp?symbols=NSE:WIPRO&maxAgeMs=0", { key });
+    await bridge.http("/v1/ltp?symbols=NSE:HCLTECH&maxAgeMs=0", { key });
+    // Only the primary account (pool-a) served the reads: nothing was spread.
+    expect(quotesBy("pool-b")).toHaveLength(0);
+    expect(quotesBy("pool-c")).toHaveLength(0);
+    stubpool.calls.length = 0;
+    // The person accepts the notice for the two accounts that opted in.
+    await bridge.deps.accounts.pooling.acceptConsent({ acknowledge: POOLING_NOTICE_VERSION, accounts: ["pool-a", "pool-b"] });
+  });
+
+  it("reports pooling per account from the opt-in, the broker policy AND the consent", async () => {
     const r = await bridge.http("/v1/accounts", { key });
     const pooling = Object.fromEntries(r.json.data.map((a) => [a.id, a.pooling]));
     expect(pooling).toEqual({ "pool-a": true, "pool-b": true, "pool-c": false });

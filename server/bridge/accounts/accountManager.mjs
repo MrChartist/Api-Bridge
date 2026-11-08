@@ -17,10 +17,12 @@
  *    (adapter login result, auth.tokenExpiry, or the next IST midnight) checked lazily on every read and by a
  *    timer. Emits "account.status" on every visible change. "account.session_rejected" (from the scheduler) marks
  *    the account expired until the next connect.
- *  - marketDataCandidates(): the accounts that may serve an unpinned market-data read (opt-in AND the broker policy
- *    from the ratelimit policy table says pooling is "allowed" AND the account names its `holder`; only accounts of ONE holder are pooled,
- *    because a family member is a different user under the brokers' personal-use terms), else the single primary
- *    account, in config order. A caller's account restriction (`allowedAccounts`) is applied first, so a key limited
+ *  - marketDataCandidates(): the accounts that may serve an unpinned market-data read: the account opted in
+ *    (marketData.pooling) AND the broker policy from the ratelimit policy table says pooling is "allowed" (or it is
+ *    "unknown" and the account also sets poolingWhenTermsUnknown; "not-allowed" never pools) AND the account names its
+ *    `holder` AND a consent for the current notice version lists the account (sources/pooling.mjs; no consent, no
+ *    pooling, and revoking it ends pooling at once). Only accounts of ONE holder are pooled, because a family member
+ *    is a different user under the brokers' personal-use terms. Otherwise the single primary account, in config order. A caller's account restriction (`allowedAccounts`) is applied first, so a key limited
  *    to some accounts never spends another account's market-data entitlement or rate budget.
  *  - addAccount()/removeAccount() (POST/DELETE /v1/accounts, after routes.mjs saved the change to the config file)
  *    start or stop using an account without a restart, through the accounts list the app shares with its services.
@@ -37,9 +39,10 @@ import { SessionRequiredError, normaliseError as contractNormaliseError, redactS
 import { checkLoginResult } from "../../brokers/contractShapes.mjs";
 import { createLoginRateLimiter } from "../../brokers/sessionLogin.mjs";
 import { liveAllowedByConfig } from "../core/config.mjs";
+import { createPoolingService } from "../sources/pooling.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { isSecretFieldName } from "../core/logger.mjs";
-import { BROKER_NAMES, PAPER_BROKER, adapterCapabilities, loadBrokerPolicies, normalisePolicies, poolingFor } from "./brokerInfo.mjs";
+import { BROKER_NAMES, PAPER_BROKER, adapterCapabilities, loadBrokerPolicies, normalisePolicies, policyForTier, poolingFor } from "./brokerInfo.mjs";
 import {
   PAPER_CAPABILITIES,
   deriveState,
@@ -65,6 +68,7 @@ export const LOGIN_ATTEMPTS_PER_WINDOW = 5;
  * @property {number} [pollMs]                           Stat-poll interval for the secrets file (default 5000).
  * @property {boolean} [watchFs]                         Use fs.watch as well as polling (default true).
  * @property {{ take(key: string, now?: number): boolean }} [loginLimiter]  Default: 5 login attempts/min per account.
+ * @property {ReturnType<typeof createPoolingService>} [pooling]  Pooling consent service (tests). Default: one on the data folder.
  */
 
 /** Is this broker error a "your session is no good" error? */
@@ -121,6 +125,16 @@ export async function createAccountManager(deps, options = {}) {
    * added here is visible to them at once; otherwise (a manager built on a plain frozen config) it cannot be hot-added.
    */
   const sharedAccounts = Array.isArray(config.accounts) && !Object.isFrozen(config.accounts) ? config.accounts : null;
+
+  /**
+   * Pooling consent (sources/pooling.mjs). Built here because marketDataCandidates() must ask it on every read; the
+   * sources module's routes use this same instance (`manager.pooling`), and the service re-reads its file when it
+   * changes, so even another instance on the same folder agrees at once.
+   */
+  const pooling = options.pooling ?? createPoolingService(
+    { config, paths: deps.paths, clock, logger: log },
+    { policies, accountsOf: () => accounts, effective: (id) => (byId.has(id) ? effectivePooling(byId.get(id)) : false) },
+  );
 
   /**
    * Per-account in-memory state. Holds no secret.
@@ -221,6 +235,7 @@ export async function createAccountManager(deps, options = {}) {
    * Account opted in AND the broker's terms (ratelimit policy) allow spreading one user's reads over their accounts (or the
    * terms are unknown and the user opted in to that too with marketData.poolingWhenTermsUnknown) AND the account says
    * whose it is (`holder`), so accounts of different people are never pooled together. "not-allowed" always wins.
+   * And a consent for the current notice version must list the account (explicit, revocable, see pooling.mjs).
    */
   const brokerPoolingOk = (account) => {
     const terms = poolingFor(policies, account.broker);
@@ -231,7 +246,8 @@ export async function createAccountManager(deps, options = {}) {
     account.marketData?.pooling === true &&
     typeof account.holder === "string" &&
     account.holder.length > 0 &&
-    brokerPoolingOk(account);
+    brokerPoolingOk(account) &&
+    pooling.isPooled(account.id);
 
   function summary(account) {
     const adapter = adapterOf(account);
@@ -533,7 +549,8 @@ export async function createAccountManager(deps, options = {}) {
     /** @returns {{ capabilities: string[], policy: import("../core/contracts.mjs").BrokerPolicy | null }} */
     capabilities(accountId) {
       const account = mustAccount(accountId);
-      return { capabilities: capabilityList(account), policy: account.broker === PAPER_BROKER ? null : policies[account.broker] ?? null };
+      const tier = config.ratelimit?.accounts?.[accountId]?.tier ?? config.ratelimit?.brokers?.[account.broker]?.tier;
+      return { capabilities: capabilityList(account), policy: account.broker === PAPER_BROKER ? null : policyForTier(policies[account.broker] ?? null, tier) };
     },
 
     /**
@@ -561,6 +578,9 @@ export async function createAccountManager(deps, options = {}) {
     },
 
     // ── Extras beyond the contract (module.mjs, CLI, tests). Other modules call only the contract methods. ──
+
+    /** Pooling consent: status(), acceptConsent(), revokeConsent(), isPooled() (sources/pooling.mjs). */
+    pooling,
 
     /** The ratelimit policy for a broker, or null when ratelimit has none (yet). */
     brokerPolicy(brokerId) {

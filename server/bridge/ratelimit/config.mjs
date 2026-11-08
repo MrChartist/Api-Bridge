@@ -44,6 +44,12 @@ const overrideSchema = z
     limits: z.partialRecord(endpointClass, windowsSchema).optional(),
     groups: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9]{0,31}$/), windowsSchema).optional(),
     maxQuoteBatch: z.number().int().positive().max(10_000).optional(),
+    /**
+     * The broker plan these limits come from, for brokers with documented plans (fyers: "standard" | "prime").
+     * Default: the broker's lower plan. A choice among documented plans, not an override: pick a higher plan only
+     * if you have it. Unknown names are refused for a broker entry and fall back to the default plan for an account.
+     */
+    tier: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/).optional(),
   })
   .strict();
 
