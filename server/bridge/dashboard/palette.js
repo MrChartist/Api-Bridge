@@ -203,7 +203,7 @@ function build() {
     "aria-controls": "palette-list",
     "aria-autocomplete": "list",
     "aria-label": "Search pages, actions and settings",
-    placeholder: "Search pages, actions and settings",
+    placeholder: "Search pages and actions",
     autocomplete: "off",
     spellcheck: "false",
   });
