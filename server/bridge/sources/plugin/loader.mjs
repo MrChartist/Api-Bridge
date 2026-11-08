@@ -13,7 +13,7 @@
  * account: calls carry symbols, intervals and underlyings, never an account id.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { BridgeError } from "../../core/errors.mjs";
 import { MANIFEST_FILE, checkedDescriptor, parseManifestText, validateConfig } from "./manifest.mjs";
@@ -31,6 +31,46 @@ const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
  */
 export function pinOf(manifestBytes, entryBytes) {
   return sha(`mc-source-pin/1\nmanifest:${sha(manifestBytes)}\nentry:${sha(entryBytes)}\n`);
+}
+
+const MAX_TREE_ENTRIES = 5000;
+
+/**
+ * Every symbolic link in a plugin folder (any depth), as paths relative to it, found with lstat so a link is never followed.
+ * The pin covers only the manifest and the entry, so a link anywhere in the folder (a fixture, a data file) could point at
+ * something the owner never reviewed, such as the Bridge's own data folder. A folder with any link is refused.
+ * Stops after MAX_TREE_ENTRIES entries; a folder that large is refused too (the result's `tooLarge`).
+ */
+export function findSymlinks(root) {
+  const links = [];
+  let seen = 0;
+  let tooLarge = false;
+  const walk = (dir) => {
+    let names;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (++seen > MAX_TREE_ENTRIES) {
+        tooLarge = true;
+        return;
+      }
+      const full = join(dir, name);
+      let st;
+      try {
+        st = lstatSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isSymbolicLink()) links.push(relative(root, full));
+      else if (st.isDirectory()) walk(full);
+      if (tooLarge) return;
+    }
+  };
+  walk(root);
+  return { links, tooLarge };
 }
 
 /** Read a plugin folder and describe it, without starting anything. Used by the loader and by `plugins check` / `plugins pin`. */
@@ -60,6 +100,9 @@ export function inspectPluginFolder(path, { baseDir = process.cwd() } = {}) {
   const rel = relative(real, entryPath);
   if (rel.startsWith("..") || isAbsolute(rel) || rel.split(sep).includes("..")) return { ok: false, manifest, problems: [`entry ${manifest.entry} resolves outside the plugin folder`] };
   if (!statSync(entryPath).isFile()) return { ok: false, manifest, problems: [`entry ${manifest.entry} is not a file`] };
+  const tree = findSymlinks(real);
+  if (tree.links.length) return { ok: false, manifest, problems: [`the plugin folder contains a symbolic link (${tree.links.slice(0, 3).join(", ")}${tree.links.length > 3 ? ", ..." : ""}); links are refused because the pin does not cover where they point. Copy the real files into the folder`] };
+  if (tree.tooLarge) return { ok: false, manifest, problems: [`the plugin folder holds more than ${MAX_TREE_ENTRIES} files and folders; a plugin is one manifest and one entry file`] };
   const entryBytes = readFileSync(entryPath);
   const { ok, errors, descriptor } = checkedDescriptor(manifest);
   if (!ok) problems.push(...errors.map((e) => `descriptor: ${e}`));

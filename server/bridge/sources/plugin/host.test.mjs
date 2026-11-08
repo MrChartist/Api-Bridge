@@ -159,11 +159,11 @@ describe("the process: clean environment, working directory, permission flags", 
     }
   });
 
-  it("assembles the permission flags: file reads limited to the plugin folder and the runner, nothing else allowed", () => {
+  it("assembles the permission flags: file reads limited to the entry file and the runner (never the folder), nothing else allowed", () => {
     const args = buildNodeArgs({ pluginDir: "/plugins/fake", entryPath: "/plugins/fake/index.mjs", entrySha: "ab".repeat(32), nodeVersion: "22.23.4" });
     expect(args).toEqual([
       "--permission",
-      "--allow-fs-read=/plugins/fake",
+      "--allow-fs-read=/plugins/fake/index.mjs",
       `--allow-fs-read=${RUNNER_PATH}`,
       "--max-old-space-size=128",
       "--disallow-code-generation-from-strings",
@@ -176,6 +176,7 @@ describe("the process: clean environment, working directory, permission flags", 
     const text = args.join(" ");
     for (const forbidden of ["--allow-child-process", "--allow-worker", "--allow-addons", "--allow-wasi", "--allow-fs-write", "--allow-net"]) expect(text).not.toContain(forbidden);
     expect(args.filter((a) => a.startsWith("--allow-fs-read="))).toHaveLength(2);
+    expect(args).not.toContain("--allow-fs-read=/plugins/fake"); // the folder itself is not granted
     expect(args.indexOf("--permission")).toBe(0); // before the script, or Node would pass it to the script
     expect(args.indexOf("--permission")).toBeLessThan(args.indexOf(RUNNER_PATH));
   });

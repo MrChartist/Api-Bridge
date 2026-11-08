@@ -116,6 +116,38 @@ describe("loadPlugins: what must hold before a plugin loads", () => {
     expect(r.problems[0].reason).toMatch(/outside the plugin folder/);
   });
 
+  it("refuses a plugin folder that holds any symbolic link, at any depth, file or folder, even a dangling one", () => {
+    const secretDir = mkdtempSync(join(tmpdir(), "mcb-secret-"));
+    writeFileSync(join(secretDir, "master.key"), "MASTER");
+    for (const [where, target, name] of [
+      [".", join(secretDir, "master.key"), "notes.txt"],
+      [".", secretDir, "data"],
+      ["fixtures/deep", join(secretDir, "master.key"), "quotes.json"],
+      [".", join(secretDir, "does-not-exist"), "dangling"],
+    ]) {
+      const { dir } = makePlugin();
+      mkdirSync(join(dir, where), { recursive: true });
+      symlinkSync(target, join(dir, where, name));
+      const info = inspectPluginFolder(dir);
+      expect(info.ok).toBe(false);
+      expect(info.problems[0]).toMatch(/symbolic link/);
+      const r = load([{ path: dir, sha256: "a".repeat(64), granted: true }]);
+      expect(r.providers).toEqual([]);
+      expect(r.problems[0].reason).toMatch(/symbolic link/);
+      expect(r.fs.calls).toHaveLength(0); // nothing was started
+    }
+  });
+
+  it("refuses a plugin folder with an unreasonable number of files", () => {
+    const { dir } = makePlugin();
+    for (let i = 0; i < 5; i++) {
+      const d = join(dir, `d${i}`);
+      mkdirSync(d);
+      for (let j = 0; j < 1100; j++) writeFileSync(join(d, `f${j}`), "x");
+    }
+    expect(inspectPluginFolder(dir).problems[0]).toMatch(/more than 5000/);
+  });
+
   it("refuses a folder whose path has a comma (it would break the permission flag)", () => {
     const base = mkdtempSync(join(tmpdir(), "mcb-plugin-"));
     const dir = join(base, "a,b");

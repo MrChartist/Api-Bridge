@@ -246,7 +246,9 @@ The owner lists it in `bridge.config.json`:
 
 - `mc-bridge sources plugins pin <folder>` prints the **pin**: the sha256 of a fixed header and the digests of the manifest
   file and the entry file. It also prints what the owner is granting (hosts, capabilities, limits, terms) to review.
-- A plugin loads only if `granted` is exactly `true`, the files match the pin, the manifest and descriptor are valid, the
+- A plugin loads only if `granted` is exactly `true`, the files match the pin, the folder holds **no symbolic link at any
+  depth** (the pin covers two files, so a link could point at something nobody reviewed, such as the Bridge's data folder),
+  the manifest and descriptor are valid, the
   id is unused, and `config` satisfies `configSchema`. Otherwise it is refused with the reason (shown in the logs). A
   changed file is refused until the owner updates the pin.
 - The child process re-checks the entry bytes against the pin and imports exactly those bytes, so a file changed after the
@@ -372,9 +374,9 @@ refuses `Cookie`, `Host`, hop-by-hop and `Proxy-*` headers from the plugin. Only
 7. **Brokered network, with limits, timeouts and caps**, as above.
 
 **Node permission flags, as an extra layer.** The child is started with
-`--permission --allow-fs-read=<plugin folder> --allow-fs-read=<runner> --max-old-space-size=128 --disallow-code-generation-from-strings
+`--permission --allow-fs-read=<entry file> --allow-fs-read=<runner> --max-old-space-size=128 --disallow-code-generation-from-strings
 --no-experimental-fetch --no-experimental-websocket` and no other `--allow-*` flag: it cannot write files, start processes,
-create worker threads, load native addons or run WASI, it can read only its own folder, `eval` is off, and the built-in
+create worker threads, load native addons or run WASI, it can read only its own entry file (not the folder, so not its manifest or fixtures either), `eval` is off, and the built-in
 `fetch` and WebSocket are not defined. On Node versions before 22.13 the older `--experimental-permission` flag is used.
 
 **What this does not stop.** Node's own documentation calls the permission model a *seat belt* for trusted code, not a
@@ -386,7 +388,7 @@ security boundary against malicious code. The honest limits:
   the Bridge's API, and an admin route needs one, but a malicious plugin can still talk to local services or send data it can
   see (its own folder, its config, its API key, market data) to the internet.
 - The plugin runs with **your user's privileges** apart from the file-system flags. File descriptors that already exist
-  are not covered, symbolic links are followed, and a bug in Node or V8 can defeat the flags.
+  are not covered, and a bug in Node or V8 can defeat the flags.
 - Memory and CPU are only loosely bounded: `--max-old-space-size` limits the JS heap, not buffers, and a busy loop is cut off
   only by the call timeout and the heartbeat, not by a CPU quota.
 - A plugin can lie: wrong prices that are well-formed pass every shape check. The `delayed`/`unofficial` labels and the
@@ -437,7 +439,7 @@ Every item must hold for a source to be listed. "Check" is `plugins check` (the 
 | 12 | Hostile payloads (`__proto__`, `constructor`, deep nesting, `NaN` or `Infinity` strings, zero or negative prices, string volume) are rejected or sanitised | tests (`protocol.test.mjs`, `results.test.mjs`, `host.test.mjs`) |
 | 13 | A host outside the list, a redirect to one, `http://`, a private IP and a broker host are refused by the host | check (`network`); tests (`netpolicy.test.mjs`, `netbroker.test.mjs`, `host.test.mjs`) |
 | 14 | A canary secret never appears in logs, errors, the environment, argv or any message other than `init` | check (`secrets`); tests (`host.test.mjs`) |
-| 15 | No file access outside the folder (reading `/etc/hosts` or the Bridge's data folder fails with `ERR_ACCESS_DENIED`) and no process can be spawned | tests (`host.process.test.mjs`, real Node process) |
+| 15 | No file access beyond the entry file (reading `/etc/hosts`, a sibling file, a symbolic link into the Bridge's data folder, fails with `ERR_ACCESS_DENIED`), a folder with a symbolic link is refused by the loader, and no process can be spawned | tests (`host.process.test.mjs`, real Node process) |
 | 16 | A crash mid-call gives `BROKER_UNAVAILABLE` and a clean restart; more than 3 crashes in 10 minutes disables the plugin | tests (`host.test.mjs`) |
 | 17 | The same fixture twice gives the same output | check (`deterministic`) |
 | 18 | Invalid, missing and unknown config keys are refused before the process starts; defaults are applied | tests (`manifest.test.mjs`, `loader.test.mjs`) |

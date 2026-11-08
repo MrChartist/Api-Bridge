@@ -4,7 +4,7 @@
  * What the host guarantees (the boundary is the process and the broker, not the permission flags):
  *  - the child gets an EMPTY environment, the plugin folder as its working directory, and no secret except the one key the
  *    owner stored for it (sent once, in `init`, over stdin; never in argv or the environment);
- *  - Node's permission flags are added as a seat belt (file reads limited to the plugin folder and the runner; no child
+ *  - Node's permission flags are added as a seat belt (file reads limited to the entry file and the runner; no child
  *    processes, worker threads, native addons or WASI). Node 22 has no network permission flag, so the flags do not stop a
  *    plugin opening its own sockets. See docs/source-contract.md, "The sandbox and its limits";
  *  - ALL network access that goes through the host is brokered (netbroker.mjs): host allow-list, https only, size caps,
@@ -56,7 +56,10 @@ export function permissionFlagFor(version = process.versions.node) {
 export function buildNodeArgs({ pluginDir, runnerPath = RUNNER_PATH, entryPath, entrySha, nodeVersion = process.versions.node, maxOldSpaceMb = 128 }) {
   const flag = permissionFlagFor(nodeVersion);
   return [
-    ...(flag ? [flag, `--allow-fs-read=${pluginDir}`, `--allow-fs-read=${runnerPath}`] : []),
+    // Read access to the entry file and the runner ONLY, never the folder: the pin covers two files, so a folder grant would
+    // let a pinned plugin read whatever else sits in (or is linked from) the folder. The entry is imported from the bytes
+    // the runner reads once, so it needs nothing else. `pluginDir` stays in the signature as the cwd the host passes.
+    ...(flag ? [flag, `--allow-fs-read=${entryPath}`, `--allow-fs-read=${runnerPath}`] : []),
     `--max-old-space-size=${maxOldSpaceMb}`,
     "--disallow-code-generation-from-strings",
     "--no-experimental-fetch",
