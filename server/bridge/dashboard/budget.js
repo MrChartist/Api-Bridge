@@ -1,18 +1,19 @@
 // The API budget indicator in the top bar: the broker budget used this second and this minute (the fullest window
 // over every account), the live stream's state, and how many broker calls caching, the stream and shared calls saved
 // today. Fed by `budget` messages on the shared live connection (live.js), so it costs no polling. Clicking it opens
-// a short popover per account with a link to API › Rate limits.
+// a short popover per account with a link to Sources.
 // Pure helpers (budgetView, savedParts) are exported for tests; the DOM code runs only in a browser.
 
 import { h, sheetPopover } from "./app.js";
 import { DASH, formatInt } from "./format.js";
 import { countTo, patchList, setAttr, setClass, setText } from "./motion.js";
+import { LIMIT_TONES } from "./sources-core.js";
 
-/** Tone of a window by how full it is: "ok" below 70 %, "warn" to 90 %, "bad" above. */
+/** Tone of a window by how full it is, on the same scale as the Sources page: "ok" below 80 %, "warn" to 95 %, "bad" above. */
 export function shareTone(used, limit) {
   if (!(limit > 0)) return "ok";
   const s = used / limit;
-  return s >= 0.9 ? "bad" : s >= 0.7 ? "warn" : "ok";
+  return s >= LIMIT_TONES.limit ? "bad" : s >= LIMIT_TONES.headsUp ? "warn" : "ok";
 }
 
 /** "3/10" for a window, DASH when unknown (pure). */
@@ -229,7 +230,7 @@ function buildPop() {
   const savedNum = h("strong", { class: "bud-num" });
   const parts = h("div", { class: "bud-saved-parts" });
   const saved = h("div", { class: "bud-saved" }, h("div", { class: "bud-saved-head" }, h("span", {}, "Saved today"), savedNum), parts);
-  const more = h("a", { href: "#/api/limits", class: "bud-more" }, "Rate limits and top consumers");
+  const more = h("a", { href: "#/sources/overview", class: "bud-more" }, "Sources, limits and top consumers");
   const el = h("div", { class: "bud-pop" }, stream, accounts, jobs, saved, more);
   let first = true;
   return {

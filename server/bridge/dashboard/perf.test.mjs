@@ -108,7 +108,8 @@ describe("budget indicator", () => {
   });
 
   it("tones by share, orders savings, picks the chart's class", () => {
-    expect([shareTone(6, 10), shareTone(7, 10), shareTone(9, 10), shareTone(1, 0)]).toEqual(["ok", "warn", "bad", "ok"]);
+    // The same scale as the Sources page: heads up from 80 %, at the limit from 95 %.
+    expect([shareTone(7, 10), shareTone(8, 10), shareTone(9, 10), shareTone(9.5, 10), shareTone(1, 0)]).toEqual(["ok", "warn", "warn", "bad", "ok"]);
     expect(savedParts({ servedFromStream: 5, servedFromCache: 9 })[0]).toEqual(["Cache", 9]);
     expect(busiestClass({ series: { classes: { quote: [1, 0, 2], chain: [0, 5] } } })).toBe("chain");
     expect(busiestClass({ classes: { quote: { callsToday: 0 }, chain: { callsToday: 0 } } })).toBe("quote");
