@@ -14,7 +14,7 @@
  *    is the most current class first, then registration order. Replace it with setPicker() or deps.pickSources.
  *  - Enabling needs the source to be configured (a BYOK key in the secrets store under `source:<id>`), and an opt-in
  *    source needs `acknowledge` equal to its noticeVersion. Disabling is always allowed.
- *  - Every call gets { signal, now } and a timeout (config sources.timeoutMs, 5 s by default, 15 s at most).
+ *  - Every call gets { signal, now, purpose } and a timeout (config sources.timeoutMs, 5 s by default, 15 s at most).
  *  - API keys are read from the secrets store only to be handed to the source that owns them (ctx.apiKey, for sources
  *    that need a key). They are never logged, never kept in state.json and never returned; text from a source is
  *    scrubbed of the key before it is shown or logged.
@@ -314,7 +314,7 @@ export function createSourcesService(deps) {
    * Run fn(ctx) with { signal, now } under the call timeout and the caller's signal. Rejects with a BridgeError
    * UPSTREAM_TIMEOUT at the deadline even if the source ignores the signal, or with an AbortError if the caller aborted.
    */
-  async function runWithLimits(fn, { key = null, signal, deadlineMs } = {}) {
+  async function runWithLimits(fn, { key = null, signal, deadlineMs, purpose } = {}) {
     const ctrl = new AbortController();
     const limit = Math.max(50, Math.min(timeoutMs(), Number.isFinite(deadlineMs) ? deadlineMs : timeoutMs()));
     let timer;
@@ -336,7 +336,8 @@ export function createSourcesService(deps) {
       }
     });
     stop.catch(() => {});
-    const ctx = { signal: ctrl.signal, now: nowMs(), ...(key ? { apiKey: key } : {}) };
+    // `purpose` reaches the source: a plugin refuses alert, paper, risk and order reads itself, on top of the router's filter.
+    const ctx = { signal: ctrl.signal, now: nowMs(), ...(purpose ? { purpose } : {}), ...(key ? { apiKey: key } : {}) };
     try {
       return await Promise.race([Promise.resolve().then(() => fn(ctx)), stop]);
     } finally {
@@ -384,7 +385,7 @@ export function createSourcesService(deps) {
     const t0 = performance.now();
     touch(d.id);
     try {
-      const out = await runWithLimits(fn, { key, signal: opts.signal, deadlineMs: opts.deadlineMs });
+      const out = await runWithLimits(fn, { key, signal: opts.signal, deadlineMs: opts.deadlineMs, purpose: opts.purpose ?? "display" });
       recordOutcome(d.id, { ok: true, ms: Math.round(performance.now() - t0), kind: "ok" }, { toTracker: trackerRecordsCalls });
       return out;
     } catch (err) {
@@ -473,7 +474,7 @@ export function createSourcesService(deps) {
         "history",
         reqOf("history", merged, { symbols: [req?.symbol] }),
         "history",
-        opts,
+        { ...opts, purpose: merged.purpose },
         (src, ctx) => src.history({ symbol: req.symbol, interval: req.interval, fromMs: req.fromMs, toMs: req.toMs }, ctx),
         (o) => Array.isArray(o?.candles),
       );

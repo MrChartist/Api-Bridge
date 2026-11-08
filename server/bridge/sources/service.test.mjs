@@ -527,3 +527,34 @@ describe("test()", () => {
     expect(r).toMatchObject({ ok: false, detail: expect.stringMatching(/in time/) });
   });
 });
+
+describe("the read's purpose reaches the source (a plugin refuses strict purposes itself)", () => {
+  it("passes purpose in the call context for quotes, history, expiries and option chains, display when none is given", async () => {
+    const { svc, calls } = setup();
+    await enableAll(svc);
+    await svc.quotes(["NSE:A"], { purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+    await svc.quotes(["NSE:A"]);
+    expect(calls.at(-1).ctx.purpose).toBe("display");
+    await svc.history({ symbol: "NSE:A", interval: "1d", fromMs: 0, toMs: 1, purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+    await svc.expiries("NIFTY", { purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+    await svc.optionChain("NIFTY", "2026-11-10", { purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+  });
+
+  it("a plugin provider built by the loader refuses the strict purposes that context now carries", async () => {
+    const { providerFor } = await import("./plugin/loader.mjs");
+    const { checkedDescriptor, parseManifest } = await import("./plugin/manifest.mjs");
+    const { testManifest } = await import("./plugin/__fixtures__/fakeChild.mjs");
+    const m = parseManifest(testManifest()).manifest;
+    const hostCalls = [];
+    const p = providerFor(checkedDescriptor(m).descriptor, { call: async (...a) => (hostCalls.push(a), { items: [] }), status: () => ({ state: "ready", restarts: 0 }), stop: async () => {} });
+    for (const purpose of ["alert", "paper", "risk", "order"]) {
+      await expect(p.quotes(["NSE:A"], { purpose })).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
+    }
+    expect(hostCalls).toEqual([]);
+    await expect(p.quotes(["NSE:A"], { purpose: "analysis" })).resolves.toBeDefined();
+  });
+});

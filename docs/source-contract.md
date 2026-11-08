@@ -89,8 +89,9 @@ filters before it scores anything. A plugin additionally refuses those four purp
 }
 ```
 
-Implement only what the descriptor declares. `ctx` is `{ signal, now }`: `signal` aborts at the caller's deadline and
-**must** stop work and make no further requests; `now` is the Bridge clock in epoch ms.
+Implement only what the descriptor declares. `ctx` is `{ signal, now, purpose, apiKey? }`: `signal` aborts at the caller's deadline and
+**must** stop work and make no further requests; `now` is the Bridge clock in epoch ms; `purpose` is what the read is for
+(`display` when the caller said nothing); `apiKey` is present for a source that needs one.
 
 ### quotes
 
