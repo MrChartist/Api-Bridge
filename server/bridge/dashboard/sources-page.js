@@ -458,7 +458,7 @@ export async function renderOverview() {
     const list = createKeyedList(meters, {
       key: (c) => c.cls,
       create: (c) => {
-        const name = h("span", { class: "al-name" }, c.name);
+        const name = h("span", { class: "sx-class-name" }, c.name);
         const figs = h("span", { class: "sx-class-figs" });
         const word = h("span", { class: "sx-toneword" });
         const meter = createMeter({ label: `${r.name} ${c.name}` });
@@ -474,7 +474,7 @@ export async function renderOverview() {
         setText(el._parts.word, TONE_WORD[t]);
       },
     });
-    const today = h("p", { class: "al-today" });
+    const today = h("p", { class: "sx-today" });
     const head = h("header", { class: "card-head" }, brokerTile(String(r.sub).split(",")[0].toLowerCase(), r.name), h("div", { class: "card-titles" }, h("h3", { class: "sx-card-title" }, r.name), h("p", { class: "sx-card-sub" }, "")), h("div", { class: "card-actions" }, healthTag().el));
     const tag = head.querySelector(".sx-health");
     const el = h("section", { class: "card sx-budget-card" }, head, h("div", { class: "card-body stack" }, meters, today));
@@ -650,7 +650,7 @@ export async function renderOverview() {
       ...brokers.map((p) =>
         h(
           "details",
-          { class: "al-policy" },
+          { class: "sx-policy-item" },
           h("summary", {}, h("span", {}, h("strong", {}, p.brokerId), p.notes ? h("span", { class: "muted small" }, ` · ${p.notes}`) : null)),
           h(
             "div",

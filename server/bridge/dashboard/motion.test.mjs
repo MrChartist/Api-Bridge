@@ -28,7 +28,6 @@ import {
   springAt,
   springParams,
   springToLinear,
-  viewTransition,
 } from "./motion.js";
 
 const css = readFileSync(new URL("./app.css", import.meta.url), "utf8");
@@ -659,42 +658,5 @@ describe("countTo", () => {
       expect(peak).toBeLessThanOrEqual(100);
       expect(s.value).toBe(100);
     });
-  });
-});
-
-describe("viewTransition", () => {
-  it("runs the update and resolves when there is no document (the plain fallback)", async () => {
-    let ran = 0;
-    await viewTransition(() => ran++);
-    expect(ran).toBe(1);
-    await expect(viewTransition(() => Promise.reject(new Error("x")))).rejects.toThrow("x");
-  });
-
-  it("does not start a view transition with reduced motion, and clears names afterwards", async () => {
-    const had = { document: globalThis.document, matchMedia: globalThis.matchMedia };
-    let started = 0;
-    globalThis.matchMedia = (q) => ({ matches: q.includes("reduce") });
-    globalThis.document = { visibilityState: "visible", startViewTransition: () => (started++, { finished: Promise.resolve() }) };
-    let ran = 0;
-    await viewTransition(() => ran++);
-    expect(ran).toBe(1);
-    expect(started).toBe(0);
-
-    globalThis.matchMedia = () => ({ matches: false });
-    const el = { style: {} };
-    let updated = 0;
-    globalThis.document.startViewTransition = (fn) => {
-      started++;
-      expect(el.style.viewTransitionName).toBe("row");
-      return { finished: Promise.resolve(fn()).then(() => {}) };
-    };
-    await viewTransition(() => updated++, { names: [[el, "row"]] });
-    expect(started).toBe(1);
-    expect(updated).toBe(1);
-    expect(el.style.viewTransitionName).toBe("");
-    for (const [k, v] of Object.entries(had)) {
-      if (v === undefined) delete globalThis[k];
-      else globalThis[k] = v;
-    }
   });
 });

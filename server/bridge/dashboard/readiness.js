@@ -186,16 +186,6 @@ export function automationsFact(list) {
   return `${plural(live.length, "live automation")}, ${same ? `all ${phrase[live[0].state] ?? "not checked"}` : `${formatInt(live.filter((x) => x.state === "ready").length)} ready`}`;
 }
 
-/** The table's short form: { text: "2 live · cannot trade", detail: "Sample guard …, Sample webhook …" }. Pure. */
-export function automationsShort(list) {
-  const all = list ?? [];
-  const live = all.filter((x) => x.mode === "live");
-  if (!all.length) return { text: "None", detail: null };
-  if (!live.length) return { text: `${formatInt(all.length)} paper`, detail: null };
-  const blocked = live.filter((x) => x.state === "cannot_trade");
-  return { text: `${formatInt(live.length)} live · ${blocked.length ? (blocked.length === live.length ? "cannot trade" : `${formatInt(blocked.length)} cannot trade`) : live.every((x) => x.state === "ready") ? "ready" : "to check"}`, detail: (blocked.length ? blocked : live).map((x) => x.label).join("; ") || null };
-}
-
 /**
  * One row per account for the popover, the phone and tablet cards and the desktop table. Pure.
  * @returns {Array<{ id, title, sub, simulated, state: { key, text, tone }, reasons: string[], more: number,
@@ -258,13 +248,6 @@ export function scheduleLine(snapshot, now = Date.now()) {
     else if (s.inWindow === false && s.window) parts.push(`checks run ${s.window.from}–${s.window.to} IST`);
   }
   return parts.join(" · ");
-}
-
-/** { time: "10:12", text: "Main: ready → cannot trade (IP mismatch)" }. Pure. */
-export function historyParts(item, labels = {}) {
-  const st = (s) => (STATE_TEXT[s] ?? String(s ?? "")).toLowerCase();
-  const why = (item.codes ?? []).map(reasonShort).join(", ");
-  return { time: istHm(item.at), text: `${labels[item.accountId] ?? item.accountId}: ${st(item.from)} → ${st(item.to)}${why ? ` (${why})` : ""}` };
 }
 
 /** The egress settings note and copyable config snippet. Pure. */

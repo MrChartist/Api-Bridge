@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
+import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, istDay, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -49,15 +49,12 @@ describe("Excel formula per contract", () => {
 });
 
 describe("Orders in plain words", () => {
-  it("reads a contract and an order status the way traders say them", () => {
+  it("reads a contract the way traders say it", () => {
     expect(contractName("NFO:NIFTY-2026-11-03-27000-CE")).toBe("NIFTY 3 Nov 27000 CE");
     expect(contractName("BFO:SENSEX-2026-11-05-82900-PE")).toBe("SENSEX 5 Nov 82900 PE");
     expect(contractName("NFO:BANKNIFTY-2026-11-25-FUT")).toBe("BANKNIFTY 25 Nov FUT");
     expect(contractName("NSE:RELIANCE")).toBe("RELIANCE");
     expect(contractName("NFO:M&M-2026-11-25-3200.5-CE")).toBe("M&M 25 Nov 3200.5 CE");
-    expect(orderStatusText("trigger_pending").text).toBe("Waiting for trigger");
-    expect(orderStatusText("rejected").tone).toBe("bad");
-    expect(WORKING_ORDER.has("open") && !WORKING_ORDER.has("filled")).toBe(true);
   });
 
   it("Modify changes a stop-loss order's trigger, with the SL limit on the right side of it", () => {
@@ -87,15 +84,12 @@ describe("Orders in plain words", () => {
 });
 
 describe("Accounts in plain words", () => {
-  it("names capabilities and session states the way people say them", () => {
+  it("names capabilities the way people say them", () => {
     expect(capabilityLabel("placeOrder")).toBe("Place orders");
     expect(capabilityLabel("somethingNew")).toBe("somethingNew");
     expect(capabilitySummary(["ltp", "placeOrder"])).toBe("Data and orders");
     expect(capabilitySummary(["orderBook", "placeOrder"])).toBe("Orders only");
     expect(capabilitySummary(["feed"])).toBe("Data only");
-    expect(sessionText("missing")).toEqual({ text: "Not logged in", tone: "warn" });
-    expect(sessionText("expired").tone).toBe("bad");
-    expect(sessionText("connected").text).toBe("Logged in");
   });
 });
 

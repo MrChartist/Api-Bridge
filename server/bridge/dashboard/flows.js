@@ -214,16 +214,6 @@ export function contractName(symbol) {
   return m[7] ? `${m[1]} ${day} FUT` : `${m[1]} ${day} ${m[5]} ${m[6]}`;
 }
 
-/** Order states that are still working (can be modified or cancelled). */
-export const WORKING_ORDER = Object.freeze(new Set(["pending", "open", "trigger_pending", "partially_filled"]));
-
-/** The order status in plain words with its tone. */
-export function orderStatusText(status) {
-  const map = { filled: ["Filled", "ok"], rejected: ["Rejected", "bad"], cancelled: ["Cancelled", ""], expired: ["Expired", ""], open: ["Open", "warn"], pending: ["Sending", "warn"], trigger_pending: ["Waiting for trigger", "warn"], partially_filled: ["Part filled", "warn"], outcome_unknown: ["Unknown: check with the broker", "bad"] };
-  const [text, tone] = map[status] ?? [status ? `${String(status)[0].toUpperCase()}${String(status).slice(1)}` : "Unknown", "warn"];
-  return { text, tone };
-}
-
 // ── Accounts: plain words for what the API reports (pure) ──
 
 /** What an account can do, in words people use (GET /v1/accounts capabilities are API names). */
@@ -254,25 +244,4 @@ export function capabilitySummary(caps = []) {
   const data = caps.some((c) => DATA_CAPS.has(c));
   const orders = caps.includes("placeOrder");
   return data && orders ? "Data and orders" : orders ? "Orders only" : data ? "Data only" : "Account only";
-}
-
-/** A broker session's state in plain words, with its tone (GET /v1/accounts session.state). */
-export function sessionText(state) {
-  switch (state) {
-    case "connected":
-      return { text: "Logged in", tone: "ok" };
-    case "expired":
-      return { text: "Expired: log in again", tone: "bad" };
-    case "error":
-      return { text: "Login failed", tone: "bad" };
-    case "connecting":
-      return { text: "Logging in", tone: "warn" };
-    case "missing":
-    case undefined:
-    case null:
-    case "":
-      return { text: "Not logged in", tone: "warn" };
-    default:
-      return { text: `${String(state)[0].toUpperCase()}${String(state).slice(1)}`, tone: "warn" };
-  }
 }

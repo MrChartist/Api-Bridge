@@ -7,7 +7,7 @@
 // when the tab is hidden or the page goes away, and the badges (data class, official, health).
 
 import { ICONS, h, icon, iconTile } from "./app.js";
-import { classLabel, officialLabel, TONE_WORD } from "./sources-core.js";
+import { classLabel, officialLabel } from "./sources-core.js";
 import { formatInt } from "./format.js";
 
 // Icons for this page: the sources glyph (layers of data), a route (a path that splits) and a skipped step.
@@ -340,7 +340,6 @@ export function setToneGlyph(el, tone) {
   el.dataset.tone = tone;
   el.replaceChildren(icon(TONE_ICON[tone] ?? "check"));
 }
-export const toneWord = (tone) => TONE_WORD[tone] ?? TONE_WORD.calm;
 
 /** A broker's logo tile (dashboard/brokers/<id>.png) or its initials. The demo broker has no logo file. */
 export function brokerTile(broker, name) {
@@ -381,8 +380,4 @@ export function overviewSkeleton() {
     h("div", { class: "card sx-skel-hero" }, h("span", { class: "skel-title" }), h("span", { class: "skel-line" }), h("span", { class: "skel-block sx-skel-bar" }), h("span", { class: "skel-line short" })),
     h("div", { class: "list" }, row(), row(), row()),
   );
-}
-export function listSkeleton(n = 3) {
-  const row = () => h("div", { class: "sx-skel-row" }, h("span", { class: "skel-circle" }), h("span", { class: "sx-skel-lines" }, h("span", { class: "skel-line mid" }), h("span", { class: "skel-line short" })));
-  return h("div", { class: "list sx-skel", "aria-hidden": "true" }, Array.from({ length: n }, row));
 }

@@ -33,7 +33,6 @@ export const LIMIT_TONES = Object.freeze({
   dwellMs: 5000,
 });
 
-export const TONES = Object.freeze(["calm", "busy", "headsup", "limit"]);
 const RANK = Object.freeze({ calm: 0, busy: 1, headsup: 2, limit: 3 });
 export const toneRank = (t) => RANK[t] ?? 0;
 
@@ -390,7 +389,6 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
       minute: b.minute,
       day: b.day,
       counter: b.callsToday,
-      counterLabel: "calls today",
       inFlight: a.inFlight ?? 0,
       queued: a.queued ?? 0,
       terms: null,
@@ -420,7 +418,6 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
       minute: b.minute ? { used: b.minute.used, limit: b.minute.limit } : null,
       day: b.day ? { used: b.day.used, limit: b.day.limit } : null,
       counter: Number(s.usage?.today) || 0,
-      counterLabel: "calls today",
       inFlight: 0,
       queued: 0,
       terms: s.terms ?? null,

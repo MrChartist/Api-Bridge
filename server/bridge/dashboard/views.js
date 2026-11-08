@@ -164,28 +164,6 @@ function drawTabs(bar, panel, tabs, active, onPick) {
 }
 drawTabs.n = 0;
 
-/**
- * Pages that redraw on a timer would drop keyboard focus every few seconds. Run `fn` (which replaces the children of
- * `container`) and put focus back on the equivalent control if it was inside.
- */
-export function keepFocus(container, fn) {
-  const sig = focusSignature(container);
-  const r = fn();
-  restoreFocus(container, sig);
-  return r;
-}
-function focusSignature(container) {
-  const a = document.activeElement;
-  if (!a || a === document.body || !container.contains(a)) return null;
-  return { el: a, sig: `${a.tagName}|${a.id}|${a.getAttribute("aria-label") ?? ""}|${a.textContent.trim()}` };
-}
-function restoreFocus(container, saved) {
-  if (!saved || document.activeElement === saved.el) return;
-  if (saved.el.isConnected) return saved.el.focus({ preventScroll: true });
-  const same = [...container.querySelectorAll("button, a[href], input, select, textarea, [tabindex]")].find((e) => `${e.tagName}|${e.id}|${e.getAttribute("aria-label") ?? ""}|${e.textContent.trim()}` === saved.sig);
-  same?.focus({ preventScroll: true });
-}
-
 // ── Pages ──
 
 /** The Integrations tab's tools (its inner segmented control; each is also a Ctrl K destination). */

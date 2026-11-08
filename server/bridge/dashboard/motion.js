@@ -8,7 +8,7 @@
 //  - gesture logic:     project, rubber, fitVelocity, lockAxis, settleTarget, shouldDismiss (pure)
 //  - gestures:          sheetDrag (bottom sheets), swipeDismiss (toasts, rows), trackSelection (the sliding thumb)
 //  - live data:         patchList (keyed in-place patching), countTo (tabular counters), setText / setAttr / setClass,
-//                       flip (list insert / remove / reorder), viewTransition (with a plain fallback)
+//                       flip (list insert / remove / reorder)
 //  - page and chrome:   sheetIn / sheetOut, bannerIn / bannerOut, pageLeave / pageEnter / animatePage, shake, pulse
 //
 // Rules every helper follows:
@@ -758,36 +758,6 @@ countTo.settle = (el) => {
 };
 
 // ── View transitions ──
-
-/**
- * Run a DOM update inside a same-document view transition when the browser has them and motion is allowed; otherwise just
- * run it. `names` maps elements to a `view-transition-name` for the duration (cleared afterwards, so bfcache never keeps
- * one). Never rejects; resolves when the transition is over.
- * @param {() => void | Promise<void>} update
- * @param {{ type?: string, names?: Map<Element, string> | Array<[Element, string]> }} [opts]
- */
-export function viewTransition(update, { type, names = [] } = {}) {
-  const plain = () => {
-    try {
-      return Promise.resolve(update());
-    } catch (e) {
-      return Promise.reject(e);
-    }
-  };
-  if (typeof document === "undefined" || reducedMotion() || typeof document.startViewTransition !== "function" || document.visibilityState === "hidden") return plain();
-  const pairs = [...names];
-  for (const [el, name] of pairs) el.style.viewTransitionName = name;
-  const clear = () => {
-    for (const [el] of pairs) el.style.viewTransitionName = "";
-  };
-  let t;
-  try {
-    t = type ? document.startViewTransition({ update, types: [type] }) : document.startViewTransition(update);
-  } catch {
-    t = document.startViewTransition(update);
-  }
-  return t.finished.then(clear, clear);
-}
 
 // ── Sliding selection (segmented thumb, tab pill, nav indicator) ──
 
