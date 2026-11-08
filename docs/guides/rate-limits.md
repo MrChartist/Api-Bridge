@@ -150,6 +150,11 @@ through the account they belong to from its own registered IP; where a broker ne
 account needs one; and you can turn it off at any time. Consent is refused for accounts of different holders, unknown
 accounts, paper accounts and brokers marked `not-allowed`. Accepting and revoking are written to the audit log.
 
+The consent is one record for the whole Bridge. An admin key **limited to some accounts** can only change its own part of it:
+accepting adds the accounts it names to the record (the others stay), and revoking removes only the accounts it may use and
+deletes the record only when none are left. An unrestricted admin key (or this computer's control token) replaces or removes
+the whole record. A limited key is never shown the other accounts.
+
 **Paid data plans.** Some brokers charge for live data: Zerodha (Connect, Rs 500 a month per app), Dhan (Data API,
 Rs 499 plus tax a month) and Groww (paid plan, Rs 499 plus tax a month). A pooled account without the plan cannot
 serve live reads, and every pooled account needs its own plan. The policy table records this as `dataEntitlement`

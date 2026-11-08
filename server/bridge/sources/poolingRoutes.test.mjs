@@ -22,11 +22,13 @@ const KEYS = {
   mcb_admin000001_dddddddddddddddddddd: { id: "admin000001", label: "admin", scopes: ["admin"], accounts: "*" },
   mcb_adminone001_eeeeeeeeeeeeeeeeeeee: { id: "adminone001", label: "admin-one-account", scopes: ["admin"], accounts: ["dhan-main"] },
   mcb_readone0001_ffffffffffffffffffff: { id: "readone0001", label: "read-one-account", scopes: ["read"], accounts: ["dhan-main"] },
+  mcb_adminzer001_gggggggggggggggggggg: { id: "adminzer001", label: "admin-zerodha-only", scopes: ["admin"], accounts: ["zerodha-main"] },
 };
 const READ = "mcb_read0000001_aaaaaaaaaaaaaaaaaaaa";
 const ADMIN = "mcb_admin000001_dddddddddddddddddddd";
 const ADMIN_ONE = "mcb_adminone001_eeeeeeeeeeeeeeeeeeee";
 const READ_ONE = "mcb_readone0001_ffffffffffffffffffff";
+const ADMIN_ZERODHA = "mcb_adminzer001_gggggggggggggggggggg";
 const ACK = POOLING_NOTICE_VERSION;
 const OPT = { pooling: true, poolingWhenTermsUnknown: true };
 
@@ -249,5 +251,76 @@ describe("DELETE /v1/pooling/consent", () => {
     expect(r.status).toBe(200);
     expect(r.json.data.revoked).toBe(false);
     expect(audit.length).toBe(before);
+  });
+});
+
+describe("a key limited to some accounts changes only its own part of the one shared consent", () => {
+  const del = (key = ADMIN) => call("DELETE", "/v1/pooling/consent", { key });
+  const stored = async () => (await call("GET", "/v1/pooling", { key: READ })).json.data.consent;
+  const pooled = () => Object.fromEntries(mgr.list().map((a) => [a.id, a.pooling]));
+
+  it("revoke by a key limited to one account removes only that account, and leaves the rest of the consent alone", async () => {
+    await del();
+    expect((await put(["dhan-main", "zerodha-main"])).status).toBe(200);
+    const r = await del(ADMIN_ONE); // may use dhan-main only
+    expect(r.status).toBe(200);
+    expect(r.json.data.revoked).toBe(true);
+    // What the restricted key sees: nothing of the other account, and not its id either.
+    expect(JSON.stringify(r.json.data.consent)).not.toMatch(/zerodha-main/);
+    expect(JSON.stringify(r.json.data.groups)).not.toMatch(/zerodha-main/);
+    // The shared record still covers the other account, and pooling continues for it.
+    expect((await stored()).accounts).toEqual(["zerodha-main"]);
+    expect(pooled()).toMatchObject({ "dhan-main": false, "zerodha-main": true });
+    expect(audit.at(-1)).toMatchObject({ type: "pooling.consent_revoked", actor: { id: "adminone001" }, data: { accounts: ["dhan-main"] } });
+  });
+
+  it("revoke by a key with none of the consented accounts changes nothing and is not audited", async () => {
+    const before = audit.length;
+    const r = await del(ADMIN_ONE);
+    expect(r.status).toBe(200);
+    expect(r.json.data.revoked).toBe(false);
+    expect((await stored()).accounts).toEqual(["zerodha-main"]);
+    expect(audit.length).toBe(before);
+  });
+
+  it("the record is deleted only when no account is left", async () => {
+    const r = await del(ADMIN_ZERODHA);
+    expect(r.json.data.revoked).toBe(true);
+    expect(await stored()).toBeNull();
+    expect(Object.values(pooled()).every((x) => x === false)).toBe(true);
+  });
+
+  it("accept by a restricted key adds its account and keeps the others (it does not replace the record)", async () => {
+    await del();
+    expect((await put(["dhan-main"])).status).toBe(200);
+    const r = await put(["zerodha-main"], {}, ADMIN_ZERODHA);
+    expect(r.status).toBe(200);
+    expect([...(await stored()).accounts].sort()).toEqual(["dhan-main", "zerodha-main"]);
+    expect(JSON.stringify(r.json.data.consent)).not.toMatch(/dhan-main/); // not shown to this key
+    expect(pooled()).toMatchObject({ "dhan-main": true, "zerodha-main": true });
+    expect(audit.at(-1)).toMatchObject({ type: "pooling.consent_accepted", actor: { id: "adminzer001" }, data: { added: ["zerodha-main"] } });
+    // Adding what is already there is harmless.
+    expect((await put(["dhan-main"], {}, ADMIN_ONE)).status).toBe(200);
+    expect([...(await stored()).accounts].sort()).toEqual(["dhan-main", "zerodha-main"]);
+  });
+
+  it("accept by a restricted key cannot mix in another holder, and the refusal does not name the other holder or accounts", async () => {
+    await del();
+    expect((await put(["zerodha-spouse"])).status).toBe(200);
+    const r = await put(["dhan-main"], {}, ADMIN_ONE);
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.json)).not.toMatch(/spouse|zerodha-spouse/);
+    expect((await stored()).accounts).toEqual(["zerodha-spouse"]); // untouched
+  });
+
+  it("an unrestricted key still replaces and deletes the whole record", async () => {
+    await del();
+    await put(["dhan-main", "zerodha-main"]);
+    expect((await put(["dhan-main"])).status).toBe(200);
+    expect((await stored()).accounts).toEqual(["dhan-main"]);
+    const r = await del();
+    expect(r.json.data).toMatchObject({ revoked: true, consent: null });
+    expect(await stored()).toBeNull();
+    expect(audit.at(-1)).toMatchObject({ type: "pooling.consent_revoked", data: {} });
   });
 });

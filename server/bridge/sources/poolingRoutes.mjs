@@ -8,6 +8,11 @@
  * The sources module calls `registerPoolingRoutes(app, deps)` when this file exists. Every answer is { data, meta }
  * and carries no credential. Accepting and revoking are audited (pooling.consent_accepted / pooling.consent_revoked)
  * with ids only. A key limited to some accounts sees only those accounts, and may only consent for accounts it may use.
+ *
+ * The consent is ONE record for the whole Bridge, so a key limited to some accounts may only change its own part of it:
+ * accepting ADDS its accounts to the existing consent (an unrestricted key or this computer's control token replaces the
+ * whole record), and revoking removes only the accounts it may use, deleting the record only when none are left. Without
+ * this, a key limited to one account could switch pooling off for, or reset the list of, accounts it has no access to.
  */
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
@@ -66,15 +71,18 @@ export function createPoolingRoutes(deps, service) {
       if (Array.isArray(body.accounts) && body.accounts.every((a) => typeof a === "string") && !ctx.canAccessAccounts(body.accounts)) {
         throw new BridgeError("ACCOUNT_FORBIDDEN", "This key may not use every account named here, so it cannot give pooling consent for them.");
       }
-      const record = await service.acceptConsent({ acknowledge: body.acknowledge, accounts: body.accounts });
-      await audit(deps, ctx, "pooling.consent_accepted", { version: record.version, accounts: [...record.accounts] });
+      const unrestricted = ctx.canAccessAccounts("*");
+      const record = await service.acceptConsent({ acknowledge: body.acknowledge, accounts: body.accounts }, { merge: !unrestricted });
+      await audit(deps, ctx, "pooling.consent_accepted", { version: record.version, accounts: [...record.accounts], ...(unrestricted ? {} : { added: Array.isArray(body.accounts) ? body.accounts.slice(0, 20) : [] }) });
       return { data: visibleStatus(ctx, service.status()), meta: meta(ctx) };
     },
 
     /** DELETE /v1/pooling/consent */
     async revoke(ctx) {
-      const { revoked } = await service.revokeConsent();
-      if (revoked) await audit(deps, ctx, "pooling.consent_revoked", {});
+      const unrestricted = ctx.canAccessAccounts("*");
+      const mine = Array.isArray(ctx.key?.accounts) ? ctx.key.accounts : [];
+      const { revoked, removed } = await service.revokeConsent(unrestricted ? {} : { accounts: mine });
+      if (revoked) await audit(deps, ctx, "pooling.consent_revoked", unrestricted ? {} : { accounts: removed ?? [] });
       return { data: { revoked, ...visibleStatus(ctx, service.status()) }, meta: meta(ctx) };
     },
   };
