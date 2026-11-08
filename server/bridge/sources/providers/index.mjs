@@ -12,6 +12,7 @@
 import { createAlphaVantageProvider } from "./alphavantage.mjs";
 import { createTwelveDataProvider } from "./twelvedata.mjs";
 import { createYahooProvider } from "./yahoo.mjs";
+import { secretNameFor } from "../service.mjs";
 
 export { createAlphaVantageProvider, createTwelveDataProvider, createYahooProvider };
 export { toYahooSymbol, YAHOO_INDEX_TABLE, YAHOO_INTERVALS } from "./yahoo.mjs";
@@ -33,4 +34,24 @@ export function createBuiltinProviders({ fetch: fetchImpl = globalThis.fetch, ge
     createAlphaVantageProvider({ ...common, apiKey: keyFor("alphavantage") }),
     createTwelveDataProvider({ ...common, apiKey: keyFor("twelvedata") }),
   ];
+}
+
+/**
+ * Registers the built-in providers on a registry. Called by the sources module at start-up (see builtin.mjs).
+ * The key of a bring-your-own-key provider is read from the secrets store on every request, under the same name the
+ * settings route saves it to, so saving or removing a key takes effect at once and nothing keeps a copy.
+ * @param {{ register(p: object): unknown }} registry
+ * @param {{ secrets?: { get(name: string): Promise<{ apiKey?: string } | null> }, clock?: object, fetch?: typeof fetch }} [deps]
+ */
+export function registerProviders(registry, deps = {}) {
+  const getSecret = async (id) => {
+    try {
+      const v = deps.secrets ? await deps.secrets.get(secretNameFor(id)) : null;
+      return v && typeof v.apiKey === "string" && v.apiKey ? v.apiKey : null;
+    } catch {
+      return null;
+    }
+  };
+  for (const provider of createBuiltinProviders({ fetch: deps.fetch, getSecret, clock: deps.clock })) registry.register(provider);
+  return registry;
 }
