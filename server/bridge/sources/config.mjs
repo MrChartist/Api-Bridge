@@ -5,7 +5,7 @@
  *     "autoFallback": false,                       // reads no broker can answer may fall back to an enabled source
  *     "timeoutMs": 5000,                           // per call to a source (100 to 15000)
  *     "providers": { "<source id>": { "enabled": false } },   // false keeps a source off whatever the dashboard says
- *     "plugins": [{ "path": "plugins/x/source.mjs", "sha256": "<64 hex>", "granted": true }]
+ *     "plugins": [{ "path": "plugins/x", "sha256": "<64 hex>", "granted": true, "config": { } }]   // config: the plugin's own settings
  *   }
  *
  * Entries under providers and plugins keep unknown keys, so a provider or plugin can read its own settings.
@@ -32,6 +32,8 @@ export const sourcesConfigSchema = z
             path: z.string().min(1).max(512),
             sha256: z.string().regex(/^[0-9a-f]{64}$/, "sha256 is 64 lowercase hex characters"),
             granted: z.boolean().default(false),
+            // The plugin's own settings; the plugin's manifest says which keys it takes (never a secret: keys go in the secrets store).
+            config: z.record(z.string(), z.unknown()).optional(),
           })
           .passthrough(),
       )

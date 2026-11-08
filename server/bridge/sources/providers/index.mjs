@@ -52,6 +52,18 @@ export function registerProviders(registry, deps = {}) {
       return null;
     }
   };
-  for (const provider of createBuiltinProviders({ fetch: deps.fetch, getSecret, clock: deps.clock })) registry.register(provider);
+  // `deps` may be the scoped view a service factory gets, which throws on a name the contract did not declare (fetch is
+  // only an injection point for tests): read it defensively.
+  const optional = (name) => {
+    try {
+      return deps[name];
+    } catch {
+      return undefined;
+    }
+  };
+  // The core clock only has now(); the providers need a clock that can also wait, so only a clock that can is passed.
+  const clock = optional("clock");
+  const timed = clock && typeof clock.sleep === "function" ? clock : undefined;
+  for (const provider of createBuiltinProviders({ fetch: optional("fetch"), getSecret, clock: timed })) registry.register(provider);
   return registry;
 }
