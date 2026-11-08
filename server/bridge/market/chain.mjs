@@ -8,13 +8,13 @@
  * percent; theta per calendar day; vega per one vol point. Every leg says where its Greeks came from (greeksSource).
  * That is the legacy model (`ivModel=legacy-bs-spot`, still the default until 2027-05-01).
  *
- * `ivModel=b76-forward` prices every leg through dashboard/pricing.js, the same
+ * `ivModel=b76-forward` prices every leg through calc/pricing.js, the same
  * code the dashboard runs: Black-76 on the 5-strike parity forward, mid prices, the vol-time clock for σ√T and calendar
  * time for interest. Theta is per trading-day unit. The broker's own IV, if it sent one, is kept as `brokerIv`.
  */
 import { computeIVAndGreeks, daysBetween } from "../../lib/blackScholes.mjs";
 import { formatSymbol } from "../core/symbolFormat.mjs";
-import { greeks76, legIv, parityForward, volTime } from "../dashboard/pricing.js";
+import { greeks76, legIv, parityForward, volTime } from "../calc/pricing.js";
 import { GREEK_KEYS, chainLegFields, legLacksGreeks, stripGreeks } from "./normalise.mjs";
 
 /** BSE index underlyings trade on BFO; everything else defaults to NFO. */

@@ -1,7 +1,7 @@
 /**
  * /v1/optionchain ivModel: the legacy default is byte-for-byte the
  * output before this change (fixture generated from the p1-integration base with the same helpers); b76-forward
- * reprices every leg through dashboard/pricing.js, keeps the broker's IV as brokerIv and adds `pricing`; the
+ * reprices every leg through calc/pricing.js, keeps the broker's IV as brokerIv and adds `pricing`; the
  * Deprecation and Link headers appear only when the legacy model was the implicit default; config flips the default.
  */
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
-import { atmIvAt, greeks76, parityForward, smilePoints, volTime } from "../dashboard/pricing.js";
+import { atmIvAt, greeks76, parityForward, smilePoints, volTime } from "../calc/pricing.js";
 import { pricingContext } from "../vol/context.mjs";
 import { applyB76 } from "./chain.mjs";
 import { buildMarket } from "./__fixtures__/helpers.mjs";

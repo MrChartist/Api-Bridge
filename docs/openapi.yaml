@@ -1738,7 +1738,7 @@ paths:
       operationId: paperBasketMargin
       summary: Margin of a basket against the paper book (approximate, nothing is placed)
       description: >-
-        Portfolio model (server/bridge/dashboard/span-margin.js): approximate, not the exchange's SPAN. Per underlying, a
+        Portfolio model (server/bridge/calc/span-margin.js): approximate, not the exchange's SPAN. Per underlying, a
         16-scenario price and volatility scan, plus exposure margin, a calendar charge across expiries and expiry-day ELM.
         Without an underlying price the legs fall back to the simple per-leg model and are listed in `fallback`.
       x-stream: S8

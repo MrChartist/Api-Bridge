@@ -36,7 +36,7 @@ import { issueOrderGate } from "../../brokers/orderGate.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError, ERROR_CODES, fromBrokerError } from "../core/errors.mjs";
 import { isAutomatedContext } from "../core/context.mjs";
-import { deliveryMarginOf, expiryDay, moneynessOf, obligationOf } from "../dashboard/expiry-costs.js";
+import { deliveryMarginOf, expiryDay, moneynessOf, obligationOf } from "../calc/expiry-costs.js";
 import { strikeStepOf } from "../market/chain.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
 import { ordersConfig } from "./config.mjs";
