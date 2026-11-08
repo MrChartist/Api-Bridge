@@ -2,7 +2,7 @@
 // except small conveniences in localStorage (theme, density, the last tab of each page).
 import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
 import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
-import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
 import "./sources-ui.js";
@@ -106,6 +106,7 @@ export function segmented(label, options, initial = options[0][0]) {
     pick(buttons[(i + step + buttons.length) % buttons.length].dataset.value, true);
   });
   el.append(thumb, ...buttons);
+  edgeFades(el);
   Object.defineProperty(el, "value", { get: () => value, set: (v) => pick(String(v), false) });
   pick(initial, false);
   return el;
@@ -164,28 +165,6 @@ function drawTabs(bar, panel, tabs, active, onPick) {
 }
 drawTabs.n = 0;
 
-/**
- * Pages that redraw on a timer would drop keyboard focus every few seconds. Run `fn` (which replaces the children of
- * `container`) and put focus back on the equivalent control if it was inside.
- */
-export function keepFocus(container, fn) {
-  const sig = focusSignature(container);
-  const r = fn();
-  restoreFocus(container, sig);
-  return r;
-}
-function focusSignature(container) {
-  const a = document.activeElement;
-  if (!a || a === document.body || !container.contains(a)) return null;
-  return { el: a, sig: `${a.tagName}|${a.id}|${a.getAttribute("aria-label") ?? ""}|${a.textContent.trim()}` };
-}
-function restoreFocus(container, saved) {
-  if (!saved || document.activeElement === saved.el) return;
-  if (saved.el.isConnected) return saved.el.focus({ preventScroll: true });
-  const same = [...container.querySelectorAll("button, a[href], input, select, textarea, [tabindex]")].find((e) => `${e.tagName}|${e.id}|${e.getAttribute("aria-label") ?? ""}|${e.textContent.trim()}` === saved.sig);
-  same?.focus({ preventScroll: true });
-}
-
 // ── Pages ──
 
 /** The Integrations tab's tools (its inner segmented control; each is also a Ctrl K destination). */
@@ -217,7 +196,7 @@ export const PAGES = [
     defaultTab: "overview",
     tabs: [
       {
-        id: "overview", label: "Overview", page: "sources", sub: "How much room your brokers and sources have, what is using it, and why a request went where it did", command: "Sources and rate limits", icon: "sources", tint: "teal", keywords: "sources limits rate limits budget usage room health forecast throttle pooled requests recent", render: renderSourcesOverview,
+        id: "overview", label: "Overview", page: "sources", sub: "How much room your brokers and sources have, and why requests go where they do", command: "Sources and rate limits", icon: "sources", tint: "teal", keywords: "sources limits rate limits budget usage room health forecast throttle pooled requests recent", render: renderSourcesOverview,
         extras: [{ id: "trace", label: "Why this source?", route: "sources/overview?trace=1", keywords: "route trace explain source why which broker answered", sub: "Sources › Overview › Route trace" }],
       },
       { id: "providers", label: "Providers", page: "providers", sub: "Your brokers and the free and key-based sources you can turn on", command: "Data providers", icon: "sources", tint: "teal", keywords: "providers free sources key yahoo delayed pooling brokers terms notice switch", render: renderSourcesProviders },
@@ -297,6 +276,8 @@ export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {})
   }
   const [pageId, tabId] = path.split("/");
   const page = pages.find((p) => p.id === pageId) ?? pages[0];
+  // A page that does not exist shows the first page under its own address, not under the stale one.
+  if (pageId && !pages.some((p) => p.id === pageId)) redirect = `#/${pages[0].id}`;
   let tab = null;
   if (page.tabs?.length) {
     const find = (id) => (id ? page.tabs.find((t) => t.id === id) : undefined);
@@ -665,11 +646,10 @@ async function show(opts) {
   if (!reload) beginNavigation(route.view);
   redrawnFor = reload ? seq : 0;
   // A tabbed page: the tab strip is the first row of the page; only the chosen tab renders (and refreshes).
-  const tabs = tab ? pageTabs(page, tab, root) : null;
-  if (!tabs) {
-    root.removeAttribute("role");
-    root.setAttribute("aria-labelledby", "page-title");
-  }
+  const tabs = tab ? pageTabs(page, tab) : null;
+  // #content names itself by the page; the tab panel is the part below the tab strip (pageTabs), never the strip's own parent.
+  root.removeAttribute("role");
+  root.setAttribute("aria-labelledby", "page-title");
   root.setAttribute("aria-busy", "true");
   // Navigating (not reloading): the old page fades out in 90 ms (sub-tabs slide along X), then the new one starts.
   const way = travel(page, tab);
@@ -720,15 +700,19 @@ function revealActiveTab(bar) {
 
 /**
  * The tab strip of a tabbed page: a segmented tab list, the page's first row. Picking a tab goes
- * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. #content is its tab panel.
+ * to `#/<page>/<tab>` (the hash is the state), so back and forward walk the tabs. The tab panel is the block under the strip
+ * (kept on the returned row as `__panel`), so the tab list is not inside the panel it controls.
  */
-function pageTabs(page, tab, panel) {
+function pageTabs(page, tab) {
   // Moving between the tabs of one page keeps the strip: its buttons, its scroll position and the thumb that slides under it.
   const kept = document.getElementById(`page-tabs-${page.id}`);
   const bar = kept?.__selection && kept.parentElement?.classList.contains("page-tabs-row") ? kept : h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
+  const panel = (bar === kept && kept.parentElement?.__panel) || h("div", { class: "tab-panel", id: `page-panel-${page.id}` });
   drawTabs(bar, panel, page.tabs.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
   // A full-width row of its own (pages that lay their panels out in a wrapping row stretch every child).
-  return bar.parentElement?.classList.contains("page-tabs-row") ? bar.parentElement : h("div", { class: "page-tabs-row" }, bar);
+  const row = bar.parentElement?.classList.contains("page-tabs-row") ? bar.parentElement : h("div", { class: "page-tabs-row" }, bar);
+  row.__panel = panel;
+  return row;
 }
 
 /**
@@ -737,11 +721,13 @@ function pageTabs(page, tab, panel) {
  */
 function setPage(root, tabs, nodes) {
   const rest = [nodes].flat().filter(Boolean);
-  if (tabs && tabs.parentNode === root) {
-    while (tabs.previousSibling) tabs.previousSibling.remove();
-    while (tabs.nextSibling) tabs.nextSibling.remove();
-    root.append(...rest);
-  } else root.replaceChildren(...[tabs, ...rest].filter(Boolean));
+  if (!tabs) return root.replaceChildren(...rest);
+  const panel = tabs.__panel;
+  panel.replaceChildren(...rest);
+  if (tabs.parentNode === root) {
+    for (const c of [...root.childNodes]) if (c !== tabs && c !== panel) c.remove();
+    if (panel.parentNode !== root) root.append(panel);
+  } else root.replaceChildren(tabs, panel);
 }
 
 /** Which way a tab change travels, for the shared-axis slide: by the index of the tab among its page's tabs. */
@@ -832,7 +818,7 @@ function setupChrome() {
   const kc = shortcut("K");
   $("toolbar-actions").replaceChildren(
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", title: `Search pages and actions (${kc.label})`, "aria-keyshortcuts": kc.aria, onclick: () => openPalette() }, searchIcon()),
-    h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
+    h("button", { type: "button", class: "icon-btn", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
   );
   watchTitleCollapse();
   // The API budget indicator (budget.js), fed by the shared live connection.
@@ -1195,7 +1181,7 @@ function brokerPicker(brokers, initial, onPick) {
       picker.replaceChildren(h("div", { class: "acct-pick-empty", role: "status" }, h("p", {}, `No broker matches “${q}”.`), h("p", { class: "muted small" }, "Try its short name, like “kite” or “angel”."), clear));
     }
   };
-  const search = searchBox(`Search ${formatInt(realCount)} brokers`, "Search brokers", draw);
+  const search = searchBox(`Search ${plural(realCount, "broker")}`, "Search brokers", draw);
   // Enter in the search picks the only match (or the first), so a typed name plus Enter is enough.
   search.input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
@@ -1539,6 +1525,7 @@ function loginSheet(a, broker) {
   });
   const st = acctStatus(a);
   return modal({
+    dirty: () => !busy && [...inputs.values()].some((i) => i.value !== ""),
     title: `Log in to ${a.label}`,
     body: h(
       "div",
@@ -1660,7 +1647,7 @@ function brokerCatalog(list, ctx) {
   const count = h("p", { class: "acct-count", role: "status", "aria-live": "polite" });
   const more = h("button", { type: "button", class: "tinted acct-more-btn", "aria-expanded": "false" });
   const chips = h("div", { class: "acct-filters" });
-  const search = searchBox(`Search ${formatInt(real.length)} brokers`, "Search brokers", () => draw());
+  const search = searchBox(`Search ${plural(real.length, "broker")}`, "Search brokers", () => draw());
   const kindCount = (k) => real.filter((b) => b.authKind === k).length;
 
   // The chips are built once; picking one only moves aria-pressed, so keyboard focus stays where it is.
@@ -1700,10 +1687,10 @@ function brokerCatalog(list, ctx) {
     if (!rows.length) {
       grid.replaceChildren(emptyState("search", "No broker matches", search.input.value.trim() ? `Nothing found for “${search.input.value.trim()}”. Try its short name, like “kite” or “angel”.` : "Nothing fits these filters.", h("button", { type: "button", class: "small", onclick: reset }, "Clear search and filters")));
     }
-    count.textContent = filtered ? `${formatInt(rows.length)} of ${formatInt(real.length)} brokers` : `${formatInt(real.length)} brokers`;
+    count.textContent = filtered ? `${formatInt(rows.length)} of ${plural(real.length, "broker")}` : plural(real.length, "broker");
     const canFold = !filtered && rows.length > CATALOG_FIRST;
     more.hidden = !canFold;
-    more.textContent = state.all ? "Show fewer" : `Show all ${formatInt(rows.length)} brokers`;
+    more.textContent = state.all ? "Show fewer" : `Show all ${plural(rows.length, "broker")}`;
     more.setAttribute("aria-expanded", String(state.all));
   }
   more.addEventListener("click", () => {
@@ -1771,7 +1758,7 @@ async function renderAccounts() {
     accs.length
       ? h("div", { class: "list acct-list", role: "list", "aria-labelledby": "acct-h-accounts" }, rows)
       : h("div", { class: "card" }, emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addBtn("primary"))),
-    accs.length ? h("p", { class: "group-foot" }, `${needLogin ? `${formatInt(needLogin)} ${needLogin === 1 ? "account needs" : "accounts need"} a login. ` : ""}You can add several brokers, and several accounts for one broker. New accounts are paper only.`) : null,
+    accs.length ? h("p", { class: "group-foot" }, `${needLogin ? `${plural(needLogin, "account")} ${needLogin === 1 ? "needs" : "need"} a login. ` : ""}You can add several brokers, and several accounts for one broker. New accounts are paper only.`) : null,
   );
 
   const catalog = acctSection(
@@ -1968,7 +1955,7 @@ async function drawConsole(accounts) {
     out.replaceChildren(
       h(
         "section",
-        { class: "card ac-res", "aria-label": "Response" },
+        { class: "card", "aria-label": "Response" },
         h("header", { class: "card-head" }, iconTile(ok ? "check" : "warn", ok ? "green" : status >= 500 ? "red" : "orange"), h("div", { class: "card-titles" }, h("h2", {}, "Response")), h("div", { class: "card-actions" }, pill(`${status} ${STATUS_TEXT[status] ?? (ok ? "OK" : "Error")}`, statusTone(status)), pill(`${formatInt(ms)} ms`), pill(sizeText(size)), headers.get("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null)),
         h(
           "div",
@@ -2044,7 +2031,7 @@ async function drawConsole(accounts) {
   });
   bodyBox.addEventListener("blur", () => (freeTab = false));
   sendBtn.addEventListener("click", send);
-  const form = h("section", { class: "card ac-req", "aria-label": "Request" });
+  const form = h("section", { class: "card", "aria-label": "Request" });
   form.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.isComposing) {
       e.preventDefault();
@@ -2260,7 +2247,7 @@ async function confirmTicket(t, byId) {
   };
   const tick = setInterval(paint, 1000);
   sure?.addEventListener("change", paint);
-  const qtyLine = o.lots ? `${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}` : `${formatInt(o.quantity)} qty`;
+  const qtyLine = o.lots ? plural(o.lots, "lot") : `${formatInt(o.quantity)} qty`;
   const ok = await modal({
     title: "Confirm this order?",
     body: h(
@@ -2398,7 +2385,7 @@ async function renderSafety() {
     try {
       const d = (await api("/v1/audit/verify")).data.data ?? {};
       const at = istTime(new Date().toISOString());
-      verifyOut.replaceChildren(d.ok ? alertBox({ title: "The audit log is intact", detail: `${formatInt(d.checked)} records checked. None was changed or removed. Verified at ${at} IST.` }, "ok") : alertBox({ title: "The audit log was changed", detail: `The chain breaks at ${d.brokenAt ?? "an unknown record"}. Records after it cannot be trusted. Verified at ${at} IST.` }, "bad"));
+      verifyOut.replaceChildren(d.ok ? alertBox({ title: "The audit log is intact", detail: `${plural(d.checked, "record")} checked. None was changed or removed. Verified at ${at} IST.` }, "ok") : alertBox({ title: "The audit log was changed", detail: `The chain breaks at ${d.brokenAt ?? "an unknown record"}. Records after it cannot be trusted. Verified at ${at} IST.` }, "bad"));
     } catch (err) {
       verifyOut.replaceChildren(alertBox(err));
     } finally {
@@ -2620,7 +2607,7 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
 }
 
 async function renderKeys() {
-  const root = h("div", { class: "api-tab ak" });
+  const root = h("div", { class: "api-tab" });
   const createdBox = h("div", { class: "ak-created" });
   const cols = h("div", { class: "ak-cols" });
   root.append(createdBox, cols);
@@ -2783,7 +2770,7 @@ async function renderKeys() {
 
     const create$ = h(
       "section",
-      { class: "card ak-create" },
+      { class: "card" },
       h("header", { class: "card-head" }, iconTile("plus", "pink"), h("div", { class: "card-titles" }, h("h2", {}, "Create a key"), h("p", {}, "One key per tool, with only the access it needs. Live keys are made in the terminal."))),
       h(
         "div",
@@ -2889,7 +2876,7 @@ async function renderIntegrations() {
           h("div", { class: "ai-meta" }, h("div", { class: "ai-addr" }, h("span", { class: "ai-addr-label" }, "Your Bridge address"), h("code", {}, location.origin), copyButton(location.origin, { ariaLabel: "Copy your Bridge address", toastLabel: "Address copied", cls: "small copy" })), keyBtn ?? null),
           createdKeys[active] ? alertBox({ title: "Your new key is filled into the code below.", detail: "It is shown only on this page, and only until you leave it. Copy it now." }, "info") : null,
           active === "webhooks" ? h("div", { class: "ai-hooks" }) : null,
-          s.length ? h("div", { class: "ai-snips stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : null, s.map(snippetBlock)) : null,
+          s.length ? h("div", { class: "stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : null, s.map(snippetBlock)) : null,
         ),
       ];
       panel.replaceChildren(...parts);
@@ -2980,7 +2967,7 @@ async function webhookPanel(paperAcc, host) {
 const statusTone = (n) => (n < 300 ? "ok" : n < 500 ? "warn" : "bad");
 
 async function renderActivity() {
-  const root = h("div", { class: "api-tab aa" });
+  const root = h("div", { class: "api-tab" });
   // #/api/activity?view=audit opens the audit log (the Ctrl K "Audit log" entry).
   let view = hashParams().get("view") === "audit" ? "audit" : "requests";
   const seg = segmented("Log", [["requests", "Requests"], ["audit", "Audit log"]], view);
@@ -3085,7 +3072,7 @@ async function renderActivity() {
       busy(verifyBtn, true);
       try {
         const d = (await api("/v1/audit/verify")).data.data ?? {};
-        result.replaceChildren(d.ok ? alertBox({ title: `The chain is intact (${formatInt(d.checked)} records)`, detail: "No record was changed or removed." }, "ok") : alertBox({ title: `The chain is broken at ${d.brokenAt}`, detail: "A record was changed or removed after it was written. Keep the audit files and investigate before trusting this log." }));
+        result.replaceChildren(d.ok ? alertBox({ title: `The chain is intact (${plural(d.checked, "record")})`, detail: "No record was changed or removed." }, "ok") : alertBox({ title: `The chain is broken at ${d.brokenAt}`, detail: "A record was changed or removed after it was written. Keep the audit files and investigate before trusting this log." }));
       } catch (err) {
         result.replaceChildren(alertBox(err));
       } finally {
@@ -3102,7 +3089,7 @@ async function renderActivity() {
       listBox.replaceChildren(
         h(
           "div",
-          { class: "list aa-audit" },
+          { class: "list" },
           shown.map((x) =>
             h(
               "details",
@@ -3112,7 +3099,7 @@ async function renderActivity() {
             ),
           ),
         ),
-        h("p", { class: "aa-foot" }, `Showing ${formatInt(shown.length)} of ${formatInt(rows.length)} records.`, h("span", { class: "aa-fine" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted.")),
+        h("p", { class: "aa-foot" }, `Showing ${formatInt(shown.length)} of ${plural(rows.length, "record")}.`, h("span", { class: "aa-fine" }, "Append-only and hash-chained, one file per IST day in data/audit/. Secrets are redacted.")),
       );
     };
     search.addEventListener("input", () => ((q = search.value), drawList()));

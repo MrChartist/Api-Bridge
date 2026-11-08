@@ -108,7 +108,11 @@ export function createSourcesService(deps) {
     const o = outcomes.get(id) ?? { results: [], lastError: null };
     o.results.push({ at: nowMs(), ok, ms });
     if (o.results.length > HEALTH_KEEP) o.results.shift();
-    if (!ok) o.lastError = message ?? "failed";
+    if (!ok) {
+      o.lastError = message ?? "failed";
+      o.lastKind = kind;
+      o.lastAt = nowMs();
+    }
     outcomes.set(id, o);
     if (!toTracker) return;
     try {
@@ -119,6 +123,18 @@ export function createSourcesService(deps) {
   }
   /** A tracker's lastError ({ kind, message } or text) as the plain sentence the API shows. */
   const errorText = (e) => (e && typeof e === "object" ? (typeof e.message === "string" && e.message ? e.message : (e.kind ?? null)) : (e ?? null));
+  const ERROR_KINDS = ["auth", "rate-limit", "not-found", "hard"];
+  /**
+   * What kind of trouble the last error was: auth, rate-limit, not-found or hard, or "none" when there is none or a call
+   * has answered since (the tracker keeps the last error after a recovery, so the page must not keep scolding).
+   */
+  function errorKind(id, e) {
+    if (!e) return "none";
+    const kind = typeof e === "object" && ERROR_KINDS.includes(e.kind) ? e.kind : "hard";
+    const at = typeof e === "object" && Number.isFinite(e.at) ? e.at : null;
+    const lastOk = (outcomes.get(id)?.results ?? []).findLast((r) => r.ok)?.at ?? 0;
+    return at !== null && lastOk > at ? "none" : kind;
+  }
   /** An epoch-ms or ISO time as ISO text, or null. */
   const isoOrNull = (t) => (Number.isFinite(t) ? new Date(t).toISOString() : typeof t === "string" && t ? t : null);
   const SEVERITY = { ok: 0, degraded: 1, open: 2, disabled: 3 };
@@ -134,11 +150,11 @@ export function createSourcesService(deps) {
     }
   }
   function healthOf(id, enabled) {
-    if (!enabled) return { state: "disabled", errorRate: 0, p50Ms: null, lastError: null, nextTryAt: null };
+    if (!enabled) return { state: "disabled", errorRate: 0, p50Ms: null, lastError: null, lastErrorKind: "none", nextTryAt: null };
     let base = null;
     try {
       const h = healthTracker?.state?.(id);
-      if (h && typeof h === "object") base = { state: h.state ?? "ok", errorRate: h.errorRate ?? 0, p50Ms: h.p50Ms ?? null, lastError: errorText(h.lastError), nextTryAt: isoOrNull(h.nextTryAt) };
+      if (h && typeof h === "object") base = { state: h.state ?? "ok", errorRate: h.errorRate ?? 0, p50Ms: h.p50Ms ?? null, lastError: errorText(h.lastError), lastErrorKind: errorKind(id, h.lastError), nextTryAt: isoOrNull(h.nextTryAt) };
     } catch {
       // fall back to the local numbers
     }
@@ -147,13 +163,13 @@ export function createSourcesService(deps) {
       const recent = (o?.results ?? []).filter((r) => r.at > nowMs() - HEALTH_WINDOW_MS);
       const errorRate = recent.length ? recent.filter((r) => !r.ok).length / recent.length : 0;
       const bad = recent.length >= 3 && errorRate >= 0.5;
-      base = { state: bad ? "degraded" : "ok", errorRate: Math.round(errorRate * 1000) / 1000, p50Ms: median(recent.filter((r) => r.ok).map((r) => r.ms)), lastError: o?.lastError ?? null, nextTryAt: null };
+      base = { state: bad ? "degraded" : "ok", errorRate: Math.round(errorRate * 1000) / 1000, p50Ms: median(recent.filter((r) => r.ok).map((r) => r.ms)), lastError: o?.lastError ?? null, lastErrorKind: o?.lastError ? errorKind(id, { kind: o.lastKind, at: o.lastAt }) : "none", nextTryAt: null };
     }
     // A plugin knows what the call counters cannot (its process was restarted, or switched off after crashing): the
     // worse of the two states wins, and the plugin's own reason is shown when it decided.
     const ph = providerHealth(id);
     if (ph && ph.state !== "ok" && SEVERITY[ph.state] >= SEVERITY[base.state]) {
-      return { ...base, state: ph.state, lastError: errorText(ph.lastError) ?? base.lastError, nextTryAt: isoOrNull(ph.nextTryAt) ?? base.nextTryAt };
+      return { ...base, state: ph.state, lastError: errorText(ph.lastError) ?? base.lastError, lastErrorKind: ph.lastError ? errorKind(id, ph.lastError) : base.lastErrorKind, nextTryAt: isoOrNull(ph.nextTryAt) ?? base.nextTryAt };
     }
     return base;
   }

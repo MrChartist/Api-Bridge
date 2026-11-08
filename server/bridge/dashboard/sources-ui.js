@@ -7,7 +7,7 @@
 // when the tab is hidden or the page goes away, and the badges (data class, official, health).
 
 import { ICONS, h, icon, iconTile } from "./app.js";
-import { classLabel, officialLabel, TONE_WORD } from "./sources-core.js";
+import { classLabel, officialLabel } from "./sources-core.js";
 import { formatInt } from "./format.js";
 
 // Icons for this page: the sources glyph (layers of data), a route (a path that splits) and a skipped step.
@@ -198,6 +198,8 @@ export function createKeyedList(container, { key, create, update }) {
     sync(items, { reorder = true } = {}) {
       const want = items.map((it) => key(it));
       const wantSet = new Set(want);
+      // The first rows come in with their page (its own entrance); only rows that appear later fade in themselves.
+      const populated = nodes.size > 0;
       for (const [k, el] of [...nodes]) {
         if (!wantSet.has(k)) {
           el.remove();
@@ -211,8 +213,10 @@ export function createKeyedList(container, { key, create, update }) {
           el = create(it);
           el.dataset.key = k;
           nodes.set(k, el);
-          el.dataset.fresh = "1";
-          setTimeout(() => delete el.dataset.fresh, 400);
+          if (populated) {
+            el.dataset.fresh = "1";
+            setTimeout(() => delete el.dataset.fresh, 400);
+          }
         }
         update(el, it);
       });
@@ -315,6 +319,29 @@ export function updateClassPill(el, cls, delaySec) {
 
 export const officialBadge = (official) => h("span", { class: `chip sx-official${official ? "" : " unofficial"}`, title: official ? "A documented service from the data's owner or your own broker." : "Not an official service. It can change or stop without notice." }, officialLabel(official));
 
+/** What the labels on a source mean, said once and in place. A real disclosure: the keyboard opens it. */
+export function labelsHelp() {
+  return h(
+    "details",
+    { class: "sx-explain" },
+    h("summary", {}, "What do these labels mean?"),
+    h(
+      "dl",
+      {},
+      h("dt", {}, "Real-time"),
+      h("dd", {}, "Straight from the market, with no delay."),
+      h("dt", {}, "Delayed"),
+      h("dd", {}, "Behind the market by the time shown. Fine for charts and watchlists, never used for orders, risk checks, paper fills or alerts."),
+      h("dt", {}, "End of day"),
+      h("dd", {}, "Prices from the end of the trading day."),
+      h("dt", {}, "Official"),
+      h("dd", {}, "A documented service from the data's owner or your own broker."),
+      h("dt", {}, "Unofficial"),
+      h("dd", {}, "Not an official service. It can change or stop without notice, and its terms may limit what you may do with the data."),
+    ),
+  );
+}
+
 /** The health dot and word: a dot (never the only signal) and the word beside it. */
 export function healthTag() {
   const dot = h("span", { class: "sx-dot", "aria-hidden": "true" });
@@ -340,7 +367,6 @@ export function setToneGlyph(el, tone) {
   el.dataset.tone = tone;
   el.replaceChildren(icon(TONE_ICON[tone] ?? "check"));
 }
-export const toneWord = (tone) => TONE_WORD[tone] ?? TONE_WORD.calm;
 
 /** A broker's logo tile (dashboard/brokers/<id>.png) or its initials. The demo broker has no logo file. */
 export function brokerTile(broker, name) {
@@ -381,8 +407,4 @@ export function overviewSkeleton() {
     h("div", { class: "card sx-skel-hero" }, h("span", { class: "skel-title" }), h("span", { class: "skel-line" }), h("span", { class: "skel-block sx-skel-bar" }), h("span", { class: "skel-line short" })),
     h("div", { class: "list" }, row(), row(), row()),
   );
-}
-export function listSkeleton(n = 3) {
-  const row = () => h("div", { class: "sx-skel-row" }, h("span", { class: "skel-circle" }), h("span", { class: "sx-skel-lines" }, h("span", { class: "skel-line mid" }), h("span", { class: "skel-line short" })));
-  return h("div", { class: "list sx-skel", "aria-hidden": "true" }, Array.from({ length: n }, row));
 }

@@ -4,19 +4,22 @@
 // and test (key-based sources). Keys are sent once and never shown again.
 
 import { alertBox, api, emptyState, h, icon, iconTile, istTime, modal, optional, toast } from "./app.js";
-import { capabilityText, classAdvice, consentProblem, enableSteps, poolingModel, providerState, shortWait, tierText, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
-import { brokerTile, classPill, createKeyedList, createPoller, healthTag, officialBadge, setAttr, setData, setText, updateClassPill } from "./sources-ui.js";
-import { formatInt } from "./format.js";
+import { capabilityText, classAdvice, consentProblem, enableSteps, forgetSwitch, poolingModel, providerState, rememberSwitch, shortWait, tierChipText, withSwitches, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
+import { brokerTile, classPill, createKeyedList, createPoller, healthTag, labelsHelp, officialBadge, setAttr, setData, setText, updateClassPill } from "./sources-ui.js";
+import { formatInt, plural } from "./format.js";
 
 const isMissing = (err) => err && (err.status === 404 || err.status === 405 || err.status === 501);
 
 /** Run `fn`, putting a failure in `slot` as an alert (and returning false). */
-async function attempt(slot, fn) {
+/** Run `fn`; `asked("on")` is called first (the page can show the switch on at once) and `asked("failed")` if it did not work. */
+async function attempt(slot, fn, asked = null) {
   slot.replaceChildren();
+  asked?.("on");
   try {
     await fn();
     return true;
   } catch (err) {
+    asked?.("failed");
     slot.replaceChildren(alertBox(err));
     return false;
   }
@@ -25,7 +28,7 @@ async function attempt(slot, fn) {
 // ── The sheets ──
 
 /** The notice of an opt-in source: what you are agreeing to, and an explicit button. Resolves true once it is on. */
-export function openNoticeSheet(src) {
+export function openNoticeSheet(src, { asked = null } = {}) {
   const slot = h("div", { class: "sx-slot", role: "alert" });
   const note = src.terms?.note ?? "This source has its own terms.";
   return modal({
@@ -38,7 +41,7 @@ export function openNoticeSheet(src) {
       h("blockquote", { class: "sx-quote" }, note),
       h("p", {}, classAdvice(src.class, src.delaySec)),
       src.terms?.url ? h("a", { href: src.terms.url, target: "_blank", rel: "noopener noreferrer", class: "sx-ext" }, "Read the vendor's terms", icon("external")) : null,
-      h("p", { class: "hint" }, `Notice version ${src.noticeVersion ?? "none"}. The Bridge records that you accepted this version, and asks again if it changes.`),
+      h("p", { class: "hint" }, "The Bridge records that you accepted this notice, and asks again if it changes."),
       slot,
     ),
     buttons: [
@@ -46,7 +49,7 @@ export function openNoticeSheet(src) {
       {
         label: "I understand, turn it on",
         cls: "primary",
-        onClick: async () => ((await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, acknowledge: src.noticeVersion } }))) ? true : false),
+        onClick: async () => ((await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, acknowledge: src.noticeVersion } }), asked)) ? true : false),
       },
     ],
   });
@@ -56,7 +59,7 @@ export function openNoticeSheet(src) {
  * The key sheet: paste the key (a secure field), save it, test it, then turn the source on. The key is sent once and is
  * never shown again; afterwards the page says only "Key saved". Resolves true once the source is on.
  */
-export function openKeySheet(src, { replacing = false } = {}) {
+export function openKeySheet(src, { replacing = false, asked = null } = {}) {
   const slot = h("div", { class: "sx-slot", role: "alert" });
   const input = h("input", { type: "password", id: "sx-key", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "aria-describedby": "sx-key-hint", placeholder: "Paste your key here" });
   const show = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Show the key", "aria-pressed": "false" }, icon("eye"));
@@ -97,6 +100,7 @@ export function openKeySheet(src, { replacing = false } = {}) {
   });
 
   return modal({
+    dirty: () => phase === "enter" && input.value.trim() !== "",
     title: replacing ? `Replace the ${src.name} key` : `Add your ${src.name} key`,
     body: h(
       "div",
@@ -143,12 +147,12 @@ export function openKeySheet(src, { replacing = false } = {}) {
             // An opt-in source with a key still needs the notice: hand over to it.
             return "notice";
           }
-          return (await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, ...(src.noticeVersion ? { acknowledge: src.noticeVersion } : {}) } }))) ? "on" : false;
+          return (await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, ...(src.noticeVersion ? { acknowledge: src.noticeVersion } : {}) } }), asked)) ? "on" : false;
         },
       },
     ],
   }).then(async (v) => {
-    if (v === "notice") return openNoticeSheet({ ...src, configured: true });
+    if (v === "notice") return openNoticeSheet({ ...src, configured: true }, { asked });
     return v === "on" || v === true;
   });
 }
@@ -245,11 +249,14 @@ function confirmPoolingOff() {
   });
 }
 
+/** When a source that is on will actually be asked (it is never the first choice for real-time data). */
+const fallbackUse = (auto) => (auto === true ? "Used only when your brokers cannot answer. Automatic fallback is on." : auto === false ? "Used only when your brokers cannot answer and the request allows backup data, because automatic fallback is off." : "Used only when your brokers cannot answer.");
+
 // ── The page ──
 
 /** @returns {Promise<HTMLElement>} the Providers tab */
 export async function renderProviders() {
-  const root = h("div", { class: "sx-tab sx-providers" });
+  const root = h("div", { class: "sx-tab" });
   let sources = null;
   let sourcesErr = null;
   let autoFallback = null;
@@ -259,18 +266,34 @@ export async function renderProviders() {
   let polls = 0;
   const pending = new Set();
   const tests = new Map();
+  // A switch is shown the moment it is made (sources-core withSwitches) and the Bridge's own answer takes over when it agrees.
+  function showAs(id, enabled) {
+    rememberSwitch(id, enabled);
+    paintSources();
+  }
+  /** What a sheet tells the page the moment its "turn it on" request goes out, so the switch moves then and not when the sheet has slid away. */
+  const askedFor = (id) => (state) => {
+    if (state === "on") showAs(id, true);
+    else {
+      forgetSwitch(id);
+      paintSources();
+    }
+  };
+  /** Read the Bridge again once its one-second memory has expired, in case it still disagreed. */
+  const settle = () => setTimeout(() => root.isConnected && poller.tick(), 1300);
 
   // ── Your brokers ──
   const poolSwitch = h("input", { type: "checkbox", role: "switch", id: "pool-switch", "aria-label": "Pool my broker accounts" });
   const poolStatus = h("span", { class: "sx-pool-status" });
   const poolSub = h("p", { class: "sx-card-sub" });
   const poolBody = h("div", { class: "sx-pool-body" });
+  const poolNeed = h("p", { class: "hint sx-pool-need", id: "pool-need", hidden: true }, "Pooling needs two or more of your own accounts. ", h("a", { href: "#/accounts" }, "Add one on Accounts"), ".");
   const poolChange = h("button", { type: "button", class: "small plain", hidden: true }, "Change accounts");
   const poolCard = h(
     "section",
     { class: "card sx-pool", "aria-labelledby": "sx-pool-h" },
     h("header", { class: "card-head" }, iconTile("accounts", "indigo"), h("div", { class: "card-titles" }, h("h3", { class: "sx-card-title", id: "sx-pool-h" }, "Pool your brokers"), poolSub), h("div", { class: "card-actions sx-switch-wrap" }, poolStatus, h("label", { class: "switch" }, poolSwitch, h("i")))),
-    h("div", { class: "card-body stack" }, h("p", { class: "sx-pool-why" }, "Each broker limits how often the Bridge may ask it for prices. Pooling lets your accounts share the work, so busy tools get more room. It only ever moves reading prices between your own accounts. Orders never leave the account they belong to."), poolBody, h("div", { class: "sx-pool-acts" }, poolChange)),
+    h("div", { class: "card-body stack" }, h("p", { class: "sx-pool-why" }, "Each broker limits how often the Bridge may ask it for prices. Pooling lets your accounts share the work, so busy tools get more room. It only ever moves reading prices between your own accounts. Orders never leave the account they belong to."), poolNeed, poolBody, h("div", { class: "sx-pool-acts" }, poolChange)),
   );
   const poolWrap = h("section", { class: "group sx-group", "aria-labelledby": "sx-brokers-h" }, h("h2", { class: "group-title", id: "sx-brokers-h" }, "Your brokers"), poolCard);
 
@@ -304,6 +327,7 @@ export async function renderProviders() {
       poolBody.replaceChildren(isMissing(poolErr) ? alertBox({ title: "Pooling needs a newer Bridge", detail: "This Bridge cannot pool broker accounts yet. Everything else here still works." }, "info") : alertBox(poolErr));
       poolSwitch.disabled = true;
       poolSwitch.checked = false;
+      poolNeed.hidden = true;
       setText(poolSub, "Not available");
       setText(poolStatus, "");
       poolChange.hidden = true;
@@ -311,10 +335,17 @@ export async function renderProviders() {
     }
     poolSwitch.checked = pool.on;
     poolSwitch.disabled = !pool.on && !pool.canPool;
+    // A switch that cannot be used says why, for everyone: a line beside it and the same words for a screen reader.
+    poolNeed.hidden = !poolSwitch.disabled;
+    setAttr(poolSwitch, "aria-describedby", poolSwitch.disabled ? "pool-need" : null);
     setText(poolStatus, pool.on ? "On" : "Off");
     setData(poolCard, "on", pool.on ? "1" : "0");
-    setText(poolSub, pool.on ? `${pool.inPoolCount} accounts share their room` : pool.canPool ? "Off. Each account serves only its own calls." : "Off. Needs two or more of your accounts.");
+    setText(poolSub, pool.on ? `${plural(pool.inPoolCount, "account")} ${pool.inPoolCount === 1 ? "shares" : "share"} their room` : pool.canPool ? "Off. Each account serves only its own calls." : "Off. Needs two or more of your accounts.");
     poolChange.hidden = !pool.on;
+    // The accounts are drawn again only when they changed, so a poll never replaces what is on screen (or has focus).
+    const drawn = JSON.stringify(pool.groups);
+    if (poolBody.dataset.drawn === drawn) return;
+    poolBody.dataset.drawn = drawn;
     const nodes = [];
     if (!pool.groups.length) nodes.push(emptyState("accounts", "No broker accounts yet", "Connect two or more of your broker accounts and you can pool them here.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = "#/accounts") }, "Go to Accounts")));
     for (const g of pool.groups) {
@@ -354,6 +385,7 @@ export async function renderProviders() {
     h("h2", { class: "group-title", id: "sx-free-h" }, "Free and key-based sources"),
     h("p", { class: "sx-prov-intro" }, "Where your brokers cannot answer, or a delay is fine, these sources can. Every answer from one is labelled with how current it is, and none is ever used for orders, risk checks, paper fills or alerts."),
     fallbackRow,
+    labelsHelp(),
     grid,
     gridEmpty,
     provFoot,
@@ -363,15 +395,16 @@ export async function renderProviders() {
     const title = h("h3", { class: "sx-card-title" }, src.name);
     const cls = classPill(src.class, src.delaySec);
     const off = officialBadge(src.official);
-    const tier = h("span", { class: "chip sx-tier" }, tierText(src.tier));
+    const tier = h("span", { class: "chip" }, tierChipText(src));
     const input = h("input", { type: "checkbox", role: "switch", "aria-label": `Use ${src.name}` });
     const sw = h("label", { class: "switch" }, input, h("i"));
     const gives = h("p", { class: "sx-gives" });
     const advice = h("p", { class: "sx-advice" });
+    const use = h("p", { class: "sx-advice sx-use", hidden: true });
     const note = h("p", { class: "sx-note" });
     const link = h("a", { class: "sx-ext", target: "_blank", rel: "noopener noreferrer" }, "Read the vendor's terms", icon("external"));
     const tag = healthTag();
-    const state = h("p", { class: "sx-state", role: "status" }, tag.el, h("span", { class: "sx-state-text" }));
+    const state = h("p", { class: "sx-state" }, tag.el, h("span", { class: "sx-state-text", role: "status" }));
     const retry = h("time", { class: "sx-retry" });
     const keyBtn = h("button", { type: "button", class: "small" }, icon("keys"), "Add key");
     const testBtn = h("button", { type: "button", class: "small tinted" }, icon("bolt"), "Test");
@@ -381,15 +414,20 @@ export async function renderProviders() {
       "article",
       { class: "card sx-prov", "aria-labelledby": `sx-p-${src.id}` },
       h("header", { class: "sx-prov-head" }, iconTile("sources", "teal", "md"), h("div", { class: "sx-prov-titles" }, title, h("div", { class: "sx-prov-badges" }, cls, off, tier)), sw),
-      h("div", { class: "sx-prov-body" }, gives, advice, note, link, state, h("div", { class: "sx-prov-actions" }, keyOk, keyBtn, testBtn), testOut),
+      h("div", { class: "sx-prov-body" }, gives, advice, use, note, link, state, h("div", { class: "sx-prov-actions" }, keyOk, keyBtn, testBtn), testOut),
     );
     title.id = `sx-p-${src.id}`;
-    el._parts = { title, cls, off, tier, input, sw, gives, advice, note, link, tag, stateText: state.lastChild, retry, keyBtn, testBtn, keyOk, testOut, state };
+    el._parts = { title, cls, off, tier, input, sw, gives, advice, use, note, link, tag, stateText: state.lastChild, retry, keyBtn, testBtn, keyOk, testOut, state };
     state.append(retry);
     input.addEventListener("change", () => onToggle(el._src, input));
     keyBtn.addEventListener("click", async () => {
-      if (await openKeySheet(el._src, { replacing: el._src.configured })) toast(`${el._src.name} is on`);
+      const src = el._src;
+      if (await openKeySheet(src, { replacing: src.configured, asked: askedFor(src.id) })) {
+        showAs(src.id, true);
+        toast(`${src.name} is on`);
+      }
       await poller.tick();
+      settle();
     });
     testBtn.addEventListener("click", () => runTest(el));
     return el;
@@ -403,10 +441,13 @@ export async function renderProviders() {
     updateClassPill(p.cls, src.class, src.delaySec);
     p.off.className = `chip sx-official${src.official ? "" : " unofficial"}`;
     setText(p.off, src.official ? "Official" : "Unofficial");
-    setText(p.tier, tierText(src.tier));
+    setText(p.tier, tierChipText(src));
     p.tier.hidden = src.tier === "builtin";
     setText(p.gives, `Gives ${capabilityText(src.capabilities)}.`);
     setText(p.advice, classAdvice(src.class, src.delaySec));
+    // Turning a free source on does not mean it is asked: say when it will be.
+    p.use.hidden = !st.on;
+    setText(p.use, st.on ? fallbackUse(autoFallback) : "");
     setText(p.note, src.terms?.note ?? "");
     p.note.hidden = !src.terms?.note;
     if (src.terms?.url) {
@@ -428,6 +469,7 @@ export async function renderProviders() {
     const needsKey = Boolean(src.needsKey);
     p.keyBtn.hidden = !needsKey;
     setText(p.keyBtn.lastChild, src.configured ? "Replace key" : "Add key");
+    p.keyBtn.classList.toggle("primary", st.state === "rejected");
     p.keyOk.hidden = !(needsKey && src.configured);
     p.testBtn.hidden = !(src.configured && (src.enabled || needsKey));
     const t = tests.get(src.id);
@@ -442,36 +484,43 @@ export async function renderProviders() {
     if (pending.has(src.id)) return;
     if (!want) {
       pending.add(src.id);
-      paintSources();
+      showAs(src.id, false);
       try {
         await api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: false } });
         toast(`${src.name} is off`);
       } catch (err) {
+        forgetSwitch(src.id);
         toast(err?.message ?? "It could not be turned off", { tone: "error" });
       } finally {
         pending.delete(src.id);
       }
       await poller.tick();
+      settle();
       return;
     }
     const steps = enableSteps(src);
     let on = false;
-    if (steps.includes("key")) on = await openKeySheet(src);
-    else if (steps.includes("notice")) on = await openNoticeSheet(src);
+    if (steps.includes("key")) on = await openKeySheet(src, { asked: askedFor(src.id) });
+    else if (steps.includes("notice")) on = await openNoticeSheet(src, { asked: askedFor(src.id) });
     else {
       pending.add(src.id);
-      paintSources();
+      showAs(src.id, true);
       try {
         await api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, ...(src.noticeVersion ? { acknowledge: src.noticeVersion } : {}) } });
         on = true;
       } catch (err) {
+        forgetSwitch(src.id);
         toast(err?.message ?? "It could not be turned on", { tone: "error" });
       } finally {
         pending.delete(src.id);
       }
     }
-    if (on) toast(`${src.name} is on. Its answers are labelled ${classLabel(src.class, src.delaySec)}.`);
+    if (on) {
+      showAs(src.id, true);
+      toast(`${src.name} is on. Its answers are labelled ${classLabel(src.class, src.delaySec)}.${autoFallback === false ? " It is asked only when a request allows backup data." : ""}`);
+    } else paintSources();
     await poller.tick();
+    if (on) settle();
   }
 
   async function runTest(el) {
@@ -504,10 +553,10 @@ export async function renderProviders() {
     } else if (!free.length) {
       gridEmpty.replaceChildren(emptyState("sources", "No free sources here yet", "A source is a small read-only module. When one is installed it appears here, off, until you turn it on.", null));
     }
-    list.sync(free, { reorder: false });
+    list.sync(withSwitches(free), { reorder: false });
     if (typeof autoFallback === "boolean") {
       fallbackRow.hidden = false;
-      setText(fallbackRow, autoFallback ? "Automatic fallback is on: when your broker cannot answer, the Bridge may try these sources and labels the result." : "Automatic fallback is off: the Bridge asks these sources only when a call says it accepts delayed data.");
+      setText(fallbackRow, autoFallback ? "Automatic fallback is on: when your brokers cannot answer, the Bridge tries the sources you turned on and labels each answer." : "Automatic fallback is off, so a source you turn on is asked only when a request allows backup data. To use it whenever your brokers cannot answer, set sources.autoFallback to true in bridge.config.json.");
     } else fallbackRow.hidden = true;
     setText(provFoot, free.length ? "The Bridge does not redistribute this data. Use it for yourself only, and follow each vendor's terms." : "");
   }

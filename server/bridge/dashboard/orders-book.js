@@ -4,7 +4,7 @@
 // confirm) and hands them in; this file draws.
 import { alertBox, api, card, codeBlock, copyText, emptyState, h, icon, iconTile, istTime, modal, optional, pill, sheetPopover, skeletonCard, store, toast, writeCount } from "./app.js";
 import { contractName } from "./flows.js";
-import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped, isFigure } from "./format.js";
+import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped, isFigure, plural } from "./format.js";
 import {
   DRY_RUN_REUSE_MS,
   ORDER_FILTERS,
@@ -129,7 +129,7 @@ const sub = (...parts) => parts.filter(Boolean).join(" · ");
 
 /** The row's own time: the clock in IST, and how long ago under it. */
 function timeCell(iso) {
-  return h("div", { class: "ob-time", title: iso ?? undefined }, h("span", { class: "ob-main" }, istTime(iso)), h("span", { class: "ob-sub ob-ago" }, ago(iso) ?? ""));
+  return h("div", { class: "ob-time", title: iso ?? undefined }, h("span", { class: "ob-main" }, istTime(iso)), h("span", { class: "ob-sub" }, ago(iso) ?? ""));
 }
 
 // ── Pending confirmations ──
@@ -143,7 +143,7 @@ const declined = () => {
 };
 const decline = (id) => session.set(DECLINED, JSON.stringify([...declined(), id].slice(-50)));
 
-const lotsText = (o) => (o.lots ? `${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}` : `${formatInt(o.quantity)} qty`);
+const lotsText = (o) => (o.lots ? plural(o.lots, "lot") : `${formatInt(o.quantity)} qty`);
 
 /** One ticket: every field of the order, who prepared it, how long it has left and the Decline / Review pair. */
 function ticketCard(t, byId, { review, onDecline }) {
@@ -157,7 +157,7 @@ function ticketCard(t, byId, { review, onDecline }) {
   const marketish = o.orderType === "MARKET" || o.orderType === "SL-M";
   const fields = [
     ["Account", acc ? acc.label : (o.account ?? DASH), acc ? `${o.account} · ${acc.broker ?? ""}` : null],
-    ["Quantity", o.lots ? `${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}` : formatInt(o.quantity), null],
+    ["Quantity", o.lots ? plural(o.lots, "lot") : formatInt(o.quantity), null],
     ["Order type", orderTypeText(o.orderType) || DASH, null],
     ["Price", marketish && !isFigure(o.price) ? "At market" : money(o.price), null],
     isFigure(o.triggerPrice) ? ["Trigger price", money(o.triggerPrice), null] : null,
@@ -206,7 +206,7 @@ function ticketCard(t, byId, { review, onDecline }) {
     h(
       "footer",
       { class: "ob-ticket-acts" },
-      h("button", { type: "button", class: "quiet ob-decline", "aria-label": `Decline ${o.side === "BUY" ? "buy" : "sell"} ${contractName(o.symbol)}`, onclick: () => onDecline(t) }, "Decline"),
+      h("button", { type: "button", class: "quiet", "aria-label": `Decline ${o.side === "BUY" ? "buy" : "sell"} ${contractName(o.symbol)}`, onclick: () => onDecline(t) }, "Decline"),
       reviewBtn,
     ),
   );
@@ -219,7 +219,7 @@ function ticketCard(t, byId, { review, onDecline }) {
  * @returns {{ el: HTMLElement, update: (tickets: object[]|null, error?: object|null) => void }}
  */
 export function pendingSection({ tickets, error, byId, review, setup, retry }) {
-  const el = h("section", { class: "sec ob-pending", "aria-label": "Pending confirmations", "data-fixed": "" });
+  const el = h("section", { class: "sec", "aria-label": "Pending confirmations", "data-fixed": "" });
   const live = h("p", { class: "sr-only", role: "status", "aria-live": "polite" });
   let signature = null;
   let shown = [];
@@ -251,7 +251,8 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
         h("div", { class: "ob-tickets" }, ...shown.map((t) => ticketCard(t, byId, { review, onDecline }))),
         live,
       );
-      live.textContent = `${n} order${n === 1 ? "" : "s"} waiting for your confirmation`;
+      const said = `${plural(n, "order")} waiting for your confirmation`;
+      if (live.textContent !== said) live.textContent = said;
     });
   }
   function tick() {
@@ -508,7 +509,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
     title: cancelAllTitle(g),
     body: h(
       "div",
-      { class: "stack ca-body" },
+      { class: "stack" },
       h("p", { class: "ca-lead" }, "The unfilled part of each order is withdrawn. What already filled stays in Positions. Cancelled orders cannot be brought back from here."),
       ours
         ? h("section", { class: "ca-group" }, h("h3", { class: "ca-head" }, `Placed through the Bridge · ${formatInt(ours)}`), h("p", { class: "ob-sub" }, cancelAllBridgeLine(g)), cancelList(g.bridge, labelOf))
@@ -520,7 +521,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
             h("h3", { class: "ca-head" }, `Placed outside the Bridge · ${formatInt(theirs)}`),
             h("p", { class: "ob-sub" }, "In your broker's app or terminal, such as a stop-loss you set there. Left open unless you tick the box."),
             cancelList(g.external, labelOf),
-            h("label", { class: "check ca-also" }, also, `Also cancel ${formatInt(theirs)} order${theirs === 1 ? "" : "s"} placed outside the Bridge`),
+            h("label", { class: "check ca-also" }, also, `Also cancel ${plural(theirs, "order")} placed outside the Bridge`),
           )
         : null,
     ),
@@ -574,7 +575,7 @@ function fundCard({ a, f, v, error, open }) {
               ),
           h("dl", { class: "ob-fstats" }, stat("Realised", signedRupee(f?.realisedPnl)), stat("Unrealised", signedRupee(f?.unrealisedPnl)), stat("Open positions", formatInt(open)), v.collateral === null ? null : stat("Collateral", formatRupeeGrouped(v.collateral, 0))),
         ),
-    error ? null : h("footer", { class: "ob-fund-foot" }, h("button", { type: "button", class: "plain small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/positions") }, "Positions", icon("chevron"))),
+    error ? null : h("footer", { class: "ob-fund-foot" }, h("button", { type: "button", class: "plain small", "aria-label": `Positions of ${a.label}`, onclick: () => (location.hash = "#/api/console?endpoint=positions") }, "Positions in the console", icon("chevron"))),
   );
 }
 
@@ -589,7 +590,7 @@ export function fundsSection(accs) {
   const list = accs.filter((a) => a.broker !== "demo");
   if (!list.length) return null;
   const grid = h("div", { class: "ob-funds" }, ...list.map(() => skeletonCard(3)));
-  const el = h("section", { class: "sec ob-funds-sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it."))), grid);
+  const el = h("section", { class: "sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it."))), grid);
   Promise.all(
     list.map(async (a) => {
       const [funds, pos] = await Promise.all([optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`))]);
@@ -659,13 +660,13 @@ export async function renderTradesPage() {
       onclick: () => {
         const day = istDayOf(Date.now());
         download(`trades-${day}.csv`, tradesCsv(shown, { labelOf, chargesOf: fillCharges, timeOf: (iso) => `${istDayOf(iso)} ${istTime(iso)}` }));
-        toast(`Exported ${formatInt(shown.length)} trade${shown.length === 1 ? "" : "s"}`);
+        toast(`Exported ${plural(shown.length, "trade")}`);
       },
     },
     icon("download"),
     "Export CSV",
   );
-  const stat = (label, value, subText, tip) => h("div", { class: "card stat ob-stat" }, h("div", { class: "stat-head" }, h("span", { class: "label", title: tip }, label)), h("div", { class: "value" }, value), h("div", { class: "sub" }, subText));
+  const stat = (label, value, subText, tip) => h("div", { class: "card ob-stat" }, h("span", { class: "label", title: tip }, label), h("div", { class: "value" }, value), h("div", { class: "sub" }, subText));
   const today = () => istDayOf(Date.now());
 
   function draw() {
@@ -678,7 +679,7 @@ export async function renderTradesPage() {
     stats.replaceChildren(
       stat("Fills", formatInt(t.count), `${formatInt(buys)} buy · ${formatInt(t.count - buys)} sell`),
       stat("Turnover", formatRupeeGrouped(t.turnoverValue, 0), `Bought ${formatRupeeGrouped(t.buyValue, 0)} · Sold ${formatRupeeGrouped(t.sellValue, 0)}`),
-      stat("Charges (estimate)", priced ? `≈ ${formatRupeeGrouped(t.charges.total, 2)}` : DASH, priced ? `For ${formatInt(priced)} futures and options fill${priced === 1 ? "" : "s"}. Your broker's contract note is final.` : "Estimated for futures and options only.", "Brokerage, STT, exchange, SEBI, stamp duty and GST"),
+      stat("Charges (estimate)", priced ? `≈ ${formatRupeeGrouped(t.charges.total, 2)}` : DASH, priced ? `For ${plural(priced, "futures and options fill")}. Your broker's contract note is final.` : "Estimated for futures and options only.", "Brokerage, STT, exchange, SEBI, stamp duty and GST"),
     );
     if (!list.length) {
       body.replaceChildren(
@@ -701,7 +702,7 @@ export async function renderTradesPage() {
           return h(
             "div",
             { class: "ob-day", role: "rowgroup" },
-            h("div", { class: "ob-dayhead", role: "row" }, h("h3", { role: "cell" }, dayHeading(g.day, today())), h("span", { class: "ob-sub", role: "cell" }, `${formatInt(gt.count)} fill${gt.count === 1 ? "" : "s"} · ${formatRupeeGrouped(gt.turnoverValue, 0)} traded`)),
+            h("div", { class: "ob-dayhead", role: "row" }, h("h3", { role: "cell" }, dayHeading(g.day, today())), h("span", { class: "ob-sub", role: "cell" }, `${plural(gt.count, "fill")} · ${formatRupeeGrouped(gt.turnoverValue, 0)} traded`)),
             ...g.rows.map((r) => tradeRow(r, labelOf)),
           );
         }),

@@ -284,6 +284,8 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, 
 
   it("an unknown page is Accounts (the first page); an unknown or missing tab is the last tab used, then the default", () => {
     expect(route("#/nowhere").page.id).toBe("accounts");
+    expect(route("#/nowhere").redirect).toBe("#/accounts");
+    expect(route("").redirect).toBe(null);
     expect(route("").page.id).toBe("accounts");
     expect(route("#signin=abc").page.id).toBe("accounts");
     expect(route("#/api").tab.id).toBe("keys");

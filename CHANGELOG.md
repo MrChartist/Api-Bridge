@@ -41,6 +41,10 @@
     matching acknowledgement is treated as off and logged at start.
   - CLI: `sources set-key` rejects a key typed after the id, and `--key` on the command line prints a warning.
   - Tests: the global `fetch` is guarded in the test run, so no test can reach a real host.
+- `GET /v1/sources` rows carry `health.lastErrorKind` (`none`, `auth`, `rate-limit`, `not-found`, `hard`) so a refused key or a
+  vendor limit is not shown as working, and the response `meta` carries `autoFallback`. The Sources page says when a free
+  source on will actually be asked, switches show their new state at once, and the dashboard's counted words, motion, touch
+  targets and sheets were tidied across pages.
 
 ## 2.0.0
 

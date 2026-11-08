@@ -1,6 +1,6 @@
 // Orders and trade book: filters, counts and totals (pure: no DOM, no fetch, no clock).
 import { contractName } from "./flows.js";
-import { formatInt } from "./format.js";
+import { formatInt, plural } from "./format.js";
 
 /** The status filter's choices, in order. */
 export const ORDER_FILTERS = Object.freeze([
@@ -105,9 +105,9 @@ export function cancelAllButton(pageOpen, groups) {
 /** Cancel all's question: the Bridge's open orders, or (none of those) the ones placed outside it, to tick. */
 export function cancelAllTitle(g) {
   const n = g.bridge.length;
-  if (n) return `Cancel ${formatInt(n)} open order${n === 1 ? "" : "s"}?`;
+  if (n) return `Cancel ${plural(n, "open order")}?`;
   const m = g.external.length;
-  return `${formatInt(m)} open order${m === 1 ? "" : "s"} placed outside the Bridge`;
+  return `${plural(m, "open order")} placed outside the Bridge`;
 }
 
 /**
@@ -124,7 +124,7 @@ export function cancelAllBody(includeExternal = false) {
   return { bridgeOnly: includeExternal !== true };
 }
 
-const ordersWord = (n) => `${formatInt(n)} order${n === 1 ? "" : "s"}`;
+const ordersWord = (n) => plural(n, "order");
 
 /** What Cancel all did, in each group, in one line: { text, tone }. */
 export function cancelAllReport(d) {

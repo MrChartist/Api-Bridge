@@ -243,6 +243,15 @@ describe("rows from the Bridge's answers", () => {
     expect(r.map((x) => x.key)).toEqual(["acct:dhan-main", "acct:zerodha-main", "src:demo", "src:demo-delayed"]);
   });
 
+  it("names an account by its label, and takes its data class from the descriptor when the Bridge lists one", () => {
+    const r = C.buildRows({ sources: F.sources(), usage: F.usage(), labels: { "dhan-main": "Dhan (main)" } });
+    expect(r[0].name).toBe("Dhan (main)");
+    expect(r[1].name).toBe("zerodha-main");
+    expect(r[0]).toMatchObject({ cls: "realtime", official: true, delaySec: 0 });
+    const delayed = C.buildRows({ sources: [{ id: "dhan-main", kind: "broker", class: "delayed", delaySec: 900, official: false }], usage: F.usage() });
+    expect(delayed[0]).toMatchObject({ cls: "delayed", official: false, delaySec: 900 });
+  });
+
   it("can include the sources that are off", () => {
     const r = C.buildRows({ sources: F.sources(), usage: null, onlyEnabled: false });
     expect(r.map((x) => x.id)).toEqual(["demo", "demo-delayed", "demo-eod", "yahoo", "ext-plugin"]);
@@ -285,6 +294,10 @@ describe("health in words", () => {
     expect(C.sourceHealth(F.source({ enabled: false, needsKey: true, configured: false }))).toMatchObject({ state: "setup", word: "Needs a key" });
     expect(C.sourceHealth(F.source({ enabled: true, needsKey: true, configured: false }))).toMatchObject({ state: "setup", tone: "warn" });
     expect(C.sourceHealth(F.source({ enabled: true }))).toMatchObject({ state: "working", tone: "ok" });
+    // The Bridge never trips a source on a refused key or a vendor limit: the kind of the last error says so.
+    expect(C.sourceHealth(F.source({ enabled: true, needsKey: true, configured: true, health: { state: "ok", lastError: "HTTP 401", lastErrorKind: "auth" } }))).toMatchObject({ state: "rejected", tone: "warn", word: "Key rejected" });
+    expect(C.sourceHealth(F.source({ enabled: true, health: { state: "ok", lastError: "HTTP 429", lastErrorKind: "rate-limit" } }))).toMatchObject({ state: "limited", tone: "warn" });
+    expect(C.sourceHealth(F.source({ enabled: true, health: { state: "ok", lastError: "old", lastErrorKind: "none" } }))).toMatchObject({ state: "working" });
     const slow = C.sourceHealth(F.source({ enabled: true, health: { state: "degraded", lastError: "HTTP 503" } }));
     expect(slow).toMatchObject({ state: "slow", word: "Slow" });
     expect(slow.detail).toMatch(/Last error: HTTP 503\./);
@@ -407,6 +420,8 @@ describe("forecast sentence and attention", () => {
     expect(s.tone).toBe("warn");
     expect(s.text).toMatch(/^At this pace the Dhan quotes budget runs out in about 15 seconds\.$/);
     expect(C.forecastSentence([]).text).toBe("At this pace: stays calm.");
+    expect(C.forecastSentence([], "headsup").text).not.toMatch(/calm/);
+    expect(C.forecastSentence([], "headsup").tone).toBe("warn");
   });
 
   it("the banner says where calls go next and that orders are safe", () => {
@@ -415,7 +430,7 @@ describe("forecast sentence and attention", () => {
     expect(worst.id).toBe("dhan-main");
     const t = C.attentionText(worst, rows);
     expect(t.tone).toBe("warn");
-    expect(t.title).toMatch(/^dhan-main: quotes will be full in about/);
+    expect(t.title).toMatch(/^dhan-main: the quotes budget will be full in about/);
     expect(t.detail).toBe("New quote calls will go to zerodha-main first. Orders are not affected.");
   });
 
@@ -487,7 +502,7 @@ describe("recent requests and trace", () => {
       ["Yahoo", "skipped", "skip", "Not used"],
       ["Yahoo (off)", "skipped", "skip", "Not used"],
     ]);
-    expect(m.steps[0].spare).toBe("530 calls of room");
+    expect(m.steps[0].spare).toBe("88% of its room free");
     expect(m.steps[3].health).toBe("Off");
   });
 
@@ -545,8 +560,8 @@ describe("quota presets and validation", () => {
 
   it("describes a key and where its numbers come from", () => {
     const [bot, excel] = F.quotas().keys;
-    expect(C.quotaLine(bot)).toBe("10 a second, bursts of 20");
-    expect(C.quotaLine(excel)).toBe("5 a second, bursts of 10, 20000 a day");
+    expect(C.quotaLine(bot)).toBe("10 a second, up to 20 at once");
+    expect(C.quotaLine(excel)).toBe("5 a second, up to 10 at once, 20000 a day");
     expect(C.dayShare(excel)).toBeCloseTo(0.92, 5);
     expect(C.dayShare(bot)).toBeNull();
     expect(C.quotaSourceText("override")).toBe("Custom for this key");
@@ -606,5 +621,56 @@ describe("provider cards", () => {
     expect(C.enableSteps(eod)).toEqual(["key"]);
     expect(C.enableSteps({ ...yahoo, needsKey: true, configured: false })).toEqual(["key", "notice"]);
     expect(C.tierText("byok")).toBe("Needs your own key");
+  });
+});
+
+describe("plain words for quotas and tiers", () => {
+  it("says a fair share in parts and a tier chip without a version string", () => {
+    expect(C.fairShare(1, 4)).toBe("Fair share: 1 of 4 parts");
+    expect(C.fairShare(3, 3)).toBe("Fair share: all of it");
+    expect(C.tierChipText({ tier: "opt-in", enabled: true, consent: { acceptedAt: "2026-11-08T10:00:00Z" } })).toBe("Notice accepted 8 Nov");
+    expect(C.tierChipText({ tier: "opt-in", enabled: true })).toBe("Notice accepted");
+    expect(C.tierChipText({ tier: "opt-in", enabled: false })).toBe("Off until you accept a notice");
+    expect(C.tierChipText({ tier: "byok", enabled: true })).toBe("Needs your own key");
+  });
+});
+
+describe("trace reasons without API jargon", () => {
+  it("says the backup rule in words", () => {
+    const t = C.reasonText("backup sources are not used for this read (ask with backup=true, or turn on automatic fallback)");
+    expect(t).not.toMatch(/backup=/);
+    expect(t).toMatch(/automatic fallback/);
+    expect(C.reasonText("best-score")).toBe("It had the most room and the best record.");
+  });
+});
+
+describe("a switch you just made", () => {
+  const rows = () => [{ id: "a", enabled: false, health: { state: "disabled" } }, { id: "b", enabled: true, health: { state: "ok" } }];
+
+  it("shows the new state at once, even while the Bridge still reports the old one", () => {
+    C.rememberSwitch("a", true, 1000);
+    const [a, b] = C.withSwitches(rows(), 1100);
+    expect(a).toMatchObject({ enabled: true, health: { state: "ok" } });
+    expect(b).toEqual(rows()[1]);
+    C.rememberSwitch("b", false, 1000);
+    expect(C.withSwitches(rows(), 1100)[1]).toMatchObject({ enabled: false, health: { state: "disabled" } });
+    C.forgetSwitch("a");
+    C.forgetSwitch("b");
+  });
+
+  it("lets go once the Bridge agrees, and corrects itself when the Bridge still disagrees after the grace", () => {
+    C.rememberSwitch("a", true, 1000);
+    const agreed = [{ id: "a", enabled: true, health: { state: "ok" } }];
+    expect(C.withSwitches(agreed, 1200)).toEqual(agreed);
+    // Agreement forgot the switch: a later disagreement is the Bridge's own news.
+    expect(C.withSwitches(rows(), 1300)[0].enabled).toBe(false);
+
+    C.rememberSwitch("a", true, 1000);
+    expect(C.withSwitches(rows(), 1000 + C.SWITCH_GRACE_MS + 1)[0].enabled).toBe(false);
+    expect(C.withSwitches(rows(), 1000 + C.SWITCH_GRACE_MS + 2)[0].enabled).toBe(false);
+  });
+
+  it("passes a missing list through", () => {
+    expect(C.withSwitches(null)).toBeNull();
   });
 });

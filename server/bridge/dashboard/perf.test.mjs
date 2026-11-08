@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DASHBOARD_FILES } from "../core/app.mjs";
 import { NAV_WINDOW_MS, PAINT_FROM_CACHE_MS, SHARE_MS, cacheUse, cacheable, forgetsAnswers, pollTarget, positionSymbols } from "./app.js";
-import { budgetView, busiestClass, perSecondLimit, savedParts, shareTone, windowText } from "./budget.js";
+import { budgetView, savedParts, shareTone, windowText } from "./budget.js";
 import { mergeTick, subscriptionDiff } from "./live.js";
 
 describe("fetch layer memory", () => {
@@ -107,14 +107,10 @@ describe("budget indicator", () => {
     expect(budgetView(null).hasBrokers).toBe(false);
   });
 
-  it("tones by share, orders savings, picks the chart's class", () => {
+  it("tones by share and orders savings", () => {
     // The same scale as the Sources page: heads up from 80 %, at the limit from 95 %.
     expect([shareTone(7, 10), shareTone(8, 10), shareTone(9, 10), shareTone(9.5, 10), shareTone(1, 0)]).toEqual(["ok", "warn", "warn", "bad", "ok"]);
     expect(savedParts({ servedFromStream: 5, servedFromCache: 9 })[0]).toEqual(["Cache", 9]);
-    expect(busiestClass({ series: { classes: { quote: [1, 0, 2], chain: [0, 5] } } })).toBe("chain");
-    expect(busiestClass({ classes: { quote: { callsToday: 0 }, chain: { callsToday: 0 } } })).toBe("quote");
-    expect(perSecondLimit({ windows: [{ window: "1m", limit: 400 }, { window: "1s", limit: 10 }] })).toBe(10);
-    expect(perSecondLimit({ windows: [] })).toBeNull();
   });
 });
 

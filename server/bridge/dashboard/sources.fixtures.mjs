@@ -131,8 +131,8 @@ export function trace({ chosen = "dhan-main" } = {}) {
   return {
     request: { capability: "quotes", symbols: ["NSE:RELIANCE"], purpose: "display" },
     considered: [
-      { id: "dhan-main", kind: "broker", verdict: chosen === "dhan-main" ? "chosen" : "skipped", reason: chosen === "dhan-main" ? "best-score" : "no-spare-budget", score: 0.82, spareBudget: 530, health: { state: "ok" } },
-      { id: "zerodha-main", kind: "broker", verdict: "fallback", reason: "Next in line if the first choice fails", score: 0.7, spareBudget: 48, health: { state: "ok" } },
+      { id: "dhan-main", kind: "broker", verdict: chosen === "dhan-main" ? "chosen" : "skipped", reason: chosen === "dhan-main" ? "best-score" : "no-spare-budget", score: 0.82, spareBudget: 0.88, health: { state: "ok" } },
+      { id: "zerodha-main", kind: "broker", verdict: "fallback", reason: "Next in line if the first choice fails", score: 0.7, spareBudget: 0.4, health: { state: "ok" } },
       { id: "demo-delayed", kind: "source", verdict: "skipped", reason: "Its data is 15 minutes behind and this call asked for a fresh price", health: { state: "ok" } },
       { id: "yahoo", kind: "source", verdict: "skipped", reason: "disabled", health: { state: "disabled" } },
     ],

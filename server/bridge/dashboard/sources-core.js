@@ -8,7 +8,7 @@
 // Response shapes are the ones in the build plan: GET /v1/sources, /v1/usage, /v1/limits?explain=1, /v1/quotas,
 // /v1/pooling and GET /v1/sources/trace. Every function tolerates a missing field: a half-built Bridge never throws here.
 
-import { DASH, formatInt } from "./format.js";
+import { DASH, formatDayMonth, formatInt, plural } from "./format.js";
 
 // ── The tone scale ──
 
@@ -33,7 +33,6 @@ export const LIMIT_TONES = Object.freeze({
   dwellMs: 5000,
 });
 
-export const TONES = Object.freeze(["calm", "busy", "headsup", "limit"]);
 const RANK = Object.freeze({ calm: 0, busy: 1, headsup: 2, limit: 3 });
 export const toneRank = (t) => RANK[t] ?? 0;
 
@@ -290,8 +289,42 @@ export function sourceHealth(src, { time = (iso) => String(iso) } = {}) {
   const last = h.lastError ? `${String(h.lastError).replace(/\.$/, "")}.` : "";
   if (h.state === "open") return { state: "paused", tone: "bad", word: "Paused", detail: `The Bridge stopped using it after repeated errors.${last ? ` Last error: ${last}` : ""}${retry}`.trim(), nextTryAt: h.nextTryAt ?? null };
   if (h.state === "disabled") return { state: "off", tone: "off", word: "Off", detail: "This source is switched off." };
+  // The Bridge never trips a source on a refused key or a vendor limit (it is not the source being down), so state stays
+  // "ok" and only the kind of the last error says so.
+  if (h.lastErrorKind === "auth" && src.needsKey) return { state: "rejected", tone: "warn", word: "Key rejected", detail: "The vendor refused your key, so this source cannot answer. Replace the key to use it again." };
+  if (h.lastErrorKind === "rate-limit") return { state: "limited", tone: "warn", word: "Limited by the vendor", detail: "The vendor is limiting requests. The Bridge waits and tries again; answers from this source may be missing for a while." };
   if (h.state === "degraded") return { state: "slow", tone: "warn", word: "Slow", detail: `It is answering more slowly or with some errors than usual.${last ? ` Last error: ${last}` : ""}`.trim(), nextTryAt: h.nextTryAt ?? null };
   return { state: "working", tone: "ok", word: "Working", detail: Number.isFinite(h.p50Ms) && h.p50Ms > 0 ? `Usually answers in about ${formatInt(h.p50Ms)} ms.` : "Answering normally." };
+}
+
+// ── A switch you just made ──
+
+/**
+ * The Bridge's router remembers which sources are on for about a second, so a read right after a switch can still show
+ * the old answer. A switch is remembered here and applied to what the pages read until the Bridge agrees or the grace
+ * runs out; then the Bridge's answer wins, so a page corrects itself when the Bridge disagrees.
+ */
+export const SWITCH_GRACE_MS = 2500;
+const switches = new Map();
+export function rememberSwitch(id, enabled, now = Date.now()) {
+  switches.set(id, { enabled: Boolean(enabled), until: now + SWITCH_GRACE_MS });
+}
+export function forgetSwitch(id) {
+  switches.delete(id);
+}
+/** The rows of GET /v1/sources with any recent switch applied. A row that is not being switched is returned as it is. */
+export function withSwitches(list, now = Date.now()) {
+  if (!Array.isArray(list)) return list;
+  return list.map((src) => {
+    const want = switches.get(src?.id);
+    if (!want) return src;
+    if (Boolean(src.enabled) === want.enabled || now > want.until) {
+      switches.delete(src.id);
+      return src;
+    }
+    const state = want.enabled ? (src.health?.state === "disabled" ? "ok" : src.health?.state) : "disabled";
+    return { ...src, enabled: want.enabled, health: { ...src.health, state } };
+  });
 }
 
 /** Health of a broker account from a /v1/usage row. */
@@ -303,7 +336,7 @@ export function accountHealth(acct) {
   return { state: "working", tone: "ok", word: "Working", detail: "Answering normally." };
 }
 
-const HEALTH_SEVERITY = Object.freeze({ paused: 3.5, backoff: 3.2, slow: 2, setup: 0.5, working: 0, off: -1 });
+const HEALTH_SEVERITY = Object.freeze({ paused: 3.5, backoff: 3.2, slow: 2, rejected: 1.6, limited: 1.2, setup: 0.5, working: 0, off: -1 });
 
 // ── Budgets and rows ──
 
@@ -361,9 +394,9 @@ export function sourceBudgets(src) {
 /**
  * The rows of the sources list, one per working thing: each broker account (from usage) and each source (from
  * /v1/sources, brokers of that list that are already an account are not repeated).
- * @param {{ sources?: object[] | null, usage?: { accounts?: object[] } | null, time?: (iso: string) => string, onlyEnabled?: boolean }} input
+ * @param {{ sources?: object[] | null, usage?: { accounts?: object[] } | null, time?: (iso: string) => string, onlyEnabled?: boolean, labels?: Record<string, string> }} input
  */
-export function buildRows({ sources = null, usage = null, time, onlyEnabled = true } = {}) {
+export function buildRows({ sources = null, usage = null, time, onlyEnabled = true, labels = {} } = {}) {
   const rows = [];
   const accounts = usage?.accounts ?? [];
   const accountKeys = new Set();
@@ -372,15 +405,17 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
     accountKeys.add(a.accountId);
     accountKeys.add(a.broker);
     const health = accountHealth(a);
+    // What the account's data is comes from its descriptor when the Bridge lists one; a broker account is otherwise real-time.
+    const desc = (sources ?? []).find((s) => s.kind === "broker" && (s.id === a.accountId || s.id === a.broker));
     rows.push({
       key: `acct:${a.accountId}`,
       kind: "account",
       id: a.accountId,
-      name: a.accountId,
+      name: labels?.[a.accountId] || a.accountId,
       sub: `${titleCase(a.broker)}, your broker account`,
-      cls: "realtime",
-      delaySec: 0,
-      official: true,
+      cls: desc?.class ?? "realtime",
+      delaySec: desc ? (desc.delaySec ?? null) : 0,
+      official: desc ? Boolean(desc.official) : true,
       enabled: true,
       configured: true,
       health,
@@ -390,7 +425,6 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
       minute: b.minute,
       day: b.day,
       counter: b.callsToday,
-      counterLabel: "calls today",
       inFlight: a.inFlight ?? 0,
       queued: a.queued ?? 0,
       terms: null,
@@ -420,7 +454,6 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
       minute: b.minute ? { used: b.minute.used, limit: b.minute.limit } : null,
       day: b.day ? { used: b.day.used, limit: b.day.limit } : null,
       counter: Number(s.usage?.today) || 0,
-      counterLabel: "calls today",
       inFlight: 0,
       queued: 0,
       terms: s.terms ?? null,
@@ -485,7 +518,7 @@ export function sortRows(rows, mode = "risk") {
 // ── Pooled room ──
 
 /** Rows that add room: switched on, set up, and not paused or backing off. */
-const contributes = (r) => r.enabled && r.configured && r.health.state !== "paused" && r.health.state !== "backoff" && r.health.state !== "off" && r.health.state !== "setup";
+const contributes = (r) => r.enabled && r.configured && r.health.state !== "paused" && r.health.state !== "backoff" && r.health.state !== "off" && r.health.state !== "setup" && r.health.state !== "rejected";
 
 /**
  * The room across every account and source, in calls per minute (second budgets are scaled up), or per day when no
@@ -498,7 +531,7 @@ export function pooledRoom(rows) {
   for (const r of rows) {
     if (!r.enabled) continue;
     if (!contributes(r)) {
-      notCounted.push({ key: r.key, name: r.name, reason: r.health.state === "paused" ? "it is paused" : r.health.state === "backoff" ? "it is backing off" : r.health.state === "setup" ? "it has no key" : "it is not available" });
+      notCounted.push({ key: r.key, name: r.name, reason: r.health.state === "paused" ? "it is paused" : r.health.state === "backoff" ? "it is backing off" : r.health.state === "setup" ? "it has no key" : r.health.state === "rejected" ? "its key was rejected" : "it is not available" });
       continue;
     }
     counted.push(r);
@@ -539,9 +572,10 @@ export function soonestRunOut(rows) {
  * The one forecast sentence under the pooled meter.
  * @returns {{ text: string, tone: "calm" | "warn" }}
  */
-export function forecastSentence(rows) {
+export function forecastSentence(rows, tone = "calm") {
   const hit = soonestRunOut(rows);
-  if (!hit) return { text: "At this pace: stays calm.", tone: "calm" };
+  // No run-out is forecast, but the headline may still not be calm: the line must not say "calm" beside "Heads up".
+  if (!hit) return { text: { calm: "At this pace: stays calm.", busy: "At this pace: no budget runs out soon.", headsup: "At this pace: nothing runs out yet, but keep an eye on it.", limit: "A budget is full now: new calls wait for room." }[tone] ?? "At this pace: stays calm.", tone: tone === "headsup" || tone === "limit" ? "warn" : "calm" };
   const r = hit.row;
   const what = r.kind === "account" ? `${titleCase(String(r.sub).split(",")[0])} ${(r.budget?.clsName ?? "call").toLowerCase()} budget` : `${r.name} budget`;
   return { text: `At this pace the ${what} runs out in ${waitPhrase(hit.seconds)}.`, tone: "warn" };
@@ -557,7 +591,7 @@ export function heroText({ pool, tone, rows }) {
   if (!rows.length) return { sentence: "Nothing to measure yet", prefix: "Connect a broker account or turn on a free source and its room shows here.", figure: null, suffix: "", detail: "Connect a broker account or turn on a free source and its room shows here." };
   if (!pool.window) return { sentence, prefix: "None of your sources states a call budget, so there is nothing to run out of.", figure: null, suffix: "", detail: "None of your sources states a call budget, so there is nothing to run out of." };
   const unit = pool.window === "minute" ? "this minute" : "today";
-  const across = counted === 1 ? "1 source" : `${counted} sources`;
+  const across = plural(counted, "source");
   const [prefix, suffix] = {
     calm: ["About ", ` calls of room ${unit}, across ${across}.`],
     busy: ["About ", ` calls of room left ${unit}, across ${across}. Fine, but it is filling up.`],
@@ -586,17 +620,17 @@ export function attentionText(row, rows) {
   const orders = isOrder ? "" : " Orders are not affected.";
   if (row.tone === "limit") {
     const reset = row.budget?.resetInSec ? ` Room starts coming back in about ${waitPhrase(row.budget.resetInSec).replace(/^about /, "")}.` : "";
-    return { title: `${row.name}: ${c.toLowerCase()} are at the limit`, detail: `${where}${orders}${reset}`.trim(), tone: "bad" };
+    return { title: `${row.name}: the ${c.toLowerCase()} budget is at the limit`, detail: `${where}${orders}${reset}`.trim(), tone: "bad" };
   }
-  const when = row.forecast?.kind === "runsOut" ? `will be full in ${waitPhrase(row.forecast.seconds)} at this pace` : "are getting full";
-  return { title: `${row.name}: ${c.toLowerCase()} ${when}`, detail: `${where}${orders}`.trim(), tone: "warn" };
+  const when = row.forecast?.kind === "runsOut" ? `will be full in ${waitPhrase(row.forecast.seconds)} at this pace` : "is getting full";
+  return { title: `${row.name}: the ${c.toLowerCase()} budget ${when}`, detail: `${where}${orders}`.trim(), tone: "warn" };
 }
 
 /** A meter's spoken value: "380 of 600 calls left per minute, busy, runs out in about 40 seconds". */
 export function meterSpeech(row) {
   const b = row.budget;
   if (!b) return `${row.name}: no budget figure`;
-  const parts = [`${formatInt(b.remaining)} of ${formatInt(b.limit)} calls left ${b.per}`, TONE_WORD[row.tone ?? "calm"].toLowerCase()];
+  const parts = [`${formatInt(b.remaining)} of ${plural(b.limit, "call")} left ${b.per}`, TONE_WORD[row.tone ?? "calm"].toLowerCase()];
   if (row.forecast?.kind === "runsOut") parts.push(`runs out in ${waitPhrase(row.forecast.seconds)}`);
   return parts.join(", ");
 }
@@ -699,7 +733,11 @@ export function reasonText(reason) {
     if (Object.hasOwn(known, k)) return known[k];
     return `${titleCase(raw.replace(/[_-]+/g, " ").toLowerCase())}.`;
   }
-  const t = titleCase(raw);
+  // The API's own wording names a query option; the page says it in words.
+  const plain = raw
+    .replace(/backup sources are not used for this read \(ask with backup=true, or turn on automatic fallback\)/i, "Free sources are not used for this read. They answer only when automatic fallback is on or the request asks for backup data")
+    .replace(/\bbackup=(true|false)\b/gi, (_, v) => (v.toLowerCase() === "true" ? "backup data allowed" : "backup data not allowed"));
+  const t = titleCase(plain);
   return /[.!?]$/.test(t) ? t : `${t}.`;
 }
 
@@ -731,7 +769,8 @@ export function traceModel(trace, nameOf = (id) => id) {
     glyph: glyphOf[c.verdict] ?? "skip",
     word: wordOf[c.verdict] ?? "Not used",
     reason: reasonText(c.reason),
-    spare: Number.isFinite(c.spareBudget) ? `${formatInt(c.spareBudget)} calls of room` : null,
+    // spareBudget is the share of its budget that is free (0 to 1), not a number of calls.
+    spare: Number.isFinite(c.spareBudget) ? `${Math.round(Math.min(1, Math.max(0, c.spareBudget)) * 100)}% of its room free` : null,
     health: c.health?.state && c.health.state !== "ok" ? ({ open: "Paused", degraded: "Slow", disabled: "Off" }[c.health.state] ?? null) : null,
   }));
   return { headline, detail: detailBits.join(" "), cls, steps, chosen };
@@ -758,7 +797,7 @@ export function quotaPresets(def, kindWeight = 1) {
   return [
     { id: "light", label: "Light", note: "A quarter of normal. For something that only looks now and then.", values: { perSecond: Math.max(1, round1(ps / 4)), burst: Math.max(2, Math.round(bu / 4)), weight: Math.max(1, Math.round(w / 2)), perDay: null } },
     { id: "normal", label: "Normal", note: "The Bridge's usual amount.", values: { perSecond: round1(ps), burst: Math.round(bu), weight: w, perDay: null } },
-    { id: "heavy", label: "Heavy", note: "Three times normal and a bigger share of the queue. For a bot or a large spreadsheet.", values: { perSecond: round1(ps * 3), burst: Math.round(bu * 3), weight: Math.min(100, w * 2), perDay: null } },
+    { id: "heavy", label: "Heavy", note: "Three times normal and a bigger fair share when things are busy. For a bot or a large spreadsheet.", values: { perSecond: round1(ps * 3), burst: Math.round(bu * 3), weight: Math.min(100, w * 2), perDay: null } },
   ];
 }
 
@@ -815,11 +854,17 @@ export function sortKeys(keys) {
   return [...(keys ?? [])].sort((a, b) => (b.usage?.throttledToday ?? 0) - (a.usage?.throttledToday ?? 0) || (b.usage?.today ?? 0) - (a.usage?.today ?? 0) || String(a.label).localeCompare(String(b.label), "en", { sensitivity: "base" }));
 }
 
-/** The quota line of a key: "10 a second, bursts of 20, 5000 a day". */
+/** The quota line of a key: "10 a second, up to 20 at once, 5000 a day". */
 export function quotaLine(k) {
-  const bits = [`${formatInt(k.perSecond)} a second`, `bursts of ${formatInt(k.burst)}`];
+  const bits = [`${formatInt(k.perSecond)} a second`, `up to ${formatInt(k.burst)} at once`];
   if (k.perDay > 0) bits.push(`${formatInt(k.perDay)} a day`);
   return bits.join(", ");
+}
+
+/** A key's weight in plain words: "Fair share: 1 of 4 parts" (the queue is shared by weight when it is busy). */
+export function fairShare(weight, total) {
+  const w = Math.max(1, Number(weight) || 1);
+  return Number(total) > w ? `Fair share: ${formatInt(w)} of ${formatInt(total)} parts` : "Fair share: all of it";
 }
 
 // ── Pooling ──
@@ -883,6 +928,15 @@ export function providerState(src, { time } = {}) {
 /** How a source is switched on, in words (the tier). */
 export function tierText(tier) {
   return { builtin: "Part of the Bridge", byok: "Needs your own key", "opt-in": "Off until you accept a notice", plugin: "Plugin approved on this computer" }[tier] ?? "";
+}
+
+/** The tier chip of a source: how it is switched on, or that you already accepted its notice (never a bare version string). */
+export function tierChipText(src) {
+  if (src?.tier === "opt-in" && (src.enabled || src.consent)) {
+    const day = typeof src.consent?.acceptedAt === "string" ? formatDayMonth(src.consent.acceptedAt.slice(0, 10)) : "";
+    return day ? `Notice accepted ${day}` : "Notice accepted";
+  }
+  return tierText(src?.tier);
 }
 
 /** What the switch of a source asks before it turns on. */

@@ -13,14 +13,12 @@ dialog.palette {
   border-radius: var(--r-sheet);
   overflow: hidden;
   color: hsl(var(--foreground));
-  background: var(--mat-thick);
-  -webkit-backdrop-filter: var(--mat-blur-thick);
-  backdrop-filter: var(--mat-blur-thick);
+  background: hsl(var(--elevated));
   box-shadow: var(--edge-1), var(--shadow-float);
   flex-direction: column;
 }
 dialog.palette[open] { display: flex; animation: palette-in var(--spring-snappy-dur) var(--spring-snappy) both; }
-dialog.palette::backdrop { background: var(--scrim); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+dialog.palette::backdrop { background: var(--scrim); }
 @keyframes palette-in { from { opacity: 0; scale: 0.98; translate: 0 -8px; } }
 @media (prefers-reduced-motion: reduce) { dialog.palette[open] { animation: none; } }
 

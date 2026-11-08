@@ -42,7 +42,7 @@ export function createSourcesRoutes(deps) {
   const svc = () => deps.backupData;
   return {
     list(ctx) {
-      return { data: svc().list(), meta: meta(ctx, { notice: SOURCES_NOTICE }) };
+      return { data: svc().list(), meta: meta(ctx, { notice: SOURCES_NOTICE, autoFallback: svc().autoFallback?.() === true }) };
     },
     async patch(ctx) {
       const id = sourceId(ctx);

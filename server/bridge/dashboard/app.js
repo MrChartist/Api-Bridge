@@ -1025,8 +1025,10 @@ export function lockScroll(on) {
  * close it; the page behind stops scrolling. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps
  * it open. `body` may be a function that receives close(value). Resolves with the value (undefined when dismissed).
  * A button may carry `id`, and `ref(el)` is called with its element once drawn (so callers keep a direct reference).
+ * `dirty()` says there is something typed that closing would lose: Escape, the X, the backdrop, a swipe and a button that
+ * answers "no" then ask "Discard changes?" inside the sheet first (a second Escape means "keep editing").
  */
-export function modal({ title, body, buttons = [], canClose = null }) {
+export function modal({ title, body, buttons = [], canClose = null, dirty = null }) {
   const d = document.getElementById("dialog");
   d.classList.add("sheet");
   return new Promise((resolve) => {
@@ -1054,9 +1056,30 @@ export function modal({ title, body, buttons = [], canClose = null }) {
     // Animate the sheet away, then close the native dialog (focus returns to the opener) and resolve.
     // canClose() === false refuses Escape, the X and a backdrop tap (e.g. while orders are going out). The body's own
     // buttons pass force = true once they have decided.
+    const askDiscard = () => {
+      const had = d.querySelector(".sheet-discard");
+      if (had) {
+        // Escape again: keep editing.
+        const back = had._back;
+        had.remove();
+        back?.focus?.({ preventScroll: true });
+        return;
+      }
+      const back = d.contains(document.activeElement) ? document.activeElement : null;
+      const keep = h("button", { type: "button", class: "small", onclick: () => (bar.remove(), back?.focus?.({ preventScroll: true })) }, "Keep editing");
+      const drop = h("button", { type: "button", class: "small destructive", onclick: () => close(undefined, true) }, "Discard");
+      const bar = h("div", { class: "sheet-discard", role: "alert" }, h("strong", {}, "Discard changes?"), h("span", {}, "What you typed here is not saved."), h("div", { class: "sheet-discard-acts" }, keep, drop));
+      bar._back = back;
+      const actions = d.querySelector(".dialog-actions");
+      if (actions) actions.before(bar);
+      else d.querySelector(".dialog-body")?.append(bar);
+      bar.scrollIntoView?.({ block: "nearest" });
+      keep.focus({ preventScroll: true });
+    };
     const close = (v, force = false) => {
       if (closing || settled) return;
       if (!force && canClose && canClose() === false) return;
+      if (!force && dirty && (v === undefined || v === false || v === null) && dirty()) return askDiscard();
       closing = true;
       // While it slides away the sheet is inert: keys typed meanwhile (Ctrl K, a search) never land in its fields.
       // closeNow() ends the slide at once, for the palette opening over it.
@@ -1157,7 +1180,14 @@ export function modal({ title, body, buttons = [], canClose = null }) {
     d.querySelector(".dialog-body")?.scrollTo?.(0, 0);
     // Focus: the first field to type in; else the first action (Cancel, never the confirming one); else Close.
     const first = d.querySelector(".dialog-body :is(input:not([type=hidden]):not([type=radio]):not(:disabled), select, textarea)") ?? d.querySelector(".dialog-actions button") ?? closeBtn;
-    first.focus({ preventScroll: true });
+    // On a touch screen a field that takes focus raises the keyboard over the sheet at once: focus the title instead
+    // (the sheet is named and the reader starts in the right place); the person taps the field when ready.
+    const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    if (touch && first.closest(".dialog-body")) {
+      const heading = d.querySelector(".sheet-title");
+      heading?.setAttribute("tabindex", "-1");
+      (heading ?? first).focus({ preventScroll: true });
+    } else first.focus({ preventScroll: true });
     sheetIn(d, d);
   });
 }

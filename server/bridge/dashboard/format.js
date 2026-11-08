@@ -44,6 +44,12 @@ export function formatNumber(value, options) {
 /** A whole number (rounded). Missing → DASH. */
 export const formatInt = (value) => formatNumber(value, { maximumFractionDigits: 0 });
 
+/** The word for a count: one when it is exactly 1, otherwise `many` (default: one + "s"). The one place a plural is decided. */
+export const pluralWord = (n, one, many = `${one}s`) => (Number(n) === 1 ? one : many);
+
+/** A count with its word: "1 call", "2 calls", "0 calls". */
+export const plural = (n, one, many) => `${formatInt(n)} ${pluralWord(n, one, many)}`;
+
 /** Exactly `dp` decimals: use it for every cell of a numeric column so the decimals line up. Missing → DASH. */
 export const formatFixed = (value, dp = 2) => formatNumber(value, { minimumFractionDigits: dp, maximumFractionDigits: dp });
 

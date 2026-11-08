@@ -4,7 +4,21 @@
  */
 import { readFileSync as read, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DASH, MINUS, formatDayMonth, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatRupeeGrouped, formatSignedRupee, isFigure } from "./format.js";
+import { DASH, MINUS, formatDayMonth, formatFixed, formatInt, formatNumber, formatPercent, formatRupee, formatRupeeGrouped, formatSignedRupee, isFigure, plural, pluralWord } from "./format.js";
+
+describe("plurals", () => {
+  it("says one only for exactly 1", () => {
+    expect(plural(1, "broker call")).toBe("1 broker call");
+    expect(plural(0, "call")).toBe("0 calls");
+    expect(plural(2, "call")).toBe("2 calls");
+    expect(plural(3000, "call")).toBe("3000 calls");
+    expect(plural(2, "futures and options fill")).toBe("2 futures and options fills");
+    expect(plural(2, "person", "people")).toBe("2 people");
+    expect(pluralWord(1, "account")).toBe("account");
+    expect(pluralWord("1", "account")).toBe("account");
+    expect(pluralWord(0, "account")).toBe("accounts");
+  });
+});
 
 describe("dashboard number format", () => {
   it("prints figures without grouping commas", () => {

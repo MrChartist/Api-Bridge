@@ -5,7 +5,7 @@
 // Pure helpers (budgetView, savedParts) are exported for tests; the DOM code runs only in a browser.
 
 import { h, sheetPopover } from "./app.js";
-import { DASH, formatInt } from "./format.js";
+import { DASH, formatInt, plural } from "./format.js";
 import { countTo, patchList, setAttr, setClass, setText } from "./motion.js";
 import { LIMIT_TONES } from "./sources-core.js";
 
@@ -105,7 +105,7 @@ const STREAM_TEXT = { live: "Stream live", off: "No stream open", down: "Stream 
 export function mountBudget(host, live) {
   let msg = null;
   const dot = h("span", { class: "bud-dot", "aria-hidden": "true" });
-  const sec = h("span", { class: "bud-num bud-sec" });
+  const sec = h("span", { class: "bud-num" });
   const min = h("span", { class: "bud-num bud-min" });
   const setSec = liveWindow(sec, "s");
   const setMin = liveWindow(min, "min");
@@ -130,7 +130,7 @@ export function mountBudget(host, live) {
     const job = (msg?.jobs ?? [])[0];
     setAttr(host, "data-job", job ? "1" : "");
     const fill = v.tone === "bad" ? " Near the limit." : v.tone === "warn" ? " Getting full." : "";
-    setAttr(btn, "aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${formatInt(v.savedToday)} calls saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
+    setAttr(btn, "aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${plural(v.savedToday, "call")} saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
     if (pop?.el.isConnected) pop.update(msg, v);
   };
   btn.addEventListener("click", () => {
@@ -187,7 +187,7 @@ function acctBlock(a, el) {
   r.back.hidden = !(a.backoffMs > 0);
   r.sec.set(a.second);
   r.min.set(a.minute);
-  countTo(r.today, a.callsToday ?? 0, { format: (n) => `${formatInt(n)} calls` });
+  countTo(r.today, a.callsToday ?? 0, { format: (n) => plural(n, "call") });
   return el;
 }
 
@@ -195,7 +195,7 @@ function acctBlock(a, el) {
 function jobBlock(j, el) {
   if (!el) {
     const fill = h("i");
-    el = h("div", { class: "bud-win bud-job" }, h("span", { class: "muted" }), h("span", { class: "bud-bar ok", "aria-hidden": "true" }, fill), h("span", { class: "bud-num" }));
+    el = h("div", { class: "bud-win" }, h("span", { class: "muted" }), h("span", { class: "bud-bar ok", "aria-hidden": "true" }, fill), h("span", { class: "bud-num" }));
     el.__r = { label: el.children[0], fill, text: el.children[2] };
   }
   const r = el.__r;
@@ -240,75 +240,16 @@ function buildPop() {
       if (streamText.data !== STREAM_TEXT[v.stream]) streamText.data = STREAM_TEXT[v.stream];
       const n = msg?.stream?.subscriptions;
       symbols.hidden = !n;
-      if (n) setText(symbols, `${formatInt(n)} symbols`);
+      if (n) setText(symbols, plural(n, "symbol"));
       patchList(accounts, msg?.accounts ?? [], (a) => a.accountId, acctBlock, { animate: !first });
       const js = msg?.jobs ?? [];
       jobs.hidden = js.length === 0;
       patchList(jobs, js, (j) => j.label, jobBlock, { animate: !first });
-      countTo(savedNum, v.savedToday, { format: (x) => `${formatInt(x)} calls` });
+      countTo(savedNum, v.savedToday, { format: (x) => plural(x, "call") });
       patchList(parts, savedParts(msg?.savings).filter(([, c]) => c > 0), ([label]) => label, partBlock, { animate: !first });
       first = false;
     },
   };
-}
-
-// ── API › Rate limits: calls per second against the limit, and who used the budget ──
-
-/**
- * The class to chart for an account (pure): the one with the most calls in its two-minute history, else the one with
- * the most calls today, else "quote".
- */
-export function busiestClass(account) {
-  const series = account?.series?.classes ?? {};
-  let best = null;
-  for (const [cls, xs] of Object.entries(series)) {
-    const n = xs.reduce((a, b) => a + b, 0);
-    if (!best || n > best[1]) best = [cls, n];
-  }
-  if (best) return best[0];
-  let today = null;
-  for (const [cls, c] of Object.entries(account?.classes ?? {})) if (!today || (c.callsToday ?? 0) > today[1]) today = [cls, c.callsToday ?? 0];
-  return today && today[1] > 0 ? today[0] : "quote";
-}
-
-/** The per-second limit of a class from its windows ("1s"), else null (pure). */
-export function perSecondLimit(cls) {
-  const w = (cls?.windows ?? []).filter((x) => x.window === "1s" && x.limit > 0);
-  return w.length ? Math.min(...w.map((x) => x.limit)) : null;
-}
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-function svg(tag, attrs = {}, ...kids) {
-  const e = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) if (v !== null && v !== undefined) e.setAttribute(k, String(v));
-  for (const k of kids.flat()) if (k) e.append(k);
-  return e;
-}
-
-/**
- * A bar chart of calls per second over the last two minutes for one class, with the per-second limit as a dashed
- * line; bars at 90 % of the limit or more are drawn in the warning colour. The SVG stretches to its box and carries no
- * text (labels sit in HTML around it, so they keep their size on every screen).
- * @param {number[]} counts  one per second, oldest first
- * @param {number|null} limit
- * @param {string} label  accessible name
- */
-export function usageChart(counts, limit, label) {
-  const W = 600;
-  const H = 120;
-  const max = Math.max(1, limit ?? 0, ...counts) * 1.15;
-  const n = Math.max(1, counts.length);
-  const bw = W / n;
-  const y = (v) => H * (1 - v / max);
-  const root = svg("svg", { class: "rl-chart", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img", "aria-label": label });
-  for (const f of [0.25, 0.5, 0.75]) root.append(svg("line", { class: "rl-grid", x1: 0, x2: W, y1: H * f, y2: H * f, "vector-effect": "non-scaling-stroke" }));
-  counts.forEach((v, i) => {
-    if (!v) return;
-    const near = limit && v >= 0.9 * limit;
-    root.append(svg("rect", { class: `rl-bar${near ? " near" : ""}`, x: i * bw + 0.5, y: y(v), width: Math.max(1, bw - 1), height: Math.max(1, H - y(v)) }));
-  });
-  if (limit) root.append(svg("line", { class: "rl-limit", x1: 0, x2: W, y1: y(limit), y2: y(limit), "vector-effect": "non-scaling-stroke" }));
-  return root;
 }
 
 /** "34/200", or "34/200 · paused" while a person is using the broker (pure). */

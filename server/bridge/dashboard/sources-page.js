@@ -16,6 +16,7 @@ import {
   attentionRows,
   attentionText,
   buildRows,
+  withSwitches,
   capabilityForPath,
   classAdvice,
   classLabel,
@@ -37,8 +38,8 @@ import {
   traceQuery,
   capabilityText,
 } from "./sources-core.js";
-import { DASH, formatFixed, formatInt } from "./format.js";
-import { brokerTile, chevron, classPill, countingNumber, createKeyedList, createMeter, createPoller, healthTag, officialBadge, overviewSkeleton, prefersReducedMotion, setData, setText, setToneGlyph, sourceTile, toneGlyph, updateClassPill } from "./sources-ui.js";
+import { DASH, formatFixed, formatInt, plural } from "./format.js";
+import { brokerTile, chevron, classPill, countingNumber, createKeyedList, createMeter, createPoller, healthTag, labelsHelp, officialBadge, overviewSkeleton, prefersReducedMotion, setData, setText, setToneGlyph, sourceTile, toneGlyph, updateClassPill } from "./sources-ui.js";
 
 /** The page's one dependency on views.js, handed over when views.js loads (it owns the segmented control). */
 let segmented = null;
@@ -170,8 +171,8 @@ function openSourceSheet(row, ctx) {
     for (const c of row.classes.filter((x) => x.binding)) add(c.name, `${formatInt(c.binding.used)} of ${formatInt(c.binding.limit)} ${c.binding.per}`);
   } else {
     const s = row.source;
-    if (row.minute) add("This minute", `${formatInt(row.minute.used)} of ${formatInt(row.minute.limit)} calls`);
-    if (row.day) add("Today", `${formatInt(row.day.used)} of ${formatInt(row.day.limit)} calls`);
+    if (row.minute) add("This minute", `${formatInt(row.minute.used)} of ${plural(row.minute.limit, "call")}`);
+    if (row.day) add("Today", `${formatInt(row.day.used)} of ${plural(row.day.limit, "call")}`);
     if (s?.capabilities) add("Gives", capabilityText(s.capabilities).replace(/^./, (c) => c.toUpperCase()));
   }
   add("Calls today", formatInt(row.counter));
@@ -220,7 +221,7 @@ function openPoolSheet(pool, rows) {
  * @returns {Promise<HTMLElement>}  the Overview tab
  */
 export async function renderOverview() {
-  const root = h("div", { class: "sx-tab sx-overview" });
+  const root = h("div", { class: "sx-tab" });
   const trackers = { tones: createToneTracker(), rates: createRateTracker(), smooth: createSmoother() };
   const local = app.local;
   let sortMode = SORTS.some(([v]) => v === local.get(SORT_SLOT)) ? local.get(SORT_SLOT) : "risk";
@@ -230,9 +231,9 @@ export async function renderOverview() {
   let onlySlow = false;
   let live = null;
   /** The last answers: each is { data } or { error }. */
-  const got = { sources: null, usage: null, requests: null, limits: null };
+  const got = { sources: null, usage: null, requests: null, limits: null, accounts: null };
   let model = { rows: [], pool: null, tone: "calm" };
-  const spoken = { tone: null, at: 0 };
+  const spoken = { tone: null, at: 0, conn: "" };
 
   const nameOf = (id) => {
     const r = model.rows.find((x) => x.id === id);
@@ -248,7 +249,7 @@ export async function renderOverview() {
   const suffix = document.createTextNode("");
   const figure = countingNumber({ className: "sx-figure" });
   const detail = h("p", { class: "sx-detail" }, prefix, figure.el, suffix);
-  const updated = h("span", { class: "pill sx-updated", role: "status" }, "Updating…");
+  const updated = h("span", { class: "pill sx-updated" }, "Updating…");
   const poolMeter = createMeter({ label: "Room used across all sources", tall: true });
   const capL = h("span", {}, "");
   const capR = h("span", {}, "");
@@ -275,7 +276,7 @@ export async function renderOverview() {
       const title = h("strong", {});
       const text = h("span", { class: "detail" });
       const show = h("button", { type: "button", class: "small" }, "Show it");
-      const el = h("div", { class: "alert warn sx-alert", role: "status" }, icon("warn"), h("div", {}, title, text, h("div", { class: "alert-actions" }, show)));
+      const el = h("div", { class: "alert warn sx-alert" }, icon("warn"), h("div", {}, title, text, h("div", { class: "alert-actions" }, show)));
       el._parts = { title, text, show };
       return el;
     },
@@ -303,6 +304,7 @@ export async function renderOverview() {
     rowsBox,
     rowsEmpty,
     rowsFoot,
+    labelsHelp(),
   );
   sortSeg.addEventListener?.("change", () => {
     sortMode = sortSeg.value;
@@ -333,7 +335,7 @@ export async function renderOverview() {
   const savedNums = {};
   const savedBox = h(
     "div",
-    { class: "card sx-saved" },
+    { class: "card" },
     h(
       "div",
       { class: "card-body sx-saved-grid" },
@@ -350,7 +352,7 @@ export async function renderOverview() {
     ),
   );
   const savedGroup = h("section", { class: "group sx-group", "aria-labelledby": "sx-sav-h", hidden: true }, h("h2", { class: "group-title", id: "sx-sav-h" }, "Broker calls saved today"), savedBox, h("p", { class: "group-foot" }, "The Bridge answers many requests without calling a broker at all."));
-  const consBox = h("div", { class: "list sx-cons" });
+  const consBox = h("div", { class: "list" });
   const consList = createKeyedList(consBox, {
     key: (c) => c.name,
     create: (c) => {
@@ -363,10 +365,11 @@ export async function renderOverview() {
     },
     update: (el, c) => {
       el.style.setProperty("--w", `${c.pct}%`);
-      setText(el._parts.n, `${formatInt(c.calls)} broker calls${c.saved ? `, ${formatInt(c.saved)} saved` : ""}`);
+      setText(el._parts.n, `${plural(c.calls, "broker call")}${c.saved ? `, ${formatInt(c.saved)} saved` : ""}`);
     },
   });
   const consGroup = h("section", { class: "group sx-group", "aria-labelledby": "sx-con-h", hidden: true }, h("h2", { class: "group-title", id: "sx-con-h" }, "Who used the budget today"), consBox);
+  const moreDetail = h("details", { class: "sx-more" }, h("summary", {}, "More detail"), savedGroup, consGroup);
 
   // ── What each broker allows (read once) ──
   const policyBox = h("div", { class: "sx-policy-box", hidden: true });
@@ -377,7 +380,7 @@ export async function renderOverview() {
   /** Swap the skeleton for the page (the first answer has arrived). The same boxes, so nothing jumps. */
   const build = () => {
     built = true;
-    root.replaceChildren(liveRegion, lost, hero, attnBox, sourcesGroup, budgetsGroup, reqGroup, savedGroup, consGroup, policyBox);
+    root.replaceChildren(liveRegion, lost, hero, attnBox, sourcesGroup, budgetsGroup, reqGroup, moreDetail, policyBox);
     if (new URLSearchParams(location.hash.split("?")[1] ?? "").get("trace")) queueMicrotask(() => openTraceSheet({ nameOf }));
   };
   /** The first read failed: say so in place and keep trying; the page appears by itself when the Bridge answers. */
@@ -453,12 +456,16 @@ export async function renderOverview() {
 
   // ── Broker budgets cards ──
 
+  /** A card shows its two busiest kinds of call; the rest are one tap away (eight calm meters are noise). */
+  const SHOWN_CLASSES = 2;
+
   function createBudgetCard(r) {
     const meters = h("div", { class: "sx-class-meters" });
+    const view = { all: false, rank: new Map(), classes: [] };
     const list = createKeyedList(meters, {
       key: (c) => c.cls,
       create: (c) => {
-        const name = h("span", { class: "al-name" }, c.name);
+        const name = h("span", { class: "sx-class-name" }, c.name);
         const figs = h("span", { class: "sx-class-figs" });
         const word = h("span", { class: "sx-toneword" });
         const meter = createMeter({ label: `${r.name} ${c.name}` });
@@ -472,13 +479,27 @@ export async function renderOverview() {
         el._parts.meter.set({ share: b.share, tone: t, speech: `${c.name}: ${formatInt(b.remaining)} of ${formatInt(b.limit)} calls left ${b.per}, ${TONE_WORD[t].toLowerCase()}`, label: `${r.name}, ${c.name}` });
         setText(el._parts.figs, `${formatInt(b.used)} of ${formatInt(b.limit)} ${b.per}`);
         setText(el._parts.word, TONE_WORD[t]);
+        // Always shown: the busiest kinds, and anything that is not calm.
+        el.hidden = !(view.all || (view.rank.get(c.cls) ?? 0) < SHOWN_CLASSES || t !== "calm");
       },
     });
-    const today = h("p", { class: "al-today" });
+    const more = h("button", { type: "button", class: "small plain sx-class-more", "aria-expanded": "false", hidden: true });
+    more.addEventListener("click", () => {
+      view.all = !view.all;
+      list.sync(view.classes, { reorder: false });
+      paintMore();
+    });
+    function paintMore() {
+      const extra = view.classes.length - SHOWN_CLASSES;
+      more.hidden = extra <= 0;
+      more.setAttribute("aria-expanded", String(view.all));
+      setText(more, view.all ? "Show fewer" : `Show all ${view.classes.length} kinds of call`);
+    }
+    const today = h("p", { class: "sx-today" });
     const head = h("header", { class: "card-head" }, brokerTile(String(r.sub).split(",")[0].toLowerCase(), r.name), h("div", { class: "card-titles" }, h("h3", { class: "sx-card-title" }, r.name), h("p", { class: "sx-card-sub" }, "")), h("div", { class: "card-actions" }, healthTag().el));
     const tag = head.querySelector(".sx-health");
-    const el = h("section", { class: "card sx-budget-card" }, head, h("div", { class: "card-body stack" }, meters, today));
-    el._parts = { list, today, sub: head.querySelector(".sx-card-sub"), tag };
+    const el = h("section", { class: "card sx-budget-card" }, head, h("div", { class: "card-body stack" }, meters, more, today));
+    el._parts = { view, paintMore, list, today, sub: head.querySelector(".sx-card-sub"), tag };
     return el;
   }
 
@@ -487,9 +508,12 @@ export async function renderOverview() {
     setText(p.sub, `${String(r.sub).split(",")[0]} · ${formatInt(r.inFlight)} in flight · ${formatInt(r.queued)} waiting`);
     setData(p.tag, "tone", r.health.tone);
     setText(p.tag.lastChild, r.health.word);
-    p.list.sync(r.classes.filter((c) => c.binding), { reorder: false });
+    p.view.classes = r.classes.filter((c) => c.binding);
+    p.view.rank = new Map([...p.view.classes].sort((a, b) => b.binding.share - a.binding.share).map((c, i) => [c.cls, i]));
+    p.list.sync(p.view.classes, { reorder: false });
+    p.paintMore();
     const total = (k) => r.classes.reduce((n, c) => n + c[k], 0);
-    setText(p.today, `Today: ${formatInt(total("callsToday"))} broker calls, ${formatInt(total("throttledToday"))} throttled by the broker, ${formatInt(total("refusedToday"))} held back to stay inside limits.`);
+    setText(p.today, `Today: ${plural(total("callsToday"), "broker call")}, ${formatInt(total("throttledToday"))} throttled by the broker, ${formatInt(total("refusedToday"))} held back to stay inside limits.`);
   }
 
   // ── Request rows ──
@@ -497,7 +521,7 @@ export async function renderOverview() {
   function createRequestRow(r) {
     const cap = capabilityForPath(r.path);
     const time = h("span", { class: "sx-req-time" });
-    const method = h("span", { class: "method sx-req-method" }, r.method);
+    const method = h("span", { class: "method" }, r.method);
     const path = h("span", { class: "sx-req-path mono", title: r.path }, r.path);
     const who = h("span", { class: "sx-req-who" });
     const verdict = h("span", { class: "pill sx-req-verdict" });
@@ -537,9 +561,10 @@ export async function renderOverview() {
   }
 
   function paint(at) {
-    const sources = got.sources?.data?.data ?? null;
+    const sources = withSwitches(got.sources?.data?.data ?? null);
     const usage = got.usage?.data?.data ?? null;
-    const rows = buildRows({ sources, usage, time: istTime });
+    const labels = Object.fromEntries((got.accounts?.data?.data ?? []).map((a) => [a.id, a.label]));
+    const rows = buildRows({ sources, usage, time: istTime, labels });
     annotateRows(rows, { ...trackers, at });
     const keep = new Set(rows.map((r) => r.key));
     trackers.rates.prune(new Set([...keep, ...rows.flatMap((r) => r.classes.map((c) => `${r.key}:${c.cls}`))]));
@@ -576,12 +601,12 @@ export async function renderOverview() {
     if (pooled) {
       poolMeter.set({ share: pool.share, tone, speech: `${formatInt(pool.remaining)} of ${formatInt(pool.limit)} calls of room left ${pool.window === "minute" ? "per minute" : "today"}, ${TONE_WORD[tone].toLowerCase()}` });
       setText(capL, `${percent(pool.share)}% used`);
-      setText(capR, `${formatInt(pool.limit)} calls ${pool.window === "minute" ? "per minute" : "today"} in all`);
+      setText(capR, `${plural(pool.limit, "call")} ${pool.window === "minute" ? "per minute" : "today"} in all`);
     } else {
       setText(capL, "");
       setText(capR, "");
     }
-    const f = forecastSentence(rows);
+    const f = forecastSentence(rows, tone);
     setText(forecastText, f.text);
     setData(forecastRow, "tone", f.tone);
     forecastRow.hidden = !pooled && f.tone === "calm";
@@ -599,13 +624,20 @@ export async function renderOverview() {
     const reorder = force || first || (at - lastSortAt >= 5000 && !busy);
     if (reorder) lastSortAt = at;
     rowsList.sync(sortRows(rows, sortMode), { reorder });
-    const total = (got.sources?.data?.data ?? []).length;
-    const off = (got.sources?.data?.data ?? []).filter((s) => !s.enabled).length;
+    const list = withSwitches(got.sources?.data?.data ?? []);
+    const total = list.length;
+    const off = list.filter((s) => !s.enabled).length;
     const missing = got.sources?.error ? isMissing(got.sources.error) : false;
+    // The sentence with its link is drawn once per count, so a poll never replaces a link that has focus.
+    const foot = missing || got.sources?.error ? "" : total && off ? String(off) : "";
+    if (!foot) delete rowsFoot.dataset.off;
     if (missing) setText(rowsFoot, "Free data sources and route traces need a newer Bridge. Your broker accounts are shown above.");
     else if (got.sources?.error) setText(rowsFoot, "The list of free sources could not be read just now. Broker accounts are still shown.");
     else if (total && off) {
-      rowsFoot.replaceChildren(`${off === 1 ? "1 source is" : `${off} sources are`} switched off. `, h("a", { href: "#/sources/providers" }, "Turn them on in Providers"), ".");
+      if (rowsFoot.dataset.off !== foot) {
+        rowsFoot.dataset.off = foot;
+        rowsFoot.replaceChildren(`${off === 1 ? "1 source is" : `${off} sources are`} switched off. `, h("a", { href: "#/sources/providers" }, "Turn them on in Providers"), ".");
+      }
     } else setText(rowsFoot, rows.length ? "Sorted by risk: what is busiest or in trouble comes first. Select a source for its details." : "");
   }
 
@@ -650,11 +682,11 @@ export async function renderOverview() {
       ...brokers.map((p) =>
         h(
           "details",
-          { class: "al-policy" },
+          { class: "sx-policy-item" },
           h("summary", {}, h("span", {}, h("strong", {}, p.brokerId), p.notes ? h("span", { class: "muted small" }, ` · ${p.notes}`) : null)),
           h(
             "div",
-            { class: "list sx-policy" },
+            { class: "list" },
             Object.entries(p.limits ?? {}).map(([cls, l]) => {
               const bits = [l.perSecond ? `${formatFixed(l.perSecond, Number.isInteger(Number(l.perSecond)) ? 0 : 1)} a second` : null, l.perMinute ? `${formatInt(l.perMinute)} a minute` : null, l.perDay ? `${formatInt(l.perDay)} a day` : null].filter(Boolean).join(", ");
               const src = String(l.source ?? "").includes("demo") ? pill("Sample (demo)", "demo") : l.verified ? pill("Broker docs", "ok") : pill("Conservative default", "warn");
@@ -677,7 +709,7 @@ export async function renderOverview() {
     spoken.tone = key;
     spoken.at = at;
     const worst = attentionRows(model.rows)[0];
-    const f = forecastSentence(model.rows);
+    const f = forecastSentence(model.rows, model.tone);
     setText(live, worst ? `${attentionText(worst, model.rows).title}. ${f.tone === "warn" ? f.text : ""}` : `${TONE_WORD[model.tone]}. ${heroText({ pool: model.pool, tone: model.tone, rows: model.rows }).detail}`);
   }
 
@@ -690,12 +722,13 @@ export async function renderOverview() {
     const slow = pollCount === 1 || pollCount % BROKER_POLICY_EVERY === 0;
     // A Bridge without the route is asked again only now and then, not every poll.
     const skipSources = got.sources?.error && isMissing(got.sources.error) && pollCount % 30 !== 0;
-    const [s, u, r, l] = await Promise.all([skipSources ? Promise.resolve(got.sources) : optional(api("/v1/sources", { fresh: true })), optional(api("/v1/usage", { fresh: true })), optional(api("/v1/requests?limit=60", { fresh: true })), slow && !policyBox.dataset.done ? optional(api("/v1/limits", { fresh: true })) : Promise.resolve(null)]);
+    const [s, u, r, l, acc] = await Promise.all([skipSources ? Promise.resolve(got.sources) : optional(api("/v1/sources", { fresh: true })), optional(api("/v1/usage", { fresh: true })), optional(api("/v1/requests?limit=60", { fresh: true })), slow && !policyBox.dataset.done ? optional(api("/v1/limits", { fresh: true })) : Promise.resolve(null), slow ? optional(api("/v1/accounts", { fresh: true })) : Promise.resolve(null)]);
     if (!root.isConnected && pollCount > 1) return;
     got.sources = s;
     got.usage = u;
     got.requests = r;
     if (l) got.limits = l;
+    if (acc?.data) got.accounts = acc;
     const ok = Boolean(s.data || u.data);
     if (!built && !ok) {
       showFailure(u.error ?? s.error);
@@ -725,6 +758,12 @@ export async function renderOverview() {
     else if (stale) setText(updated, `Not updating, last ${istTime(new Date(lastOkAt).toISOString())}`);
     else setText(updated, `Updated ${agoText(age)}`);
     lost.hidden = !(lastOkAt && (age > LOST_MS || offline));
+    // The pill above changes every second and is not a live region; only a change of connection is said.
+    const conn = offline ? "offline" : stale ? "stale" : "live";
+    if (conn !== spoken.conn) {
+      if (lastOkAt && conn !== "live") setText(live, offline ? "You are offline. These numbers are the last ones read." : "These numbers have stopped updating.");
+      spoken.conn = conn;
+    }
     for (const t of root.querySelectorAll("time.sx-reset[data-until]")) {
       const left = Number(t.dataset.until) - now;
       setText(t, left > 0 ? `, room back in ${shortWait(left)}` : "");

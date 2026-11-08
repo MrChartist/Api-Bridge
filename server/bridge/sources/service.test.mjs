@@ -109,7 +109,7 @@ describe("management: list and describe", () => {
       capabilities: ["quotes", "history"],
       limits: { perMinute: 10 },
       usage: { lastMinute: 0, today: 0 },
-      health: { state: "disabled", errorRate: 0, p50Ms: null, lastError: null, nextTryAt: null },
+      health: { state: "disabled", errorRate: 0, p50Ms: null, lastError: null, lastErrorKind: "none", nextTryAt: null },
       terms: { url: "https://example.com/terms", note: "You hold the vendor account." },
       needsKey: true,
       consent: null,
@@ -488,11 +488,28 @@ describe("usage and health", () => {
     svc.attachHealth({ state: (id) => ({ state: "open", errorRate: 1, p50Ms: 5, lastError: "x", nextTryAt: 99, id }), record: (id, r) => seen.push([id, r.ok]) });
     await svc.quotes(["NSE:A"]);
     expect(seen).toEqual([["slow-src", true]]);
-    expect(svc.describe("slow-src").health).toEqual({ state: "open", errorRate: 1, p50Ms: 5, lastError: "x", nextTryAt: new Date(99).toISOString() });
+    expect(svc.describe("slow-src").health).toEqual({ state: "open", errorRate: 1, p50Ms: 5, lastError: "x", lastErrorKind: "hard", nextTryAt: new Date(99).toISOString() });
     // a disabled source is "disabled" whatever the tracker says
     expect(svc.describe("my-broker").health.state).toBe("open");
     await svc.setEnabled("slow-src", false);
     expect(svc.describe("slow-src").health.state).toBe("disabled");
+  });
+
+  it("says what kind of trouble the last error was, so a rejected key is not shown as working", async () => {
+    const { svc } = setup();
+    await enableAll(svc);
+    const kind = (e) => {
+      svc.attachHealth({ state: () => ({ state: "ok", errorRate: 0, p50Ms: null, lastError: e, nextTryAt: null }), record() {} });
+      return svc.describe("slow-src").health.lastErrorKind;
+    };
+    expect(kind(null)).toBe("none");
+    expect(kind({ kind: "auth", message: "key rejected", at: 1 })).toBe("auth");
+    expect(kind({ kind: "rate-limit", message: "slow down", at: 1 })).toBe("rate-limit");
+    expect(kind({ kind: "not-found", message: "no such symbol", at: 1 })).toBe("not-found");
+    expect(kind("plain text")).toBe("hard");
+    // A call that answered after the error clears it.
+    await svc.quotes(["NSE:A"]);
+    expect(kind({ kind: "auth", message: "key rejected", at: 1 })).toBe("none");
   });
 });
 
