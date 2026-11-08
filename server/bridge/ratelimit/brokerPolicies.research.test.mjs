@@ -92,7 +92,7 @@ describe("corrections from the broker research", () => {
     expect(resolvePolicy("icicidirect").groups.breeze).toMatchObject({ perMinute: 100, perDay: 5000 });
     expect(BROKER_POLICIES.hdfcsky.feed).toMatchObject({ maxConnections: 3, maxSubscriptions: 300, verified: false });
     expect(BROKER_POLICIES.fivepaisa.limits.order).toMatchObject({ perSecond: 10, perMinute: 600, verified: false });
-    expect(BROKER_POLICIES.fivepaisa.groups.nonOrder).toMatchObject({ perMinute: 50, verified: false });
+    expect(BROKER_POLICIES.fivepaisa.limits.other).toMatchObject({ perMinute: 50, verified: false });
     expect(BROKER_POLICIES.fivepaisa.feed).toMatchObject({ maxSubscriptions: 200, verified: false });
     expect(BROKER_POLICIES.shoonya.feed).toMatchObject({ maxConnections: 1, verified: true });
   });

@@ -53,34 +53,92 @@ The Bridge never bursts past a limit. Instead:
   `retryAfterMs`, while the other symbols in the request are still answered;
 - a request that cannot start before its deadline gets `429` with `Retry-After`.
 
-## Spreading reads across your own accounts
+## Spreading reads across your own accounts (pooling)
 
 If you have several accounts (at one broker or several), unpinned read-only market data can use the budgets of all of
-them. An account takes part only when:
+them. This is called pooling. It is **off by default**, and turning it on is a decision you make, with your eyes open.
+
+**What pooling is and is not.** It spreads quotes, option chains and history calls over your own accounts, so each
+account's rate limit is used. It never moves an order: orders always go through the account they belong to, from that
+account's own registered static IP. It never shares credentials, and it never mixes accounts of different people.
+
+**Where the brokers stand.** No broker's published terms clearly allow pooling, and none clearly forbids it. Some say
+things that could matter: Kotak and Shoonya say credentials are for the client's own use, Fyers bars use of its APIs
+"by any third party", Motilal forbids using several keys to get around its order limit (a rule about orders, not
+reads). The per-broker findings are in [BROKERS.md](../BROKERS.md#what-the-brokers-terms-say-about-pooling) and in
+`poolingNote` on each entry of the policy table. You are responsible for following your brokers' terms. **A legal read
+is recommended before you turn pooling on.**
+
+An account takes part only when **all** of these hold:
 
 1. it opts in: `"marketData": { "pooling": true }`;
 2. it names its `holder` (`"self"`, `"spouse"` ...). Only accounts of **one** holder are ever pooled together;
-3. the broker's policy entry says `pooling: "allowed"`, **or** the entry is `"unknown"` and you opt in to that as
-   well with `"poolingWhenTermsUnknown": true`. A broker whose entry says `"not-allowed"` is never pooled.
+3. the broker's policy entry says `pooling: "allowed"`, **or** the entry is `"unknown"` and the account also sets
+   `"poolingWhenTermsUnknown": true`. A broker whose entry says `"not-allowed"` is never pooled;
+4. **you have accepted the pooling notice for that account.** The notice is returned by
+   `GET /v1/pooling` (the dashboard shows the same text). Accepting records `{ acceptedAt, version, accounts }` in `pooling/consent.json` in your data
+   folder. A consent covers only the accounts you named, and it stops counting if the notice text changes (its version
+   changes) until you accept the new text.
 
-Today every broker's entry is `"unknown"` (needs verification against each broker's terms), so pooling happens only
-for accounts where you set both flags yourself:
+Today every broker's entry is `"unknown"`, so pooling needs both flags in the config file **and** your consent:
 
 ```json
-{ "id": "dhan-main",  "broker": "dhan",    "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } },
-{ "id": "kite-main",  "broker": "zerodha", "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } }
+{ "id": "upstox-main", "broker": "upstox",  "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } },
+{ "id": "angel-main",  "broker": "angelone", "holder": "self", "marketData": { "pooling": true, "poolingWhenTermsUnknown": true } }
 ```
 
-What pooling does:
+```bash
+# read the notice and see which accounts could pool
+curl -H "Authorization: Bearer $KEY" http://127.0.0.1:4300/v1/pooling
+# accept it for two accounts of one holder (admin key, from this computer)
+curl -X PUT -H "Authorization: Bearer $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{ "acknowledge": "pooling-1", "accounts": ["upstox-main", "angel-main"] }' \
+  http://127.0.0.1:4300/v1/pooling/consent
+# turn it off again; pooling ends on the next read
+curl -X DELETE -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:4300/v1/pooling/consent
+```
+
+The notice you accept says, in plain words: pooling spreads read-only market-data calls across your own accounts; no
+broker's published terms clearly allow or forbid it; you are responsible for your brokers' terms; orders always go
+through the account they belong to from its own registered IP; where a broker needs a paid data plan every pooled
+account needs one; and you can turn it off at any time. Consent is refused for accounts of different holders, unknown
+accounts, paper accounts and brokers marked `not-allowed`. Accepting and revoking are written to the audit log.
+
+**Paid data plans.** Some brokers charge for live data: Zerodha (Connect, Rs 500 a month per app), Dhan (Data API,
+Rs 499 plus tax a month) and Groww (paid plan, Rs 499 plus tax a month). A pooled account without the plan cannot
+serve live reads, and every pooled account needs its own plan. The policy table records this as `dataEntitlement`
+(`free`, `paid`, `paid-for-live` or `unknown`, with a note and a source), and `mc-bridge doctor` warns about it.
+
+What pooling does once it is on:
 
 - **Many-symbol quote reads are split.** A request for 200 symbols is cut into each broker's batch size and every
   chunk goes to the pooled account with the most spare quote budget, so two accounts answer roughly twice as fast.
   An account in broker back-off gets no share.
 - **Single reads** go to the pooled account with the most headroom.
 
-`GET /v1/accounts` shows the effective `pooling` value per account. Orders and portfolio reads are never pooled,
-credentials are never shared, and accounts of different people are never pooled. Read your brokers' API terms before
-turning this on: it is your decision, made in the config file only.
+`GET /v1/accounts` shows the effective `pooling` value per account (false until the consent covers it). `GET
+/v1/pooling` shows, per holder, each account's broker policy, whether it opted in, whether the consent lists it and
+whether it is pooled right now. Revoking the consent ends pooling on the very next read. Orders and portfolio reads are
+never pooled, credentials are never shared, and accounts of different people are never pooled.
+
+`mc-bridge doctor` checks the setup: it warns when an account is set to pool but has no consent (or only a consent for
+an older notice), when a pooled account needs a paid data plan, when pooled accounts have different holders or none,
+and when a broker's terms are unknown and `poolingWhenTermsUnknown` is not set.
+
+## Broker plans (Fyers)
+
+Some brokers have plans with different limits. Fyers has Standard (free: data calls 5 a second, 50 a minute and 5,000
+a day, a live feed of 100 symbols) and Prime (paid: 10 a second, 500 a minute, 5,00,000 a day, 5,000 symbols), in
+force since 16 October 2026. The Bridge assumes the lower plan. If you have Prime, say so per account:
+
+```json
+"ratelimit": { "accounts": { "fyers-main": { "tier": "prime" } } }
+```
+
+or for every account of the broker with `"brokers": { "fyers": { "tier": "prime" } }`. This is a choice among the
+broker's documented plans, not an override that may only lower limits: pick Prime only if you have it, because the
+Bridge cannot check your plan. An unknown plan name is refused for a broker entry, and for an account it falls back to
+the lower plan. Limits you set under `brokers` or `accounts` still can only lower the figures of the plan you chose.
 
 ## Your own budget
 

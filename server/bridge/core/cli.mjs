@@ -16,6 +16,7 @@ import { BridgeError, NotImplementedError } from "./errors.mjs";
 import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
+import { poolingDoctorChecks } from "../sources/pooling.mjs";
 
 export const USAGE = `Mr. Chartist API Bridge
 
@@ -108,6 +109,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   if (s.killSwitchOnStart) add("warn", "kill-switch", "The kill switch will be engaged at start");
   for (const c of readinessDoctorChecks(config)) add(c.level, c.check, c.message);
   add(config.accounts.length ? "ok" : "warn", "accounts", config.accounts.length ? `${config.accounts.length} account(s): ${config.accounts.map((a) => `${a.id} (${a.broker})`).join(", ")}` : "No accounts configured yet");
+  for (const c of poolingDoctorChecks({ config })) add(c.level, c.check, c.message);
   try {
     new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata" }).format(new Date());
     add("ok", "timezone", "Asia/Kolkata time zone data available");

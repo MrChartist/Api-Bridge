@@ -102,3 +102,16 @@ export function poolingFor(policies, brokerId) {
   const p = policies?.[brokerId]?.pooling;
   return p === "allowed" || p === "not-allowed" ? p : "unknown";
 }
+
+/**
+ * A broker policy entry as it applies to one plan (`tier`, for brokers with documented plans such as Fyers Standard and
+ * Prime), so feed caps and batch sizes follow the plan the account is on. A missing or unknown plan gives the entry
+ * unchanged (its own figures are the default plan's). Nothing is mutated.
+ * @param {object | null} policy
+ * @param {string | undefined} tier
+ */
+export function policyForTier(policy, tier) {
+  if (!policy?.tiers || typeof tier !== "string" || !Object.hasOwn(policy.tiers, tier)) return policy;
+  const t = policy.tiers[tier];
+  return { ...policy, limits: t.limits, groups: t.groups, maxQuoteBatch: t.maxQuoteBatch, feed: t.feed, ...(t.dataEntitlement ? { dataEntitlement: t.dataEntitlement } : {}), tier };
+}

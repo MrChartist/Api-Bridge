@@ -335,17 +335,12 @@ export const BROKER_POLICIES = Object.freeze({
   }),
 
   fivepaisa: entry("fivepaisa", {
-    ...merge(
-      {
-        limits: { order: u({ perSecond: 10, perMinute: 600 }, S.fivepaisaSite) },
-        groups: { nonOrder: group(["quote", "depth", "history", "chain", "portfolio", "other"], u({ perMinute: 50 }, S.fivepaisaSite)) },
-      },
-    ),
+    limits: { order: u({ perSecond: 10, perMinute: 600 }, S.fivepaisaSite), other: u({ perMinute: 50 }, S.fivepaisaSite) },
     maxQuoteBatch: 50,
     feed: feedOf(S.fivepaisaSite, false, { maxSubscriptions: 200, note: "From the Xstream marketing page (\"200 Subscription\")." }),
     dataEntitlement: entitlement("free", "5paisa says all trading APIs are free of charge; this is a marketing-page statement.", { source: S.fivepaisaSite }),
     poolingNote: "The terms page was not read and nothing found says anything about several accounts.",
-    notes: "No limits table on the Xstream documentation pages. The Xstream site FAQ says 600 order requests a minute and 50 requests a minute for other APIs, and a staff post after April 2026 says orders are capped at 10 a second. These are marketing and forum figures, so unverified; they only lower the budget.",
+    notes: "No limits table on the Xstream documentation pages. The Xstream site FAQ says 600 order requests a minute and 50 requests a minute for other APIs (applied to the `other` class only), and a staff post after April 2026 says orders are capped at 10 a second. These are marketing and forum figures, so unverified; they only lower the budget.",
   }),
 
   flattrade: entry("flattrade", {
