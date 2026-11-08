@@ -33,7 +33,8 @@ describe("ltp and quotes read path", () => {
     expect(scheduler.calls[0]).toMatchObject({ accountId: "zerodha-main", endpointClass: "quote", priority: "interactive" });
     expect(ra.errors).toEqual([]);
     expect(ra.items.map((i) => i.symbol)).toEqual(["NSE:RELIANCE", "NSE:INFY"]);
-    expect(ra.items[0]).toEqual({
+    // toMatchObject: freshness also carries the data-class fields (class, delaySec, official, confidence, flags)
+    expect(ra.items[0]).toMatchObject({
       symbol: "NSE:RELIANCE",
       ltp: priceForToken("Z3"),
       freshness: { source: "broker", asOf: expect.stringMatching(/\+05:30$/), ageMs: 0, stale: false, accountId: "zerodha-main", broker: "zerodha", class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] },
