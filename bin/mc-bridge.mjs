@@ -12,6 +12,9 @@
  *   mc-bridge doctor [--no-port-check]
  *   mc-bridge mcp --key <key>            (MCP over stdio for Claude Desktop, Claude Code, Cursor)
  *   mc-bridge openai-tools [--scope read|paper] [--format responses|chat]   (tool schemas for OpenAI function calling)
+ *   mc-bridge sources list | enable <id> [--acknowledge <version>] | disable <id> | set-key <id> | test <id>
+ *   mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display]
+ *   mc-bridge sources plugins check <folder> | pin <folder>   (data sources and plugins; see docs/guides/sources.md)
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
  * (principal { kind: "local", id: "cli" }). Keys are printed once and never again.
@@ -45,6 +48,11 @@ const { positionals, values } = parseArgs({
     url: { type: "string" },
     reason: { type: "string" },
     "cancel-open": { type: "boolean" },
+    capability: { type: "string" },
+    symbols: { type: "string" },
+    purpose: { type: "string" },
+    acknowledge: { type: "string" },
+    "max-age": { type: "string" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

@@ -16,7 +16,7 @@ if (!process.env.MCB_TEST_TMPDIR) {
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["server/**/*.{test,spec}.mjs", "src/**/*.{test,spec}.{ts,mjs}", "scripts/**/*.{test,spec}.mjs"],
+    include: ["server/**/*.{test,spec}.mjs", "src/**/*.{test,spec}.{ts,mjs}", "scripts/**/*.{test,spec}.mjs", "examples/**/*.{test,spec}.mjs"],
     // Budgets for tests and hooks that boot a whole Bridge. A demo Bridge starts its own background work at once
     // (instrument master, vol history seed, recorder back-fill: about 10 s of CPU when it runs to the end) on the same
     // event loop as the test, and about 50 test files boot one. Alone, a boot and its keys (an scrypt at N = 2^15

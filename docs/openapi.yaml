@@ -44,15 +44,25 @@ info:
 
     ## Responses, freshness and errors
     JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`. Every market-data item carries
-    `freshness` (`source`: stream, cache, broker or paper; `asOf`; `ageMs`; `stale`; which account served it), so you
-    always know how old a number is. Errors are RFC 9457 `application/problem+json` with a stable `code` and a
+    `freshness` (`source`: stream, cache, broker, paper, backup or plugin; `asOf`; `ageMs`; `stale`; which account served
+    it; and how current the data is: `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`), so you
+    always know how old a number is and where it came from. Errors are RFC 9457 `application/problem+json` with a stable `code` and a
     `retryable` flag. Times are ISO-8601 with the IST offset (`+05:30`) unless an endpoint says otherwise; candle times
     are epoch seconds. List endpoints are paginated with `limit` and an opaque `cursor` (`meta.nextCursor`).
+
+    ## Data sources
+    Real-time data and option chains come from your own broker accounts. Optional free sources and plugins (see
+    `/v1/sources`) add history, cross-checks and graceful fallback; their answers are labelled `delayed` or `eod`, never
+    blended into a real-time answer, and orders, risk checks, paper fills and alerts (`purpose` = `order`, `risk`, `paper`,
+    `alert`) accept only real-time data. Guide: docs/guides/sources.md. Developers: docs/source-contract.md.
 
     ## Rate limits
     The Bridge never exceeds a broker's documented limit. It serves from live streams first, then a short freshness
     cache, then batches and coalesces broker calls, with orders always ahead of reads. Your own per-key limit is shown in
-    `RateLimit` and `RateLimit-Policy` headers (IETF draft; syntax may change). On 429, wait `Retry-After` seconds.
+    `RateLimit` and `RateLimit-Policy` headers (IETF draft; syntax may change). On 429, wait `Retry-After` seconds. A
+    refusal also says which limit tripped: `scope` (`client`, `upstream`, `queue`, `consumer-cap`), `retryAfterMs` and
+    `limit` in the problem body; clients should read those, not `detail`. Each key has its own quota and fair-queue
+    weight (`/v1/quotas`), and `GET /v1/limits?explain=1` shows the shared pools and each consumer's share.
 
     ## Orders and safety
     Paper mode is the default. A live order needs: `safety.liveTrading` and the account's `live.enabled` in the config
@@ -110,7 +120,11 @@ tags:
   - name: Limits
     description: Broker limits, budgets and usage.
   - name: Sources
-    description: Market-data sources beyond your own broker accounts (free delayed or end-of-day data), their switches, keys, limits and health. Every answer from one is labelled with its data class.
+    description: Where market data comes from besides your broker accounts (free providers, plugins), with honest labels, terms, health and a routing trace.
+  - name: Pooling
+    description: Spreading read-only market data over your own accounts of one holder. Off until you accept a notice; orders never pool.
+  - name: Quotas
+    description: Per-key request quotas and fair-queue weights.
   - name: Safety
     description: Kill switch, safety counters and the audit log.
   - name: Readiness
@@ -664,10 +678,15 @@ paths:
       tags: [Limits]
       operationId: getLimits
       summary: Broker limits, safety limits and current budgets per account
+      description: With `explain=1` the report also says why a request may have been slow or refused, in numbers instead of log lines (`pools`, `consumers`).
       x-stream: S3
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/AccountQueryOptional"
+        - name: explain
+          in: query
+          description: "`1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer)."
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Limits report.
@@ -678,150 +697,6 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/LimitsReport" }
-                  meta: { $ref: "#/components/schemas/Meta" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-        "5XX": { $ref: "#/components/responses/Problem" }
-
-  /v1/sources:
-    get:
-      tags: [Sources]
-      operationId: listSources
-      summary: Every data source with its state, limits, usage and health
-      description: |
-        Your broker accounts' own source (`kind: broker`) and every other source. `class` is realtime, delayed or eod;
-        `official` is true only for the data owner's or your broker's own documented API. `usage` counts calls this
-        minute and today. A source is `enabled` only when it is configured (a key saved, for a BYOK source) and, for an
-        opt-in source, its notice (`noticeVersion`) was acknowledged. No answer here ever holds an API key.
-      x-stream: S12
-      x-scope: read
-      responses:
-        "200":
-          description: The sources, in registration order.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data, meta]
-                properties:
-                  data: { type: array, items: { $ref: "#/components/schemas/Source" } }
-                  meta: { $ref: "#/components/schemas/Meta" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-        "5XX": { $ref: "#/components/responses/Problem" }
-
-  /v1/sources/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
-    patch:
-      tags: [Sources]
-      operationId: updateSource
-      summary: Switch a data source on or off
-      description: |
-        Disabling always works. Enabling needs the source to be configured (a BYOK source needs its key first; 409
-        otherwise) and, for an opt-in source, `acknowledge` equal to its `noticeVersion` (400 `VALIDATION_FAILED` naming the
-        notice version when it is missing or does not match). The acknowledgement is stored with the time it was given.
-      x-stream: S12
-      x-scope: admin
-      x-loopback-only: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [enabled]
-              additionalProperties: false
-              properties:
-                enabled: { type: boolean }
-                acknowledge: { type: string, description: "The noticeVersion of the source, once the person has read its notice." }
-      responses:
-        "200":
-          description: The source, as `data` (its fields are repeated at the top level).
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data, meta]
-                properties:
-                  data: { $ref: "#/components/schemas/Source" }
-                  meta: { $ref: "#/components/schemas/Meta" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-        "5XX": { $ref: "#/components/responses/Problem" }
-
-  /v1/sources/{id}/config:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
-    put:
-      tags: [Sources]
-      operationId: configureSource
-      summary: Save the API key of a data source (this computer only)
-      description: The key goes to the encrypted secrets store under `source:<id>`. It is never returned, logged or kept in the state file. `apiKey` null removes it and switches the source off.
-      x-stream: S12
-      x-scope: admin
-      x-loopback-only: true
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [apiKey]
-              additionalProperties: false
-              properties:
-                apiKey: { type: [string, "null"], minLength: 4, maxLength: 512 }
-      responses:
-        "200":
-          description: Whether the source is configured now. The key is never echoed.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data, meta]
-                properties:
-                  data:
-                    type: object
-                    required: [configured]
-                    properties:
-                      configured: { type: boolean }
-                  meta: { $ref: "#/components/schemas/Meta" }
-        "4XX": { $ref: "#/components/responses/Problem" }
-        "5XX": { $ref: "#/components/responses/Problem" }
-
-  /v1/sources/{id}/test:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
-    post:
-      tags: [Sources]
-      operationId: testSource
-      summary: Ask a data source to prove it works
-      description: Calls the source's own test once, with the usual timeout. A failure is an answer (`ok` false with a short `detail`), not an error status.
-      x-stream: S12
-      x-scope: admin
-      x-loopback-only: true
-      responses:
-        "200":
-          description: The result, as `data` (its fields are repeated at the top level).
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [data, meta]
-                properties:
-                  data:
-                    type: object
-                    required: [ok, latencyMs]
-                    properties:
-                      ok: { type: boolean }
-                      latencyMs: { type: integer, minimum: 0 }
-                      detail: { type: string }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -855,6 +730,324 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/UsageReport" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources:
+    get:
+      tags: [Sources]
+      operationId: listSources
+      summary: Data sources, what each one is, and whether it is on
+      description: |
+        Every place the Bridge can read market data from: your broker accounts (`kind: broker`, always first for
+        real-time data), the built-in free providers, and plugins you granted. Each row says how current its data is
+        (`class`, `delaySec`), whether it is `official`, what it may be asked (`capabilities`), the vendor's documented
+        `limits`, how much of them the Bridge used (`usage`), its `health`, and the terms you accept by turning it on.
+        API keys of sources that need one are never returned; `configured` only says whether one is stored.
+      x-stream: S12
+      x-scope: read
+      responses:
+        "200":
+          description: Sources.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/DataSource" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/trace:
+    get:
+      tags: [Sources]
+      operationId: traceSources
+      summary: Why a read would be served by one source and not another (dry run)
+      description: |
+        Runs the router's decision for a read and explains it: every candidate (your pooled broker accounts and the
+        enabled sources), with the verdict (`chosen`, `fallback` or `skipped`), the reason, the score and the spare
+        budget. Nothing is fetched and no upstream call is made, so it costs no quota. `class` is the data class the
+        answer would carry.
+      x-stream: S12
+      x-scope: read
+      parameters:
+        - name: capability
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/SourceCapability" }
+        - name: symbols
+          in: query
+          required: true
+          description: Comma-separated symbols (for expiries and option chains, the underlying).
+          schema: { type: string, maxLength: 8000 }
+        - $ref: "#/components/parameters/Purpose"
+        - name: maxAgeMs
+          in: query
+          description: The oldest data the caller would accept, in ms. A delayed or end-of-day source whose delay is longer cannot answer.
+          schema: { type: integer, minimum: 0, maximum: 3600000 }
+      responses:
+        "200":
+          description: The routing decision.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RoutingTrace" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/{id}:
+    patch:
+      tags: [Sources]
+      operationId: updateSource
+      summary: Turn a source on or off
+      description: |
+        `enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`
+        equal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored
+        first (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`
+        turns it off at once. Your broker accounts (`builtin`) cannot be switched off here.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/SourceIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourceUpdate" }
+      responses:
+        "200":
+          description: The source as it is now.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DataSource" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/{id}/config:
+    put:
+      tags: [Sources]
+      operationId: configureSource
+      summary: Store the API key of a source that needs one
+      description: |
+        The key goes into the encrypted secrets store under `source:<id>` and is never returned, logged or put in the
+        configuration file. Only from this computer.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/SourceIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourceConfigRequest" }
+      responses:
+        "200":
+          description: Stored. The answer never contains the key.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [configured]
+                    properties:
+                      configured: { type: boolean, const: true }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/{id}/test:
+    post:
+      tags: [Sources]
+      operationId: testSource
+      summary: Check that a source answers
+      description: Makes one small call through the source's own `test` (a status or sample request) and reports the result. It counts against the source's quota.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/SourceIdPath"
+      responses:
+        "200":
+          description: "The result. A failing source is still a 200 with `ok: false`."
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SourceTestResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/pooling:
+    get:
+      tags: [Pooling]
+      operationId: getPooling
+      summary: Whether market-data reads may be spread over your own accounts
+      description: |
+        Pooling is off until you accept the notice. Accounts are grouped by holder; only accounts of one holder are
+        ever pooled, only read-only market data is pooled, and orders always go through the account they belong to. An
+        account whose broker's policy is `not-allowed` is never pooled.
+      x-stream: S12
+      x-scope: read
+      responses:
+        "200":
+          description: Pooling state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/PoolingState" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/pooling/consent:
+    put:
+      tags: [Pooling]
+      operationId: acceptPooling
+      summary: Accept the pooling notice for chosen accounts
+      description: |
+        `acknowledge` must equal the current `notice.version`. Only accounts of one holder with a policy other than
+        `not-allowed` are accepted. Only from this computer.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PoolingConsentRequest" }
+      responses:
+        "200":
+          description: Pooling state after the change.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/PoolingState" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Pooling]
+      operationId: revokePooling
+      summary: Withdraw the pooling consent
+      description: Each account serves only its own reads again.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Pooling state after the change.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/PoolingState" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/quotas:
+    get:
+      tags: [Quotas]
+      operationId: getQuotas
+      summary: Each API key's share of the Bridge
+      description: |
+        Every key has a request quota (a token bucket) and a weight in the fair queue, so one runaway spreadsheet cannot
+        starve an AI assistant. `kinds` are the default weights by client kind (`ui`, `mcp`, `excel`, `script`, `other`);
+        `keys[].source` says whether a key's figures are the default, from the configuration, or an override set with
+        `PUT /v1/quotas/{keyId}`. `usage` counts requests and how often the key was throttled.
+      x-stream: S3
+      x-scope: read
+      responses:
+        "200":
+          description: Quotas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/QuotasReport" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/quotas/{keyId}:
+    put:
+      tags: [Quotas]
+      operationId: setQuota
+      summary: Override one key's quota or weight
+      description: "Only the fields you send change. `perDay: null` removes the daily cap. The override survives a restart."
+      x-stream: S3
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/KeyIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuotaOverride" }
+      responses:
+        "200":
+          description: The key's quota as it is now.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/QuotaKey" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Quotas]
+      operationId: clearQuota
+      summary: Remove a key's override
+      description: The key goes back to the quota from the configuration, or the default for its client kind.
+      x-stream: S3
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/KeyIdPath"
+      responses:
+        "200":
+          description: The key's quota as it is now.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/QuotaKey" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -1016,6 +1209,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Symbols"
         - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
@@ -1045,6 +1239,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Symbols"
         - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
@@ -1118,6 +1313,7 @@ paths:
           in: query
           schema: { type: string, enum: [json, csv], default: json }
         - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
       responses:
         "200":
@@ -1153,6 +1349,7 @@ paths:
           in: query
           schema: { type: string, enum: [NFO, BFO, MCX, CDS] }
         - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
       responses:
         "200":
@@ -1208,6 +1405,7 @@ paths:
             carries Deprecation and Link headers.
           schema: { type: string, enum: [b76-forward, legacy-bs-spot] }
         - $ref: "#/components/parameters/Backup"
+        - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
@@ -3616,6 +3814,26 @@ components:
       in: query
       description: "`background` for a prefetch: it waits behind every interactive read, and a read for the same thing joins it and raises its priority. Reads never run at order priority."
       schema: { type: string, enum: [interactive, background], default: interactive }
+    Purpose:
+      name: purpose
+      in: query
+      description: |
+        What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a
+        delayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled
+        source. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer.
+      schema: { $ref: "#/components/schemas/Purpose" }
+    SourceIdPath:
+      name: id
+      in: path
+      required: true
+      description: A source id from `GET /v1/sources`.
+      schema: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
+    KeyIdPath:
+      name: keyId
+      in: path
+      required: true
+      description: The key id (not the secret) from `GET /v1/keys`.
+      schema: { type: string, maxLength: 64 }
     Limit:
       name: limit
       in: query
@@ -3941,7 +4159,23 @@ components:
         code: { $ref: "#/components/schemas/ErrorCode" }
         retryable: { type: boolean, description: "Safe to send exactly this request again (after Retry-After)." }
         requestId: { type: string }
-        retryAfterMs: { type: integer }
+        retryAfterMs: { type: integer, description: "Throttling refusals: when to try again, in ms. Same time as Retry-After, finer." }
+        scope:
+          type: string
+          enum: [client, upstream, queue, consumer-cap]
+          description: |
+            Throttling refusals only: which limit tripped. `client`: this API key's own quota. `upstream`: the broker's
+            (or source's) limit, shared by everyone. `queue`: the Bridge's queue for that account is full or could not
+            start the request before its deadline. `consumer-cap`: this consumer already has its share of the queue.
+            Read this and `limit`, not `detail`.
+        limit:
+          type: object
+          description: "Throttling refusals only: the limit that tripped."
+          required: [name, remaining, resetMs]
+          properties:
+            name: { type: string, description: "For example `key-per-second`, `dhan-quote-per-second`, `queue-depth`." }
+            remaining: { type: number, description: "What is left of it now (0 when it tripped)." }
+            resetMs: { type: integer, minimum: 0, description: "Time until it has room again." }
         broker:
           type: object
           description: The broker's own error, when one caused this.
@@ -4179,18 +4413,26 @@ components:
 
     Freshness:
       type: object
-      required: [source, asOf, ageMs, stale]
+      required: [source, asOf, ageMs, stale, class, delaySec, official, confidence, flags]
       properties:
         source:
           type: string
-          enum: [stream, cache, broker, paper, backup]
-          description: backup = a free public source (named in provider) used because no broker account could answer; may be delayed.
-        asOf: { type: string, format: date-time }
+          enum: [stream, cache, broker, paper, backup, plugin]
+          description: "backup = a free provider (named in provider) used because no broker account could answer; it is delayed or end-of-day and unofficial unless its flags say otherwise. plugin = a plugin you granted."
+        asOf: { type: string, format: date-time, description: "The source's own timestamp for this value. Never the time the Bridge received it for a delayed or end-of-day source." }
         ageMs: { type: integer, minimum: 0 }
-        stale: { type: boolean }
+        stale: { type: boolean, description: "Older than the freshness target for this read. Not the same as `class`: a 15-minute delayed quote is `class: delayed` and not stale when you accept data that old." }
         accountId: { type: [string, "null"], description: "Account whose connection supplied the data." }
         broker: { type: [string, "null"] }
-        provider: { type: string, enum: [yahoo, nse], description: "Only for source backup: which public source supplied it." }
+        provider: { type: string, description: "Only for sources other than your brokers: the source id that supplied it (for example yahoo, alphavantage, twelvedata, or a plugin's id)." }
+        class: { $ref: "#/components/schemas/DataClass" }
+        delaySec: { type: integer, minimum: 0, description: "Nominal delay: 0 for real-time, about 900 for 15-minute delayed data; for end-of-day data, how old the close is expected to be." }
+        official: { type: boolean, description: "True only for your own broker's data or a documented API from the data's owner." }
+        confidence: { $ref: "#/components/schemas/Confidence" }
+        flags:
+          type: array
+          description: "Labels on this value. Open list. Known: `stale`, `unofficial`, `delayed`, `eod`, `plugin`, `last-bar-provisional`."
+          items: { type: string }
         revalidating: { type: boolean, description: "Only with ?swr=true: this older value was answered at once and a refresh is running behind it." }
         quiet:
           type: object
@@ -5221,6 +5463,14 @@ components:
           properties:
             perSecond: { type: number }
             remaining: { type: number }
+        pools:
+          type: array
+          description: Only with `explain=1`. The shared bucket groups behind the broker accounts.
+          items: { $ref: "#/components/schemas/LimitsPool" }
+        consumers:
+          type: array
+          description: Only with `explain=1`. Who is waiting in the fair queue and each one's share.
+          items: { $ref: "#/components/schemas/LimitsConsumer" }
     UsageReport:
       type: object
       properties:
@@ -5248,6 +5498,246 @@ components:
             servedFromCache: { type: integer }
             coalesced: { type: integer }
             batched: { type: integer }
+    DataClass:
+      type: string
+      enum: [realtime, delayed, eod]
+      description: |
+        How current an answer is. `realtime`: from your own broker account (or its live stream). `delayed`: the source is
+        slow by nature (usually about 15 minutes). `eod`: end-of-day values only. A composite answer (an option chain, a
+        many-symbol quote) takes the least current class of its parts. `delayed` is not the same as `freshness.stale`:
+        stale means older than the freshness target for that source.
+    Confidence:
+      type: string
+      enum: [high, medium, low]
+      description: "How far to trust one value: `high` for a broker or stream value, lower for a delayed or unofficial source or a value carrying flags."
+    SourceCapability:
+      type: string
+      enum: [quotes, history, expiries, optionChain]
+      description: What a source can be asked. All four are read-only; no source places orders.
+    SourceHealth:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [ok, degraded, open, disabled]
+          description: "`open` = ejected for now after repeated failures (see nextTryAt); `disabled` = switched off by the Bridge, with the reason in lastError (for example a plugin that crashed four times in ten minutes)."
+        errorRate: { type: [number, "null"], description: "Recent share of failed calls, 0 to 1." }
+        p50Ms: { type: [number, "null"], description: "Median latency of recent calls." }
+        lastError: { type: [string, "null"] }
+        nextTryAt: { type: [string, "null"], format: date-time }
+    DataSource:
+      type: object
+      required: [id, name, kind, tier, enabled, configured, class, delaySec, official, capabilities, limits, usage, health, needsKey]
+      properties:
+        id: { type: string, pattern: "^[a-z][a-z0-9-]{1,30}$" }
+        name: { type: string }
+        kind: { type: string, enum: [broker, free, plugin] }
+        tier:
+          type: string
+          enum: [builtin, byok, opt-in, plugin]
+          description: "`builtin` your own broker accounts (on); `byok` you hold the vendor account and a key; `opt-in` unofficial or terms-sensitive, off until you acknowledge a notice; `plugin` third-party code you granted."
+        enabled: { type: boolean }
+        configured: { type: boolean, description: "Ready to use: it has its key when it needs one." }
+        class: { $ref: "#/components/schemas/DataClass" }
+        delaySec: { type: [integer, "null"], description: "Typical delay of a delayed source; 0 for real-time; null where it does not apply." }
+        official: { type: boolean, description: "True only for a documented API from the data's owner or your own broker. Plugins are never official." }
+        capabilities: { type: array, items: { $ref: "#/components/schemas/SourceCapability" } }
+        limits:
+          type: object
+          description: The vendor's documented limits. The Bridge never goes above them.
+          properties:
+            perSecond: { type: number }
+            perMinute: { type: number }
+            perDay: { type: number }
+        usage:
+          type: object
+          required: [lastMinute, today]
+          properties:
+            lastMinute: { type: integer, minimum: 0 }
+            today: { type: integer, minimum: 0 }
+        health: { $ref: "#/components/schemas/SourceHealth" }
+        terms:
+          type: object
+          description: The vendor's terms. Not present for your own broker accounts.
+          properties:
+            url: { type: string, format: uri }
+            note: { type: string, description: "One plain sentence about what you accept by turning it on." }
+        noticeVersion: { type: string, description: "Opt-in sources: the notice version `acknowledge` must equal to turn it on." }
+        needsKey: { type: boolean }
+        consent:
+          type: [object, "null"]
+          description: When you acknowledged the notice, or null.
+          properties:
+            acceptedAt: { type: string, format: date-time }
+            noticeVersion: { type: string }
+        version: { type: string, description: "Plugins only: the plugin's own version." }
+        flags:
+          type: array
+          items: { type: string }
+          description: "Labels every answer from this source carries, for example `plugin`, `unofficial`, `delayed`."
+    SourceUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        enabled: { type: boolean }
+        acknowledge: { type: string, maxLength: 64, description: "The source's `noticeVersion`, to turn on an opt-in source." }
+    SourceConfigRequest:
+      type: object
+      additionalProperties: false
+      required: [apiKey]
+      properties:
+        apiKey: { type: string, minLength: 4, maxLength: 500, description: "Never echoed back, logged or written to the configuration file." }
+    SourceTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        latencyMs: { type: number }
+        detail: { type: string, maxLength: 200 }
+    RoutingTrace:
+      type: object
+      required: [request, considered, class]
+      properties:
+        request:
+          type: object
+          properties:
+            capability: { $ref: "#/components/schemas/SourceCapability" }
+            symbols: { type: array, items: { type: string } }
+            purpose: { $ref: "#/components/schemas/Purpose" }
+            maxAgeMs: { type: [integer, "null"] }
+        considered:
+          type: array
+          items:
+            type: object
+            required: [id, kind, verdict, reason]
+            properties:
+              id: { type: string, description: "A broker account id or a source id." }
+              kind: { type: string, enum: [broker, source] }
+              verdict: { type: string, enum: [chosen, fallback, skipped] }
+              reason: { type: string, description: "Plain words. Do not parse them." }
+              score: { type: number }
+              spareBudget: { type: number, description: "Share of the candidate's budget that is free right now, 0 to 1." }
+              health: { $ref: "#/components/schemas/SourceHealth" }
+        class:
+          oneOf:
+            - { $ref: "#/components/schemas/DataClass" }
+            - { type: "null" }
+          description: The data class the answer would carry; null when nothing can serve the read.
+        note: { type: string }
+    Purpose:
+      type: string
+      enum: [display, analysis, alert, paper, risk, order]
+      description: What a read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker.
+    PoolingState:
+      type: object
+      required: [consent, groups, notice]
+      properties:
+        consent:
+          type: [object, "null"]
+          description: Null while pooling is off.
+          properties:
+            acceptedAt: { type: string, format: date-time }
+            version: { type: string }
+            accounts: { type: array, items: { type: string } }
+        groups:
+          type: array
+          description: Accounts grouped by holder. Only accounts of one holder are ever pooled.
+          items:
+            type: object
+            required: [holder, accounts]
+            properties:
+              holder: { type: string }
+              accounts:
+                type: array
+                items:
+                  type: object
+                  required: [id, broker, poolingPolicy, inPool]
+                  properties:
+                    id: { $ref: "#/components/schemas/AccountId" }
+                    broker: { type: string }
+                    poolingPolicy: { type: string, enum: [allowed, not-allowed, unknown], description: "What the broker's published terms say. `not-allowed` is never pooled." }
+                    inPool: { type: boolean }
+        notice:
+          type: object
+          required: [version, text]
+          properties:
+            version: { type: string }
+            text: { type: string }
+    PoolingConsentRequest:
+      type: object
+      additionalProperties: false
+      required: [acknowledge, accounts]
+      properties:
+        acknowledge: { type: string, description: "The current `notice.version`." }
+        accounts: { type: array, minItems: 1, items: { $ref: "#/components/schemas/AccountId" } }
+    QuotaKey:
+      type: object
+      required: [keyId, label, clientKind, weight, perSecond, burst, perDay, usage, source]
+      properties:
+        keyId: { type: string }
+        label: { type: string }
+        clientKind: { type: string, enum: [ui, mcp, excel, script, other] }
+        weight: { type: number, minimum: 0, description: "Share in the fair queue against other keys." }
+        perSecond: { type: number }
+        burst: { type: number }
+        perDay: { type: [integer, "null"], description: "Daily request cap; null for none." }
+        usage:
+          type: object
+          required: [lastMinute, today, throttledToday]
+          properties:
+            lastMinute: { type: integer, minimum: 0 }
+            today: { type: integer, minimum: 0 }
+            throttledToday: { type: integer, minimum: 0, description: "Requests refused or delayed by this key's own limits today." }
+        source: { type: string, enum: [default, config, override] }
+    QuotasReport:
+      type: object
+      required: [default, kinds, keys]
+      properties:
+        default:
+          type: object
+          required: [perSecond, burst]
+          properties:
+            perSecond: { type: number }
+            burst: { type: number }
+        kinds:
+          type: object
+          description: Default fair-queue weight by client kind.
+          properties:
+            ui: { type: number }
+            mcp: { type: number }
+            excel: { type: number }
+            script: { type: number }
+            other: { type: number }
+        keys: { type: array, items: { $ref: "#/components/schemas/QuotaKey" } }
+    QuotaOverride:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        perSecond: { type: number, exclusiveMinimum: 0 }
+        burst: { type: number, minimum: 1 }
+        weight: { type: number, exclusiveMinimum: 0 }
+        perDay: { type: [integer, "null"], minimum: 1 }
+    LimitsPool:
+      type: object
+      required: [group, accounts, spare, ceiling, backoffFactor]
+      properties:
+        group: { type: string, description: "A shared bucket group: the accounts whose reads draw on the same limit." }
+        accounts: { type: array, items: { type: string } }
+        spare: { type: number, description: "Free budget right now, in requests per second." }
+        ceiling: { type: number, description: "The documented limit the Bridge stays below." }
+        backoffFactor: { type: number, description: "1 when healthy; below 1 while the limiter is backing off after a 429." }
+    LimitsConsumer:
+      type: object
+      required: [id, label, queued, inFlight, share]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        queued: { type: integer, minimum: 0 }
+        inFlight: { type: integer, minimum: 0 }
+        share: { type: number, description: "This consumer's fair share of contended capacity, 0 to 1." }
     KillSwitchState:
       type: object
       required: [engaged]

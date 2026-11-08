@@ -1,0 +1,20 @@
+{
+  "id": "example-delayed",
+  "name": "Example delayed quotes",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "entry": "index.mjs",
+  "description": "Teaching example: 15-minute delayed quotes from a placeholder host.",
+  "capabilities": ["quotes"],
+  "class": "delayed",
+  "delaySec": 900,
+  "network": { "allowHosts": ["quotes.example.com"] },
+  "limits": { "perSecond": 1, "perMinute": 30, "perDay": 2000, "callTimeoutMs": 5000 },
+  "terms": {
+    "url": "https://example.com/terms",
+    "note": "Placeholder terms: replace with the data vendor's real terms before you use a plugin like this."
+  },
+  "configSchema": {
+    "market": { "type": "string", "enum": ["NSE", "BSE"], "default": "NSE", "description": "Which exchange prefix the vendor expects." }
+  }
+}

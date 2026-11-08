@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Data sources and plugins: optional free sources and owner-approved plugins next to your broker accounts, each answer
+  labelled with its data class (`realtime`, `delayed`, `eod`), delay, `official` flag and confidence; `/v1/sources`, a
+  routing trace, pooling consent, per-key quotas, `limits?explain=1` and a `purpose` read parameter. Plugins run in their
+  own process with a brokered, allow-listed network and a hash pin, and never see credentials or order code. New:
+  `mc-bridge sources ...`, [docs/guides/sources.md](docs/guides/sources.md), [docs/source-contract.md](docs/source-contract.md)
+  and `examples/source-plugin/`.
+
 ## 2.0.0
 
 Initial public release: a local service that connects your Indian broker accounts to one REST + WebSocket API.
