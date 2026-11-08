@@ -206,15 +206,15 @@ export const PAGES = [
     id: "api", label: "API", icon: "keys", tint: "pink", tab: true, key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
     defaultTab: "keys",
     tabs: [
-      { id: "keys", label: "Keys", page: "keys", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
+      { id: "keys", label: "Keys", page: "keys", sub: "One key per tool, with only the access it needs", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
       {
-        id: "integrations", label: "Integrations", page: "integrations", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
+        id: "integrations", label: "Integrations", page: "integrations", sub: "Connect Excel, a script, an AI assistant or a webhook", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
         extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
       },
-      { id: "console", label: "Test console", page: "console", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
-      { id: "limits", label: "Rate limits", page: "limits", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
+      { id: "console", label: "Test console", page: "console", sub: "Try any call and see what a script would get back", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
+      { id: "limits", label: "Rate limits", page: "limits", sub: "How much of each broker's call budget is in use", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
       {
-        id: "activity", label: "Activity", page: "activity", command: "Activity", icon: "activity", tint: "gray", keywords: "activity requests log", render: renderActivity,
+        id: "activity", label: "Activity", page: "activity", sub: "Every request the Bridge handled, and its audit log", command: "Activity", icon: "activity", tint: "gray", keywords: "activity requests log", render: renderActivity,
         extras: [{ id: "audit", label: "Audit log", route: "api/activity?view=audit", keywords: "audit log hash chain tamper", sub: "API › Activity › Audit log" }],
       },
     ],
@@ -3059,7 +3059,7 @@ async function renderActivity() {
   let view = hashParams().get("view") === "audit" ? "audit" : "requests";
   const seg = segmented("Log", [["requests", "Requests"], ["audit", "Audit log"]], view);
   const body = h("div", { class: "aa-body" });
-  const head = h("div", { class: "aa-head" }, seg);
+  const head = h("div", { class: "aa-head" }, h("h2", { class: "sr-only" }, "Activity"), seg);
   root.append(head, body);
   let token = 0;
   seg.addEventListener("change", () => {

@@ -1371,6 +1371,9 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 @media (forced-colors: active) {
   .card, .list, .glass, .icon-btn, dialog.sheet, .toast, .popover, .sidebar, .tabbar { -webkit-backdrop-filter: none; backdrop-filter: none; background: Canvas; border: 1px solid CanvasText; }
   button, .btn, input, select, textarea { border: 1px solid ButtonText; }
+  .secret-box code, .acct-cat > .empty, .acct-tile, .ob-ticket, .api-skel, .once, .al-policy, .snip, .ak-caps, .ak-switch, .api-pick-item { border: 1px solid CanvasText; }
+  /* Tinted pills and tags are only a fill: give them an edge, and keep the meaning in their words. */
+  .pill, .chip, .alert, .method, .al-word, .sf-word, .sf-sim, .ob-side, .count { border: 1px solid CanvasText; }
   .toolbar::before { display: none; }
   .nav a[aria-current="page"], .tab[aria-current="page"], .segmented button[aria-pressed="true"], .tabs button[aria-selected="true"], [role="tab"][aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
   .switch i { border: 1px solid ButtonText; }
@@ -1702,7 +1705,6 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sf-acct.compact .sf-word { min-width: 4.2em; }
 
 /* Recent changes: a timeline. */
-.sf-group-title { margin: 0 0 8px; padding: 0 4px; font: 600 13px/1.3 var(--font-body); color: var(--label-2); }
 .sf-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .sf-timeline li { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 0 12px; padding-bottom: 16px; }
 .sf-timeline li:last-child { padding-bottom: 0; }
@@ -1784,7 +1786,13 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ks-list li { position: relative; padding-left: 22px; text-wrap: pretty; }
 .ks-list li::before { content: ""; position: absolute; left: 3px; top: 0.5em; width: 9px; height: 9px; border-radius: 3px; background: hsl(var(--danger)); }
 .ks-list.keep li::before { border-radius: 50%; background: hsl(var(--success)); }
-@media (forced-colors: active) { .sf-glyph, .sf-hero-tile { border: 1px solid CanvasText; } .ks-list li::before { background: CanvasText; } }
+@media (forced-colors: active) {
+  .sf-glyph, .sf-hero-tile { border: 1px solid CanvasText; }
+  .ks-list li::before { background: CanvasText; }
+  .sf-card, .sf-hero, .sf-disc { border: 1px solid CanvasText; }
+  .sf-timeline li:not(:last-child)::before { background: CanvasText; }
+  .sf-dot { border: 1px solid CanvasText; }
+}
 /* === END PAGE: safety === */
 
 /* === PAGE: orders === */

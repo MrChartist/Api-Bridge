@@ -798,14 +798,14 @@ export function readinessSection({ demo = false, initial = { snap: null, history
           }),
         )
       : h("p", { class: "sf-note" }, "Nothing yet. A change is recorded when an account moves between Ready, Check and Cannot trade.");
-    return h("section", { class: "sf-group", "aria-labelledby": "sf-hist-h" }, h("h3", { class: "sf-group-title", id: "sf-hist-h" }, "Recent changes"), h("div", { class: "sf-card" }, body));
+    return h("section", { class: "group", "aria-labelledby": "sf-hist-h" }, h("h3", { class: "group-title", id: "sf-hist-h" }, "Recent changes"), h("div", { class: "sf-card" }, body));
   }
   function howChecked(snap) {
     const eg = egressModel(snap);
     const parts = methodParts(snap.method);
     return h(
       "section",
-      { class: "sf-group" },
+      { class: "group" },
       h(
         "div",
         { class: "sf-card sf-disc-card" },
@@ -870,6 +870,6 @@ export function readinessSection({ demo = false, initial = { snap: null, history
     );
     d.open = open;
     d.addEventListener("toggle", () => (d.open ? state.open.add("demo-tools") : state.open.delete("demo-tools")));
-    return h("section", { class: "sf-group sf-demo" }, h("div", { class: "sf-card sf-disc-card" }, d));
+    return h("section", { class: "group sf-demo" }, h("div", { class: "sf-card sf-disc-card" }, d));
   }
 }
