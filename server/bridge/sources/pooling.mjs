@@ -203,8 +203,11 @@ export function createPoolingService(deps = {}, options = {}) {
      * proves the notice text was shown. Every account must exist, be a real (not paper) account of the same holder, and
      * its broker's policy must not be "not-allowed".
      * @param {{ acknowledge?: unknown, accounts?: unknown }} input
+     * @param {{ merge?: boolean }} [opts]  merge: ADD these accounts to the consent already given for the current notice
+     *   (what a key limited to some accounts may do) instead of replacing the whole record. The merged list must still
+     *   share one holder; the error then does not name holders or accounts the caller did not send.
      */
-    async acceptConsent(input) {
+    async acceptConsent(input, { merge = false } = {}) {
       const { acknowledge, accounts } = input ?? {};
       if (acknowledge !== POOLING_NOTICE_VERSION) {
         throw fail(`Read the pooling notice and send acknowledge: "${POOLING_NOTICE_VERSION}" to accept it.`, [{ path: "acknowledge", message: `must equal ${POOLING_NOTICE_VERSION}` }]);
@@ -242,22 +245,51 @@ export function createPoolingService(deps = {}, options = {}) {
         holders.add(a.holder);
       }
       if (errors.length) throw fail("These accounts cannot be pooled.", errors.slice(0, 10));
+      let all = ids;
+      if (merge) {
+        const have = load();
+        if (have && isCurrentConsent(have)) {
+          for (const id of have.accounts) {
+            const a = byId(id);
+            if (!a) continue; // an account that left the config drops out of the merged consent
+            if (!ids.includes(id)) all = [...all, id];
+            if (typeof a.holder === "string" && a.holder) holders.add(a.holder);
+          }
+          if (holders.size > 1) throw fail("These accounts do not share one holder with the accounts already covered by the pooling consent, so they cannot be added. Accounts of different holders are never pooled.", [{ path: "accounts", message: "accounts must share one holder with the existing consent" }]);
+        }
+      }
       if (holders.size > 1) {
         throw fail(`Accounts of different holders are never pooled (${[...holders].sort().join(", ")}). Name accounts of one holder.`, [{ path: "accounts", message: "accounts must share one holder" }]);
       }
 
-      const record = Object.freeze({ acceptedAt: new Date(now()).toISOString(), version: POOLING_NOTICE_VERSION, accounts: Object.freeze([...ids]) });
+      const record = Object.freeze({ acceptedAt: new Date(now()).toISOString(), version: POOLING_NOTICE_VERSION, accounts: Object.freeze([...all]) });
       store(record);
       log?.info?.("pooling consent accepted", { version: record.version, accounts: record.accounts.length });
       return record;
     },
 
-    /** Remove the consent. Pooling ends on the next read. @returns {Promise<{ revoked: boolean }>} */
-    async revokeConsent() {
-      const had = Boolean(load());
-      store(null);
-      if (had) log?.info?.("pooling consent revoked");
-      return { revoked: had };
+    /**
+     * Remove the consent. Pooling ends on the next read.
+     * With `accounts`, remove only those accounts from the consent (what a key limited to some accounts may do): the record
+     * is deleted only when no account is left. Without it the whole record goes.
+     * @param {{ accounts?: string[] }} [opts]
+     * @returns {Promise<{ revoked: boolean, removed?: string[] }>}  revoked: whether anything was removed
+     */
+    async revokeConsent({ accounts } = {}) {
+      const have = load();
+      if (!have) return { revoked: false };
+      if (!Array.isArray(accounts)) {
+        store(null);
+        log?.info?.("pooling consent revoked");
+        return { revoked: true };
+      }
+      const removed = have.accounts.filter((id) => accounts.includes(id));
+      if (!removed.length) return { revoked: false, removed: [] };
+      const left = have.accounts.filter((id) => !accounts.includes(id));
+      if (!left.length) store(null);
+      else store(Object.freeze({ acceptedAt: have.acceptedAt, version: have.version, accounts: Object.freeze(left) }));
+      log?.info?.("pooling consent revoked for some accounts", { removed: removed.length, left: left.length });
+      return { revoked: true, removed };
     },
   };
 }

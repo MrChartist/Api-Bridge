@@ -13,8 +13,11 @@
  *  - Which of the usable sources is tried first is decided by ONE function, pickSources(capability, req). The default
  *    is the most current class first, then registration order. Replace it with setPicker() or deps.pickSources.
  *  - Enabling needs the source to be configured (a BYOK key in the secrets store under `source:<id>`), and an opt-in
- *    source needs `acknowledge` equal to its noticeVersion. Disabling is always allowed.
- *  - Every call gets { signal, now } and a timeout (config sources.timeoutMs, 5 s by default, 15 s at most).
+ *    source needs `acknowledge` equal to its noticeVersion. Disabling is always allowed. A source that has been switched
+ *    off for more than 24 hours, or whose notice changed, needs the acknowledgement again; switching it back on within
+ *    24 hours of switching it off is one click. An enabled opt-in source whose acknowledgement is missing or for another
+ *    notice version is treated as off (and logged once at start): the state file is trusted local state, not tamper-proof.
+ *  - Every call gets { signal, now, purpose } and a timeout (config sources.timeoutMs, 5 s by default, 15 s at most).
  *  - API keys are read from the secrets store only to be handed to the source that owns them (ctx.apiKey, for sources
  *    that need a key). They are never logged, never kept in state.json and never returned; text from a source is
  *    scrubbed of the key before it is shown or logged.
@@ -23,12 +26,15 @@ import { istDate } from "../../lib/jsonl.mjs";
 import { BridgeError, ERROR_CODES } from "../core/errors.mjs";
 import { sourcesConfigSchema } from "./config.mjs";
 import { classAllowedFor, classRank, meetsMaxAge } from "./contract.mjs";
+import { scrubSecrets, secretForms } from "./redact.mjs";
 import { createSourceState } from "./state.mjs";
 import { outcomeKindOf } from "./health.mjs";
 
 const MINUTE_MS = 60_000;
 const HEALTH_WINDOW_MS = 5 * MINUTE_MS;
 const HEALTH_KEEP = 60;
+/** A switched-off opt-in source may be switched on again without a fresh acknowledgement for this long; after it, the notice is shown again. */
+export const ACK_REUSE_MS = 24 * 60 * MINUTE_MS;
 const KEY_MIN = 4;
 const KEY_MAX = 512;
 
@@ -158,19 +164,15 @@ export function createSourcesService(deps) {
     try {
       const v = await secrets.get(secretNameFor(id));
       const key = v && typeof v.apiKey === "string" && v.apiKey ? v.apiKey : null;
-      if (key) deps.logger?.addSecret?.(key);
+      if (key) for (const form of secretForms(key)) deps.logger?.addSecret?.(form);
       return key;
     } catch (err) {
       log?.warn?.("source key could not be read", { id, code: err?.code });
       return null;
     }
   }
-  /** Text safe to show or log: the key is replaced if a source echoed it back. */
-  const scrub = (text, key) => {
-    let s = String(text ?? "").slice(0, 300);
-    if (key && key.length >= 4) s = s.split(key).join("***");
-    return s;
-  };
+  /** Text safe to show or log: the key is replaced if a source echoed it back, verbatim, URL-encoded or as base64. */
+  const scrub = (text, key) => scrubSecrets(String(text ?? "").slice(0, 300), key ? [key] : []);
 
   // ── State ──
   const configuredOf = (d) => !needsKeyOf(d) || state.get(d.id)?.configured === true;
@@ -183,10 +185,41 @@ export function createSourcesService(deps) {
   }
   const consentOf = (id) => state.get(id)?.consent ?? null;
   const consentValid = (d) => d.tier !== "opt-in" || consentOf(d.id)?.noticeVersion === d.noticeVersion;
+  /**
+   * May an opt-in source be switched on without a new acknowledgement? Only when the acknowledgement on file is for the
+   * current notice AND the source was not left off for more than ACK_REUSE_MS (a source never switched off has no
+   * `disabledAt`; one whose time cannot be read counts as left off a long time).
+   */
+  function acknowledgementReusable(d) {
+    if (!consentValid(d)) return false;
+    const at = state.get(d.id)?.disabledAt;
+    if (!at) return true;
+    const age = nowMs() - Date.parse(at);
+    return Number.isFinite(age) && age <= ACK_REUSE_MS;
+  }
   const enabledOf = (d) => !forcedOff(d) && storedEnabled(d) && configuredOf(d) && consentValid(d);
+
+  const warnedConsent = new Set();
+  /**
+   * An opt-in source the state file calls enabled but that has no acknowledgement for its current notice is NOT used
+   * (enabledOf checks it on every read); say so once, because it means the file was edited, restored from a backup or the
+   * notice changed. The warning names the source and why, never a secret.
+   */
+  function auditConsent() {
+    for (const p of registry.list()) {
+      const d = p.descriptor;
+      if (d.tier !== "opt-in" || warnedConsent.has(d.id)) continue;
+      const s = state.get(d.id);
+      if (!s?.enabled || consentValid(d)) continue;
+      warnedConsent.add(d.id);
+      const why = s.consent ? `its acknowledgement is for notice "${s.consent.noticeVersion}", not the current "${d.noticeVersion}"` : "it has no acknowledgement on file";
+      log?.warn?.(`${d.name} is marked on in ${state.file ?? "the sources state"} but ${why}, so it is treated as off. Acknowledge the notice to switch it on (or the state file was edited by hand).`, { id: d.id });
+    }
+  }
 
   /** Re-read which BYOK sources have a key (the secrets file can change under us, for example from the CLI). */
   async function refresh() {
+    auditConsent();
     for (const p of registry.list()) {
       const d = p.descriptor;
       if (!needsKeyOf(d)) continue;
@@ -219,6 +252,8 @@ export function createSourcesService(deps) {
       consent: consentOf(d.id),
     };
     if (d.noticeVersion) out.noticeVersion = d.noticeVersion;
+    // An opt-in source that is off says whether switching it on needs the notice acknowledged again (never the case for the others).
+    if (d.tier === "opt-in") out.needsAcknowledgement = !acknowledgementReusable(d);
     return out;
   }
 
@@ -229,7 +264,8 @@ export function createSourcesService(deps) {
     if (typeof enabled !== "boolean") throw problem("VALIDATION_FAILED", "enabled must be true or false.", { errors: [{ path: "enabled", message: "must be true or false" }] });
     if (d.kind === "broker") throw problem("STATE_CONFLICT", `${d.name} is made of your broker accounts. Switch accounts on or off on the Accounts page.`, { retryable: false });
     if (!enabled) {
-      state.update(id, { enabled: false });
+      // Remember when it was switched off (only the first time: a repeated "off" must not restart the 24 hours).
+      state.update(id, { enabled: false, ...(storedEnabled(d) ? { disabledAt: new Date(nowMs()).toISOString() } : {}) });
       log?.info?.("source disabled", { id });
       return describe(id);
     }
@@ -237,7 +273,7 @@ export function createSourcesService(deps) {
     if (!configuredOf(d)) throw problem("STATE_CONFLICT", `${d.name} needs an API key before it can be switched on. Add one first.`, { retryable: false });
     const patch = { enabled: true };
     if (d.tier === "opt-in") {
-      const have = consentOf(id)?.noticeVersion === d.noticeVersion;
+      const have = acknowledgementReusable(d);
       if (acknowledge !== undefined && acknowledge !== d.noticeVersion) {
         throw problem("VALIDATION_FAILED", `acknowledge must equal the notice version "${d.noticeVersion}" shown with ${d.name}.`, { errors: [{ path: "acknowledge", message: `must equal "${d.noticeVersion}"` }] });
       }
@@ -246,6 +282,7 @@ export function createSourcesService(deps) {
       }
       if (acknowledge === d.noticeVersion) patch.consent = { acceptedAt: new Date(nowMs()).toISOString(), noticeVersion: d.noticeVersion };
     }
+    patch.disabledAt = null;
     state.update(id, patch);
     log?.info?.("source enabled", { id, tier: d.tier });
     return describe(id);
@@ -269,7 +306,7 @@ export function createSourcesService(deps) {
       throw problem("VALIDATION_FAILED", `apiKey must be ${KEY_MIN} to ${KEY_MAX} characters with no spaces.`, { errors: [{ path: "apiKey", message: `${KEY_MIN} to ${KEY_MAX} characters, no spaces` }] });
     }
     if (!secrets) throw problem("INTERNAL", "The secrets store is not available.");
-    deps.logger?.addSecret?.(key);
+    for (const form of secretForms(key)) deps.logger?.addSecret?.(form);
     await secrets.set(secretNameFor(id), { apiKey: key });
     state.update(id, { configured: true });
     log?.info?.("source key saved", { id });
@@ -314,7 +351,7 @@ export function createSourcesService(deps) {
    * Run fn(ctx) with { signal, now } under the call timeout and the caller's signal. Rejects with a BridgeError
    * UPSTREAM_TIMEOUT at the deadline even if the source ignores the signal, or with an AbortError if the caller aborted.
    */
-  async function runWithLimits(fn, { key = null, signal, deadlineMs } = {}) {
+  async function runWithLimits(fn, { key = null, signal, deadlineMs, purpose } = {}) {
     const ctrl = new AbortController();
     const limit = Math.max(50, Math.min(timeoutMs(), Number.isFinite(deadlineMs) ? deadlineMs : timeoutMs()));
     let timer;
@@ -336,7 +373,8 @@ export function createSourcesService(deps) {
       }
     });
     stop.catch(() => {});
-    const ctx = { signal: ctrl.signal, now: nowMs(), ...(key ? { apiKey: key } : {}) };
+    // `purpose` reaches the source: a plugin refuses alert, paper, risk and order reads itself, on top of the router's filter.
+    const ctx = { signal: ctrl.signal, now: nowMs(), ...(purpose ? { purpose } : {}), ...(key ? { apiKey: key } : {}) };
     try {
       return await Promise.race([Promise.resolve().then(() => fn(ctx)), stop]);
     } finally {
@@ -384,7 +422,7 @@ export function createSourcesService(deps) {
     const t0 = performance.now();
     touch(d.id);
     try {
-      const out = await runWithLimits(fn, { key, signal: opts.signal, deadlineMs: opts.deadlineMs });
+      const out = await runWithLimits(fn, { key, signal: opts.signal, deadlineMs: opts.deadlineMs, purpose: opts.purpose ?? "display" });
       recordOutcome(d.id, { ok: true, ms: Math.round(performance.now() - t0), kind: "ok" }, { toTracker: trackerRecordsCalls });
       return out;
     } catch (err) {
@@ -473,7 +511,7 @@ export function createSourcesService(deps) {
         "history",
         reqOf("history", merged, { symbols: [req?.symbol] }),
         "history",
-        opts,
+        { ...opts, purpose: merged.purpose },
         (src, ctx) => src.history({ symbol: req.symbol, interval: req.interval, fromMs: req.fromMs, toMs: req.toMs }, ctx),
         (o) => Array.isArray(o?.candles),
       );

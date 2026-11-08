@@ -2,7 +2,7 @@
  * The plugin host with a REAL child process (no network): proves the clean environment, the Node permission flags and
  * the runner's hash re-check on the actual Node binary. Everything the plugin tries is local.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -31,6 +31,9 @@ export default {
       probe("readEtcHosts", () => fs.readFileSync("/etc/hosts", "utf8").length > 0 ? "READ" : "EMPTY"),
       probe("readOutside", () => fs.readFileSync(process.argv[2].slice(0, -"/index.mjs".length) + ".outside", "utf8")),
       probe("readOwnFolder", () => fs.readFileSync("data.txt", "utf8")),
+      probe("readLink", () => fs.readFileSync("link-to-secret.txt", "utf8")),
+      probe("readLinkDir", () => fs.readdirSync("link-dir").join(",")),
+      probe("readManifest", () => fs.readFileSync("mc-source.json", "utf8").length),
       probe("writeFile", () => fs.writeFileSync("out.txt", "x")),
       probe("spawn", () => cp.execSync("id").toString()),
       probe("worker", () => new Worker("1", { eval: true })),
@@ -38,7 +41,7 @@ export default {
       probe("cwd", () => process.cwd()),
       probe("net", () => new Promise((resolve) => { const s = net.connect(1, "127.0.0.1"); s.on("error", (e) => resolve("error:" + e.code)); s.on("connect", () => { s.destroy(); resolve("connected"); }); })),
     ]));
-    ctx.log("info", "PROBE " + JSON.stringify(results));
+    for (const [k, v] of Object.entries(results)) ctx.log("info", "PROBE " + JSON.stringify([k, v])); // one line each: a log line is cut at 500 characters
     return { items: [{ symbol: "NSE:PROBE", at: ctx.now - 1000, fields: { ltp: 1 } }] };
   },
   async test(ctx) {
@@ -63,6 +66,14 @@ function plugin(entry = PROBE, manifest = {}) {
   writeFileSync(join(dir, "data.txt"), "inside the plugin folder");
   writeFileSync(`${dir}.outside`, "SECRET-OUTSIDE-THE-FOLDER"); // a sibling of the folder, like a Bridge data dir
   return dir;
+}
+
+/** Plant links AFTER the loader inspected the folder (it refuses links), to prove the process flags alone deny them too. */
+function plantLinks(dir) {
+  symlinkSync(`${dir}.outside`, join(dir, "link-to-secret.txt"));
+  mkdirSync(`${dir}.outsidedir`);
+  writeFileSync(join(`${dir}.outsidedir`, "master.key"), "MASTER");
+  symlinkSync(`${dir}.outsidedir`, join(dir, "link-dir"));
 }
 
 const forbiddenTransport = async () => {
@@ -97,23 +108,30 @@ describe("a real plugin process", () => {
     try {
       const dir = plugin();
       const logs = [];
+      const realDir = info(dir).dir;
       const host = start(dir, { logs });
+      plantLinks(dir);
       const r = await host.call("quotes", { symbols: ["NSE:PROBE"] });
       expect(r.items[0].symbol).toBe("NSE:PROBE");
-      const line = logs.find((l) => l.includes("PROBE "));
-      expect(line).toBeDefined();
-      const probe = JSON.parse(line.slice(line.indexOf("PROBE ") + 6).trim());
+      const lines = logs.filter((l) => l.includes("PROBE ["));
+      expect(lines.length).toBeGreaterThan(10);
+      const probe = Object.fromEntries(lines.map((l) => JSON.parse(l.slice(l.indexOf("PROBE ") + 6).trim())));
       expect(probe.envCount).toBe(0);
       expect(probe.canaryEnv).toBe("undefined");
       expect(probe.fetchGlobal).toBe("undefined");
       expect(probe.readEtcHosts).toBe("threw:ERR_ACCESS_DENIED");
       expect(probe.readOutside).toBe("threw:ERR_ACCESS_DENIED");
-      expect(probe.readOwnFolder).toBe("inside the plugin folder");
+      // Only the entry file is readable: not its siblings, and not a symbolic link a pinned plugin shipped (the pin covers
+      // only the manifest and the entry), whether the link names a file or a folder.
+      expect(probe.readOwnFolder).toBe("threw:ERR_ACCESS_DENIED");
+      expect(probe.readManifest).toBe("threw:ERR_ACCESS_DENIED");
+      expect(probe.readLink).toBe("threw:ERR_ACCESS_DENIED");
+      expect(probe.readLinkDir).toBe("threw:ERR_ACCESS_DENIED");
       expect(probe.writeFile).toBe("threw:ERR_ACCESS_DENIED");
       expect(probe.spawn).toBe("threw:ERR_ACCESS_DENIED");
       expect(probe.worker).toBe("threw:ERR_ACCESS_DENIED");
       expect(probe.eval).toMatch(/threw:EvalError/);
-      expect(probe.cwd).toBe(info(dir).dir);
+      expect(probe.cwd).toBe(realDir);
       // The honest limit, stated in docs/source-contract.md: Node 22 has no network permission, so a plugin that opens
       // its own socket is not stopped by the flags (here it reaches a closed local port).
       expect(probe.net).toBe("error:ECONNREFUSED");

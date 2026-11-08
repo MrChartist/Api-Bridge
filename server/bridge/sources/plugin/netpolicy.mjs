@@ -19,7 +19,60 @@ export const BROKER_HOST_SUFFIXES = Object.freeze([
   "mynt.in", "nubra.io", "paytmmoney.com", "pocketful.in", "profitmart.in", "rathi.com", "rmoneyindia.co.in",
   "rupeezy.in", "samco.in", "shoonya.com", "stocknote.com", "symphonyfintech.com", "tradejini.com",
   "tradesmartonline.in", "upstox.com", "wisdomcapital.in", "zerodha.com",
+  // Hosts the in-tree adapters talk to that no suffix above covers (found by the adapter scan in netpolicy.test.mjs, which
+  // fails when a new adapter host is missing here): Firstock's own domain, Zebu's Firebase-hosted API, and two broker-owned
+  // storage buckets (exact hosts: amazonaws.com itself is shared and cannot be listed).
+  "firstock.in", "zebumyntapi.web.app", "bigul.s3.ap-south-1.amazonaws.com", "flattrade.s3.ap-south-1.amazonaws.com",
 ]);
+
+/**
+ * Public suffixes with more than one label (a registry hands out names directly below them to anyone), a small built-in
+ * list of the common ones. A wildcard such as `*.co.uk` would cover every site under it. Not the whole public suffix list:
+ * sharedDomainReason() also treats a two-letter country code with a generic second label (`co`, `com`, `org`, `gov`...) as one.
+ */
+export const PUBLIC_SUFFIXES = Object.freeze([
+  "co.uk", "org.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk", "ac.uk", "gov.uk", "sch.uk",
+  "co.in", "net.in", "org.in", "firm.in", "gen.in", "ind.in", "ac.in", "edu.in", "res.in", "gov.in", "nic.in",
+  "com.au", "net.au", "org.au", "edu.au", "gov.au", "co.nz", "org.nz", "net.nz", "co.za", "org.za", "web.za",
+  "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp", "co.kr", "or.kr", "com.cn", "net.cn", "org.cn", "com.hk", "com.sg", "com.my",
+  "com.br", "net.br", "org.br", "com.mx", "com.ar", "com.tr", "com.tw", "com.ua", "com.pk", "com.bd", "com.ng", "co.ke",
+  "com.eg", "com.sa", "com.ph", "com.vn", "co.th", "in.th", "co.id", "co.il", "com.pl", "com.ru", "com.de", "com.es", "com.fr",
+]);
+
+/**
+ * Domains where anyone can get a subdomain (hosting, static sites, functions, tunnels, storage). A wildcard over one of
+ * them (`*.herokuapp.com`) would let any tenant of that service answer as the vendor. A SPECIFIC name below one
+ * (`*.myvendor.vercel.app`, `api.myvendor.herokuapp.com`) is one owner's and is allowed.
+ */
+export const SHARED_HOSTING_DOMAINS = Object.freeze([
+  "herokuapp.com", "herokudns.com", "vercel.app", "now.sh", "netlify.app", "netlify.com", "github.io", "githubusercontent.com", "gitlab.io",
+  "pages.dev", "workers.dev", "web.app", "firebaseapp.com", "appspot.com", "run.app", "cloudfunctions.net", "googleusercontent.com", "googleapis.com",
+  "azurewebsites.net", "azurestaticapps.net", "blob.core.windows.net", "cloudapp.azure.com", "trafficmanager.net", "windows.net",
+  "amazonaws.com", "s3.amazonaws.com", "cloudfront.net", "elasticbeanstalk.com", "awsglobalaccelerator.com", "execute-api.amazonaws.com",
+  "onrender.com", "fly.dev", "railway.app", "up.railway.app", "glitch.me", "repl.co", "replit.app", "replit.dev", "surge.sh", "deno.dev",
+  "ngrok.io", "ngrok-free.app", "ngrok.app", "trycloudflare.com", "loca.lt", "localtunnel.me", "serveo.net",
+  "blogspot.com", "wordpress.com", "wixsite.com", "weebly.com", "myshopify.com", "squarespace.com", "bubbleapps.io", "webflow.io",
+  "000webhostapp.com", "infinityfreeapp.com", "rf.gd", "dynu.net", "duckdns.org", "no-ip.com", "no-ip.org", "ddns.net", "hopto.org", "zapto.org",
+  "ondigitalocean.app", "digitaloceanspaces.com", "supabase.co", "neon.tech", "streamlit.app", "hf.space", "vercel.dev", "stackblitz.io",
+]);
+
+const GENERIC_SECOND_LEVEL = new Set(["co", "com", "org", "net", "ac", "edu", "gov", "gob", "go", "ne", "or", "nic", "mil", "ltd", "plc", "sch", "me", "firm", "gen", "ind"]);
+
+/**
+ * Why a wildcard over `body` (the part after `*.`) would be too wide, or null when it is a domain one party can own: not a
+ * known public suffix (or a two-letter country code with a generic second label) and not a shared-hosting domain itself.
+ * A name one label below such a domain is fine.
+ */
+export function sharedDomainReason(body) {
+  const labels = body.split(".");
+  if (PUBLIC_SUFFIXES.includes(body) || (labels.length === 2 && labels[1].length === 2 && GENERIC_SECOND_LEVEL.has(labels[0]))) {
+    return `a wildcard over the public suffix ${body} would cover every site registered under it. Name the vendor's own domain, for example *.vendor.${body}, or list exact hosts`;
+  }
+  if (SHARED_HOSTING_DOMAINS.includes(body)) {
+    return `a wildcard over ${body} would cover every customer of that shared hosting service, not only the vendor. Name the vendor's own subdomain (for example *.vendor.${body}) or list exact hosts`;
+  }
+  return null;
+}
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** Top-level names that never leave this computer or its network. */
@@ -53,6 +106,7 @@ export function checkHostPattern(pattern) {
   if (net.isIP(body)) return "IP addresses are not allowed; use a host name";
   if (LOCAL_TLDS.has(labels.at(-1)) || body === "localhost") return "local-network names are not allowed";
   if (isBrokerHost(body)) return "broker domains are never allowed for a plugin";
+  if (wildcard) return sharedDomainReason(body);
   return null;
 }
 

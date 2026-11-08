@@ -14,8 +14,8 @@
  *     "hosts": ["quotes.example.com"]                                 optional; concrete host names when allowHosts uses wildcards
  *   }
  */
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { effectiveLimits } from "./manifest.mjs";
 import { inspectPluginFolder, loadPlugins } from "./loader.mjs";
 import { createFetchBroker } from "./netbroker.mjs";
@@ -25,9 +25,24 @@ const CANARY = "CONFORMANCE-CANARY-KEY-123";
 
 const step = (name, ok, detail) => ({ name, ok, ...(detail ? { detail } : {}) });
 
+/** Is `real` (already a real path) the folder `root` or inside it? */
+const inside = (root, real) => {
+  const rel = relative(root, real);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
+
 /** Load fixtures/conformance.json; `responses[].file` is read from the fixtures folder (and may not leave it). */
-function readFixtures(dir) {
+export function readFixtures(dir) {
   const file = join(dir, FIXTURE_FILE);
+  // Compare REAL paths, not resolved ones: a link in the fixtures folder must not lead outside the plugin folder. (The
+  // loader already refuses a folder that holds any link; this is the second line.)
+  let realDir;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return { error: "the plugin folder cannot be read" };
+  }
+  if (existsSync(file) && (lstatSync(file).isSymbolicLink() || !inside(realDir, realpathSync(file)))) return { error: `${FIXTURE_FILE} is a symbolic link or resolves outside the plugin folder` };
   if (!existsSync(file)) return { error: `no ${FIXTURE_FILE}: add one with "inputs" (a value for each declared capability) and "responses" (what the vendor answers). See docs/source-contract.md.` };
   let json;
   try {
@@ -38,13 +53,15 @@ function readFixtures(dir) {
   if (!json || typeof json !== "object" || !json.inputs || typeof json.inputs !== "object") return { error: `${FIXTURE_FILE} needs an "inputs" object` };
   if (!Array.isArray(json.responses) || json.responses.length === 0) return { error: `${FIXTURE_FILE} needs a non-empty "responses" array` };
   const root = resolve(dir, "fixtures");
+  const realRoot = existsSync(root) ? realpathSync(root) : root;
   const responses = [];
   for (const r of json.responses) {
     if (!r || typeof r.urlContains !== "string" || !r.urlContains) return { error: `every response needs "urlContains"` };
     let body;
     if (typeof r.file === "string") {
       const p = resolve(root, r.file);
-      if (!p.startsWith(root + sep) || !existsSync(p)) return { error: `fixture file ${r.file} is missing or outside the fixtures folder` };
+      if (!existsSync(p)) return { error: `fixture file ${r.file} is missing or outside the fixtures folder` };
+      if (lstatSync(p).isSymbolicLink() || !inside(realRoot, realpathSync(p)) || realpathSync(p) === realRoot) return { error: `fixture file ${r.file} is a symbolic link or resolves outside the fixtures folder` };
       body = readFileSync(p, "utf8");
     } else if (r.json !== undefined) body = JSON.stringify(r.json);
     else if (typeof r.text === "string") body = r.text;
@@ -58,9 +75,15 @@ function readFixtures(dir) {
  * @param {string} path  the plugin folder
  * @param {{ baseDir?: string, harness?: { runProviderConformance: Function, createFakeClock: Function, createScriptedFetch: Function } }} [opts]
  *   harness: the conformance module; loaded from ../conformance.mjs when not given
+ *   hostOptions: passed to the plugin host (tests inject `spawnImpl` to see the flags). The plugin is started through the SAME
+ *   loader and host as in production, so it gets the same restricted flags: read access to its entry file only, no
+ *   child processes, no workers, an empty environment.
+ *
+ * `check` RUNS the plugin's code (in that sandbox, with a scripted network). Read the manifest and the entry file, and pin
+ * it, before you run it: see docs/source-contract.md.
  * @returns {Promise<{ ok: boolean, steps: Array<{ name: string, ok: boolean, detail?: string }>, pin?: string, descriptor?: object }>}
  */
-export async function checkPluginFolder(path, { baseDir = process.cwd(), harness } = {}) {
+export async function checkPluginFolder(path, { baseDir = process.cwd(), harness, hostOptions = {} } = {}) {
   const steps = [];
   const info = inspectPluginFolder(path, { baseDir });
   if (!info.ok) {
@@ -123,6 +146,7 @@ export async function checkPluginFolder(path, { baseDir = process.cwd(), harness
     broker,
     clock: clock.now,
     readSecret: needsKey ? () => CANARY : undefined,
+    ...hostOptions,
     logger: { debug: (m) => logs.push(m), info: (m) => logs.push(m), warn: (m) => logs.push(m) },
   });
   try {

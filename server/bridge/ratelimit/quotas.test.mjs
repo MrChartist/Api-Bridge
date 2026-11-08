@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { createCallContext } from "../core/context.mjs";
 import { createLogger } from "../core/logger.mjs";
 import { createClientLimiter } from "./clientLimiter.mjs";
-import { QUOTA_MAX, parseRatelimitConfig } from "./config.mjs";
+import { QUOTA_MAX, QUOTA_MIN, parseRatelimitConfig } from "./config.mjs";
 import { QUOTAS_FILE, createQuotaStore, validateQuota } from "./quotaStore.mjs";
 import { IST_OFFSET_MS } from "./tokenBucket.mjs";
 
@@ -29,12 +29,50 @@ describe("validateQuota", () => {
     expect(validateQuota({ perSecond: 0.5 }).ok).toBe(true);
   });
 
+  it("accepts the smallest values it allows (0.01 a second, one a day, a burst of 1, a weight of 1) and the largest", () => {
+    expect(validateQuota({ perSecond: QUOTA_MIN.perSecond, burst: QUOTA_MIN.burst, perDay: QUOTA_MIN.perDay, weight: QUOTA_MIN.weight }).ok).toBe(true);
+    expect(QUOTA_MIN).toMatchObject({ perSecond: 0.01, burst: 1, perDay: 1, weight: 1 });
+    expect(validateQuota({ perSecond: QUOTA_MAX.perSecond, burst: QUOTA_MAX.burst, perDay: QUOTA_MAX.perDay, weight: QUOTA_MAX.weight }).ok).toBe(true);
+  });
+
+  it("says why a too-small rate is refused, in plain words", () => {
+    expect(validateQuota({ perSecond: 1e-7 }).errors[0].message).toMatch(/at least 0\.01.*every 100 seconds/);
+    expect(validateQuota({ perDay: 0.2 }).errors[0].message).toMatch(/at least 1.*a day/);
+  });
+
+  it("a stored override that is now below the floor is ignored on load, not honoured", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-quota-floor-"));
+    writeFileSync(join(dir, QUOTAS_FILE), JSON.stringify({ format: "mcb-quotas", version: 1, keys: { lockedout001: { perSecond: 1e-7 }, fine00000001: { perSecond: 2 } } }));
+    const store = createQuotaStore({ dir, config: { perSecond: 50 } });
+    expect(store.override("lockedout001")).toBeNull();
+    expect(store.override("fine00000001")).toEqual({ perSecond: 2 });
+    expect(store.resolve("lockedout001").perSecond).toBe(50);
+  });
+
   it("rejects everything else with a path for each problem", () => {
     const bad = (body) => validateQuota(body);
     for (const body of [null, [], "x", 5, {}]) expect(bad(body).ok).toBe(false);
     const cases = [
       [{ perSecond: 0 }, "perSecond"],
       [{ perSecond: -1 }, "perSecond"],
+      [{ perSecond: 1e-7 }, "perSecond"], // one request in 115 days: a lock-out, not a quota
+      [{ perSecond: 0.0099 }, "perSecond"],
+      [{ perSecond: Number.MIN_VALUE }, "perSecond"],
+      [{ perDay: 0.5 }, "perDay"],
+      [{ perDay: 1e-9 }, "perDay"],
+      [{ perDay: -5 }, "perDay"],
+      [{ perDay: NaN }, "perDay"],
+      [{ perDay: Infinity }, "perDay"],
+      [{ perDay: "100" }, "perDay"],
+      [{ burst: -1 }, "burst"],
+      [{ burst: NaN }, "burst"],
+      [{ burst: Infinity }, "burst"],
+      [{ burst: "5" }, "burst"],
+      [{ weight: NaN }, "weight"],
+      [{ weight: -1 }, "weight"],
+      [{ weight: Infinity }, "weight"],
+      [{ weight: null }, "weight"],
+      [{ perSecond: null }, "perSecond"],
       [{ perSecond: NaN }, "perSecond"],
       [{ perSecond: Infinity }, "perSecond"],
       [{ perSecond: "5" }, "perSecond"],

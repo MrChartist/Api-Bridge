@@ -271,6 +271,18 @@ describe("sources set-key: the key never touches the command line", () => {
     }
   });
 
+  it("rejects an extra positional (a key pasted after the id) without echoing it or contacting the Bridge, and says what to do", async () => {
+    const a = setup({ MCB_BRIDGE_URL: "http://127.0.0.1:9" });
+    expect(await run(["set-key", "alphavantage", KEY], {}, a)).toBe(1);
+    const msg = a.err.at(-1);
+    expect(msg).toMatch(/takes only the source id/);
+    expect(msg).toMatch(/stdin or asks for it with hidden input/);
+    expect(msg).toMatch(/shell history/);
+    expect(msg).not.toContain(KEY);
+    expect(a.out.join("\n")).not.toContain(KEY);
+    expect(seen).toEqual([]);
+  });
+
   it("rejects empty or implausible keys, and sources that use no key", async () => {
     const url = await bridge();
     const a = setup({ MCB_BRIDGE_URL: url });
@@ -355,6 +367,10 @@ describe("sources plugins pin / check (offline)", () => {
     const text = a.err.join("\n");
     expect(text).toMatch(/May reach: quotes\.example\.com/);
     expect(text).toMatch(/Review those/);
+    expect(text).toMatch(/Files to read first: .*mc-source\.json and .*index\.mjs/);
+    expect(text).toMatch(/signalling the Bridge process/); // the trust notice: signals and own sockets are not stopped
+    expect(text).toMatch(/sources\.pluginUser/);
+    expect(text).toMatch(/Optional next step:.*plugins check.*runs the plugin's code/);
     expect(text).toMatch(new RegExp(`"sha256": "${a.out[0]}", "granted": true`));
   });
 
@@ -399,8 +415,28 @@ describe("sources plugins pin / check (offline)", () => {
     const text = a.out.join("\n");
     expect(text).toMatch(/OK\s+manifest: example-delayed 1\.0\.0/);
     expect(text).toMatch(/OK\s+conformance: errors:rate-limited/);
-    expect(text).toMatch(/All checks passed\. Pin for the config: [0-9a-f]{64}/);
+    expect(text).toMatch(/All checks passed\. Pin for the config.*: [0-9a-f]{64}/);
+    // check starts the plugin: it says so first, and puts reading and pinning before it.
+    expect(a.err.join("\n")).toMatch(/check RUNS this plugin's code.*read mc-source\.json and the entry file and pinned them/);
     expect(await run(["plugins", "check", dest], { json: true }, a)).toBe(0);
     expect(JSON.parse(a.out.at(-1)).ok).toBe(true);
   }, 60_000);
+});
+
+describe("a key on the command line", () => {
+  it("--key is used but warned about, naming the environment variables to prefer", async () => {
+    const url = await bridge();
+    const a = setup({ MCB_BRIDGE_URL: url });
+    delete a.io.env.MCB_ADMIN_KEY;
+    expect(await run(["list"], { key: "mcb_adminkey00_x" }, a)).toBe(0);
+    expect(a.err.join("\n")).toMatch(/--key stays in your shell history.*MCB_ADMIN_KEY.*MCB_API_KEY/);
+    expect(seen.find((r) => r.url === "/v1/sources").auth).toBe("Bearer mcb_adminkey00_x");
+  });
+
+  it("no warning when the key comes from the environment", async () => {
+    const url = await bridge();
+    const a = setup({ MCB_BRIDGE_URL: url });
+    expect(await run(["list"], {}, a)).toBe(0);
+    expect(a.err.join("\n")).not.toMatch(/shell history/);
+  });
 });

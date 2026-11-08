@@ -38,7 +38,11 @@ One item has one source and one timestamp. A composite answer (an option chain, 
 current class of its parts. `stale` (older than its freshness target) and `delayed` (the source is slow by nature)
 are different labels.
 
-Reads made for `order`, `risk`, `paper` or `alert` purposes accept only `realtime` sources. A caller's `maxAgeMs` also
+Reads made for `order`, `risk`, `paper` or `alert` purposes accept only `realtime` sources. A read that names no purpose
+is a `display` read (right for the public market routes, which may show a labelled-stale cached value), so code inside the
+Bridge states its purpose: the order service reads with `order`, the paper engine with `paper`, and both refuse to price
+from anything labelled stale, delayed, end of day, unofficial or from a source. The compat API and the spreadsheet routes
+never use backup sources at all: their answers have no field for the data class. A caller's `maxAgeMs` also
 filters: a source whose delay exceeds it cannot answer.
 
 ## Routing

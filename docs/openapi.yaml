@@ -3798,7 +3798,8 @@ components:
       description: >-
         Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources
         (Yahoo Finance, NSE website; freshness.source "backup", delayed); false never does. Default from config
-        (backup.enabled and backup.autoFallback).
+        (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*`
+        (a bare value cannot say how current it is) or the compat API (it never uses backup sources).
       schema: { type: boolean }
     MaxAge:
       name: maxAgeMs

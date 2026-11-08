@@ -13,12 +13,13 @@ does not exist (`quotes.example.com`), so the tests run offline.
 ## Try it
 
 ```sh
-# 1. Check it: validates the manifest, starts the plugin for real, answers every request from fixtures/ and runs the
-#    conformance checks. No network.
-mc-bridge sources plugins check examples/source-plugin
-
+# 1. Read mc-source.json and index.mjs. You are about to run this code.
 # 2. Read what you would be granting, and get the pin.
 mc-bridge sources plugins pin examples/source-plugin
+
+# 3. Check it (optional). This RUNS the plugin: it validates the manifest, starts the plugin for real in the same restricted
+#    process as production, answers every request from fixtures/ and runs the conformance checks. No network.
+mc-bridge sources plugins check examples/source-plugin
 ```
 
 To load a plugin, add it to `bridge.config.json` (after reviewing the manifest and the code):

@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkHostPattern, checkOutboundUrl, hostMatches, isBrokerHost, isPrivateAddress } from "./netpolicy.mjs";
 
@@ -115,5 +117,78 @@ describe("checkOutboundUrl", () => {
     const r = checkOutboundUrl("https://api.kite.trade/orders", { allowHosts: ["api.kite.trade"] });
     expect(r).toMatchObject({ ok: false, code: "HOST_NOT_ALLOWED" });
     expect(r.message).toMatch(/broker/);
+  });
+});
+
+describe("wildcards over public suffixes and shared hosting are refused", () => {
+  it.each(["*.co.uk", "*.org.uk", "*.co.in", "*.com.au", "*.co.jp", "*.ac.in", "*.gov.in", "*.com.br", "*.co.za"])("refuses %s (a public suffix)", (p) => expect(checkHostPattern(p)).toMatch(/public suffix/));
+
+  it.each(["*.co.xx", "*.com.zz", "*.org.qq", "*.gov.yy"])("refuses %s (a country code with a generic second label, even if not in the list)", (p) => expect(checkHostPattern(p)).toMatch(/public suffix/));
+
+  it.each(["*.herokuapp.com", "*.vercel.app", "*.netlify.app", "*.github.io", "*.pages.dev", "*.workers.dev", "*.web.app", "*.firebaseapp.com", "*.appspot.com", "*.azurewebsites.net", "*.cloudfront.net", "*.amazonaws.com", "*.s3.amazonaws.com", "*.onrender.com", "*.ngrok.io", "*.blogspot.com", "*.duckdns.org"])("refuses %s (shared hosting)", (p) => expect(checkHostPattern(p)).toMatch(/shared hosting/));
+
+  it("accepts a wildcard over a domain one party can own, including a name one label below a hosting domain, and exact hosts on hosting domains", () => {
+    for (const ok of ["*.vendor.co.uk", "*.vendor.co.in", "*.vendor.com.au", "*.myvendor.vercel.app", "*.myvendor.herokuapp.com", "*.mybucket.s3.amazonaws.com", "api.myvendor.herokuapp.com", "api.vendor.co.uk", "*.vendor.io", "*.api.vendor.com"]) {
+      expect(checkHostPattern(ok), ok).toBeNull();
+    }
+  });
+
+  it("the refusal says what to do instead", () => {
+    expect(checkHostPattern("*.co.uk")).toMatch(/Name the vendor's own domain/);
+    expect(checkHostPattern("*.herokuapp.com")).toMatch(/exact hosts/);
+  });
+
+  it("an exact host may be on a hosting domain but a wildcard match never reaches across the boundary", () => {
+    expect(hostMatches(["*.myvendor.vercel.app"], "a.myvendor.vercel.app")).toBe(true);
+    expect(hostMatches(["*.myvendor.vercel.app"], "other.vercel.app")).toBe(false);
+  });
+
+  it("the manifest refuses such a wildcard before any plugin code runs", async () => {
+    const { parseManifest } = await import("./manifest.mjs");
+    const { testManifest } = await import("./__fixtures__/fakeChild.mjs");
+    const r = parseManifest(testManifest({ network: { allowHosts: ["*.herokuapp.com", "*.co.uk"] } }));
+    expect(r.ok).toBe(false);
+    expect(r.errors.join("\n")).toMatch(/shared hosting/);
+    expect(r.errors.join("\n")).toMatch(/public suffix/);
+  });
+});
+
+describe("broker hosts the in-tree adapters use are denied", () => {
+  it.each(["api.firstock.in", "firstock.in", "zebumyntapi.web.app", "bigul.s3.ap-south-1.amazonaws.com", "flattrade.s3.ap-south-1.amazonaws.com"])("%s is a broker host", (h) => {
+    expect(isBrokerHost(h)).toBe(true);
+    expect(checkHostPattern(h)).toMatch(/broker/);
+    expect(checkOutboundUrl(`https://${h}/x`, { allowHosts: [h] })).toMatchObject({ ok: false, code: "HOST_NOT_ALLOWED" });
+  });
+
+  it("an unrelated bucket on the same shared domain is not swept in", () => {
+    expect(isBrokerHost("someone-else.s3.ap-south-1.amazonaws.com")).toBe(false);
+    expect(isBrokerHost("web.app")).toBe(false);
+    expect(isBrokerHost("other.web.app")).toBe(false);
+  });
+
+  // The adapters declare no host list of their own (a base URL is a string in each file), so this scans them: every host an
+  // adapter names in a URL must be denied here, or be one of the documentation links below. A new adapter with a new host
+  // fails this test until its domain is added to BROKER_HOST_SUFFIXES in netpolicy.mjs.
+  it("every host named in the adapter sources is denied (or is a documentation link)", () => {
+    const BROKERS = resolve(import.meta.dirname, "../../../brokers");
+    const DOC_ONLY = new Set(["documenter.getpostman.com", "github.com", "pypi.org", "pyintegrate.readthedocs.io"]);
+    const found = new Map();
+    const walk = (dir) => {
+      for (const name of readdirSync(dir)) {
+        if (name === "node_modules" || name === "__fixtures__") continue;
+        const p = join(dir, name);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.(mjs|js|json)$/.test(name) && !/\.(test|spec)\./.test(name)) {
+          for (const m of readFileSync(p, "utf8").matchAll(/(?:https?|wss?):\/\/([a-z0-9][a-z0-9.-]*[a-z0-9])/gi)) {
+            const h = m[1].toLowerCase().replace(/\.$/, "");
+            if (!found.has(h)) found.set(h, name);
+          }
+        }
+      }
+    };
+    walk(BROKERS);
+    expect(found.size).toBeGreaterThan(50); // the scan sees the adapters
+    const missing = [...found].filter(([h]) => !DOC_ONLY.has(h) && !isBrokerHost(h)).map(([h, f]) => `${h} (in ${f})`);
+    expect(missing).toEqual([]);
   });
 });

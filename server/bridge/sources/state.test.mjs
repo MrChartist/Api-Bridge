@@ -20,8 +20,8 @@ describe("source state", () => {
     a.update("demo-eod", { configured: true });
     const b = createSourceState({ dataDir: dir });
     expect(b.loadedFrom).toBe("file");
-    expect(b.get("demo-delayed")).toEqual({ enabled: true, configured: false, consent: { acceptedAt: "2026-11-08T10:00:00.000Z", noticeVersion: "demo-1" } });
-    expect(b.get("demo-eod")).toEqual({ enabled: false, configured: true, consent: null });
+    expect(b.get("demo-delayed")).toEqual({ enabled: true, configured: false, consent: { acceptedAt: "2026-11-08T10:00:00.000Z", noticeVersion: "demo-1" }, disabledAt: null });
+    expect(b.get("demo-eod")).toEqual({ enabled: false, configured: true, consent: null, disabledAt: null });
     expect(Object.keys(b.all()).sort()).toEqual(["demo-delayed", "demo-eod"]);
   });
 
@@ -59,9 +59,15 @@ describe("source state", () => {
   it("ignores bad ids and bad values in a hand-edited file", () => {
     const dir = tmp();
     mkdirSync(join(dir, "sources"));
-    writeFileSync(join(dir, "sources", "state.json"), JSON.stringify({ version: 1, sources: { "Bad Id": { enabled: true }, "demo-eod": { enabled: "yes", configured: 1, consent: { acceptedAt: 5 } } } }));
+    writeFileSync(join(dir, "sources", "state.json"), JSON.stringify({ version: 1, sources: { "Bad Id": { enabled: true }, "demo-eod": { enabled: "yes", configured: 1, consent: { acceptedAt: 5 }, disabledAt: "not a time" } } }));
     const s = createSourceState({ dataDir: dir });
-    expect(s.all()).toEqual({ "demo-eod": { enabled: false, configured: false, consent: null } });
+    expect(s.all()).toEqual({ "demo-eod": { enabled: false, configured: false, consent: null, disabledAt: null } });
+  });
+
+  it("keeps disabledAt (a valid time only) across a reload", () => {
+    const dir = tmp();
+    createSourceState({ dataDir: dir }).update("demo-eod", { enabled: false, disabledAt: "2026-11-08T10:00:00.000Z" });
+    expect(createSourceState({ dataDir: dir }).get("demo-eod").disabledAt).toBe("2026-11-08T10:00:00.000Z");
   });
 
   it("keeps working in memory when the disk is not writable", () => {

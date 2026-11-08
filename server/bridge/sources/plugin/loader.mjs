@@ -13,14 +13,17 @@
  * account: calls carry symbols, intervals and underlyings, never an account id.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { BridgeError } from "../../core/errors.mjs";
 import { MANIFEST_FILE, checkedDescriptor, parseManifestText, validateConfig } from "./manifest.mjs";
-import { createPluginHost } from "./host.mjs";
+import { createPluginHost, runAsProblem } from "./host.mjs";
+import { PLUGIN_TRUST_NOTICE } from "./notice.mjs";
 
 /** Purposes for which a plugin may never answer, whatever its data class says (the router also refuses them). */
 export const PURPOSES_REFUSED_FOR_PLUGINS = Object.freeze(["alert", "paper", "risk", "order"]);
+
+export { PLUGIN_TRUST_NOTICE };
 
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -31,6 +34,46 @@ const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
  */
 export function pinOf(manifestBytes, entryBytes) {
   return sha(`mc-source-pin/1\nmanifest:${sha(manifestBytes)}\nentry:${sha(entryBytes)}\n`);
+}
+
+const MAX_TREE_ENTRIES = 5000;
+
+/**
+ * Every symbolic link in a plugin folder (any depth), as paths relative to it, found with lstat so a link is never followed.
+ * The pin covers only the manifest and the entry, so a link anywhere in the folder (a fixture, a data file) could point at
+ * something the owner never reviewed, such as the Bridge's own data folder. A folder with any link is refused.
+ * Stops after MAX_TREE_ENTRIES entries; a folder that large is refused too (the result's `tooLarge`).
+ */
+export function findSymlinks(root) {
+  const links = [];
+  let seen = 0;
+  let tooLarge = false;
+  const walk = (dir) => {
+    let names;
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (++seen > MAX_TREE_ENTRIES) {
+        tooLarge = true;
+        return;
+      }
+      const full = join(dir, name);
+      let st;
+      try {
+        st = lstatSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isSymbolicLink()) links.push(relative(root, full));
+      else if (st.isDirectory()) walk(full);
+      if (tooLarge) return;
+    }
+  };
+  walk(root);
+  return { links, tooLarge };
 }
 
 /** Read a plugin folder and describe it, without starting anything. Used by the loader and by `plugins check` / `plugins pin`. */
@@ -60,6 +103,9 @@ export function inspectPluginFolder(path, { baseDir = process.cwd() } = {}) {
   const rel = relative(real, entryPath);
   if (rel.startsWith("..") || isAbsolute(rel) || rel.split(sep).includes("..")) return { ok: false, manifest, problems: [`entry ${manifest.entry} resolves outside the plugin folder`] };
   if (!statSync(entryPath).isFile()) return { ok: false, manifest, problems: [`entry ${manifest.entry} is not a file`] };
+  const tree = findSymlinks(real);
+  if (tree.links.length) return { ok: false, manifest, problems: [`the plugin folder contains a symbolic link (${tree.links.slice(0, 3).join(", ")}${tree.links.length > 3 ? ", ..." : ""}); links are refused because the pin does not cover where they point. Copy the real files into the folder`] };
+  if (tree.tooLarge) return { ok: false, manifest, problems: [`the plugin folder holds more than ${MAX_TREE_ENTRIES} files and folders; a plugin is one manifest and one entry file`] };
   const entryBytes = readFileSync(entryPath);
   const { ok, errors, descriptor } = checkedDescriptor(manifest);
   if (!ok) problems.push(...errors.map((e) => `descriptor: ${e}`));
@@ -150,10 +196,11 @@ export function providerFor(descriptor, host, extra = {}) {
  * @param {object} [opts.logger]
  * @param {(id: string, state: { state: string, reason?: string }) => void} [opts.onStateChange]
  * @param {Set<string>|string[]} [opts.takenIds]  ids already registered (built-in sources); a plugin may not reuse one
+ * @param {{ uid: number, gid: number }|null} [opts.runAs]  `sources.pluginUser`: run every plugin as this user (needs root)
  * @param {typeof createPluginHost} [opts.hostFactory]  injected in tests
  * @returns {{ providers: object[], problems: Array<{ path: string, id?: string, reason: string }>, stop(): Promise<void> }}
  */
-export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret, logger, onStateChange, takenIds = [], hostFactory = createPluginHost, ...hostOptions } = {}) {
+export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret, logger, onStateChange, takenIds = [], runAs = null, hostFactory = createPluginHost, ...hostOptions } = {}) {
   const providers = [];
   const problems = [];
   const hosts = [];
@@ -169,7 +216,7 @@ export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret,
       continue;
     }
     if (entry.granted !== true) {
-      refuse("not granted: set granted to true after reviewing the plugin's manifest");
+      refuse(`not granted: set granted to true after reviewing the plugin's manifest and entry file. ${PLUGIN_TRUST_NOTICE}`);
       continue;
     }
     if (!/^[0-9a-f]{64}$/.test(String(entry.sha256 ?? ""))) {
@@ -190,6 +237,11 @@ export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret,
       refuse(`the id ${id} is already used by another source`, id);
       continue;
     }
+    const runAsIssue = runAsProblem(runAs, { platform: hostOptions.platform, getuid: hostOptions.getuid });
+    if (runAsIssue) {
+      refuse(runAsIssue, id);
+      continue;
+    }
     const cfg = validateConfig(info.manifest, entry.config ?? {});
     if (!cfg.ok) {
       refuse(`config: ${cfg.errors.join("; ")}`, id);
@@ -205,8 +257,10 @@ export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret,
       readSecret: readSecret ? () => readSecret(id) : undefined,
       logger,
       onStateChange: onStateChange ? (s) => onStateChange(id, s) : undefined,
+      runAs,
       ...hostOptions,
     });
+    logger?.info?.(`plugin ${id} loaded (${info.manifest.version}). ${runAs ? `It runs as uid ${runAs.uid}.` : PLUGIN_TRUST_NOTICE}`);
     hosts.push(host);
     providers.push(providerFor(info.descriptor, host, { hosts: info.manifest.network.allowHosts, plugin: { version: info.manifest.version, folder: info.dir, pin: info.pin } }));
   }

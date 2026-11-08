@@ -160,6 +160,53 @@ describe("PUT and DELETE /v1/quotas/{keyId}", () => {
     expect((await get("/v1/quotas", ADMIN)).json.data.keys.find((k) => k.keyId === "read0000001").source).toBe("default");
   });
 
+  it("refuses a rate so small it would lock a key out (1e-7 a second is one request in 115 days)", async () => {
+    for (const body of [{ perSecond: 1e-7 }, { perSecond: 0.001 }, { perDay: 0.5 }, { perSecond: 5, perDay: 0 }]) {
+      const r = await request("PUT", "/v1/quotas/read0000001", ADMIN, body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.json.errors.length).toBeGreaterThan(0);
+    }
+    expect((await request("PUT", "/v1/quotas/read0000001", ADMIN, { perSecond: 0.01, burst: 1, perDay: 1 })).status).toBe(200); // the floor itself is allowed for an ordinary key
+    expect((await request("DELETE", "/v1/quotas/read0000001", ADMIN)).status).toBe(200);
+  });
+
+  it("will not give the ONLY active admin key a quota that could lock it out, and leaves the old quota in place", async () => {
+    for (const body of [{ perSecond: 0.5 }, { perSecond: 0.01 }, { perSecond: 5, perDay: 10 }, { perSecond: 5, perDay: 999 }]) {
+      const r = await request("PUT", "/v1/quotas/admin000001", ADMIN, body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.json.code).toBe("VALIDATION_FAILED");
+      expect(r.json.detail).toMatch(/only active admin key/);
+      expect(r.json.detail).toMatch(/control token is not limited/); // the recovery path is in the message
+    }
+    expect((await get("/v1/quotas", ADMIN)).json.data.keys.find((k) => k.keyId === "admin000001").source).toBe("default");
+    // Floors themselves are fine, and so is a high rate with no daily cap.
+    expect((await request("PUT", "/v1/quotas/admin000001", ADMIN, { perSecond: 1, burst: 20, perDay: 1000 })).status).toBe(200);
+    // A refusal restores the PREVIOUS override rather than clearing it.
+    expect((await request("PUT", "/v1/quotas/admin000001", ADMIN, { perSecond: 0.5 })).status).toBe(400);
+    expect((await get("/v1/quotas", ADMIN)).json.data.keys.find((k) => k.keyId === "admin000001")).toMatchObject({ perSecond: 1, burst: 20, perDay: 1000, source: "override" });
+    expect((await request("DELETE", "/v1/quotas/admin000001", ADMIN)).status).toBe(200);
+  });
+
+  it("allows a low quota on an admin key when another active admin key exists, and on any non-admin key", async () => {
+    const second = rec("admin000002", "second admin", ["admin"]);
+    RECORDS.second = second;
+    byId.admin000002 = second;
+    try {
+      // With two active admin keys either may be limited; the one used here is left alone.
+      expect((await request("PUT", "/v1/quotas/admin000002", ADMIN, { perSecond: 0.05, perDay: 20 })).status).toBe(200);
+      expect((await request("DELETE", "/v1/quotas/admin000002", ADMIN)).status).toBe(200);
+      // A revoked second admin does not count: the first is the last one again.
+      RECORDS.second = { ...second, revokedAt: "2026-02-01T00:00:00+05:30" };
+      byId.admin000002 = RECORDS.second;
+      expect((await request("PUT", "/v1/quotas/admin000001", ADMIN, { perSecond: 0.05 })).status).toBe(400);
+    } finally {
+      delete RECORDS.second;
+      delete byId.admin000002;
+    }
+    expect((await request("PUT", "/v1/quotas/read0000001", ADMIN, { perSecond: 0.05, perDay: 20 })).status).toBe(200);
+    expect((await request("DELETE", "/v1/quotas/read0000001", ADMIN)).status).toBe(200);
+  });
+
   it("answers 404 for a key that does not exist, is revoked or is not a key id", async () => {
     for (const id of ["nobody00001", "gone0000001", "x", "Bad_Id!"]) {
       const put = await request("PUT", `/v1/quotas/${encodeURIComponent(id)}`, ADMIN, { perSecond: 3 });

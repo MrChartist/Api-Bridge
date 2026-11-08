@@ -28,6 +28,12 @@ Compact trading symbols with an exchange code: `RELIANCE` / `NSE`, `NIFTY` / `NS
 | Market data | `quotes`, `multiquotes`, `depth`, `history`, `intervals` |
 | Instruments | `symbol`, `search`, `expiry`, `optionchain`, `optionsymbol` |
 
+Compat answers have no field that says how current a price is, so they are **never built from a backup data source**
+(Yahoo, a plugin, ...): the market-data and instrument endpoints read from your broker accounts only, whatever
+`sources.autoFallback` says, and choosing a strike for `optionsorder` reads with the `order` purpose (trusted real-time data
+only). When your broker is out of request budget, a recent cached value may still answer; in that rare case the `data` of a
+quote carries `"stale": true`. Use the `/v1` routes when you want labelled backup data.
+
 `margin` answers with an error for now. Every endpoint is in [openapi.yaml](../openapi.yaml) under "Compat REST".
 
 ## Which account

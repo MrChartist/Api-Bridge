@@ -19,9 +19,16 @@
  */
 import { BridgeError } from "../../core/errors.mjs";
 import { defaultSessionFor } from "../../reference/defaults.mjs";
+import { scrubSecrets } from "../redact.mjs";
 
 export const MINUTE_MS = 60_000;
 export const DAY_MS = 86_400_000;
+/** The most of a vendor's answer the Bridge will read: a bigger body is dropped, not buffered (a 300 MB body once used about 1 GB). */
+export const MAX_BODY_BYTES = 2 * 1024 * 1024;
+/** No price above this is a price: it is a unit error or a hostile payload, not a quote. */
+export const MAX_PRICE = 1e9;
+/** How far ahead of the Bridge's clock a vendor's own timestamp may be before it is refused (clock skew allowance). */
+export const FUTURE_SKEW_MS = 5 * MINUTE_MS;
 
 const KIND_CODE = Object.freeze({
   "rate-limited": "UPSTREAM_RATE_LIMITED",
@@ -36,10 +43,12 @@ const KIND_CODE = Object.freeze({
 });
 export const ERROR_KINDS = Object.freeze(Object.keys(KIND_CODE));
 
-/** Replace every secret (length >= 4) and any `apikey=...` style query value in `text` with "***". */
+/**
+ * Replace every secret (length >= 4) in `text` with "***", in the forms a vendor or library may echo it back: verbatim,
+ * URL-encoded and base64 (see ../redact.mjs), and any `apikey=...` style query value.
+ */
 export function redactText(text, secrets = []) {
-  let out = String(text ?? "");
-  for (const s of secrets) if (typeof s === "string" && s.length >= 4) out = out.split(s).join("***");
+  const out = scrubSecrets(text, secrets);
   return out.replace(/((?:api[_-]?key|api[_-]?token|apikey|token)=)[^&\s"']+/gi, "$1***");
 }
 
@@ -163,6 +172,53 @@ export function createLimiter({ limits, clock = systemClock, maxWaitMs = 2500, s
 }
 
 /**
+ * The body of a response as text, read as a stream and cut off at `maxBytes`: the stream is cancelled the moment the limit is
+ * passed, so a huge or endless body is never held in memory. A declared Content-Length over the limit is refused before
+ * reading. Falls back to `res.text()` (then checked) for a response object without a readable stream.
+ * @throws {Error & { tooLarge: true }} when the body is larger than maxBytes
+ */
+export async function readCapped(res, maxBytes = MAX_BODY_BYTES) {
+  const tooLarge = () => Object.assign(new Error("body too large"), { tooLarge: true });
+  const declared = Number(res?.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    try {
+      await res.body?.cancel?.();
+    } catch {
+      /* nothing to cancel */
+    }
+    throw tooLarge();
+  }
+  const reader = res?.body?.getReader?.();
+  if (!reader) {
+    const text = await res.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) throw tooLarge();
+    return text;
+  }
+  const decoder = new TextDecoder("utf-8");
+  let received = 0;
+  let out = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw tooLarge();
+      }
+      out += decoder.decode(value, { stream: true });
+    }
+    return out + decoder.decode();
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* already released */
+    }
+  }
+}
+
+/**
  * The HTTP helper of one provider.
  * @param {{ id: string, name: string, fetch?: typeof fetch, clock?: object, hosts: string[], limiter: ReturnType<typeof createLimiter>,
  *   userAgent: string, timeoutMs?: number, secrets?: () => string[] }} o
@@ -191,9 +247,10 @@ export function createHttp({ id, name, fetch: fetchImpl = globalThis.fetch, cloc
     }
     let text = "";
     try {
-      text = await res.text();
+      text = await readCapped(res, MAX_BODY_BYTES);
     } catch (err) {
       if (signal?.aborted) throw abortError();
+      if (err?.tooLarge) throw sourceError("upstream", `${name} sent an answer larger than ${MAX_BODY_BYTES / (1024 * 1024)} MB, so the Bridge dropped it unread.`, { source: id });
       throw sourceError("unavailable", `${name} stopped sending its answer part-way.`, { source: id });
     }
     let json = null;
@@ -228,10 +285,22 @@ export function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Positive finite price or null. */
+/** A finite price above 0 and at most MAX_PRICE, else null. A vendor's 1e300 or Infinity is not a quote. */
 export function price(v) {
   const n = num(v);
-  return n !== null && n > 0 ? n : null;
+  return n !== null && n > 0 && n <= MAX_PRICE ? n : null;
+}
+
+/**
+ * A vendor's own timestamp (epoch ms) checked against the Bridge's clock. Not finite or not above 0: null. Up to
+ * FUTURE_SKEW_MS ahead of `nowMs` (clock skew): clamped to `nowMs`, because a value cannot be newer than now. Further ahead:
+ * null, the item is refused (a future `at` would make old data look current).
+ * @returns {number | null}
+ */
+export function vendorTime(atMs, nowMs) {
+  if (typeof atMs !== "number" || !Number.isFinite(atMs) || atMs <= 0) return null;
+  if (atMs > nowMs + FUTURE_SKEW_MS) return null;
+  return Math.min(atMs, nowMs);
 }
 
 /** Minutes after IST midnight at which the cash session closes, from the reference defaults (never a literal here). */

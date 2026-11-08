@@ -38,6 +38,7 @@ import { BridgeError, ERROR_CODES, fromBrokerError } from "../core/errors.mjs";
 import { isAutomatedContext } from "../core/context.mjs";
 import { deliveryMarginOf, expiryDay, moneynessOf, obligationOf } from "../calc/expiry-costs.js";
 import { strikeStepOf } from "../market/chain.mjs";
+import { trustedLtp } from "../market/trusted.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
 import { ordersConfig } from "./config.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
@@ -244,11 +245,16 @@ export function createOrderService(deps) {
     }
   }
 
+  /**
+   * The last price an order may be checked against (price band, market protection, strike choice): a trusted real-time
+   * value only. The read says purpose "order", so the market service never answers it from a stale cache entry, a data
+   * source or a revalidating answer; trustedLtp() then refuses anything still labelled stale, delayed, end-of-day,
+   * unofficial or from a plugin. Null means "no price I can rely on", and the callers treat that as unchecked, never as a price.
+   */
   async function ltpOf(symbol) {
     try {
-      const r = await deps.marketData.ltp([symbol], { maxAgeMs: 2000, priority: "live" });
-      const v = r?.items?.[0]?.ltp;
-      return Number.isFinite(v) && v > 0 ? v : null;
+      const r = await deps.marketData.ltp([symbol], { maxAgeMs: 2000, priority: "live", purpose: "order" });
+      return trustedLtp(r?.items?.find((i) => i?.symbol === symbol) ?? r?.items?.[0]);
     } catch {
       return null;
     }

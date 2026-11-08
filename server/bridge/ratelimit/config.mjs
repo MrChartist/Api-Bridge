@@ -33,6 +33,11 @@ export const DEFAULT_MAX_QUEUED_PER_CONSUMER = 200;
 
 /** Largest per-key numbers a config file or an override may set (sanity bounds, not product limits). */
 export const QUOTA_MAX = Object.freeze({ perSecond: 10_000, burst: 100_000, perDay: 100_000_000, weight: 16 });
+/**
+ * Smallest per-key numbers. A rate of 1e-7 a second is one request in 115 days: it locks a key out, so the floor is one
+ * request every 100 seconds, one request a day, a burst of one and a weight of one.
+ */
+export const QUOTA_MIN = Object.freeze({ perSecond: 0.01, burst: 1, perDay: 1, weight: 1 });
 
 const positive = z.number().finite().positive();
 
@@ -68,9 +73,9 @@ const overrideSchema = z
 /** One key's quota entry (config `ratelimit.client.keys.<keyId>`): every field optional. */
 export const keyQuotaSchema = z
   .object({
-    perSecond: positive.max(QUOTA_MAX.perSecond).optional(),
-    burst: z.number().int().min(1).max(QUOTA_MAX.burst).optional(),
-    perDay: positive.max(QUOTA_MAX.perDay).optional(),
+    perSecond: positive.min(QUOTA_MIN.perSecond).max(QUOTA_MAX.perSecond).optional(),
+    burst: z.number().int().min(QUOTA_MIN.burst).max(QUOTA_MAX.burst).optional(),
+    perDay: positive.min(QUOTA_MIN.perDay).max(QUOTA_MAX.perDay).optional(),
     weight: z.number().finite().min(1).max(QUOTA_MAX.weight).optional(),
   })
   .strict();
@@ -81,11 +86,11 @@ const kindWeights = z.object({ ui: weight.optional(), mcp: weight.optional(), ex
 const clientSchema = z
   .object({
     /** Requests per second each API key may make to the Bridge. */
-    perSecond: positive.max(10_000).default(DEFAULT_CLIENT_PER_SECOND),
+    perSecond: positive.min(QUOTA_MIN.perSecond).max(10_000).default(DEFAULT_CLIENT_PER_SECOND),
     /** Bucket size (short bursts). Defaults to perSecond. */
     burst: z.number().int().positive().max(QUOTA_MAX.burst).optional(),
     /** Requests per IST day each API key may make; unset means no daily cap. */
-    perDay: positive.max(QUOTA_MAX.perDay).optional(),
+    perDay: positive.min(QUOTA_MIN.perDay).max(QUOTA_MAX.perDay).optional(),
     /** Requests one API key may have in flight at once; beyond it the Bridge answers 429. */
     maxConcurrent: z.number().int().min(1).max(10_000).optional(),
     /** Fair-queue weight of a key by its clientKind (defaults: ui 4, mcp 2, excel 1, script 1, other 1). */

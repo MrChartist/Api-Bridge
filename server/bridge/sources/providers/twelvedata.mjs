@@ -14,7 +14,7 @@
 import { BridgeError } from "../../core/errors.mjs";
 import { istDate } from "../../market/time.mjs";
 import { parseSymbol } from "../../core/symbolFormat.mjs";
-import { checkRange, createHttp, createLimiter, msToNextUtcDay, num, price, readNow, sourceError, systemClock, throwIfAborted, unsupported } from "./common.mjs";
+import { FUTURE_SKEW_MS, checkRange, createHttp, createLimiter, msToNextUtcDay, num, price, readNow, sourceError, systemClock, throwIfAborted, unsupported, vendorTime } from "./common.mjs";
 
 export const TWELVEDATA_HOST = "api.twelvedata.com";
 export const TWELVEDATA_USER_AGENT = "Bridge-DataSource/1.0 (self-hosted market-data bridge; read-only; personal use)";
@@ -104,6 +104,7 @@ export function createTwelveDataProvider({ apiKey, fetch: fetchImpl = globalThis
   async function quotes(symbols, ctx = {}) {
     const items = [];
     let firstError = null;
+    const nowMs = readNow(ctx, clock);
     for (const symbol of symbols) {
       throwIfAborted(ctx.signal);
       try {
@@ -111,8 +112,9 @@ export function createTwelveDataProvider({ apiKey, fetch: fetchImpl = globalThis
         const ltp = price(body.close);
         const day = typeof body.datetime === "string" && /^\d{4}-\d{2}-\d{2}/.test(body.datetime) ? body.datetime.slice(0, 10) : null;
         const stamp = num(body.timestamp);
-        const at = stamp !== null && stamp > 0 ? stamp * 1000 : day ? istDayStart(day) : null;
-        if (ltp === null || at === null) throw sourceError("not-found", `${NAME} has no quote for ${symbol}.`, { source: "twelvedata" });
+        // The vendor's own time, but never one ahead of the Bridge's clock (vendorTime clamps skew and refuses the future).
+        const at = vendorTime(stamp !== null && stamp > 0 ? stamp * 1000 : day ? istDayStart(day) : null, nowMs);
+        if (ltp === null || at === null) throw sourceError("not-found", `${NAME} has no usable quote for ${symbol}.`, { source: "twelvedata" });
         items.push({
           symbol,
           fields: { ltp, open: price(body.open), high: price(body.high), low: price(body.low), close: price(body.previous_close), volume: num(body.volume) },
@@ -147,6 +149,7 @@ export function createTwelveDataProvider({ apiKey, fetch: fetchImpl = globalThis
       const close = price(v?.close);
       if (!day || open === null || high === null || low === null || close === null) continue;
       const time = Math.floor(istDayStart(day) / 1000);
+      if (!(time > 0) || time * 1000 > nowMs + FUTURE_SKEW_MS) continue; // a day that has not happened is not a candle
       byTime.set(time, { time, open, high, low, close, volume: Math.max(0, num(v.volume) ?? 0) });
     }
     const candles = [...byTime.values()].sort((a, b) => a.time - b.time);

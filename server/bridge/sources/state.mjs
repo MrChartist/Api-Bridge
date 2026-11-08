@@ -2,7 +2,13 @@
  * Persisted per-source state: <dataDir>/sources/state.json.
  *
  *   { "version": 1, "sources": { "<id>": { "enabled": boolean, "configured": boolean,
- *       "consent": { "acceptedAt": "<ISO>", "noticeVersion": "<string>" } | null } } }
+ *       "consent": { "acceptedAt": "<ISO>", "noticeVersion": "<string>" } | null,
+ *       "disabledAt": "<ISO>" | null } } }
+ *
+ * `disabledAt` is when the owner last switched the source off; a source switched off for more than 24 hours needs its
+ * notice acknowledged again (service.mjs). This file is TRUSTED LOCAL STATE, not tamper-proof: anyone who can write to the
+ * data folder can edit it (and the Bridge's other files). The service fails closed on what it can check (an enabled opt-in
+ * source with no matching acknowledgement is treated as off and logged at start), but it cannot tell an edit from a click.
  *
  * Holds choices, never secrets: an API key lives in the secrets store under `source:<id>`. Written atomically (temp
  * file, fsync, rename) with mode 0600 like the other stores. A file that cannot be read is moved aside as
@@ -16,7 +22,9 @@ export const STATE_VERSION = 1;
 const ID_RE = /^[a-z][a-z0-9-]{1,30}$/;
 
 /** @typedef {{ acceptedAt: string, noticeVersion: string }} Consent */
-/** @typedef {{ enabled: boolean, configured: boolean, consent: Consent | null }} SourceState */
+/** @typedef {{ enabled: boolean, configured: boolean, consent: Consent | null, disabledAt: string | null }} SourceState */
+
+const cleanTime = (t) => (typeof t === "string" && Number.isFinite(Date.parse(t)) ? t.slice(0, 40) : null);
 
 const cleanConsent = (c) =>
   c && typeof c === "object" && typeof c.acceptedAt === "string" && typeof c.noticeVersion === "string" && c.noticeVersion
@@ -29,7 +37,7 @@ function sanitise(raw) {
   const src = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
   for (const [id, s] of Object.entries(src)) {
     if (!ID_RE.test(id) || !s || typeof s !== "object") continue;
-    out[id] = { enabled: s.enabled === true, configured: s.configured === true, consent: cleanConsent(s.consent) };
+    out[id] = { enabled: s.enabled === true, configured: s.configured === true, consent: cleanConsent(s.consent), disabledAt: cleanTime(s.disabledAt) };
   }
   return out;
 }
@@ -92,9 +100,9 @@ export function createSourceState({ dataDir, logger, clock }) {
      */
     update(id, patch) {
       if (!ID_RE.test(id)) throw new Error("bad source id");
-      const cur = sources[id] ?? { enabled: false, configured: false, consent: null };
+      const cur = sources[id] ?? { enabled: false, configured: false, consent: null, disabledAt: null };
       const next = { ...cur, ...patch };
-      sources[id] = { enabled: next.enabled === true, configured: next.configured === true, consent: cleanConsent(next.consent) };
+      sources[id] = { enabled: next.enabled === true, configured: next.configured === true, consent: cleanConsent(next.consent), disabledAt: cleanTime(next.disabledAt) };
       save();
       return copy(sources[id]);
     },

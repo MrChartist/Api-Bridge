@@ -150,6 +150,11 @@ through the account they belong to from its own registered IP; where a broker ne
 account needs one; and you can turn it off at any time. Consent is refused for accounts of different holders, unknown
 accounts, paper accounts and brokers marked `not-allowed`. Accepting and revoking are written to the audit log.
 
+The consent is one record for the whole Bridge. An admin key **limited to some accounts** can only change its own part of it:
+accepting adds the accounts it names to the record (the others stay), and revoking removes only the accounts it may use and
+deletes the record only when none are left. An unrestricted admin key (or this computer's control token) replaces or removes
+the whole record. A limited key is never shown the other accounts.
+
 **Paid data plans.** Some brokers charge for live data: Zerodha (Connect, Rs 500 a month per app), Dhan (Data API,
 Rs 499 plus tax a month) and Groww (paid plan, Rs 499 plus tax a month). A pooled account without the plan cannot
 serve live reads, and every pooled account needs its own plan. The policy table records this as `dataEntitlement`
@@ -208,6 +213,15 @@ curl -X DELETE -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:4300/v1/qu
 An override is kept in `quotas.json` in the data folder and sits above the config. Unlike broker limits, which a config
 may only lower, a key's quota may be raised or lowered by you: it protects the Bridge from its own callers, not a
 broker from the Bridge. Every response carries `RateLimit` and `RateLimit-Policy` headers (IETF draft format).
+
+**Bounds.** A quota (in the config, or set through the API) takes finite numbers from 0.01 to 10,000 requests a second (one
+request every 100 seconds at the least), a burst of 1 to 100,000 (a whole number), 1 to 100,000,000 requests a day (or `null`
+for no daily cap) and a weight of 1 to 16. Anything else, including `NaN`, a negative number, a string or a rate like `1e-7`
+that would lock a key out for months, is refused. The **only active admin key** may not be given less than 1 request a second
+and 1,000 a day: a quota applies to the key, so one that is too small could lock you out of the API. **If a key is ever locked
+out**, this computer's control token is not subject to any quota: run `mc-bridge` on this computer (the dashboard opened with
+`mc-bridge open` works too) and delete the override (`DELETE /v1/quotas/<keyId>` as a local caller), or edit or remove
+`quotas.json` in the data folder while the Bridge is stopped.
 
 ## Asking for less: stale-while-revalidate and prefetch priority
 

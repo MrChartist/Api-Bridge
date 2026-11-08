@@ -78,6 +78,10 @@ mc-bridge sources enable yahoo --acknowledge yahoo-1   # after you read it: the 
 mc-bridge sources disable yahoo
 ```
 
+`set-key` takes only the source id. A key typed after it (`set-key twelvedata MYKEY`) is refused, because it would sit in your
+shell history. Commands that need an admin key read `MCB_ADMIN_KEY` (or `MCB_API_KEY`) from the environment; `--key <key>` still
+works but prints a warning for the same reason.
+
 Keys are never taken from the command line, so they do not end up in your shell history. They are stored encrypted on this
 computer, never written to `bridge.config.json`, and never shown again, not even by the API.
 
@@ -110,7 +114,15 @@ For a read that is not pinned to one account, the Bridge looks at the candidates
 
 **Purposes.** A read may say what it is for with `purpose`: `display` (default), `analysis`, `alert`, `paper`, `risk` or
 `order`. The last four accept only real-time data from your own broker. A delayed or end-of-day source is never used for
-them, whatever you configured. Orders go through the account they belong to; no source ever influences that.
+them, whatever you configured, and neither is a cached value that has gone stale. Orders go through the account they belong to;
+no source ever influences that.
+
+The default, `display`, is for the public market routes: a `display` read may be answered from a cached value that is older
+than its freshness target (labelled `stale: true`) when your broker's budget is used up, and from a backup source if the read
+allows one. So code inside the Bridge never relies on the default. The order service (price band, market protection, strike
+choice) reads with `purpose: "order"`, the paper engine with `"paper"`, and both check the label on what comes back: a value
+that is stale, delayed, end of day, unofficial, from a source or unlabelled is not used as a price. A test scans the order,
+paper, safety and compat code and fails if a market-data call there does not state its purpose.
 
 **`maxAgeMs`.** If you ask for data no older than 2 seconds, a 15-minute source cannot answer, and you get your broker's
 answer or an error, not a delayed price pretending to be fresh.
@@ -173,18 +185,22 @@ Treat a plugin as code you run on your computer, because it is. The Bridge limit
 - its files are pinned by hash, and a changed file is refused until you approve the change;
 - it has call timeouts and request limits, and is stopped if it misbehaves.
 
-These limits are real but not a complete sandbox: Node.js cannot yet stop a determined plugin from opening its own network
-connection. Only use plugins whose code you have read or whose author you trust. [source-contract.md](../source-contract.md)
+These limits are real but not a complete sandbox. Node.js cannot stop a determined plugin from opening its own network
+connection, and **a plugin runs as your user, so it can also send signals to the Bridge, for example kill it** (no setting
+inside the Bridge can block that). Only use plugins whose code you have read or whose author you trust. If you must run one you
+trust less, run it as another user (see "Running plugins as another user" below) or inside a container. [source-contract.md](../source-contract.md)
 explains exactly what is and is not enforced.
 
-To add one:
+To add one, in this order:
 
-```sh
-mc-bridge sources plugins check ./my-plugin    # validates it and runs its conformance checks, offline
-mc-bridge sources plugins pin ./my-plugin      # prints what you would grant, and the pin
-```
+1. **Read** `mc-source.json` and the entry file (`index.mjs`). The folder may not contain symbolic links; the Bridge refuses it if it does.
+2. **Pin** it: `mc-bridge sources plugins pin ./my-plugin` prints what you would grant (the hosts it may reach, its limits, its
+   terms, the two files to read) and the pin.
+3. Optionally **check** it: `mc-bridge sources plugins check ./my-plugin` runs its conformance checks offline. **`check` runs the
+   plugin's code** on your computer (in the same restricted process and with a scripted network, but it is still its code), which
+   is why it comes after you have read the files and pinned them, not before.
 
-Read what `pin` prints (the hosts it may reach, its limits, its terms) and the plugin's code, then add it to the config:
+Then add it to the config:
 
 ```json
 "sources": {
@@ -193,6 +209,29 @@ Read what `pin` prints (the hosts it may reach, its limits, its terms) and the p
   ]
 }
 ```
+
+**Running plugins as another user.** If the Bridge runs as root on Linux or macOS (for example in a container or a service), you
+can start every plugin as an unprivileged user so it cannot signal or kill the Bridge:
+
+```json
+"sources": { "pluginUser": { "uid": 1500, "gid": 1500 } }
+```
+
+The user must be able to read the plugin's folder. It is optional and never required. If it is set and the Bridge may not switch
+user (it does not run as root, or the system is Windows), the plugins are **not started** and the log says why; they are never
+quietly started with the Bridge's own privileges. A plugin is also never run as root. A plain desktop install runs as your own
+user and cannot do this.
+
+**If the Bridge was killed.** When the Bridge stops normally, on Ctrl+C or on a termination signal, it stops its plugin processes.
+A forced kill of the Bridge (`kill -9`, the task manager's "end task", the out-of-memory killer) cannot clean up, and a plugin
+stuck in a busy loop does not notice its connection closing, so it can keep running and using CPU. Find and stop it:
+
+```sh
+pgrep -af "plugin/child.mjs"      # Linux and macOS: lists the plugin processes
+kill <pid>                        # then kill -9 <pid> if it stays
+```
+
+On Windows, look in Task Manager for `node.exe` processes whose command line contains `plugin\child.mjs`.
 
 A plugin may have settings of its own; put them in a `config` object on its entry (the plugin's manifest says which keys
 it takes, and a bad value stops it from loading). Never put a key there: a plugin's API key is saved from the Providers
@@ -203,18 +242,27 @@ as off. If you or anyone edits the plugin later, the Bridge
 refuses it until you run `pin` again and update the line. A plugin that crashes four times in ten minutes is switched off,
 and the reason shows in its health on the Sources page.
 
+**Acknowledgements for opt-in sources.** Switching an opt-in source on needs you to acknowledge its notice. If you switch it off and
+on again within 24 hours, one click is enough. If it has been off for more than 24 hours, or its notice changed, the notice is
+shown again and the new acknowledgement is recorded (`needsAcknowledgement` in `GET /v1/sources` says which). At start, the Bridge
+checks every source its state file marks as on: an opt-in source with no acknowledgement for the current notice is treated as off,
+and a warning in the log names it. Those files (`sources/state.json`, the secrets store, the config) are **trusted local state, not
+tamper-proof**: anyone who can write to the Bridge's data folder can change them, and the checks catch an honest mistake or a
+restored backup, not a determined person.
+
 ## Configuration
 
 ```json
 "sources": {
   "autoFallback": false,
   "timeoutMs": 5000,
+  "pluginUser": { "uid": 1500, "gid": 1500 },
   "providers": { "yahoo": { "enabled": false } },
   "plugins": [{ "path": "./my-plugin", "sha256": "<the pin>", "granted": true, "config": {} }]
 }
 ```
 
-`autoFallback` is off unless you set it. `timeoutMs` is how long one call to a source may take (100 to 15000, 5000 by
+`pluginUser` is optional (see above). `autoFallback` is off unless you set it. `timeoutMs` is how long one call to a source may take (100 to 15000, 5000 by
 default). `"enabled": false` under `providers` keeps a source off whatever the dashboard says. Whether a source is on, and the notices you acknowledged, are kept by the Bridge in
 its data folder; use the dashboard or `mc-bridge sources` to change them. Keys are not config.
 

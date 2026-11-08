@@ -15,7 +15,7 @@ import { BridgeError } from "../../core/errors.mjs";
 import { istDate, istMidnight, istParts } from "../../market/time.mjs";
 import { mergeCandles } from "../../market/normalise.mjs";
 import { parseSymbol } from "../../core/symbolFormat.mjs";
-import { DAY_MS, checkRange, createHttp, createLimiter, num, price, readNow, sessionCloseMinutes, sourceError, systemClock, throwIfAborted, unsupported } from "./common.mjs";
+import { DAY_MS, checkRange, createHttp, createLimiter, num, price, readNow, sessionCloseMinutes, sourceError, systemClock, throwIfAborted, unsupported, vendorTime } from "./common.mjs";
 
 export const YAHOO_NOTICE_VERSION = "yahoo-1";
 export const YAHOO_HOST = "query1.finance.yahoo.com";
@@ -133,6 +133,7 @@ export function createYahooProvider({ fetch: fetchImpl = globalThis.fetch, clock
     const out = [];
     for (let i = 0; i < ts.length; i += 1) {
       const time = num(ts[i]);
+      if (time !== null && time <= 0) continue;
       const open = price(q.open?.[i]);
       const high = price(q.high?.[i]);
       const low = price(q.low?.[i]);
@@ -160,14 +161,15 @@ export function createYahooProvider({ fetch: fetchImpl = globalThis.fetch, clock
   async function quotes(symbols, ctx = {}) {
     const items = [];
     let firstError = null;
+    const nowMs = readNow(ctx, clock);
     for (const symbol of symbols) {
       throwIfAborted(ctx.signal);
       try {
         const ticker = toYahooSymbol(symbol);
         const r = await chart(ticker, { range: "5d", interval: "1d", includePrePost: "false" }, ctx.signal);
-        const item = quoteItem(symbol, r);
+        const item = quoteItem(symbol, r, nowMs);
         if (item) items.push(item);
-        else firstError ??= http.upstream(`Yahoo Finance sent no price for ${symbol}.`);
+        else firstError ??= http.upstream(`Yahoo Finance sent no usable price for ${symbol} (a missing or impossible price, or a time in the future).`);
       } catch (err) {
         if (err?.name === "AbortError") throw err;
         if (!(err instanceof BridgeError)) throw http.upstream("Yahoo Finance could not be read.");
@@ -180,12 +182,14 @@ export function createYahooProvider({ fetch: fetchImpl = globalThis.fetch, clock
     return { items };
   }
 
-  function quoteItem(symbol, result) {
+  function quoteItem(symbol, result, nowMs) {
     const meta = result.meta;
     const ltp = price(meta.regularMarketPrice);
     const at = num(meta.regularMarketTime);
     if (ltp === null || at === null) return null;
-    const atMs = at * 1000;
+    // The vendor's own time, but never one ahead of the Bridge's clock (a future time would make old data look current).
+    const atMs = vendorTime(at * 1000, nowMs);
+    if (atMs === null) return null;
     const day = istDate(atMs);
     const bars = candlesOf(result).filter((c) => minutesOfDayIst(c.time * 1000) < SESSION_CLOSE_MIN);
     // Previous close: the last finished daily close dated before the quote's own day.

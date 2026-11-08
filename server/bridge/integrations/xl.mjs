@@ -221,7 +221,7 @@ export function createXlRoutes(deps, cfg) {
 
   async function oneQuote(ctx, kind) {
     const symbol = req(ctx.query, "symbol", "NSE:NIFTY");
-    const opts = readOptions(ctx, { autoBackup: cfg.autoBackup });
+    const opts = readOptions(ctx);
     const r = kind === "ltp" ? await deps.marketData.ltp([symbol], opts) : await deps.marketData.quotes([symbol], opts);
     const item = (r?.items ?? [])[0];
     if (!item) throw itemError(r?.errors, `No ${kind === "ltp" ? "price" : "quote"} for ${symbol}.`);
@@ -254,7 +254,7 @@ export function createXlRoutes(deps, cfg) {
       const strikes = intParam(q, "strikes", 1, 100);
       const greeks = boolParam(q, "greeks", true);
       const maxChars = intParam(q, "maxChars", 256, 50_000_000);
-      const opts = readOptions(ctx, { autoBackup: cfg.autoBackup });
+      const opts = readOptions(ctx);
       const params = { underlying, expiry, greeks };
       if (strikes !== undefined) params.strikes = strikes;
       const chain = await deps.marketData.optionChain(params, opts);
@@ -287,7 +287,7 @@ export function createXlRoutes(deps, cfg) {
       const maxChars = intParam(q, "maxChars", 256, 50_000_000);
       const tickerParam = opt(q, "ticker");
       if (tickerParam !== undefined && !TICKER_RE.test(tickerParam)) throw invalid("ticker", "ticker may use letters, digits and & . _ ^ # - (up to 48 characters).");
-      const opts = readOptions(ctx, { maxAge: false, autoBackup: cfg.autoBackup });
+      const opts = readOptions(ctx, { maxAge: false });
       const params = { symbol, interval };
       if (from !== undefined) params.from = from;
       if (to !== undefined) params.to = to;

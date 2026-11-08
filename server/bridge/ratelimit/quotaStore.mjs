@@ -13,8 +13,9 @@
  * may set `perDay: null` to lift a daily cap that the config sets.
  *
  * Unlike the broker limits (which a config may only lower), a client quota protects the Bridge from its own callers,
- * so the owner may raise or lower it. Values are checked here as well as in the routes: positive finite numbers,
- * burst a whole number of at least 1, and sane maxima (QUOTA_MAX).
+ * so the owner may raise or lower it. Values are checked here as well as in the routes: finite numbers within sane
+ * bounds (QUOTA_MIN, QUOTA_MAX: at least 0.01 requests a second and one a day, so no value can lock a key out), burst a
+ * whole number of at least 1.
  *
  * Nothing secret is stored: key ids and numbers only. A damaged quotas.json is ignored (and logged); the next
  * successful write replaces it.
@@ -22,7 +23,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../lib/jsonl.mjs";
-import { QUOTA_MAX } from "./config.mjs";
+import { QUOTA_MAX, QUOTA_MIN } from "./config.mjs";
 
 export const QUOTAS_FILE = "quotas.json";
 const FORMAT = "mcb-quotas";
@@ -57,6 +58,10 @@ export function validateQuota(body) {
     }
     if (v <= 0) {
       errors.push({ path: k, message: "must be above 0" });
+      continue;
+    }
+    if (v < QUOTA_MIN[k]) {
+      errors.push({ path: k, message: `must be at least ${QUOTA_MIN[k]}${k === "perSecond" ? " (one request every 100 seconds)" : k === "perDay" ? " (one request a day)" : ""}` });
       continue;
     }
     if (v > QUOTA_MAX[k]) {

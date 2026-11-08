@@ -64,7 +64,7 @@ Every source has a descriptor. The router, the dashboard and `GET /v1/sources` r
 |---|---|
 | `builtin` | Nothing: your broker accounts |
 | `byok` | Saving a key (`PUT /v1/sources/{id}/config`) and enabling |
-| `opt-in` | Enabling with `acknowledge` equal to `noticeVersion` |
+| `opt-in` | Enabling with `acknowledge` equal to `noticeVersion` (again after more than 24 hours off, or a new notice) |
 | `plugin` | The owner granting it in `sources.plugins` (with its sha256), and enabling |
 
 Free and plugin sources never claim `realtime`: the conformance harness fails them if they do, and the plugin manifest does
@@ -89,8 +89,9 @@ filters before it scores anything. A plugin additionally refuses those four purp
 }
 ```
 
-Implement only what the descriptor declares. `ctx` is `{ signal, now }`: `signal` aborts at the caller's deadline and
-**must** stop work and make no further requests; `now` is the Bridge clock in epoch ms.
+Implement only what the descriptor declares. `ctx` is `{ signal, now, purpose, apiKey? }`: `signal` aborts at the caller's deadline and
+**must** stop work and make no further requests; `now` is the Bridge clock in epoch ms; `purpose` is what the read is for
+(`display` when the caller said nothing); `apiKey` is present for a source that needs one.
 
 ### quotes
 
@@ -155,7 +156,8 @@ A source is ejected by the circuit breaker after repeated failures, retried afte
 and a 429, an auth error or a not-found never trips it (see [sources-architecture.md](sources-architecture.md)).
 
 Never throw a raw `Error`: its message may carry a URL or a key. Keep the message to one plain sentence, redact secrets,
-and never echo the response body. A cancelled call throws an `AbortError` (name `AbortError`), not a `BridgeError`.
+and never echo the response body. The Bridge scrubs a key from what it shows or logs in the forms a vendor or library may echo
+it in: verbatim, URL-encoded and base64 (`sources/redact.mjs`). A cancelled call throws an `AbortError` (name `AbortError`), not a `BridgeError`.
 
 **Plugin error codes** (what a plugin sends, and what the Bridge turns it into):
 
@@ -188,7 +190,9 @@ An answer that does not fit the shapes above, or a message that does not parse, 
 | Plugin heap | `--max-old-space-size=128` (megabytes). This bounds the JS heap, not all memory |
 | Restarts | At most **3** restarts in 10 minutes, then the plugin is disabled |
 
-A built-in provider keeps to its own limits with a sliding-window limiter and honours a 429 `Retry-After`. A plugin does not
+A built-in provider reads a vendor's answer as a stream and stops at **2 MB** (`UPSTREAM_ERROR`, "larger than 2 MB"; a declared
+`Content-Length` above that is refused before reading), refuses a price that is not finite, not above 0 or above 1e9, and refuses a vendor timestamp more
+than 5 minutes ahead of the Bridge clock (up to 5 minutes ahead is clamped to now). A built-in provider keeps to its own limits with a sliding-window limiter and honours a 429 `Retry-After`. A plugin does not
 throttle itself: the host enforces its declared limits on every brokered request and refuses the excess with `RATE_LIMITED`.
 
 ## 6. Plugins
@@ -226,7 +230,7 @@ restriction.
 | `capabilities` | A non-empty subset of `quotes`, `history`, `expiries`, `optionChain`. Any other name (orders, portfolio, accounts, funds) is rejected: there is nothing to ask for |
 | `class`, `delaySec` | `delayed` (with `delaySec`, 1 to 604800) or `eod`. `realtime` is rejected: a plugin is never real-time |
 | `official` | Optional; must be `false` |
-| `network.allowHosts` | Up to 10 entries. `host.example.com` or `*.example.com` (one leading wildcard, at least two labels after it). No IP addresses, `localhost`, `.local` or `.internal` names, ports, paths, schemes or credentials, and **no broker domains** |
+| `network.allowHosts` | Up to 10 entries. `host.example.com` or `*.example.com` (one leading wildcard, at least two labels after it, and not over a public suffix such as `*.co.uk` or a shared-hosting domain such as `*.herokuapp.com`, `*.vercel.app`, `*.github.io`: name the vendor's own domain, e.g. `*.vendor.co.uk` or `*.vendor.vercel.app`). No IP addresses, `localhost`, `.local` or `.internal` names, ports, paths, schemes or credentials, and **no broker domains** (a maintained list that covers every host the in-tree adapters use; a test scans the adapters and fails when a new adapter host is missing) |
 | `network.allowPost` | Optional; lets the plugin send POST requests. Default: GET and HEAD only |
 | `limits` | At least one of `perSecond`, `perMinute`, `perDay`; optional `callTimeoutMs`, `maxInFlight`, `maxResponseBytes` within the caps in section 5 |
 | `terms` | `url` (https) and `note`, required |
@@ -244,9 +248,13 @@ The owner lists it in `bridge.config.json`:
 "sources": { "plugins": [ { "path": "./my-plugin", "sha256": "<pin>", "granted": true, "config": { "market": "NSE" } } ] }
 ```
 
+- Order of work for an owner: **read** `mc-source.json` and the entry file, **pin**, then (optionally) **check**. `check` starts
+  the plugin and runs its code, so it comes after review, not before.
 - `mc-bridge sources plugins pin <folder>` prints the **pin**: the sha256 of a fixed header and the digests of the manifest
   file and the entry file. It also prints what the owner is granting (hosts, capabilities, limits, terms) to review.
-- A plugin loads only if `granted` is exactly `true`, the files match the pin, the manifest and descriptor are valid, the
+- A plugin loads only if `granted` is exactly `true`, the files match the pin, the folder holds **no symbolic link at any
+  depth** (the pin covers two files, so a link could point at something nobody reviewed, such as the Bridge's data folder),
+  the manifest and descriptor are valid, the
   id is unused, and `config` satisfies `configSchema`. Otherwise it is refused with the reason (shown in the logs). A
   changed file is refused until the owner updates the pin.
 - The child process re-checks the entry bytes against the pin and imports exactly those bytes, so a file changed after the
@@ -372,9 +380,9 @@ refuses `Cookie`, `Host`, hop-by-hop and `Proxy-*` headers from the plugin. Only
 7. **Brokered network, with limits, timeouts and caps**, as above.
 
 **Node permission flags, as an extra layer.** The child is started with
-`--permission --allow-fs-read=<plugin folder> --allow-fs-read=<runner> --max-old-space-size=128 --disallow-code-generation-from-strings
+`--permission --allow-fs-read=<entry file> --allow-fs-read=<runner> --max-old-space-size=128 --disallow-code-generation-from-strings
 --no-experimental-fetch --no-experimental-websocket` and no other `--allow-*` flag: it cannot write files, start processes,
-create worker threads, load native addons or run WASI, it can read only its own folder, `eval` is off, and the built-in
+create worker threads, load native addons or run WASI, it can read only its own entry file (not the folder, so not its manifest or fixtures either), `eval` is off, and the built-in
 `fetch` and WebSocket are not defined. On Node versions before 22.13 the older `--experimental-permission` flag is used.
 
 **What this does not stop.** Node's own documentation calls the permission model a *seat belt* for trusted code, not a
@@ -385,12 +393,24 @@ security boundary against malicious code. The honest limits:
   allow-list governs the requests that go through the host; it does not stop a plugin that bypasses it. A plugin has no key to
   the Bridge's API, and an admin route needs one, but a malicious plugin can still talk to local services or send data it can
   see (its own folder, its config, its API key, market data) to the internet.
+- **A plugin can signal the Bridge.** Node's permission flags do not cover signals. A plugin that runs as the same user as the
+  Bridge can call `process.kill(process.ppid, "SIGKILL")` (or `SIGSTOP`, which freezes it) and stop the Bridge, and nothing the
+  Bridge can do prevents or catches that: `SIGKILL` and `SIGSTOP` cannot be handled by any process. The Bridge does not pretend
+  otherwise. The mitigation is a **different user**: set `sources.pluginUser: { uid, gid }` and run the Bridge as root (or with
+  `CAP_SETUID` and `CAP_SETGID`); the child is then started as that user and the kernel refuses its signals to the Bridge.
+  If `pluginUser` is set but the Bridge may not switch user, plugins are not started (a clear message is logged), never silently
+  started as the Bridge's user. Without it, the risk is the one stated in the notice shown by `plugins pin`, when a plugin is
+  refused for not being granted, and when it loads.
 - The plugin runs with **your user's privileges** apart from the file-system flags. File descriptors that already exist
-  are not covered, symbolic links are followed, and a bug in Node or V8 can defeat the flags.
+  are not covered, and a bug in Node or V8 can defeat the flags.
 - Memory and CPU are only loosely bounded: `--max-old-space-size` limits the JS heap, not buffers, and a busy loop is cut off
   only by the call timeout and the heartbeat, not by a CPU quota.
 - A plugin can lie: wrong prices that are well-formed pass every shape check. The `delayed`/`unofficial` labels and the
   exclusion from orders limit the damage; they cannot make a bad vendor correct.
+
+**Process lifetime.** The host kills every live plugin child when the Bridge exits (including `process.exit` after SIGINT or
+SIGTERM). A forced kill of the Bridge cannot run that, and a plugin stuck in a busy loop never notices its stdin closing, so it
+can be orphaned; the owner stops it by hand (`pgrep -af "plugin/child.mjs"`, see [guides/sources.md](guides/sources.md)).
 
 **So:** a plugin is code you choose to run. Read it, pin it, and install only what you trust. If you need a real boundary, run
 the Bridge, or only the plugins, inside a container or VM with an egress-filtering firewall: that is the supported way to get
@@ -403,8 +423,10 @@ plugin loaded through the host, with a fake clock and a scripted fetch: no netwo
 `shape:<capability>`, `abort`, `limits`, `errors:<scenario>` (rate limit, not found, upstream failure, network failure,
 unreadable answer, and auth when a key is needed), `secrets` and `network`.
 
-`mc-bridge sources plugins check <folder>` does this for a plugin. It starts the plugin for real, with the same process and
-flags as in production, answers every request it makes from `fixtures/conformance.json` (a request that matches no fixture
+`mc-bridge sources plugins check <folder>` does this for a plugin. **It runs the plugin's code**, so read the manifest and entry file
+and `pin` first. It starts the plugin for real, through the same loader and host, with the same process and
+flags as in production (read access to the entry file only, empty environment, no children or workers). It refuses a folder with a symbolic link, and a fixture
+that resolves (by real path) outside the folder, answers every request it makes from `fixtures/conformance.json` (a request that matches no fixture
 fails the check), and adds checks for loading, determinism and fixture coverage. See `examples/source-plugin/fixtures/` for the
 format:
 
@@ -437,7 +459,7 @@ Every item must hold for a source to be listed. "Check" is `plugins check` (the 
 | 12 | Hostile payloads (`__proto__`, `constructor`, deep nesting, `NaN` or `Infinity` strings, zero or negative prices, string volume) are rejected or sanitised | tests (`protocol.test.mjs`, `results.test.mjs`, `host.test.mjs`) |
 | 13 | A host outside the list, a redirect to one, `http://`, a private IP and a broker host are refused by the host | check (`network`); tests (`netpolicy.test.mjs`, `netbroker.test.mjs`, `host.test.mjs`) |
 | 14 | A canary secret never appears in logs, errors, the environment, argv or any message other than `init` | check (`secrets`); tests (`host.test.mjs`) |
-| 15 | No file access outside the folder (reading `/etc/hosts` or the Bridge's data folder fails with `ERR_ACCESS_DENIED`) and no process can be spawned | tests (`host.process.test.mjs`, real Node process) |
+| 15 | No file access beyond the entry file (reading `/etc/hosts`, a sibling file, a symbolic link into the Bridge's data folder, fails with `ERR_ACCESS_DENIED`), a folder with a symbolic link is refused by the loader, and no process can be spawned | tests (`host.process.test.mjs`, real Node process) |
 | 16 | A crash mid-call gives `BROKER_UNAVAILABLE` and a clean restart; more than 3 crashes in 10 minutes disables the plugin | tests (`host.test.mjs`) |
 | 17 | The same fixture twice gives the same output | check (`deterministic`) |
 | 18 | Invalid, missing and unknown config keys are refused before the process starts; defaults are applied | tests (`manifest.test.mjs`, `loader.test.mjs`) |
@@ -472,8 +494,9 @@ async quotes(symbols, ctx) {
 Steps:
 
 ```sh
-mc-bridge sources plugins check examples/source-plugin    # all checks must say OK
+# read examples/source-plugin/mc-source.json and index.mjs first
 mc-bridge sources plugins pin   examples/source-plugin    # prints the pin and what you would grant
+mc-bridge sources plugins check examples/source-plugin    # RUNS the plugin's code offline; all checks must say OK
 # add { "path": "examples/source-plugin", "sha256": "<pin>", "granted": true } to sources.plugins, restart
 mc-bridge sources enable example-delayed
 mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE
@@ -485,7 +508,7 @@ delaySec: 900, official: false, flags: ["plugin", "unofficial", "delayed"], ... 
 ## 9. Writing a built-in provider
 
 Built-in providers live in `server/bridge/sources/providers/`. They take their `fetch` and clock as arguments so tests inject
-fakes, declare `hosts`, build every request with `redirect: "error"` and no cookies, identify themselves honestly in the
+fakes, declare `hosts`, build every request through `createHttp` (which streams the body with the 2 MB cap), use `price()` and `vendorTime()` from `common.mjs` for every price and timestamp, build every request with `redirect: "error"` and no cookies, identify themselves honestly in the
 User-Agent, and throw classified errors (`fields.kind`). Every one ships with fixtures recorded from the vendor's documented
 responses and a test that runs `runProviderConformance`. Use only the vendor's official documentation.
 

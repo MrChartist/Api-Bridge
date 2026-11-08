@@ -4,7 +4,7 @@
  * What the host guarantees (the boundary is the process and the broker, not the permission flags):
  *  - the child gets an EMPTY environment, the plugin folder as its working directory, and no secret except the one key the
  *    owner stored for it (sent once, in `init`, over stdin; never in argv or the environment);
- *  - Node's permission flags are added as a seat belt (file reads limited to the plugin folder and the runner; no child
+ *  - Node's permission flags are added as a seat belt (file reads limited to the entry file and the runner; no child
  *    processes, worker threads, native addons or WASI). Node 22 has no network permission flag, so the flags do not stop a
  *    plugin opening its own sockets. See docs/source-contract.md, "The sandbox and its limits";
  *  - ALL network access that goes through the host is brokered (netbroker.mjs): host allow-list, https only, size caps,
@@ -13,6 +13,10 @@
  *  - every call has a timeout (5 s by default, never above 15 s) and can be cancelled; a child that ignores two cancels
  *    or two heartbeats is killed;
  *  - a crashed child is restarted at most 3 times in 10 minutes, then the plugin is disabled with the reason shown.
+ *
+ * What it cannot guarantee: Node's permission flags do not block signals, so a plugin running as the same user as the
+ * Bridge can `process.kill(process.ppid, "SIGKILL")` (or SIGSTOP) the Bridge. No flag stops that and a process cannot catch
+ * SIGKILL or SIGSTOP. The only mitigation is a different user (config `sources.pluginUser`, needs root), see runAsProblem.
  *
  * This module imports nothing from the order, safety, paper, accounts or broker code, and nothing outside the
  * sources area imports it except through loader.mjs.
@@ -37,9 +41,45 @@ const MAX_QUEUED = 20;
 const MAX_FETCHES_IN_FLIGHT = 4;
 const MAX_MESSAGES_PER_SEC = 500;
 const MAX_LOGS_PER_SEC = 20;
+const REFUSED_LOG_EVERY_MS = 10_000;
 const MAX_STDERR_BYTES = 64 * 1024;
 const MAX_STRAYS = 50;
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
+
+/**
+ * Why a plugin cannot be run under `sources.pluginUser`, or null when it can. Running a child as another user needs the
+ * Bridge to hold the privilege to do it (root, or CAP_SETUID and CAP_SETGID); a plain user cannot, and Windows has no uid.
+ * It is never required: with no `pluginUser` the plugin runs as the Bridge's user. When it IS set and cannot be honoured the
+ * plugin is not started, because the owner asked for isolation and silently running without it would be worse.
+ */
+export function runAsProblem(runAs, { platform = process.platform, getuid = process.getuid?.bind(process) } = {}) {
+  if (!runAs) return null;
+  const { uid, gid } = runAs;
+  if (!Number.isInteger(uid) || !Number.isInteger(gid) || uid <= 0 || gid <= 0) return "sources.pluginUser needs a numeric uid and gid, both above 0 (a plugin is never run as root)";
+  if (platform === "win32" || typeof getuid !== "function") return "sources.pluginUser is not supported on this system (it needs Linux or macOS)";
+  const me = getuid();
+  if (me !== 0) return `sources.pluginUser is set, but the Bridge runs as uid ${me}, which may not start a process as another user. Run the Bridge as root (or give it CAP_SETUID and CAP_SETGID) or remove pluginUser; without it plugins run as the Bridge's own user`;
+  return null;
+}
+
+// Children that are alive, so a normal exit of the Bridge (and process.exit() after SIGINT/SIGTERM) never leaves one behind.
+// A SIGKILL of the Bridge cannot run this: see docs/guides/sources.md, "If the Bridge was killed".
+const liveChildren = new Set();
+let exitHookInstalled = false;
+function installExitHook() {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once("exit", () => {
+    for (const proc of liveChildren) {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+    liveChildren.clear();
+  });
+}
 
 /** The permission flag this Node understands, or null when it has none (Node older than 20). */
 export function permissionFlagFor(version = process.versions.node) {
@@ -56,7 +96,10 @@ export function permissionFlagFor(version = process.versions.node) {
 export function buildNodeArgs({ pluginDir, runnerPath = RUNNER_PATH, entryPath, entrySha, nodeVersion = process.versions.node, maxOldSpaceMb = 128 }) {
   const flag = permissionFlagFor(nodeVersion);
   return [
-    ...(flag ? [flag, `--allow-fs-read=${pluginDir}`, `--allow-fs-read=${runnerPath}`] : []),
+    // Read access to the entry file and the runner ONLY, never the folder: the pin covers two files, so a folder grant would
+    // let a pinned plugin read whatever else sits in (or is linked from) the folder. The entry is imported from the bytes
+    // the runner reads once, so it needs nothing else. `pluginDir` stays in the signature as the cwd the host passes.
+    ...(flag ? [flag, `--allow-fs-read=${entryPath}`, `--allow-fs-read=${runnerPath}`] : []),
     `--max-old-space-size=${maxOldSpaceMb}`,
     "--disallow-code-generation-from-strings",
     "--no-experimental-fetch",
@@ -87,6 +130,7 @@ const unavailable = (detail, extra = {}) => new BridgeError("BROKER_UNAVAILABLE"
  * @param {() => Promise<string|undefined>|string|undefined} [cfg.readSecret]  the plugin's API key, when it declares one
  * @param {{ debug?: Function, info?: Function, warn?: Function }} [cfg.logger]
  * @param {() => number} [cfg.clock]
+ * @param {{ uid: number, gid: number }|null} [cfg.runAs]  `sources.pluginUser`: start the child as this user (needs root)
  * @param {typeof spawn} [cfg.spawnImpl]    injected in tests
  * @param {ReturnType<typeof createFetchBroker>} [cfg.broker]  injected in tests
  * @param {(s: {state: string, reason?: string}) => void} [cfg.onStateChange]
@@ -107,6 +151,8 @@ export function createPluginHost({
   nodeVersion = process.versions.node,
   platform = process.platform,
   hostVersion = "2",
+  runAs = null,
+  getuid = process.getuid?.bind(process),
   readyTimeoutMs = READY_TIMEOUT_MS,
   heartbeatMs = HEARTBEAT_MS,
   cancelGraceMs = CANCEL_GRACE_MS,
@@ -270,6 +316,18 @@ export function createPluginHost({
     p.resolve(v.value);
   }
 
+  // A plugin that keeps asking for a forbidden host would write a line per request (about 60 a second was seen): the first
+  // refusal is logged at once, then at most one summary line per 10 seconds.
+  let refused = { lastLogAt: -Infinity, suppressed: 0 };
+  function noteRefused(err) {
+    const t = clock();
+    if (t - refused.lastLogAt >= REFUSED_LOG_EVERY_MS) {
+      const more = refused.suppressed ? ` (${refused.suppressed} more refused since the last line)` : "";
+      log("warn", `refused a request: ${redact(err.message)}${more}`);
+      refused = { lastLogAt: t, suppressed: 0 };
+    } else refused.suppressed += 1;
+  }
+
   async function brokerFetch(c, msg) {
     if (c.fetching >= MAX_FETCHES_IN_FLIGHT) return send(c, proto.fetchFail(msg.id, "RATE_LIMITED", "too many requests in flight", 250));
     c.fetching += 1;
@@ -283,7 +341,7 @@ export function createPluginHost({
       send(c, proto.fetchOk(msg.id, r.status, r.headers, r.body));
     } catch (err) {
       const code = typeof err?.code === "string" ? err.code : "NETWORK";
-      if (code === "HOST_NOT_ALLOWED") log("warn", `refused a request: ${redact(err.message)}`);
+      if (code === "HOST_NOT_ALLOWED") noteRefused(err);
       send(c, proto.fetchFail(msg.id, code, redact(err?.message ?? "request failed"), err?.retryAfterMs));
     } finally {
       c.fetching -= 1;
@@ -309,8 +367,12 @@ export function createPluginHost({
       secrets = { apiKey: key };
       secretValues = [key];
     }
+    const problem = runAsProblem(runAs, { platform, getuid });
+    if (problem) throw unavailable(`Plugin ${id} not started: ${problem}`);
     const args = buildNodeArgs({ pluginDir, entryPath, entrySha, nodeVersion });
-    const proc = spawnImpl(nodePath, args, { cwd: pluginDir, env: cleanEnv(platform), stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false });
+    const proc = spawnImpl(nodePath, args, { cwd: pluginDir, env: cleanEnv(platform), stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false, ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}) });
+    installExitHook();
+    liveChildren.add(proc);
     const c = { proc, secrets, ready: false, exited: false, killing: false, stopping: false, fetching: 0, fetchAbort: new AbortController(), decoder: new proto.LineDecoder(), windowStart: 0, windowCount: 0, missed: 0, pingId: 0, pingOutstanding: false };
     c.readyPromise = new Promise((resolve, reject) => {
       c.resolveReady = resolve;
@@ -320,10 +382,13 @@ export function createPluginHost({
     child = c;
 
     proc.on("error", (err) => {
-      c.reason = `could not start the process: ${err?.code ?? err?.message}`;
+      c.reason = `could not start the process: ${err?.code ?? err?.message}${runAs && err?.code === "EPERM" ? " (the Bridge may not start a process as sources.pluginUser; check the uid, gid and that the user can read the plugin folder)" : ""}`;
       onExit(c, null, null);
     });
-    proc.on("exit", (code, signal) => onExit(c, code, signal));
+    proc.on("exit", (code, signal) => {
+      liveChildren.delete(proc);
+      onExit(c, code, signal);
+    });
     proc.stdin?.on?.("error", () => {});
     proc.stdout?.on?.("data", (chunk) => {
       if (c.exited || c.killing) return;

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -525,5 +525,185 @@ describe("test()", () => {
     registry.get("eod-src").test = () => new Promise(() => {});
     const r = await svc.test("eod-src");
     expect(r).toMatchObject({ ok: false, detail: expect.stringMatching(/in time/) });
+  });
+});
+
+describe("the read's purpose reaches the source (a plugin refuses strict purposes itself)", () => {
+  it("passes purpose in the call context for quotes, history, expiries and option chains, display when none is given", async () => {
+    const { svc, calls } = setup();
+    await enableAll(svc);
+    await svc.quotes(["NSE:A"], { purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+    await svc.quotes(["NSE:A"]);
+    expect(calls.at(-1).ctx.purpose).toBe("display");
+    await svc.history({ symbol: "NSE:A", interval: "1d", fromMs: 0, toMs: 1, purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+    await svc.expiries("NIFTY", { purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+    await svc.optionChain("NIFTY", "2026-11-10", { purpose: "analysis" });
+    expect(calls.at(-1).ctx.purpose).toBe("analysis");
+  });
+
+  it("a plugin provider built by the loader refuses the strict purposes that context now carries", async () => {
+    const { providerFor } = await import("./plugin/loader.mjs");
+    const { checkedDescriptor, parseManifest } = await import("./plugin/manifest.mjs");
+    const { testManifest } = await import("./plugin/__fixtures__/fakeChild.mjs");
+    const m = parseManifest(testManifest()).manifest;
+    const hostCalls = [];
+    const p = providerFor(checkedDescriptor(m).descriptor, { call: async (...a) => (hostCalls.push(a), { items: [] }), status: () => ({ state: "ready", restarts: 0 }), stop: async () => {} });
+    for (const purpose of ["alert", "paper", "risk", "order"]) {
+      await expect(p.quotes(["NSE:A"], { purpose })).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
+    }
+    expect(hostCalls).toEqual([]);
+    await expect(p.quotes(["NSE:A"], { purpose: "analysis" })).resolves.toBeDefined();
+  });
+});
+
+describe("a key a source echoes back is scrubbed in its URL-encoded and base64 forms too", () => {
+  it("test() and reads scrub every form of the key from what they show", async () => {
+    const key = "sk/test+0123456789=abc";
+    const { svc, registry, lines } = setup();
+    await svc.setConfig("eod-src", { apiKey: key });
+    await svc.setEnabled("eod-src", true);
+    const forms = [key, encodeURIComponent(key), Buffer.from(key).toString("base64"), Buffer.from(`user:${key}`).toString("base64"), Buffer.from(key).toString("base64url")];
+    for (const form of forms) {
+      registry.get("eod-src").test = async () => {
+        throw new Error(`vendor says no to ${form}`);
+      };
+      registry.get("eod-src").quotes = async () => {
+        throw new Error(`vendor says no to ${form}`);
+      };
+      const r = await svc.test("eod-src");
+      expect(r.detail, form).toContain("***");
+      expect(r.detail).not.toContain(form);
+      const q = await svc.quotes(["NSE:A"]);
+      expect(JSON.stringify(q.errors)).not.toContain(form);
+    }
+    expect(lines.join("\n")).not.toContain(encodeURIComponent(key));
+  });
+});
+
+describe("acknowledgement of an opt-in source after it was switched off", () => {
+  const HOUR = 3_600_000;
+  const ack = { acknowledge: "n-1" };
+
+  it("one-click re-enable within 24 hours, a fresh acknowledgement after that", async () => {
+    const { svc, t } = setup();
+    await svc.setEnabled("slow-src", true, ack);
+    await svc.setEnabled("slow-src", false);
+    expect(svc.describe("slow-src").needsAcknowledgement).toBe(false);
+    t.now += 23 * HOUR;
+    expect((await svc.setEnabled("slow-src", true)).enabled).toBe(true); // no acknowledge needed
+    await svc.setEnabled("slow-src", false);
+    t.now += 24 * HOUR + 1;
+    expect(svc.describe("slow-src").needsAcknowledgement).toBe(true);
+    await expect(svc.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(svc.isEnabled("slow-src")).toBe(false);
+    const again = await svc.setEnabled("slow-src", true, ack);
+    expect(again.enabled).toBe(true);
+    expect(again.consent.acceptedAt).toBe(new Date(t.now).toISOString()); // the new acknowledgement is recorded
+    expect(svc.describe("slow-src").needsAcknowledgement).toBe(false);
+  });
+
+  it("exactly 24 hours is still one click", async () => {
+    const { svc, t } = setup();
+    await svc.setEnabled("slow-src", true, ack);
+    await svc.setEnabled("slow-src", false);
+    t.now += 24 * HOUR;
+    expect((await svc.setEnabled("slow-src", true)).enabled).toBe(true);
+  });
+
+  it("switching off again does not restart the 24 hours", async () => {
+    const { svc, t } = setup();
+    await svc.setEnabled("slow-src", true, ack);
+    await svc.setEnabled("slow-src", false);
+    t.now += 20 * HOUR;
+    await svc.setEnabled("slow-src", false); // a second "off" while already off
+    t.now += 5 * HOUR;
+    await expect(svc.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it("the time off survives a restart (it is in the state file)", async () => {
+    const a = setup();
+    await a.svc.setEnabled("slow-src", true, ack);
+    await a.svc.setEnabled("slow-src", false);
+    a.t.now += 25 * HOUR;
+    const svc2 = createSourcesService({ registry: a.registry, config: { sources: {} }, logger: a.registry && { addSecret() {}, debug() {}, info() {}, warn() {}, error() {} }, clock: { now: () => a.t.now }, paths: { dataDir: a.dataDir }, secrets: a.secrets });
+    await expect(svc2.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it("a changed notice version needs a new acknowledgement at once, however recently it was switched off", async () => {
+    const { svc, delayed } = setup();
+    await svc.setEnabled("slow-src", true, ack);
+    await svc.setEnabled("slow-src", false);
+    delayed.descriptor.noticeVersion = "n-2";
+    expect(svc.describe("slow-src").needsAcknowledgement).toBe(true);
+    await expect(svc.setEnabled("slow-src", true)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(svc.setEnabled("slow-src", true, ack)).rejects.toMatchObject({ code: "VALIDATION_FAILED" }); // the old text
+    expect((await svc.setEnabled("slow-src", true, { acknowledge: "n-2" })).enabled).toBe(true);
+  });
+
+  it("a source that was never switched on needs its acknowledgement, and an enabled one stays enabled", async () => {
+    const { svc, t } = setup();
+    expect(svc.describe("slow-src").needsAcknowledgement).toBe(true);
+    await svc.setEnabled("slow-src", true, ack);
+    t.now += 1000 * HOUR;
+    expect(svc.isEnabled("slow-src")).toBe(true);
+  });
+
+  it("needsAcknowledgement is only reported for opt-in sources", () => {
+    const { svc } = setup();
+    expect(svc.describe("eod-src")).not.toHaveProperty("needsAcknowledgement");
+    expect(svc.describe("my-broker")).not.toHaveProperty("needsAcknowledgement");
+  });
+});
+
+describe("a hand-edited state file fails closed and says so at start", () => {
+  const writeState = (dataDir, sources) => {
+    mkdirSync(join(dataDir, "sources"), { recursive: true });
+    writeFileSync(join(dataDir, "sources", "state.json"), JSON.stringify({ version: 1, sources }));
+  };
+  const start = (dataDir, registry, lines) =>
+    createSourcesService({ registry, config: { sources: {} }, logger: { addSecret() {}, debug() {}, info: () => {}, warn: (m, f) => lines.push([m, f]), error() {} }, clock: { now: () => 1_800_000_000_000 }, paths: { dataDir }, secrets: fakeSecrets() });
+
+  it("an enabled opt-in source with no acknowledgement is off, and one warning names it", async () => {
+    const { registry, dataDir } = setup();
+    writeState(dataDir, { "slow-src": { enabled: true, configured: false, consent: null } });
+    const lines = [];
+    const svc = start(dataDir, registry, lines);
+    await svc.refresh();
+    await svc.refresh(); // a second refresh does not repeat it
+    expect(svc.isEnabled("slow-src")).toBe(false);
+    expect(svc.describe("slow-src").enabled).toBe(false);
+    const warned = lines.filter(([, f]) => f?.id === "slow-src");
+    expect(warned).toHaveLength(1);
+    expect(warned[0][0]).toMatch(/no acknowledgement on file/);
+    expect(warned[0][0]).toMatch(/treated as off/);
+    expect(await svc.quotes(["NSE:A"])).toMatchObject({ items: [], errors: [expect.objectContaining({ code: "CAPABILITY_UNSUPPORTED" })] });
+  });
+
+  it("an acknowledgement for another notice version is treated the same way and the message says which", async () => {
+    const { registry, dataDir } = setup();
+    writeState(dataDir, { "slow-src": { enabled: true, configured: false, consent: { acceptedAt: "2026-01-01T00:00:00.000Z", noticeVersion: "n-0" } } });
+    const lines = [];
+    const svc = start(dataDir, registry, lines);
+    await svc.refresh();
+    expect(svc.isEnabled("slow-src")).toBe(false);
+    expect(lines.find(([, f]) => f?.id === "slow-src")[0]).toMatch(/notice "n-0", not the current "n-1"/);
+  });
+
+  it("says nothing for a valid acknowledgement, for a source that is off, or for a source that needs no acknowledgement", async () => {
+    const { registry, dataDir } = setup();
+    writeState(dataDir, { "slow-src": { enabled: true, configured: false, consent: { acceptedAt: "2026-01-01T00:00:00.000Z", noticeVersion: "n-1" } }, "eod-src": { enabled: true, configured: false, consent: null } });
+    const lines = [];
+    const svc = start(dataDir, registry, lines);
+    await svc.refresh();
+    expect(svc.isEnabled("slow-src")).toBe(true);
+    expect(lines.filter(([, f]) => f?.id === "slow-src")).toEqual([]);
+    const off = setup();
+    writeState(off.dataDir, { "slow-src": { enabled: false, configured: false, consent: null } });
+    const lines2 = [];
+    await start(off.dataDir, off.registry, lines2).refresh();
+    expect(lines2.filter(([, f]) => f?.id === "slow-src")).toEqual([]);
   });
 });
