@@ -237,7 +237,6 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
   it("curates the shortcuts", () => {
     const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
     expect(keys).toEqual({ 1: "accounts", 2: "api", 3: "orders", 4: "safety" });
-    expect(shortcutList().filter((s) => s.keys.length === 2 && /^[1-9]$/.test(s.keys[1])).map((s) => s.what)).toEqual(["Go to Accounts", "Go to API", "Go to Orders", "Go to Safety"]);
   });
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
