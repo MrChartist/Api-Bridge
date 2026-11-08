@@ -180,7 +180,6 @@ function commands() {
     { id: "theme-dark", label: "Theme: Dark", keywords: "appearance night", icon: "moon", tint: "gray", run: () => setTheme("dark") },
     { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "monitor", tint: "gray", run: () => setTheme("auto") },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
-    { id: "market-alert", label: "New market alert", sub: "Tell me when PCR, IV, OI at a strike, basis or flow reaches a level", keywords: "alert notify pcr iv oi strike basis gamma tide unusual bell", icon: "warn", tint: "red", run: () => import("./alerts.js").then((m) => m.openMarketAlertSheet()) },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
     { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
   ].map((a) => ({ ...a, group: "Actions" }));

@@ -1569,9 +1569,10 @@ async function fillToday(accs) {
   );
 }
 async function renderAccounts() {
-  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders"))]);
+  const [accounts, brokers] = await Promise.all([api("/v1/accounts"), api("/v1/brokers")]);
   const accs = accounts.data.data ?? [];
-  const book = holdersRes.data?.data ?? null;
+  // v2 has no holder book (no /v1/book/holders route), so no holder cell is shown.
+  const book = null;
   const holderOfAcc = (id) => book?.holders.find((x) => x.accounts.includes(id)) ?? null;
   const holderCell = (a) => {
     const e = holderOfAcc(a.id);
