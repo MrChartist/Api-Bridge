@@ -1,5 +1,5 @@
 /**
- * PaperEngine — stream S8 (docs/STREAMS.md §S8). The contract (methods, argument and return types, rules) is
+ * PaperEngine. The contract (methods, argument and return types, rules) is
  * SERVICE_CONTRACTS.paper in ../core/contracts.mjs; app.mjs refuses to boot an implementation that misses a method.
  *
  * A local order simulator, one book per account:
@@ -15,14 +15,14 @@
  *  - Every state change is published on deps.bus as `order.updated` with mode "paper". Fill events also carry
  *    `realisedPnl` (the P&L that fill realised) so daily-loss tracking can use it.
  *
- * Input checks here are defensive: OrderService (S7) runs the full pre-trade validation and SafetyGuard (S9) first.
+ * Input checks here are defensive: OrderService (orders) runs the full pre-trade validation and SafetyGuard (safety) first.
  * Structural problems throw (INVALID_ORDER / VALIDATION_FAILED, and no order is created); business refusals such as
  * insufficient paper funds create an order in status "rejected" with a statusMessage, as a broker would.
  *
  * Not modelled in v1 (documented): partial fills, queue position, market impact, option expiry settlement,
  * corporate actions, statutory charges (only the simple brokerage model in config).
  *
- * Extra methods beyond the contract (internal; other streams must not call them): start(), stop(), runOnce(),
+ * Extra methods beyond the contract (internal; other modules must not call them): start(), stop(), runOnce(),
  * handleTick(tick).
  */
 import { join } from "node:path";
@@ -113,7 +113,7 @@ export function createPaperEngine(deps, options = {}) {
   const sessionEndTimes = { ...EXCHANGE_SESSION_END, ...(cfg.sessionEnd.times ?? {}) };
   const squareOffLabel = (exchange) => squareOffTimes[exchange] ?? cfg.squareOff.time;
   const squareOffAt = (exchange, t) => istTimeOnDay(t, squareOffLabel(exchange));
-  /** Optional (stream S16): the reference session close; absent in tests that build the engine by hand. */
+  /** Optional: the reference session close; absent in tests that build the engine by hand. */
   const reference = (() => {
     try {
       const r = deps.reference;
@@ -122,7 +122,7 @@ export function createPaperEngine(deps, options = {}) {
       return null;
     }
   })();
-  /** Session close for an exchange on the IST day of t: config, else the reference session, else the S5 default. */
+  /** Session close for an exchange on the IST day of t: config, else the reference session, else the market default. */
   const referenceClose = (exchange, t) => {
     try {
       const close = reference?.session(exchange, t)?.close;

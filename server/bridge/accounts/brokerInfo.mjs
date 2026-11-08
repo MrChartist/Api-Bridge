@@ -1,8 +1,8 @@
 /**
- * Broker metadata for GET /v1/brokers and account summaries (stream S1): display names, verification status, and
- * the broker policy table published by stream S3 (server/bridge/ratelimit/brokerPolicies.mjs, data only).
+ * Broker metadata for GET /v1/brokers and account summaries: display names, verification status, and
+ * the broker policy table published by the ratelimit module (server/bridge/ratelimit/brokerPolicies.mjs, data only).
  *
- * The policy module is loaded lazily and tolerantly: until S3 ships it, every broker's pooling flag reads as
+ * The policy module is loaded lazily and tolerantly: until ratelimit ships it, every broker's pooling flag reads as
  * "unknown", which the Bridge treats as "not allowed" (one user's reads are never spread over accounts).
  */
 import { declaredCapabilities } from "../../brokers/contract.mjs";
@@ -66,7 +66,7 @@ export function adapterCapabilities(adapter) {
 }
 
 /**
- * Normalise whatever S3 exports into a lookup: an object keyed by broker id, or an array of { brokerId, ... }.
+ * Normalise whatever ratelimit exports into a lookup: an object keyed by broker id, or an array of { brokerId, ... }.
  * @param {unknown} raw
  * @returns {Readonly<Record<string, import("../core/contracts.mjs").BrokerPolicy>>}
  */
@@ -81,7 +81,7 @@ export function normalisePolicies(raw) {
 }
 
 /**
- * Load BROKER_POLICIES from S3's data module. A missing module (S3 not merged yet) gives an empty table; any other
+ * Load BROKER_POLICIES from ratelimit's data module. A missing module (ratelimit not merged yet) gives an empty table; any other
  * failure is logged and also gives an empty table, so a policy bug can only make pooling stricter, never looser.
  * @param {{ warn(msg: string, f?: object): void }} [logger]
  * @param {() => Promise<any>} [importer] test seam

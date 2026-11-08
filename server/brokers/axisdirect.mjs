@@ -255,5 +255,5 @@ export function normaliseError(err, { secrets = [] } = {}) {
   return baseNormalise(err, { secrets });
 }
 
-/** SSO Initiate (login microsite URL + ssoId); needs a proxy route to be reachable from the app. */
+/** SSO Initiate (login microsite URL + ssoId); needs a route to be reachable by a client. */
 export { initiateLogin };

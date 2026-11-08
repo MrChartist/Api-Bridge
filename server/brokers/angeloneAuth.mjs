@@ -4,7 +4,7 @@
  * Official docs: https://smartapi.angelone.in/docs (User / Exceptions / RateLimit pages, checked 2026-10).
  * SmartAPI has no paste-a-token model: POST /rest/auth/angelbroking/user/v1/loginByPassword with
  * { clientcode, password (the account PIN/MPIN), totp } returns { jwtToken, refreshToken, feedToken }.
- * The user types the PIN and the current 6-digit TOTP code in Broker Settings; login() runs once and
+ * The user types the PIN and the current 6-digit TOTP code in the account settings; login() runs once and
  * only the returned tokens are kept (by the browser's credential store, sent back as sessionToken /
  * feedToken / refreshToken). The JWT dies at IST midnight, after which calls throw
  * SessionRequiredError and the user logs in again. Nothing here stores, caches or logs the PIN or code.
@@ -91,7 +91,7 @@ export async function authFetch(creds, path, body) {
   try { json = JSON.parse(text); } catch { /* non-JSON error body */ }
 
   if ((res.status === 401 || res.status === 403) && !isRateLimitBody(text)) {
-    throw new SessionRequiredError("Angel One rejected the session. Log in again from Broker Settings.");
+    throw new SessionRequiredError("Angel One rejected the session. Log in again from the account settings.");
   }
   if (res.status === 429 || (res.status === 403 && isRateLimitBody(text))) {
     throw new BrokerError(`Angel One API rate limit exceeded on ${path}`, { code: "UPSTREAM_RATE_LIMIT" });
@@ -104,7 +104,7 @@ export async function authFetch(creds, path, body) {
   const failed = json && (json.status === false || json.success === false);
   const errCode = String(json?.errorcode ?? json?.errorCode ?? "");
   if (failed && /^AG800[123]$/.test(errCode)) {
-    throw new SessionRequiredError("Angel One session expired. Log in again from Broker Settings.");
+    throw new SessionRequiredError("Angel One session expired. Log in again from the account settings.");
   }
   if (failed) {
     throw new BrokerError(`Angel One API error on ${path}${errCode ? ` (${errCode})` : ""}: ${json.message || "unknown"}`);

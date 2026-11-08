@@ -1,5 +1,5 @@
 /**
- * OUTCOME_UNKNOWN reconciliation — stream S7 (docs/ARCHITECTURE.md §7).
+ * OUTCOME_UNKNOWN reconciliation (docs/ARCHITECTURE.md §7).
  *
  * A live write that timed out, or failed without a clear refusal, is NEVER retried. Its leg is stored as
  * outcome_unknown and this matcher looks for it in the broker's order book. The contract's Order rows carry no tag,

@@ -1,6 +1,6 @@
 /**
  * Contract tests: the real services and the published fakes satisfy SERVICE_CONTRACTS and behave the same on the
- * points other streams rely on (record shape, chaining, redaction, query order and cursor; kill switch blocks
+ * points other modules rely on (record shape, chaining, redaction, query order and cursor; kill switch blocks
  * place/modify but not cancel, emits safety.kill_switch, release needs RELEASE).
  */
 import { mkdtempSync } from "node:fs";

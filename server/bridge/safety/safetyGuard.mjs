@@ -1,5 +1,5 @@
 /**
- * SafetyGuard — stream S9 (docs/STREAMS.md §S9, docs/ARCHITECTURE.md §8). Contract: SERVICE_CONTRACTS.safety in
+ * SafetyGuard (docs/ARCHITECTURE.md §8). Contract: SERVICE_CONTRACTS.safety in
  * ../core/contracts.mjs. Every order intent, paper or live, passes check() before anything is sent.
  *
  * check() collects EVERY reason an intent is refused (not just the first), so a caller can fix them all at once:
@@ -23,7 +23,7 @@
  *                                                    from lib/marketHours; MCX and CDS from a weekday time window
  *                                                    (needs verification; no holiday list for them)
  *   static IP                  warn   warn    -     when registeredIp is set and the detected egress IP differs
- *   F&O ban (fnoBan)           x      x       -     stock derivatives in the exchange ban period (p1-06 §2.8, §6.8):
+ *   F&O ban (fnoBan)           x      x       -     stock derivatives in the exchange ban period:
  *                                                    an order that increases the absolute net position in that
  *                                                    contract is refused (FNO_BAN); closing passes with a warning;
  *                                                    unknown held quantity warns (FNO_BAN_UNCONFIRMED) and the broker
@@ -63,7 +63,7 @@ const dayMonthText = (d) => {
 };
 
 /**
- * The F&O ban rule (docs/spec/p1-06-stocks.md §2.8, §6.8), pure. With held quantity h (signed units in that contract,
+ * The F&O ban rule, pure. With held quantity h (signed units in that contract,
  * this account) and the order's signed quantity x, n = h + x is closing iff |n| ≤ |h| and sign(n) ∈ {0, sign(h)};
  * anything else opens (or increases) a position and is refused. A fresh position in another contract of the same
  * stock is refused too (per-contract reading of the exchange rule; needs verification).
@@ -143,7 +143,7 @@ export function createSafetyGuard(deps, opts = {}) {
   const env = opts.env ?? process.env;
   const sessionAt = opts.marketSession ?? libMarketSession;
   /**
-   * Reference calendar (stream S16): holiday-aware sessions for NSE/BSE/NFO/BFO. Optional: a stub or missing service
+   * Reference calendar: holiday-aware sessions for NSE/BSE/NFO/BFO. Optional: a stub or missing service
    * falls back to lib/marketHours alone. It only tightens: the guard takes the stricter of the two answers.
    */
   const reference = (() => {
@@ -315,7 +315,7 @@ export function createSafetyGuard(deps, opts = {}) {
       /** @type {Array<{ code: string, message: string, rule?: string, retryAfterMs?: number }>} */
       const reasons = [];
       const warnings = [];
-      /** Warnings with their own check code (p1-06 ban rule); `warnings` keeps the plain strings. */
+      /** Warnings with their own check code (the F&O ban rule); `warnings` keeps the plain strings. */
       const coded = [];
       const block = (code, rule, message, extra = {}) => reasons.push({ code, rule, message, ...extra });
       const i = intent && typeof intent === "object" ? intent : {};
@@ -358,7 +358,7 @@ export function createSafetyGuard(deps, opts = {}) {
             if (!allowed.includes(s)) block("PAPER_ONLY", "allowedSources", `Live orders from ${s} are not allowed for account ${accountId}. Allowed sources: ${allowed.join(", ") || "none"}.`);
           }
           // Compared after normalising (IPv6 spellings), against the backup IP too. The text carries no address: it
-          // reaches order records, MCP results and notifications, where the IP must never appear (p1-05 §9).
+          // reaches order records, MCP results and notifications, where the IP must never appear.
           const reg = account.live?.registeredIp;
           const bak = account.live?.backupIp;
           if ((reg || bak) && egressIp && !sameIp(egressIp, reg) && !sameIp(egressIp, bak)) {

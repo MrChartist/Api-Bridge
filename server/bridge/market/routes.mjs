@@ -1,5 +1,5 @@
 /**
- * Route handlers for stream S5 (docs/openapi.yaml, tag "Market data"). Every JSON handler answers { data, meta };
+ * Route handlers for the market module (docs/openapi.yaml, tag "Market data"). Every JSON handler answers { data, meta };
  * /v1/ltp and /v1/quotes add `errors` (ItemError[]) for symbols that failed, so one bad symbol never fails the call.
  *
  *   GET /v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE[&account=][&maxAgeMs=]
@@ -26,7 +26,7 @@ import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
-/** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward (docs/spec/p1-03-pricing-vol.md §10). */
+/** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward. */
 export const LEGACY_IV_DEPRECATION = Date.UTC(2027, 3, 30, 18, 30) / 1000;
 const LEGACY_IV_HEADERS = Object.freeze({ Deprecation: `@${LEGACY_IV_DEPRECATION}`, Link: '</docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"' });
 

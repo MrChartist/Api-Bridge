@@ -1,5 +1,5 @@
 /**
- * S5 routes end to end through the real request pipeline (createApp): the real MarketDataService over the published
+ * market routes end to end through the real request pipeline (createApp): the real MarketDataService over the published
  * fakes (accounts, scheduler, symbols), a stub stream hub and a fake key store. Checks the OpenAPI shapes
  * ({ data, errors?, meta }), auth and scope, account pinning against the key, validation, CSV output and the `market`
  * config section.

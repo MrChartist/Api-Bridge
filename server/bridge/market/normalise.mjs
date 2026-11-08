@@ -1,5 +1,5 @@
 /**
- * Normalisers — stream S5. Turn broker contract shapes (server/brokers/contract.mjs: Quote, Depth, Candle, Dhan-shaped
+ * Normalisers. Turn broker contract shapes (server/brokers/contract.mjs: Quote, Depth, Candle, Dhan-shaped
  * option-chain legs) and StreamHub ticks into the OpenAPI shapes (QuoteItem, LtpItem, DepthItem, Candle, ChainLeg),
  * and build the Freshness label every market-data item carries. Pure functions, no I/O.
  *
@@ -156,7 +156,7 @@ export function mergeCandles(lists) {
 const GREEK_KEYS = ["delta", "gamma", "theta", "vega"];
 
 /**
- * Open interest in UNITS (docs/spec/p1-01-recorder.md §10). `unit` is what the broker sends (market/oiUnits.mjs):
+ * Open interest in UNITS. `unit` is what the broker sends (market/oiUnits.mjs):
  * "units" passes through; "lots" is multiplied by the leg's lot size, and becomes null when the lot size is unknown
  * (never a guess).
  * @param {unknown} value

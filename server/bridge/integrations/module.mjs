@@ -1,6 +1,6 @@
 /**
- * integrations module — stream S10: spreadsheet (Excel, Google Sheets) and AmiBroker endpoints.
- * Owned files and tasks: docs/STREAMS.md §S10. The routes below are the contract in docs/openapi.yaml (method, path,
+ * integrations module: spreadsheet (Excel, Google Sheets) and AmiBroker endpoints.
+ * The routes below are the contract in docs/openapi.yaml (method, path,
  * auth, scope).
  *
  * Config section `integrations` (optional; see config.mjs): CSV and countback defaults for /xl.

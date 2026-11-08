@@ -1,5 +1,5 @@
 /**
- * The MCP tool registry as strict OpenAI function schemas — stream S11. Same tools, same order, same input rules,
+ * The MCP tool registry as strict OpenAI function schemas. Same tools, same order, same input rules,
  * for assistants and scripts that use OpenAI-style function calling instead of MCP. The Bridge does not call OpenAI;
  * this only produces the definitions (the caller runs the tool through POST /mcp or the REST API).
  *

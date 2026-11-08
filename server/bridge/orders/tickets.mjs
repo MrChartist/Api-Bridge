@@ -1,5 +1,5 @@
 /**
- * Human confirmation tickets — stream S7 (docs/ARCHITECTURE.md §4 "AI", §8 "AI confirmation").
+ * Human confirmation tickets (docs/ARCHITECTURE.md §4 "AI", §8 "AI confirmation").
  *
  *  1. preview() of an order that needs a human (AI assistant, or a hook set to require it) opens a ticket holding
  *     the exact order body, who prepared it and its checks. Tickets expire after orders.ticketTtlMs (60 s).

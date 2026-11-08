@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     Live prices, upstream feed status and order updates from the local Bridge, over a WebSocket (`/v1/stream`) or
-    Server-Sent Events (`/v1/stream/sse`). Owned by stream S6; the REST side is in `docs/openapi.yaml`.
+    Server-Sent Events (`/v1/stream/sse`). The REST side is in `docs/openapi.yaml`.
 
     ## One broker feed, many tools
     The Bridge opens at most one feed per broker account and shares it: if a web app, a chart and a Python script all
@@ -46,7 +46,7 @@ info:
     Personal use only: broker data terms generally forbid passing market data to other people.
   license:
     name: MIT
-    url: https://github.com/MrChartist/api-bridge/blob/main/LICENSE
+    url: https://github.com/MrChartist/api-bridge-v2/blob/main/LICENSE
   contact:
     name: Investology (Mr. Chartist)
 defaultContentType: application/json

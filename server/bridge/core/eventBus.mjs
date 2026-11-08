@@ -28,21 +28,21 @@
  *  scan.completed      { keyId, jobId, savedId, status, matched: string[], progress }
  *  scan.alert          { keyId, savedId, name, jobId, newMatches: string[], at }   a saved scan found symbols its last run did not
  *
- * Phase 1 options topics (added together by F0, docs/spec/README.md §3.1; each owning spec defines its payload):
- *  recorder.status       recorder state change, at most 1/s (p1-01)
- *  recorder.snapshot     a recorded chain snapshot was written (p1-01)
- *  reference.updated     { dataset, asOf, source, changed: boolean }   (p1-02)
- *  vol.captured          one per underlying per daily capture run (p1-03)
- *  trading.readiness     account readiness change; notify only when `notify: true` (p1-05 §3.4)
- *  fno.sweep.progress    { jobId, status, progress }, at most 1/s (p1-06)
- *  fno.sweep.completed   { jobId, status, chains, failed, durationMs } (p1-06)
- *  exposure.levels       gamma levels, emitted only on change (p1-08)
- *  settlement.update     running / final settlement estimate (p1-09 §4.6)
- *  charges.plan_changed  { accountId }   (p1-10)
- *  option.alert          an alert rule fired (p1-11)
- *  strategy.guard        guard state change (p1-12 §3.3)
- *  participants.updated  { date, source, changed }   (p1-12)
- *  market.event          { type: "new" | "update", event }   a live event record or a repeat inside its cool-down (S28 events)
+ * Options-platform topics (each owning module defines its payload):
+ *  recorder.status       recorder state change, at most 1/s
+ *  recorder.snapshot     a recorded chain snapshot was written
+ *  reference.updated     { dataset, asOf, source, changed: boolean }
+ *  vol.captured          one per underlying per daily capture run
+ *  trading.readiness     account readiness change; notify only when `notify: true`
+ *  fno.sweep.progress    { jobId, status, progress }, at most 1/s
+ *  fno.sweep.completed   { jobId, status, chains, failed, durationMs }
+ *  exposure.levels       gamma levels, emitted only on change
+ *  settlement.update     running / final settlement estimate
+ *  charges.plan_changed  { accountId }
+ *  option.alert          an alert rule fired
+ *  strategy.guard        guard state change
+ *  participants.updated  { date, source, changed }
+ *  market.event          { type: "new" | "update", event }   a live event record or a repeat inside its cool-down
  */
 export const TOPICS = Object.freeze([
   "tick",

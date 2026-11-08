@@ -1,5 +1,5 @@
 /**
- * Probe budget (p1-05 §8): for every broker in BROKER_POLICIES, one probe per cooldown stays at or under 1 % of the
+ * Probe budget: for every broker in BROKER_POLICIES, one probe per cooldown stays at or under 1 % of the
  * portfolio class's per-minute limit (or 2 % of per-second × 60 when only a per-second limit is set). Brokers whose
  * limits are low get a longer cooldown (probeCooldownSeconds), never a bigger share.
  */

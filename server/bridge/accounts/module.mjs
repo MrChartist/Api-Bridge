@@ -1,5 +1,5 @@
 /**
- * accounts module — stream S1: Accounts and broker sessions. Owned files and tasks: docs/STREAMS.md §S1.
+ * accounts module: Accounts and broker sessions.
  * The routes below are the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  * Lifecycle: start() runs the AccountManager's SecretStore watcher (so a session saved by the CLI in another

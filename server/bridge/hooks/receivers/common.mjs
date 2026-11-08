@@ -1,5 +1,5 @@
 /**
- * Shared parsing for inbound alerts — stream S11.
+ * Shared parsing for inbound alerts.
  *
  * Every receiver turns an alert into one or more Signals. A Signal is only what the alert ASKED for; the worker
  * then applies the hook's fixed mapping and caps (account, allowed symbols, lots cap, product, order type, side,

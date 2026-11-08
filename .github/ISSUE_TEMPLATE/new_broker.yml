@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        The Bridge supports 41 brokers today; check [docs/BROKERS.md](https://github.com/MrChartist/api-bridge/blob/main/docs/BROKERS.md) first.
+        The Bridge supports 41 brokers today; check [docs/BROKERS.md](https://github.com/MrChartist/api-bridge-v2/blob/main/docs/BROKERS.md) first.
         Adapters are written **only from the broker's official sources** (API documentation, official SDKs,
         official Postman collections). Please link those below. Never paste your own keys, tokens or account data.
   - type: input

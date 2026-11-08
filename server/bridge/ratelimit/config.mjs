@@ -1,5 +1,5 @@
 /**
- * The `ratelimit` config section — stream S3 (owned by the ratelimit module; validated by core with this schema).
+ * The `ratelimit` config section (owned by the ratelimit module; validated by core with this schema).
  *
  *   "ratelimit": {
  *     "client":  { "perSecond": 50, "burst": 50, "keys": { "<keyId>": { "perSecond": 5 } } },

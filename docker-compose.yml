@@ -6,7 +6,7 @@
 services:
   bridge:
     build: .
-    image: mrchartist/api-bridge:local
+    image: mrchartist/api-bridge-v2:local
     container_name: mc-bridge
     restart: unless-stopped
     ports:

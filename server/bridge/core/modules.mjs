@@ -1,5 +1,5 @@
 /**
- * Module registration. Each stream ships ONE module file per area (server/bridge/<area>/module.mjs):
+ * Module registration. Each area ships ONE module file (server/bridge/<area>/module.mjs):
  *
  *   export default defineModule({
  *     name: "market", stream: "S5",
@@ -9,9 +9,13 @@
  *     async start(deps) {}, async stop(deps) {},                        // optional lifecycle
  *   });
  *
+ * `stream` is a short ownership tag ("S5", "core") that groups modules with the contract services they provide
+ * (SERVICE_CONTRACTS[name].stream) and with their routes (`x-stream` in docs/openapi.yaml). defineModule() refuses a
+ * module that provides a service owned by another tag.
+ *
  * Service factories run in dependency order (SERVICE_CONTRACTS[name].requires) and receive a deps object that
  * contains ONLY the core deps plus the services they declared they need; touching anything else throws, so hidden
- * coupling between streams fails in tests, not in production. register() receives every service.
+ * coupling between modules fails in tests, not in production. register() receives every service.
  */
 import { CORE_DEPS, SERVICE_CONTRACTS, assertService, notImplementedService } from "./contracts.mjs";
 import { CORE_SECTIONS, deepFreeze } from "./config.mjs";
@@ -145,7 +149,7 @@ export async function buildServices(coreDeps, modules, overrides = {}) {
 }
 
 /**
- * Placeholder handler for a route whose stream has not landed yet: answers 501 NOT_IMPLEMENTED. Streams replace
+ * Placeholder handler for a route whose module has not landed yet: answers 501 NOT_IMPLEMENTED. Modules replace
  * these with real handlers; the route itself (method, path, auth, scope) is part of the contract (docs/openapi.yaml).
  * @param {string} what  e.g. "GET /v1/quotes (stream S5)"
  */

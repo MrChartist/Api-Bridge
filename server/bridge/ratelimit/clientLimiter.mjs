@@ -1,5 +1,5 @@
 /**
- * Inbound per-key request budget — stream S3 (Scheduler.checkClient). Protects the Bridge and, indirectly, the
+ * Inbound per-key request budget (Scheduler.checkClient). Protects the Bridge and, indirectly, the
  * broker budgets from one runaway script, sheet or AI client.
  *
  * A classic token bucket per principal: `burst` tokens, refilled at `perSecond`. One request costs one token.

@@ -1,5 +1,5 @@
 /**
- * readiness module — stream S20 (docs/spec/p1-05-readiness.md): whether each live-enabled account can trade right now
+ * readiness module: whether each live-enabled account can trade right now
  * (broker session, static IP, order headroom, kill switch), for people (API, notifications) and for automation (the
  * automated-send gate in OrderService, hooks, later guards and alert actions). Contract service `readiness`
  * (monitor.mjs). Config section `readiness` (config.mjs). State under dataDir/readiness/ (store.mjs).
@@ -13,7 +13,7 @@ import { createReadinessRoutes } from "./routes.mjs";
 
 const READ = Object.freeze({ scope: "read" });
 
-/** [method, path, route options, handler name] — docs/openapi.yaml, x-stream S20. */
+/** [method, path, route options, handler name] — docs/openapi.yaml, x-the readiness module. */
 export const ROUTES = Object.freeze([
   ["GET", "/v1/readiness", READ, "getReadiness"],
   ["POST", "/v1/readiness/check", READ, "checkReadiness"],

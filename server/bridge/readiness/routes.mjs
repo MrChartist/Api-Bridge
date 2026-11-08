@@ -1,5 +1,5 @@
 /**
- * Readiness routes — stream S20 (docs/openapi.yaml, tag Readiness; docs/spec/p1-05-readiness.md §4). { data, meta }.
+ * Readiness routes (docs/openapi.yaml, tag Readiness). { data, meta }.
  *
  *   GET  /v1/readiness            read   cached state of each live account the key may see (no broker call)
  *   POST /v1/readiness/check      read   re-check now (probe and egress lookup, each with a 30 s cooldown); ≤ 12 s
@@ -90,7 +90,7 @@ export function createReadinessRoutes(deps) {
         // A known account the monitor does not track (a paper account): nothing to check.
         return { data: shape(ctx, readiness.status({ accountIds: [] })), meta: meta(ctx, { skipped: [] }) };
       }
-      // One call over the ids this key may see; its snapshot carries the 12 s "Still checking" overlay (§4.2), so the
+      // One call over the ids this key may see; its snapshot carries the 12 s "Still checking" overlay, so the
       // answer never shows an earlier probe's result while a probe or lookup is still running.
       const r = await readiness.checkNow(body.account ? { accountId: body.account, reason: "manual" } : { accountIds: ids, reason: "manual" });
       return { data: shape(ctx, r.snapshot), meta: meta(ctx, { skipped: r.skipped }) };

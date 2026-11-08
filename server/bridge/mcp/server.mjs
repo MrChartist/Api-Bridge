@@ -1,5 +1,5 @@
 /**
- * MCP server — stream S11. Built on @modelcontextprotocol/sdk (low-level `Server`, so the tool registry stays the one
+ * MCP server. Built on @modelcontextprotocol/sdk (low-level `Server`, so the tool registry stays the one
  * source of truth for schemas) with the SDK's protocol-version negotiation: the client's requested version is used
  * when the SDK supports it, otherwise the SDK's latest. The spec's stateless revision (2026-07-28) is not in this SDK
  * release; which revision each assistant speaks needs verification (docs/ARCHITECTURE.md §10).

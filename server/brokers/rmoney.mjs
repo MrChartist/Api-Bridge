@@ -9,7 +9,7 @@
  *  - Trading (Interactive API): RMoney's apps use XTS's third-party login. The user opens
  *    https://xts.rmoneyindia.co.in:3000/interactive/thirdparty?appKey=<Interactive App Key>&returnURL=<URL>,
  *    signs in on RMoney's page, and the broker posts back a session object whose `token` is already the
- *    trading session token (no exchange step). That token is pasted into Broker Settings as
+ *    trading session token (no exchange step). That token is pasted into the account settings as
  *    `interactiveSessionToken` and used as-is until it is rejected or the IST day ends; then the user
  *    logs in again (SessionRequiredError, no automatic re-login). Auth kind apiKeyToken: the user pastes a
  *    token; nothing is exchanged server-side.
@@ -36,7 +36,7 @@ const broker = createXtsFamilyBroker({
   host: "https://xts.rmoneyindia.co.in:3000",
   marketDataPath: "/apibinarymarketdata",
   interactiveMode: "pastedSession",
-  loginHint: `Log in again at ${LOGIN_URL}?appKey=<your Interactive App Key>&returnURL=<your URL> and paste the new session token in Broker Settings.`,
+  loginHint: `Log in again at ${LOGIN_URL}?appKey=<your Interactive App Key>&returnURL=<your URL> and paste the new session token in the account settings.`,
 });
 
 export const capabilities = xtsFamilyCapabilities("apiKeyToken");

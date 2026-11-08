@@ -1,5 +1,5 @@
 /**
- * Config section `symbols` (owned by stream S4). Every field is optional; the defaults are the documented behaviour.
+ * Config section `symbols` (owned by the symbols module). Every field is optional; the defaults are the documented behaviour.
  *
  *   "symbols": {
  *     "refreshAfterIst": "08:30",   // a master fetched before this IST time is fetched again once it has passed

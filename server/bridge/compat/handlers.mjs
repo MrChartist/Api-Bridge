@@ -1,5 +1,5 @@
 /**
- * Compatibility REST handlers (stream S14). Each takes the parsed JSON body (with `apikey`) and answers in
+ * Compatibility REST handlers. Each takes the parsed JSON body (with `apikey`) and answers in
  * the style's shapes: { status: "success", ... } or { status: "error", message }.
  *
  * Every call goes through the same Bridge services as /v1: market data is streaming-first and rate-limit aware,

@@ -1,5 +1,5 @@
 /**
- * The published in-memory MarketDataService (fake.mjs) other streams test against: contract shape, deterministic
+ * The published in-memory MarketDataService (fake.mjs) other modules test against: contract shape, deterministic
  * data, per-item errors, call recording.
  */
 import { describe, expect, it } from "vitest";

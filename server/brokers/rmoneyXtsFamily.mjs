@@ -589,7 +589,7 @@ export function createXtsFamilyBroker(cfg) {
     const appKey = text(creds?.apiKey).trim();
     const secretKey = text(creds?.apiSecret).trim();
     if (!appKey || !secretKey) {
-      throw new BrokerInputError(`${label}: add the Market Data App Key and Secret Key (${[!appKey && "apiKey", !secretKey && "apiSecret"].filter(Boolean).join(", ")}) in Broker Settings.`);
+      throw new BrokerInputError(`${label}: add the Market Data App Key and Secret Key (${[!appKey && "apiKey", !secretKey && "apiSecret"].filter(Boolean).join(", ")}) in the account settings.`);
     }
     return { appKey, secretKey, cacheKey: hashKey([id, "md", appKey, secretKey]) };
   }
@@ -629,13 +629,13 @@ export function createXtsFamilyBroker(cfg) {
   function iaKeys(creds) {
     if (interactiveMode === "pastedSession") {
       const token = text(creds?.interactiveSessionToken).trim();
-      if (!token) throw new SessionRequiredError(`${label}: trading needs today's session token (interactiveSessionToken) in Broker Settings. ${loginHint}`.trim());
+      if (!token) throw new SessionRequiredError(`${label}: trading needs today's session token (interactiveSessionToken) in the account settings. ${loginHint}`.trim());
       return { mode: "pastedSession", token, cacheKey: hashKey([id, "ia", "pasted", token]) };
     }
     const appKey = text(creds?.interactiveApiKey).trim();
     const secretKey = text(creds?.interactiveApiSecret).trim();
     const missing = [!appKey && "interactiveApiKey", !secretKey && "interactiveApiSecret"].filter(Boolean);
-    if (missing.length) throw new BrokerInputError(`${label}: trading (Interactive API) needs ${missing.join(", ")} in Broker Settings.`);
+    if (missing.length) throw new BrokerInputError(`${label}: trading (Interactive API) needs ${missing.join(", ")} in the account settings.`);
     const accessToken = interactiveMode === "oauthHostLookup" ? text(creds?.requestToken).trim() : "";
     // Without a pasted accessToken the plain key-pair login (official SDK route) is tried instead.
     const mode = accessToken ? "oauthHostLookup" : "keyPair";
@@ -689,7 +689,7 @@ export function createXtsFamilyBroker(cfg) {
   function addClient(creds, session, query, body) {
     const clientId = text(creds?.clientId).trim();
     if (!clientId) {
-      if (!session.isInvestorClient) throw new BrokerInputError(`${label}: this is a dealer login; add the client code as clientId in Broker Settings.`);
+      if (!session.isInvestorClient) throw new BrokerInputError(`${label}: this is a dealer login; add the client code as clientId in the account settings.`);
       return { query, body };
     }
     return body ? { query, body: { ...body, clientID: clientId } } : { query: { ...(query || {}), clientID: clientId }, body };

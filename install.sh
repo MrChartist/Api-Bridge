@@ -1,7 +1,7 @@
 #!/bin/sh
 # Mr. Chartist API Bridge: one-line installer for macOS, Linux and Android (Termux). No admin password needed.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh | sh
 #
 # Options (after "| sh -s --", for example:  curl -fsSL <url> | sh -s -- --demo):
 #   --demo               start with sample prices (no broker needed), to try it out
@@ -94,7 +94,7 @@ mcb_main() {
   # 1. The Bridge's files
   echo "[1/$STEPS] Getting the Bridge ..."
   mcb_fetch_source "$STAGE"
-  [ -f "$STAGE/scripts/install/node-runtime.sh" ] || mcb_fail "The downloaded Bridge is incomplete (scripts/install/node-runtime.sh is missing)." "Run this again later, or ask for help on GitHub: https://github.com/MrChartist/api-bridge/issues"
+  [ -f "$STAGE/scripts/install/node-runtime.sh" ] || mcb_fail "The downloaded Bridge is incomplete (scripts/install/node-runtime.sh is missing)." "Run this again later, or ask for help on GitHub: https://github.com/MrChartist/api-bridge-v2/issues"
   # Keep an already downloaded Node.js (it is the same for every version of the Bridge).
   if [ -d "$APP/runtime" ] && [ ! -e "$STAGE/runtime" ]; then
     mv "$APP/runtime" "$STAGE/runtime" && MOVED_RUNTIME=1
@@ -203,8 +203,8 @@ mcb_fetch_source() {
   ref=${MCB_REF:-}
   command -v tar >/dev/null 2>&1 || mcb_fail "This needs the 'tar' program, which is missing. Install it and run this again."
   if [ -z "$src" ]; then
-    if [ -n "$ref" ]; then src="https://codeload.github.com/MrChartist/api-bridge/tar.gz/$ref"
-    else src="https://codeload.github.com/MrChartist/api-bridge/tar.gz/refs/heads/master"; fi
+    if [ -n "$ref" ]; then src="https://codeload.github.com/MrChartist/api-bridge-v2/tar.gz/$ref"
+    else src="https://codeload.github.com/MrChartist/api-bridge-v2/tar.gz/refs/heads/main"; fi
   fi
   mkdir -p "$WORK/src"
   if [ -d "$src" ]; then
@@ -225,7 +225,7 @@ mcb_fetch_source() {
     (cd "$WORK/src" && gzip -dc ../src.tar.gz | tar -xf -) ||
       mcb_fail "The Bridge download could not be unpacked (it may be incomplete). Run this again."
   fi
-  # GitHub's archive has one folder inside (api-bridge-master); a folder copy does not.
+  # GitHub's archive has one folder inside (api-bridge-v2-main); a folder copy does not.
   root="$WORK/src"
   if [ ! -f "$root/bin/mc-bridge.mjs" ]; then
     for d in "$WORK"/src/*/; do
@@ -256,7 +256,7 @@ mcb_make_shim() {
     echo 'if [ -x "$MCB_APP/runtime/bin/node" ]; then PATH="$MCB_APP/runtime/bin:$PATH"; export PATH; fi'
     echo 'if ! command -v node >/dev/null 2>&1; then'
     echo '  echo "Node.js for the Bridge was not found. Run the installer again:" >&2'
-    echo '  echo "  curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh" >&2'
+    echo '  echo "  curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh | sh" >&2'
     echo '  exit 1'
     echo 'fi'
     echo 'exec node "$MCB_APP/bin/mc-bridge.mjs" "$@"'

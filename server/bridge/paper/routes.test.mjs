@@ -1,5 +1,5 @@
 /**
- * S8 routes end to end through the real request pipeline (createApp): the real PaperEngine over the published
+ * paper routes end to end through the real request pipeline (createApp): the real PaperEngine over the published
  * market-data and symbol fakes and a fake key store. Checks the OpenAPI shapes ({ data: PaperAccount, meta }), auth
  * and scopes, account access against the key, validation, auditing of resets and the `paper` config section.
  */

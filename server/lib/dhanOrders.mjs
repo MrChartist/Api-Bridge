@@ -5,9 +5,9 @@
  * assumed from memory, given the real-money stakes of getting this wrong.
  *
  * IMPORTANT: Dhan's order placement/modification/cancellation APIs require the
- * calling IP to be a static IP registered with Dhan. This app runs local-first
+ * calling IP to be a static IP registered with Dhan. The Bridge runs local-first
  * by default (a dynamic home IP), so these calls will likely be rejected
- * unless the proxy is deployed somewhere with a whitelisted static IP. Callers
+ * unless it is deployed somewhere with a whitelisted static IP. Callers
  * must surface Dhan's real rejection message rather than guessing/hiding it.
  */
 

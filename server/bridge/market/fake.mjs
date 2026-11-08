@@ -1,5 +1,5 @@
 /**
- * In-memory MarketDataService for OTHER streams' tests (S7 orders, S8 paper, S10 integrations, S11 MCP/hooks). It
+ * In-memory MarketDataService for OTHER modules' tests (orders, paper, integrations, hooks and MCP). It
  * satisfies SERVICE_CONTRACTS.marketData exactly, needs no accounts, scheduler, symbols or stream hub, makes no
  * broker call and touches no disk. Prices are whatever the test sets; everything else is derived deterministically.
  *

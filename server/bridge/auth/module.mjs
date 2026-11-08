@@ -1,5 +1,5 @@
 /**
- * auth module — stream S2: API keys, secrets and stream tokens. Owned files and tasks: docs/STREAMS.md §S2.
+ * auth module: API keys, secrets and stream tokens.
  * Routes follow docs/openapi.yaml (method, path, auth, scope); responses use the { data, meta } envelope.
  *
  *  GET    /v1/keys            admin, loopback only   list keys (never the key or its hash); an account-limited admin key
@@ -10,7 +10,7 @@
  *  POST   /v1/sign-in         none, loopback only    exchange a one-time sign-in code (signIn.mjs) for a new admin key
  *                                                    that expires in 30 days; audited key.created
  *
- * Audit: key events go to deps.audit (S9). While S9 is a stub the action still succeeds and a warning is logged,
+ * Audit: key events go to deps.audit (safety). While safety is a stub the action still succeeds and a warning is logged,
  * matching the CLI; any other audit failure is logged as an error (the key change itself has already happened).
  */
 import { BridgeError, NotImplementedError } from "../core/errors.mjs";

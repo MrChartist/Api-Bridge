@@ -12,7 +12,7 @@
  *  - Trading (Interactive API), official v2 flow: open
  *    https://ttblaze.iifl.com/interactive/thirdparty?appKey=<Interactive App Key>&returnURL=<registered URL>,
  *    sign in (user ID, password, then PIN/OTP on IIFL's own page) and copy the `accessToken` from the return
- *    URL into Broker Settings as `requestToken`. The adapter then calls POST /hostlookup for the UniqueKey
+ *    URL into the account settings as `requestToken`. The adapter then calls POST /hostlookup for the UniqueKey
  *    and connectionString and POST {connectionString}/user/session {appKey, secretKey, accessToken, uniqueKey}.
  *    A used or rejected token raises SessionRequiredError; there is no automatic re-login.
  *    With no requestToken saved, the plain key-pair login (POST /interactive/user/session
@@ -41,7 +41,7 @@ const broker = createXtsFamilyBroker({
   marketDataPath: "/apibinarymarketdata",
   interactiveMode: "oauthHostLookup",
   hostLookupUrl: "https://ttblaze.iifl.com/hostlookup",
-  loginHint: `Log in again at ${LOGIN_URL}?appKey=<your Interactive App Key>&returnURL=<your registered URL> and save the new accessToken as the request token in Broker Settings.`,
+  loginHint: `Log in again at ${LOGIN_URL}?appKey=<your Interactive App Key>&returnURL=<your registered URL> and save the new accessToken as the request token in the account settings.`,
 });
 
 export const capabilities = xtsFamilyCapabilities("requestTokenExchange");

@@ -1,5 +1,5 @@
 /**
- * Per-account priority queue with ageing — stream S3.
+ * Per-account priority queue with ageing.
  *
  * Four FIFO lanes, one per priority: order > live > interactive > background. Iteration yields waiting items in
  * EFFECTIVE order at a given time:

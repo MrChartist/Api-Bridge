@@ -47,7 +47,7 @@ describe("assertTransportAllowed", () => {
   });
 });
 
-describe("assertNotCrossSiteWrite (Sec-Fetch-Site guard, p1-05 §3.9 F7)", () => {
+describe("assertNotCrossSiteWrite (Sec-Fetch-Site guard)", () => {
   const cors = createCors({ allowedOrigins: ["http://localhost:5173"] });
   const req = (method, headers) => ({ method, headers: { host: "127.0.0.1:4300", ...headers } });
   it("refuses a cross-site or same-site browser write that carries no allowed Origin", () => {

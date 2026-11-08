@@ -12,7 +12,7 @@
  *    `User-Agent` header, and `api_key` as a query parameter.
  *  - Errors (error_structure): 400, 401, 403, 404, 422, 5xx. The docs give no rate limit.
  *  - Token lifetime is not documented. A 401/403 is reported as SessionRequiredError so the user is
- *    asked to paste a fresh token (and the proxy serves no stale data meanwhile).
+ *    asked to paste a fresh token (and the Bridge serves no stale data meanwhile).
  *
  * fetch-ltp (docs/fetchltp): PUT /oapi/v1/fetch-ltp?api_key, body {"data":[{"exchange","token"}]},
  * response {"data":[{"prev_close","ltp","exchange","token"}], "meta":{...}}. The docs' sample only shows
@@ -43,7 +43,7 @@ export function requireCreds(creds) {
   const apiKey = String(creds?.apiKey ?? "").trim();
   const accessToken = String(creds?.accessToken ?? "").trim();
   if (!apiKey || !accessToken) {
-    throw new SessionRequiredError(`${LABEL}: the API key or today's access token is missing. Complete the InvestRight login and paste the access token in Broker Settings.`);
+    throw new SessionRequiredError(`${LABEL}: the API key or today's access token is missing. Complete the InvestRight login and paste the access token in the account settings.`);
   }
   return { apiKey, accessToken };
 }
@@ -84,7 +84,7 @@ export async function irRequest(creds, method, path, { params = {}, body } = {})
   try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON error page */ }
 
   if (res.status === 401 || res.status === 403) {
-    throw new SessionRequiredError(`${LABEL} rejected the access token [${res.status}]. Log in on InvestRight again and paste a fresh access token in Broker Settings.`);
+    throw new SessionRequiredError(`${LABEL} rejected the access token [${res.status}]. Log in on InvestRight again and paste a fresh access token in the account settings.`);
   }
   if (res.status === 429) throw new BrokerError(`${LABEL} rate limit hit [429] on ${path}`, { code: "UPSTREAM_RATE_LIMIT" });
   if (!res.ok) throw new BrokerError(`${LABEL} API error [${res.status}] on ${path}: ${messageOf(json, text)}`);

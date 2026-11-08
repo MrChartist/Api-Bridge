@@ -2,8 +2,7 @@
 
 This folder runs a **public, read-only-in-spirit demo** of the Bridge at your own domain, with HTTPS:
 
-- **demo mode only**: sample prices, no broker, no broker credentials, paper orders only, nothing sent to third parties
-  (backup data and notifications are switched off);
+- **demo mode only**: sample prices, no broker, no broker credentials, paper orders only, nothing sent to third parties;
 - the dashboard is served to visitors (`server.remoteDashboard`, which the Bridge refuses outside demo mode);
 - every API call still needs a Bridge API key, and key management stays "this computer only".
 
@@ -42,8 +41,8 @@ Bridge port is not published on the server; only Caddy (HTTPS) is.
 ## 4. Start it
 
 ```bash
-git clone https://github.com/MrChartist/api-bridge.git
-cd api-bridge/deploy/hostinger
+git clone https://github.com/MrChartist/api-bridge-v2.git
+cd api-bridge-v2/deploy/hostinger
 export DOMAIN=bridge.yourdomain.com        # every docker compose command below needs it
 docker compose up -d --build
 docker compose logs bridge                 # copy the admin key printed on the first start (shown only once)
@@ -62,7 +61,7 @@ docker compose exec bridge node /app/bin/mc-bridge.mjs keys create --label visit
 ## 5. Update or stop
 
 ```bash
-cd api-bridge && git pull && cd deploy/hostinger
+cd api-bridge-v2 && git pull && cd deploy/hostinger
 export DOMAIN=bridge.yourdomain.com
 docker compose up -d --build                                 # update
 docker compose down                                          # stop (data volumes are kept)

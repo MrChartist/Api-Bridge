@@ -27,7 +27,7 @@ const T = (s) => Date.parse(s);
 const MIN = 60_000;
 const close = (d) => istInstant(d, "15:30");
 
-describe("§7.1 combine", () => {
+describe("combine", () => {
   const pass = { status: "pass" };
   const base = { session: pass, egress: pass, orderRate: pass, dailyOrders: pass, dailyLoss: pass, killSwitch: pass };
   const now = T("2026-10-29T10:00:00+05:30");
@@ -66,7 +66,7 @@ describe("§7.1 combine", () => {
   });
 });
 
-describe("§7.2 session", () => {
+describe("session", () => {
   const ok = (at) => ({ result: "ok", at });
   it("worked example 1: Upstox until 03:30 tomorrow at 10:00 → pass, 1,050 min left", () => {
     const now = T("2026-10-29T10:00:00+05:30");
@@ -111,7 +111,7 @@ describe("§7.2 session", () => {
   });
 });
 
-describe("§7.3 egress", () => {
+describe("egress", () => {
   const now = T("2026-10-29T10:12:29+05:30");
   const who = { label: "Main", brokerName: "Zerodha" };
   const lookup = (ip, extra = {}) => egressCheck({ mode: "lookup", registeredIp: "203.0.113.10", detected: { ip, at: now, seenBy: "api.ipify.org" }, now, intervalMinutes: 4, who, ...extra });
@@ -167,7 +167,7 @@ describe("§7.3 egress", () => {
   });
 });
 
-describe("§7.4 order headroom", () => {
+describe("order headroom", () => {
   it("worked example: 5/s, 37 of 100 orders, P&L −₹8,250 of ₹10,000", () => {
     expect(rateCheck({ perSecond: 5, usedLastSecond: 0 }).check).toMatchObject({ status: "pass", headroom: 5 });
     expect(dailyOrdersCheck({ limit: 100, used: 37, leftPct: 10 }).check).toEqual({ status: "pass", limit: 100, used: 37, left: 63 });
@@ -199,7 +199,7 @@ describe("§7.4 order headroom", () => {
   });
 });
 
-describe("§7.7 notification dedupe (worked example, step by step)", () => {
+describe("notification dedupe (worked example, step by step)", () => {
   const cfg = { cooldownMinutes: 15, onRecovery: true };
   const at = (hhmm) => T(`2026-10-29T${hhmm}:00+05:30`);
   it("10:12 notify → 10:16 no → 10:20 new reason notify → 10:24 recovered notify", () => {
@@ -234,7 +234,7 @@ describe("§7.7 notification dedupe (worked example, step by step)", () => {
   });
 });
 
-describe("§7.8 schedule", () => {
+describe("schedule", () => {
   const weekdays = (d) => ![0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
   it("Friday 16:00 → Monday 09:00 + jitter", () => {
     const t = nextPreOpenAt(T("2026-10-30T16:00:00+05:30"), { preOpenAt: "09:00", jitterSeconds: 17, isTradingDay: weekdays });
@@ -276,7 +276,7 @@ describe("§7.8 schedule", () => {
   });
 });
 
-describe("§7.9 staleness", () => {
+describe("staleness", () => {
   it("stale after staleAfterMinutes", () => {
     const now = T("2026-10-29T10:00:00+05:30");
     expect(isStale(now - 10 * MIN, now, 10)).toBe(false);
@@ -285,7 +285,7 @@ describe("§7.9 staleness", () => {
   });
 });
 
-describe("§8 probe cooldown per broker policy", () => {
+describe("probe cooldown per broker policy", () => {
   it("per-minute limits give 1 %; per-second only gives 2 % of per-second × 60; never below the base", () => {
     expect(probeCooldownSeconds({ limits: { portfolio: { perSecond: 10 } } }, "portfolio", 30)).toBe(30);
     expect(probeCooldownSeconds({ limits: { portfolio: { perSecond: 1 } } }, "portfolio", 30)).toBe(50);

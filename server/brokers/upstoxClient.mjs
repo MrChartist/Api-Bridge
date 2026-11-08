@@ -35,7 +35,7 @@ export class UpstoxApiError extends BrokerError {
 }
 
 export function bearer(creds) {
-  if (!creds?.accessToken) throw new BrokerInputError("Upstox: access token is required. Paste it in Broker Settings.");
+  if (!creds?.accessToken) throw new BrokerInputError("Upstox: access token is required. Paste it in the account settings.");
   return { Authorization: `Bearer ${creds.accessToken}`, Accept: "application/json" };
 }
 
@@ -61,7 +61,7 @@ export async function upstoxFetch(path, creds, { method = "GET", query, json, fo
     const errorCode = String(e?.errorCode ?? e?.error_code ?? "");
     const detail = e?.message || parsed?.message || text.slice(0, 200) || `HTTP ${res.status}`;
     const hint = res.status === 401 || AUTH_CODES.has(errorCode)
-      ? " Generate a fresh access token (Upstox tokens expire at 3:30 AM IST) and paste it in Broker Settings."
+      ? " Generate a fresh access token (Upstox tokens expire at 3:30 AM IST) and paste it in the account settings."
       : "";
     throw new UpstoxApiError(`Upstox API error [${res.status}${errorCode ? ` ${errorCode}` : ""}]: ${detail}.${hint}`, { httpStatus: res.status, errorCode });
   }

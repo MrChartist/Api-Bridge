@@ -1,5 +1,5 @@
 /**
- * Signal worker — stream S11. A bounded in-memory queue between the webhook receivers (which must answer within
+ * Signal worker. A bounded in-memory queue between the webhook receivers (which must answer within
  * milliseconds) and the order path (which may wait on safety checks, rate limits and the broker).
  *
  * For each signal it applies the hook's fixed mapping and caps, then calls OrderService with source "webhook":
@@ -11,7 +11,7 @@
  *   - order type: the hook's (LIMIT needs a price in the alert; MARKET orders get the configured protection);
  *   - mode: the hook's mode. "live" still needs every live opt-in in the config; OrderService refuses otherwise;
  *   - confirmation: hooks with requireConfirmation only PREVIEW, which opens a ticket in the dashboard's Pending
- *     confirmations panel; nothing is placed without a human (see "needs" in the S11 report for the hand-off).
+ *     confirmations panel; nothing is placed without a human.
  *
  * Nothing is retried automatically. Each signal gets a deterministic Idempotency-Key, so a duplicate that slips past
  * the receiver's dedupe window still cannot become a second order (OrderService keeps keys for the IST day).

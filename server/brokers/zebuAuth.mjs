@@ -33,7 +33,7 @@ const REQUIRED = ["userId", "clientId", "apiSecret", "authCode"];
 const EXPIRY_MARGIN_MS = 60_000;
 const FALLBACK_TTL_MS = 60 * 60 * 1000; // the documented sample's expires_in is 3600 s
 
-const LOGIN_HELP = "Open go.mynt.in/OAuthlogin/authorize/oauth?client_id=<your Client ID>, log in, and paste the new ?code= value into Broker Settings.";
+const LOGIN_HELP = "Open go.mynt.in/OAuthlogin/authorize/oauth?client_id=<your Client ID>, log in, and paste the new ?code= value into the account settings.";
 
 // credential hash -> { accessToken, refreshToken, expiresAt } | { dead: true }. Size-bounded only: an expired entry
 // still holds the refresh token, so it must not be dropped on expiry.

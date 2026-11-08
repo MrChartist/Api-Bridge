@@ -14,9 +14,9 @@
  *  - A response code of 201 means "request made but not acknowledged": check the order book before retrying.
  *  - Placing + modifying + cancelling together: at most 10 orders per second.
  *
- * Real-money calls are wrapped with withOrderGate(): without a fresh gate minted by the proxy's trade route
- * after validateOrder() and live arming, they throw OrderGateError before any network call. No route mints
- * Fyers gates today, so live Fyers orders stay blocked pending owner review.
+ * Real-money calls are wrapped with withOrderGate(): without a fresh gate minted by the Bridge's OrderService
+ * after SafetyGuard passed, they throw OrderGateError before any network call. The OrderService has no live
+ * Fyers mapper today, so live Fyers orders stay blocked.
  */
 
 import { BrokerInputError, withOrderGate } from "./contract.mjs";

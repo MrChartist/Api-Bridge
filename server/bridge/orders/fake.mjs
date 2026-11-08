@@ -1,7 +1,7 @@
 /**
- * In-memory OrderService for OTHER streams' tests (S10 integrations, S11 webhooks and MCP). It satisfies
+ * In-memory OrderService for OTHER modules' tests (integrations, webhooks and MCP). It satisfies
  * SERVICE_CONTRACTS.orders exactly, needs no other service, makes no broker call and touches no disk. It keeps the
- * behaviour those streams depend on, using S7's real building blocks:
+ * behaviour those modules depend on, using the orders module's real building blocks:
  *  - the real OrderRequest/OrderChanges zod schemas (VALIDATION_FAILED with field errors);
  *  - the real idempotency store (Idempotency-Key or clientOrderId; replay, 409 IDEMPOTENCY_KEY_REUSED /
  *    IDEMPOTENCY_IN_PROGRESS / DUPLICATE_CLIENT_ORDER_ID);

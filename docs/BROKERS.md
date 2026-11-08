@@ -14,7 +14,7 @@ The capability columns are generated from each adapter's declared `capabilities`
 
 | Broker | id | Sign-in (auth kind) | Option chain | Quotes | Live feed | Portfolio | Orders | Official docs | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| Dhan | `dhan` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | Live | Full | 1Cliq (armed) | [docs](https://dhanhq.co/docs/v2/) | Verified with a live account |
+| Dhan | `dhan` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | Live | Full | Live (armed) | [docs](https://dhanhq.co/docs/v2/) | Verified with a live account |
 | 5paisa | `fivepaisa` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://xstream.5paisa.com/dev-docs/) | Beta: not yet verified with a live account |
 | 5paisa (XTS) | `fivepaisaxts` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api/) | Beta: not yet verified with a live account |
 | Alice Blue | `aliceblue` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://ant.aliceblueonline.com/productdocumentation/) | Beta: not yet verified with a live account |
@@ -62,7 +62,7 @@ The capability columns are generated from each adapter's declared `capabilities`
 - **Quotes**: *Quotes + depth* includes 5-level market depth; *Quotes* is quotes without depth.
 - **Live feed**: *Live* means a streaming WebSocket feed is wired; *—* means data is polled over REST.
 - **Portfolio**: *Full* is positions, holdings, funds, order book and trade book; *Partial* lacks at least one of them (Nubra has no trade-book endpoint in its REST V3 docs; Axis Direct's published collection has no usable order-book or trade-book rows).
-- **Orders**: *Blocked* means the order code is built and gated, and in the Bridge only paper orders are available for it; *1Cliq (armed)* (Dhan) means live orders are verified (in the Bridge, behind the live opt-ins); *No* means the adapter has no order methods. Zerodha and Upstox show *Blocked* here but have beta live mapping in the Bridge (see Orders above).
+- **Orders**: *Blocked* means the order code is built and gated, and in the Bridge only paper orders are available for it; *Armed* (Dhan) means live orders are verified (in the Bridge, behind the live opt-ins); *No* means the adapter has no order methods. Zerodha and Upstox show *Blocked* here but have beta live mapping in the Bridge (see Orders above).
 
 ## Sign-in methods
 

@@ -1,5 +1,5 @@
 /**
- * Paper state persistence — stream S8. One JSON file per account in <dataDir>/paper/<accountId>.json, plus
+ * Paper state persistence. One JSON file per account in <dataDir>/paper/<accountId>.json, plus
  * <dataDir>/paper/_ids.json for the order-id sequence. Every write is atomic (temp file in the same directory, fsync,
  * rename), so a crash leaves either the old file or the new one. Files are created 0600 in a 0700 directory.
  *

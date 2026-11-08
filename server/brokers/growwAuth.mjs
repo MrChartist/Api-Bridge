@@ -70,7 +70,7 @@ async function exchangeKeyPair(creds) {
   const apiKey = String(creds?.apiKey ?? "").trim();
   const apiSecret = String(creds?.apiSecret ?? "").trim();
   if (!apiKey || !apiSecret) {
-    throw authError("Groww: paste today's Access Token, or save your API Key and API Secret, in Broker Settings.");
+    throw authError("Groww: paste today's Access Token, or save your API Key and API Secret, in the account settings.");
   }
   const timestamp = String(Math.floor(Date.now() / 1000));
   await pace("auth");
@@ -151,7 +151,7 @@ export async function growwRequest(creds, path, { method = "GET", params, body }
   }
   if (!r.res.ok) {
     if ((r.res.status === 401 || r.res.status === 403) && !canRefresh) {
-      throw authError("Groww rejected the access token. Tokens expire daily at 6:00 AM IST; paste a fresh one in Broker Settings.");
+      throw authError("Groww rejected the access token. Tokens expire daily at 6:00 AM IST; paste a fresh one in the account settings.");
     }
     throw upstreamError(r.res.status, r.json, r.text, path, creds);
   }

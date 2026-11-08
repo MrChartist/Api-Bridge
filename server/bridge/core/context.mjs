@@ -16,7 +16,7 @@ const IMPLIES = Object.freeze({ read: ["read"], paper: ["paper", "read"], live: 
 
 /**
  * Sources that are automations, never a person: they may not confirm an order ticket (the human confirmation gate).
- * "guard" and "alert" are the Phase 1 automations (strategy guards, alert actions).
+ * "guard" and "alert" are the automated rule sources (strategy guards, alert actions).
  */
 export const AUTOMATED_SOURCES = Object.freeze(["mcp", "webhook", "guard", "alert"]);
 /** Principal kinds that are automations (hooks and in-process guards). */
@@ -52,10 +52,10 @@ export function hasScope(granted, needed) {
  *   Public view of an API key. Never holds the key or its hash.
  * @typedef {{ kind: "key", id: string, label: string } | { kind: "hook", id: string, label?: string } |
  *   { kind: "guard", id: string, label?: string } | { kind: "local", id: "cli" } | { kind: "anonymous", id: "anonymous" }} Principal
- *   A "guard" principal is built in-process only (strategy guards, docs/spec/p1-12); like a hook it may use only the
+ *   A "guard" principal is built in-process only (strategy guards); like a hook it may use only the
  *   accounts in ctx.hookAccounts.
  * @typedef {"rest" | "webhook" | "mcp" | "cli" | "stream" | "system" | "guard" | "alert"} Source
- *   "guard" and "alert" are automated sources (strategy guards and alert actions, Phase 1); live orders from them
+ *   "guard" and "alert" are automated sources (strategy guards and alert actions); live orders from them
  *   still need the source in the account's live.allowedSources.
  *
  * @typedef {object} RequestContext

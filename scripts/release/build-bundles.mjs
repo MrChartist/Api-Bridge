@@ -181,7 +181,7 @@ export function readMe(t, version, nodeVersion) {
     "3. To stop it, close that window (or press Ctrl+C in it). Double-click again to start it next time.",
     "",
     "Orders are paper (practice) by default. Real orders stay off until you switch them on yourself.",
-    "Help: https://github.com/MrChartist/api-bridge#readme",
+    "Help: https://github.com/MrChartist/api-bridge-v2#readme",
     "",
   ].join(t.launcher === "start-windows.bat" ? "\r\n" : "\n");
 }

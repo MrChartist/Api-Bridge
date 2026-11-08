@@ -1,5 +1,5 @@
 /**
- * Test fixture for stream S11: a real Bridge app (core pipeline, real HTTP on 127.0.0.1, port 0) with only the hooks
+ * Test fixture for the hooks and MCP module: a real Bridge app (core pipeline, real HTTP on 127.0.0.1, port 0) with only the hooks
  * and mcp modules, and every other service replaced by the published fakes. No broker calls, no network beyond
  * loopback, a temp data directory per bridge.
  */

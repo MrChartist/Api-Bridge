@@ -1,5 +1,5 @@
 /**
- * Demo lot sizes and the demo calendar (stream S16, docs/spec/p1-02-reference.md §4). A leaf module: it imports only
+ * Demo lot sizes and the demo calendar (the reference module). A leaf module: it imports only
  * pure reference files, so the demo adapter (demo/demoAdapter.mjs) and the demo reference provider
  * (reference/demoReference.mjs, which re-exports DEMO_STOCK_LOT) can both use it without an import cycle. Masters and
  * reference therefore always agree in demo mode.
@@ -20,8 +20,7 @@ export const DEMO_REVISION = Object.freeze({ underlying: "BANKNIFTY", from: 30, 
 export const demoStockLotFormula = (base) => Math.max(25, Math.round(750000 / base / 25) * 25);
 
 /**
- * THE demo stock lot table (units per lot) for the NIFTY 50 demo stocks: P1-1 (five demo stock underlyings) and P1-6
- * (all 50) import it into the demo adapter. demoReference.test.mjs checks it against demoStockLotFormula and the demo
+ * THE demo stock lot table (units per lot) for the NIFTY 50 demo stocks, imported into the demo adapter. demoReference.test.mjs checks it against demoStockLotFormula and the demo
  * base prices.
  */
 export const DEMO_STOCK_LOT = Object.freeze({

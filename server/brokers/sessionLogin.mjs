@@ -3,11 +3,9 @@
  *
  * Brokers like Angel One, 5paisa, Firstock, Kotak Neo, Motilal Oswal, mStock, Nubra and Tradejini
  * cannot be used with a pasted token: their API needs the account password/PIN and a fresh TOTP code
- * to open a session. This terminal never stores those. Instead the user types them, plus the CURRENT
- * 6-digit code from their authenticator app, in the Broker Settings "Log in" dialog; the browser POSTs
- * them once to /api/broker-session-login; the proxy calls adapter.login() and returns only the session
- * token(s). The browser saves those in its normal credential store (session-only or encrypted vault)
- * and sends them back in x-broker-credentials like any other key. When the session dies the adapter
+ * to open a session. The Bridge never stores those. Instead the user types them, plus the CURRENT
+ * 6-digit code from their authenticator app, at login time; the Bridge calls adapter.login() once and
+ * keeps only the session token(s), encrypted. When the session dies the adapter
  * throws SessionRequiredError and the user logs in again. Nothing here retains the password, PIN or
  * code: they are not logged, not cached, not part of any cache key and not echoed in errors.
  */
@@ -42,9 +40,9 @@ export function requireFields(creds, keys, brokerName) {
  */
 export function sessionFromCreds(creds, fields, brokerName, now = Date.now()) {
   const [primary] = fields;
-  if (!String(creds?.[primary] ?? "")) throw new SessionRequiredError(`${brokerName}: not logged in. Use "Log in" in Broker Settings.`);
+  if (!String(creds?.[primary] ?? "")) throw new SessionRequiredError(`${brokerName}: not logged in. Use "Log in" in the account settings.`);
   const exp = Number(creds?.sessionExpiresAt);
-  if (Number.isFinite(exp) && exp > 0 && exp <= now) throw new SessionRequiredError(`${brokerName}: your session has expired. Log in again from Broker Settings.`);
+  if (Number.isFinite(exp) && exp > 0 && exp <= now) throw new SessionRequiredError(`${brokerName}: your session has expired. Log in again from the account settings.`);
   const out = {};
   for (const f of fields) if (creds?.[f]) out[f] = String(creds[f]);
   return out;
@@ -101,8 +99,8 @@ function readStringMap(raw, { allow, maxLen }) {
 }
 
 /**
- * Handle POST /api/broker-session-login?broker=<id>. Body: { values: {stored fields}, secrets: {password|pin|mpin, totpCode} }.
- * The caller (proxy-server.mjs) has already enforced Host/Origin allowlists, loopback-only for Origin-less callers,
+ * Handle a session-login request for broker <id>. Body: { values: {stored fields}, secrets: {password|pin|mpin, totpCode} }.
+ * The caller has already enforced Host/Origin allowlists, loopback-only for Origin-less callers,
  * POST + JSON + body cap. Returns { status, body } where a success body is { status, session, expiresAt }.
  */
 export async function handleSessionLogin({ registry, brokerId, body, rateKey, limiter, ipLimiter }) {

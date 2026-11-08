@@ -1,8 +1,8 @@
 /**
  * Size-capped download and decompression helpers for broker instrument masters.
  *
- * Masters come from broker CDNs over HTTPS, but the proxy is one process that also runs 1Cliq, the risk engine and
- * panic close. A compromised or intercepted CDN must not be able to stall the event loop or exhaust memory with an
+ * Masters come from broker CDNs over HTTPS, but the Bridge is one process that also serves orders, the safety guard and the
+ * kill switch. A compromised or intercepted CDN must not be able to stall the event loop or exhaust memory with an
  * oversized body or a zip bomb. So every download is read up to a byte cap (Content-Length is checked first), every
  * inflate/gunzip runs with maxOutputLength, ZIP headers are bounds-checked, an entry whose declared size is over the
  * cap is refused before inflating, and only the stored (0) and deflate (8) methods are accepted. Every failure is a

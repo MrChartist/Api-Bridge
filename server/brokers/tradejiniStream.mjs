@@ -136,7 +136,7 @@ function openConnection(session, key, entry) {
       for (const fn of entry.statusListeners) fn({ connected: false, reason });
       if (!settled) {
         settled = true;
-        reject(code === 4001 ? new SessionRequiredError("Tradejini: the stream refused the session (4001). Log in again from Broker Settings.") : new BrokerError(`Tradejini stream ${reason}`));
+        reject(code === 4001 ? new SessionRequiredError("Tradejini: the stream refused the session (4001). Log in again from the account settings.") : new BrokerError(`Tradejini stream ${reason}`));
       }
     };
     ws.addEventListener("error", () => onEnd("connection error"));

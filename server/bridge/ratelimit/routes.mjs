@@ -1,5 +1,5 @@
 /**
- * Route handlers for stream S3 (docs/openapi.yaml, tag Limits): GET /v1/limits and GET /v1/usage.
+ * Route handlers for the ratelimit module (docs/openapi.yaml, tag Limits): GET /v1/limits and GET /v1/usage.
  * Both answer { data, meta } and only show accounts the caller's key may use.
  */
 import { effectiveAccountLimits } from "../core/config.mjs";

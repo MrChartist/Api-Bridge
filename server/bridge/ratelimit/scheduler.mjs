@@ -1,5 +1,5 @@
 /**
- * Scheduler (rate-limit engine) — stream S3. Contract: SERVICE_CONTRACTS.scheduler in ../core/contracts.mjs.
+ * Scheduler (rate-limit engine). Contract: SERVICE_CONTRACTS.scheduler in ../core/contracts.mjs.
  *
  * Every broker call in the Bridge goes through schedule(). For each account the scheduler keeps:
  *  - one multi-window limiter per endpoint class and one per broker GROUP (a budget several classes share), built
@@ -23,7 +23,7 @@
  * (the fake clock in fake.mjs does), else the global timers (unref'd). Nothing here sleeps.
  *
  * Non-contract extras (used by this module's own routes, by tests and by module stop()): recordSaving, clientBudget,
- * accountPolicy, stop, headroomWindows (read by backgroundGate.mjs). Other streams call only the contract methods; S5 reports savings through the exported
+ * accountPolicy, stop, headroomWindows (read by backgroundGate.mjs). Other modules call only the contract methods; market reports savings through the exported
  * recordSaving() helper below.
  */
 import { ENDPOINT_CLASSES, PRIORITIES } from "../core/contracts.mjs";
@@ -85,7 +85,7 @@ export function retryAfterFrom(err) {
 let current = null;
 
 /**
- * Report a broker call avoided by streaming, caching, coalescing or batching (S5 calls this). Never throws.
+ * Report a broker call avoided by streaming, caching, coalescing or batching (market calls this). Never throws.
  * @param {"stream"|"cache"|"coalesced"|"batched"|"servedFromStream"|"servedFromCache"} kind
  * @param {number} [count]
  */
@@ -335,7 +335,7 @@ export function createScheduler(deps, options = {}) {
   }
 
   /**
-   * Floor for a background call scheduled with backgroundShare (BRD §7.2, C12): starting it must leave every window it
+   * Floor for a background call scheduled with backgroundShare: starting it must leave every window it
    * takes from at or above ceil((1 − share) × limit). Checked where the budget is taken, so several callers that passed
    * the gate in the same tick, or user work queued ahead, can never push a window below the floor.
    * @returns {number} 0 when the call may start now; else ms until it is worth looking again.
@@ -659,7 +659,7 @@ export function createScheduler(deps, options = {}) {
 
   /**
    * Every window that covers (account, class): the class bucket's windows and those of each group bucket that lists
-   * the class, plus the class back-off. Used by backgroundGate.mjs (Phase 1 background work keeps each window at or
+   * the class, plus the class back-off. Used by backgroundGate.mjs (background work keeps each window at or
    * above half its limit). Paper accounts have no windows. `remaining` already counts the units of every request
    * queued on that bucket (it will take them before anything new), so `remaining = limit − used − queued`.
    * @returns {{ windows: Array<{ bucket: string, window: string, used: number, queued: number, limit: number, remaining: number, resetMs: number }>, backoffMs: number }}

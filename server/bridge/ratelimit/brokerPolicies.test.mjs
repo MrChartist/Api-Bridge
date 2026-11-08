@@ -36,7 +36,7 @@ describe("BROKER_POLICIES table", () => {
 
   it("keeps pooling unknown (treated as not allowed) until a broker's terms clearly allow it", () => {
     for (const id of ids) expect(BROKER_POLICIES[id].pooling).toBe("unknown");
-    // S1 reads the table through its own helpers; check they see it the same way.
+    // accounts reads the table through its own helpers; check they see it the same way.
     const table = normalisePolicies(BROKER_POLICIES);
     expect(Object.keys(table)).toHaveLength(41);
     expect(poolingFor(table, "zerodha")).toBe("unknown");

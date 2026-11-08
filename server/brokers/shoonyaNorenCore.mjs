@@ -359,7 +359,7 @@ const RATE_LIMIT_ERROR = /rate[_ ]?limit|too many|exceed(ed|s)? .*limit/i;
 
 /**
  * In-process session cache for brokers whose login hands back a single-use code. The user saves the
- * code in Broker Settings; the first data call swaps it for an access token, which is reused until
+ * code in the account settings; the first data call swaps it for an access token, which is reused until
  * the broker rejects it or it expires. A code the broker has refused (or whose token died) is never
  * sent again: retrying cannot succeed and would just hammer the auth endpoint. A pasted `accessToken`
  * skips the exchange entirely. Cache keys are hashes of the credential values, never the values.
@@ -369,7 +369,7 @@ export function createSessionManager({ label, keyFields, exchange }) {
   const inflight = new Map(); // key -> Promise (one exchange per code even under concurrent calls)
   const deadCodes = new Set();
   const keyOf = (creds) => sha256Hex(JSON.stringify(keyFields.map((f) => str(creds?.[f]))));
-  const regenerate = `Generate a fresh code from the ${label} login page and save it in Broker Settings.`;
+  const regenerate = `Generate a fresh code from the ${label} login page and save it in the account settings.`;
 
   async function ensure(creds) {
     if (str(creds?.accessToken)) return { token: str(creds.accessToken), pasted: true };

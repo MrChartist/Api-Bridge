@@ -1,5 +1,5 @@
 /**
- * Test helpers published by stream S3 for every stream's tests.
+ * Test helpers published by the ratelimit module for every module's tests.
  *
  * 1. createManualClock(): a fake clock with timers. Pass it as deps.clock (or createApp({ clock })) and drive time
  *    with `await clock.advance(ms)`; the real scheduler uses its setTimeout/clearTimeout, so tests never sleep.

@@ -1,5 +1,5 @@
 /**
- * S8 persistence: atomic file store (round trip, quarantine of bad files, id sequence) and the memory store.
+ * Paper persistence: atomic file store (round trip, quarantine of bad files, id sequence) and the memory store.
  */
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

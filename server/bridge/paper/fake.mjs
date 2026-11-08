@@ -1,5 +1,5 @@
 /**
- * In-memory PaperEngine for OTHER streams' tests (S7 orders, S9 safety, S11 hooks/MCP). It is the real engine
+ * In-memory PaperEngine for OTHER modules' tests (orders, safety, hooks and MCP). It is the real engine
  * (paperEngine.mjs) over a memory store and a tiny built-in price source, so fills, funds and positions behave exactly
  * as in production, with no disk, no market-data service, no symbol service and no timers.
  *

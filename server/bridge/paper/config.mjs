@@ -1,5 +1,5 @@
 /**
- * The `paper` config section — stream S8 (owned by the paper module; validated by core with this schema).
+ * The `paper` config section (owned by the paper module; validated by core with this schema).
  *
  *   "paper": {
  *     "startingCapital": 1000000,          // ₹10,00,000 for a new or reset paper account

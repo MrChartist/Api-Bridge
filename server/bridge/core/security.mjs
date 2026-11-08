@@ -136,7 +136,7 @@ export function assertTransportAllowed(req, { hostCheck, cors }) {
 }
 
 /**
- * Defence in depth for writes (docs/spec/p1-05-readiness.md §3.9 F7): a browser that says the request is cross-site
+ * Defence in depth for writes: a browser that says the request is cross-site
  * or same-site (Sec-Fetch-Site) but sends NO allowlisted or same-origin Origin is refused for every method other than
  * GET/HEAD/OPTIONS. Modern browsers send Origin on cross-origin writes anyway, so this only closes the gap where
  * Origin is missing. Non-browser clients never send Sec-Fetch-* headers, so nothing legitimate breaks. "same-site" is

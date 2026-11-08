@@ -1,5 +1,5 @@
 /**
- * S4 routes end to end through the real request pipeline (createApp): fixture masters behind stub adapters, the fake
+ * symbols routes end to end through the real request pipeline (createApp): fixture masters behind stub adapters, the fake
  * AccountManager, a recording scheduler and a fake key store. Checks the OpenAPI shapes ({ data, meta },
  * Instrument.symbol, ConvertResult, ItemError), auth and scope, validation and problem codes.
  */

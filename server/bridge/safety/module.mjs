@@ -1,5 +1,5 @@
 /**
- * safety module — stream S9: Safety guard and audit log. Owned files and tasks: docs/STREAMS.md §S9.
+ * safety module: Safety guard and audit log.
  *
  * Provides deps.audit (auditLog.mjs) and deps.safety (safetyGuard.mjs) and serves the Safety routes
  * (routes.mjs). The route table below is the contract in docs/openapi.yaml (method, path, auth, scope);

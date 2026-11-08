@@ -1,10 +1,10 @@
 /**
- * Service contracts: the interfaces the 11 streams build against (docs/STREAMS.md).
+ * Service contracts: the interfaces the modules build against.
  *
- * Each shared service lives in `deps` under a fixed key (SERVICE_CONTRACTS below), is owned by exactly one stream,
+ * Each shared service lives in `deps` under a fixed key (SERVICE_CONTRACTS below), is owned by exactly one module group,
  * and must expose exactly the listed methods. app.mjs checks every service with assertService() at boot, so a
- * stream can change HOW a method works but not WHICH methods exist; changing this file is a core change made by
- * the lead. Until a stream lands, its service is a stub from notImplementedService(): it boots, and every call
+ * module can change HOW a method works but not WHICH methods exist; changing this file is a core change made by
+ * the maintainers. Until a module lands, its service is a stub from notImplementedService(): it boots, and every call
  * throws NotImplementedError (HTTP 501 NOT_IMPLEMENTED).
  *
  * Conventions every implementation follows:
@@ -90,12 +90,12 @@ import { NotImplementedError } from "./errors.mjs";
  *   estimatedValue: number | null, ltp: number | null, confirmToken: string | null, confirmExpiresAt: string | null,
  *   requiresHumanConfirmation: boolean, ticketId: string | null }} PreviewResult
  * @typedef {{ ok: boolean, mode: "paper"|"live", reasons: Array<{ code: string, message: string }>, warnings: string[],
- *   checks?: Array<{ code: string, message: string }> }} Verdict   checks: warnings that carry their own code (p1-06 ban rule)
+ *   checks?: Array<{ code: string, message: string }> }} Verdict   checks: warnings that carry their own code (the F&O ban rule)
  * @typedef {{ accountId: string, mode: "paper"|"live", action: "place"|"modify"|"cancel", order: OrderRequest | null,
  *   orderId?: string, source: string, keyId: string | null, quantity: number | null, value: number | null, ltp: number | null,
  *   underlyingKind?: "stock"|"index"|null, underlying?: string, heldQty?: number | null, banQuantity?: number,
  *   ban?: { inBan: boolean, mwplPct?: number|null, forDate?: string|null } | null }} SafetyIntent
- *   underlyingKind/underlying/ban/heldQty (p1-06 §2.8): set for NFO/BFO derivatives; heldQty (signed units held in that
+ *   underlyingKind/underlying/ban/heldQty: set for NFO/BFO derivatives; heldQty (signed units held in that
  *   contract, null when unreadable) only when the stock is in the F&O ban period. banQuantity (modify only): the
  *   order's unfilled remainder, the quantity the ban rule weighs against heldQty.
  * @typedef {{ engaged: boolean, reason: string | null, by: string | null, at: string | null }} KillSwitchState
@@ -132,7 +132,7 @@ export const PRIORITIES = Object.freeze(["order", "live", "interactive", "backgr
  */
 export const SERVICE_CONTRACTS = Object.freeze({
   /**
-   * SecretStore — S2. AES-256-GCM encrypted JSON file (dataDir/secrets.enc). Key from MCB_MASTER_KEY (base64, 32 bytes)
+   * SecretStore. AES-256-GCM encrypted JSON file (dataDir/secrets.enc). Key from MCB_MASTER_KEY (base64, 32 bytes)
    * or a key file created with 0600 permissions. Values are JSON objects; names are like "account:<id>".
    *  get(name) -> Promise<object | null>
    *  set(name, value: object) -> Promise<void>       atomic write (temp file + rename), registers values with logger.addSecret
@@ -143,7 +143,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   secrets: { iface: "SecretStore", stream: "S2", requires: [], methods: ["get", "set", "delete", "list", "status"] },
 
   /**
-   * KeyStore — S2. API keys "mcb_<keyId>_<secret>"; only a scrypt hash is stored (dataDir/keys.json).
+   * KeyStore. API keys "mcb_<keyId>_<secret>"; only a scrypt hash is stored (dataDir/keys.json).
    *  create({ label, scopes, accounts?: string[]|"*", expiresAt?, allowQuery?, clientKind? }) -> Promise<{ key: string, record: KeyRecord }>
    *      key is returned ONCE. allowQuery only with scopes ["read"]. "live" and "admin" keys need loopback creation (CLI or admin route).
    *  list() -> Promise<KeyRecord[]>
@@ -163,7 +163,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * AuditLog — S9. Append-only, hash-chained JSON lines (dataDir/audit/YYYY-MM-DD.jsonl, IST days). Never rewrites a line.
+   * AuditLog. Append-only, hash-chained JSON lines (dataDir/audit/YYYY-MM-DD.jsonl, IST days). Never rewrites a line.
    *  append(input: AuditInput) -> Promise<AuditRecord>   redacts data; emits "audit.appended"
    *  query({ from?, to?, type?, accountId?, limit?, cursor? }) -> Promise<Page>
    *  verify({ day? }) -> Promise<{ ok: boolean, checked: number, brokenAt: number | null }>
@@ -171,7 +171,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   audit: { iface: "AuditLog", stream: "S9", requires: [], methods: ["append", "query", "verify"] },
 
   /**
-   * AccountManager — S1. The user's broker accounts from config.accounts, their sessions and adapters.
+   * AccountManager. The user's broker accounts from config.accounts, their sessions and adapters.
    *  list() -> AccountSummary[]
    *  get(accountId) -> AccountSummary                         throws ACCOUNT_NOT_FOUND
    *  adapter(accountId) -> object                             the broker adapter module (server/brokers/registry.mjs)
@@ -197,7 +197,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * Scheduler (rate-limit engine) — S3. Per-account, per-endpoint-class token buckets (second/minute/day windows),
+   * Scheduler (rate-limit engine). Per-account, per-endpoint-class token buckets (second/minute/day windows),
    * priority queues (order > live > interactive > background, with ageing), singleflight coalescing, upstream
    * back-off, and account choice for pooled reads. Never exceeds a BrokerPolicy limit.
    *  schedule({ accountId, endpointClass, priority?, coalesceKey?, cost?, signal? }, fn: () => Promise<T>) -> Promise<T>
@@ -224,7 +224,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * SymbolService — S4. Canonical symbols <-> broker instruments, built from each connected broker's instrument master
+   * SymbolService. Canonical symbols <-> broker instruments, built from each connected broker's instrument master
    * (cached per IST day in dataDir/instruments/). Pure parsing lives in core/symbolFormat.mjs; this adds data.
    *  parse(input: string) -> ParsedSymbol                     canonical or alias syntax; throws VALIDATION_FAILED
    *  format(parts) -> string                                  canonical string
@@ -246,7 +246,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * ReferenceData — S16 (docs/spec/p1-02-reference.md §2.2). Contract calendar, sessions, holidays, lots with effective
+   * ReferenceData. Contract calendar, sessions, holidays, lots with effective
    * dates, freeze quantities, ban list, MWPL, F&O universe by date, corporate actions, delivery-margin schedule, rate and
    * charges, from the masters (via symbols), shipped files, config and (opt-in) NSE archive files. Never calls a broker.
    * Every dataset value carries source, asOf and quality; unavailable data answers available: false with a reason.
@@ -270,7 +270,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  sync({ datasets, reason }) -> Promise<{ jobId, results }>   (CAPABILITY_UNSUPPORTED in demo mode)
    *  archives() -> { enabled: boolean, setBy: "config"|"user"|"demo"|null, client: NseArchiveClient | null }
    *      (the NSE archive switch and the shared, rate-limited archive client; client is null while the switch is off.
-   *      Other streams that fetch NSE archive files, e.g. participants S26, fetch through this client only.)
+   *      Other modules that fetch NSE archive files, such as participants, fetch through this client only.)
    */
   reference: {
     iface: "ReferenceData",
@@ -280,13 +280,13 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * ParticipantOI — S26 (docs/spec/p1-12-guard-participants.md §4.2.1). NSE participant-wise open interest (store S4):
+   * ParticipantOI. NSE participant-wise open interest:
    * one file a day from the NSE archives (behind the reference service's archive switch), a resumable back-fill and a
    * deterministic demo history. No broker calls. NSE only.
    *  latest({ exchange: "NSE"|"BSE" }) -> { available: true, asOfDate, source: "nse-participant-oi"|"demo", unit: "contracts",
    *      quality, rows: [{ participant: "CLIENT"|"DII"|"FII"|"PRO", instrument: "IDX_FUT"|"IDX_CE"|"IDX_PE"|"STK_FUT"|"STK_CE"|"STK_PE", long, short }] }
    *    | { available: false, reason: "NO_PARTICIPANT_DATA"|"PARTICIPANT_STALE"|"NOT_FOR_BSE"|"SOURCE_OFF", detail }
-   *      (the shape p1-08 §3.5 reads; stale = asOfDate older than the previous trading day)
+   *      (stale = asOfDate older than the previous trading day)
    *  series({ from, to, participants?, instruments? }) -> Array<ParticipantDay>
    *  status() -> ParticipantStatus
    *  sync({ date?, backfill? }) -> Promise<{ fetched: string[], noFile: string[], failed: Array<{ date, code }> }>
@@ -295,10 +295,10 @@ export const SERVICE_CONTRACTS = Object.freeze({
   participants: { iface: "ParticipantOI", stream: "S26", requires: ["reference"], methods: ["latest", "series", "status", "sync"] },
 
   /**
-   * VolService — S18 (docs/spec/p1-03-pricing-vol.md §2.2). The vol-time clock, the daily vol store (S2), IV rank and
-   * percentile, IV history, VIX and the prediction log (S9). IVs in vol points; every row carries quality and source.
+   * VolService. The vol-time clock, the daily vol store, IV rank and
+   * percentile, IV history, VIX and the prediction log. IVs in vol points; every row carries quality and source.
    *  clock({ underlying, expiries?, at? }) -> { settings, holidays, expiries: ClockResult[] }
-   *  snapshot({ underlying, expiries? }, opts?) -> live S2-shaped rows + cm30 + quick rank (cached snapshotTtlSeconds)
+   *  snapshot({ underlying, expiries? }, opts?) -> live daily-store-shaped rows + cm30 + quick rank (cached snapshotTtlSeconds)
    *  history({ underlying, basis, expiry?, from, to, series, quality, clock, cursor, limit }) -> { items, gaps, coverage, nextCursor, method }
    *  rank({ underlying, basis, lookbacks, quality, clock, expiry? }) -> { current, lookbacks, sameDte, vix, definitions }
    *  summary({ underlyings, lookback }) -> memory-only rank lines for the screener
@@ -306,8 +306,8 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  capture({ underlyings, replace, trigger }) -> per-underlying results of a capture run
    *  backfill({ sources, from, to, underlyings }) -> { jobId, days, files, estimateMinutes }
    *  cancelBackfill() -> stops after the current file
-   *  predictions({ from, to, underlying, metric }) -> S9 rows
-   *  logPredictions(rows) -> { ids }   validates metric against an open list; P1-9 is the first external caller
+   *  predictions({ from, to, underlying, metric }) -> prediction-log rows
+   *  logPredictions(rows) -> { ids }   validates metric against an open list
    */
   vol: {
     iface: "VolService",
@@ -317,16 +317,16 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * OptionsRecorder — S17 (docs/spec/p1-01-recorder.md §2.1, §4). Records configured option chains every minute
+   * OptionsRecorder. Records configured option chains every minute
    * (indices) or every 5 minutes (opted-in stocks) in session from ONE data account, stream first, REST inside a hard
-   * 50 % slice of the broker budget; S1 snapshots and gaps on disk, S3 daily rows. Never places orders.
+   * 50 % slice of the broker budget; snapshots and gaps on disk, daily rows. Never places orders.
    *  status() -> RecorderStatus (state, account, session, plan, budget, today, disk, coverage, sources, warnings)
    *  plan(section?) -> { ok, message, plan, budget, capacity }      dry run over the current config merged with section
    *  snapshots({ underlying, expiry, fromMs?, toMs?, fields?, strikes?, every?, includeSuspect?, limit?, cursor? })
    *      -> { underlying, expiry, exchange, units, fields, snapshots, gaps, coverage, unavailable, method, nextCursor }
    *      (stored records; slots and ts as epoch ms; routes render IST ISO strings)
    *  latest({ underlying, expiry, fields?, strikes? }) -> snapshot | null   from memory
-   *  daily({ underlying, from, to, expiry? }) -> S3 rows, oldest first
+   *  daily({ underlying, from, to, expiry? }) -> daily rows, oldest first
    *  configure(section, { persist }) -> Promise<{ persisted, status }>   CAPACITY_EXCEEDED / CONFIRMATION_REQUIRED
    *  Extras: start(), stop(), demo(), events for "recorder.status" and "recorder.snapshot".
    */
@@ -338,7 +338,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * StreamHub — S6. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
+   * StreamHub. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
    * local clients, mode = max demand, broker subscription caps enforced (SUBSCRIPTION_LIMIT, never silent drops),
    * resubscribe after reconnect/re-login. Emits "tick" and "stream.status".
    *  subscribe(clientId: string, symbols: string[], mode: StreamMode) -> Promise<{ accepted: string[], rejected: Array<{ symbol, code, message }> }>
@@ -358,7 +358,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * BackupDataService — S12. Free public market data (Yahoo Finance chart API, NSE India website JSON) for when no
+   * BackupDataService. Free public market data (Yahoo Finance chart API, NSE India website JSON) for when no
    * broker account can answer. Off unless config.backup.enabled; always off in demo mode. Per-provider pacing and a
    * circuit breaker; every result names its provider and the provider's own timestamp.
    *  quotes(symbols: string[], { maxAgeMs? }) -> Promise<{ items: Array<{ symbol, fields, at, provider }>, errors }>   cash and index only
@@ -371,7 +371,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   backupData: { iface: "BackupDataService", stream: "S12", requires: [], methods: ["quotes", "history", "expiries", "optionChain", "status"] },
 
   /**
-   * MarketDataService — S5. Streaming-first, then freshness cache, then a scheduled broker call (batched and coalesced),
+   * MarketDataService. Streaming-first, then freshness cache, then a scheduled broker call (batched and coalesced),
    * routed to a pinned account or a pooled candidate. Every item carries Freshness.
    *  ltp(symbols: string[], opts?: ReadOptions) -> Promise<{ items: LtpItem[], errors: Array<{ symbol, code, message }> }>
    *  quotes(symbols: string[], opts?: ReadOptions) -> Promise<{ items: QuoteItem[], errors: Array<{ symbol, code, message }> }>
@@ -388,7 +388,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * SafetyGuard — S9. Every order intent (paper and live) passes check() before anything is sent. Persists daily
+   * SafetyGuard. Every order intent (paper and live) passes check() before anything is sent. Persists daily
    * counters and kill-switch state in dataDir/safety/. The kill switch can be engaged by any authenticated caller and
    * released only by an admin from loopback.
    *  check(ctx, intent: SafetyIntent) -> Promise<Verdict>        kill switch, live enablement (config + key scope + source),
@@ -412,7 +412,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * PaperEngine — S8. Local simulator priced from MarketDataService (LTP/depth), per account, persisted in dataDir/paper/.
+   * PaperEngine. Local simulator priced from MarketDataService (LTP/depth), per account, persisted in dataDir/paper/.
    * Order ids start with "PAPER-". Fill model documented in docs/ARCHITECTURE.md §7.
    *  place(accountId, order: OrderRequest & { quantity: number, resolved: ResolvedInstrument }) -> Promise<OrderResult>
    *  modify(accountId, orderId, changes: { price?, triggerPrice?, quantity?, orderType? }) -> Promise<OrderResult>
@@ -433,7 +433,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
   },
 
   /**
-   * OrderService — S7. The only path to an order, paper or live. preview -> safety check -> idempotency -> route to
+   * OrderService. The only path to an order, paper or live. preview -> safety check -> idempotency -> route to
    * PaperEngine or (live) mint an order gate (server/brokers/orderGate.mjs issueOrderGate) and call the adapter through
    * scheduler.schedule({ endpointClass: "order", priority: "order" }). Timeouts become OUTCOME_UNKNOWN and are
    * reconciled from the broker order book, never retried blindly. Everything is audited.
@@ -457,7 +457,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  confirmTicket(ctx, ticketId) -> Promise<{ confirmToken: string, expiresAt: string }>   human confirmation (loopback admin)
    */
   /**
-   * Readiness — S20 (docs/spec/p1-05-readiness.md §3.3). Whether each live-enabled account can trade right now (H5),
+   * Readiness. Whether each live-enabled account can trade right now,
    * for people (badge, notify) and for automation (guards, alert actions, webhooks). Never sends or engages anything.
    *  status({ accountIds? }) -> ReadinessSnapshot                     cached; no I/O
    *  canTrade(accountId, { mode }) -> { ok, state, reasons, checkedAt, stale }   cached; mode "paper" is always ok
@@ -484,7 +484,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
 
 /** Core deps every factory receives in addition to its `requires`. */
 /**
- * API Bridge v2 has no provider for these contract services (their streams are not part of v2). Kept code may still list
+ * API Bridge v2 has no provider for these contract services (they are not part of v2). Kept code may still list
  * them in `requires`; they resolve to stubs. Health, doctor and the module tests skip them.
  */
 export const SERVICES_NOT_IN_V2 = Object.freeze(["reference", "participants", "vol", "recorder", "backupData"]);
@@ -516,7 +516,7 @@ export function isStub(svc) {
 
 /**
  * Check that `impl` exposes every method of the named contract. Extra methods are allowed (internal helpers), but
- * other streams must only call contract methods.
+ * other modules must only call contract methods.
  * @returns {void} throws Error listing what is missing
  */
 export function assertService(name, impl) {

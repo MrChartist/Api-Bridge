@@ -1,5 +1,5 @@
 /**
- * KeyStore — stream S2 (docs/STREAMS.md §S2, contract SERVICE_CONTRACTS.keyStore in ../core/contracts.mjs).
+ * KeyStore (contract SERVICE_CONTRACTS.keyStore in ../core/contracts.mjs).
  *
  * API keys
  *  - Format: mcb_<keyId>_<secret>. keyId = 10 lowercase RFC 4648 base32 characters (a-z, 2-7; public, used in logs,

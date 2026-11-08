@@ -1,5 +1,5 @@
 /**
- * SymbolService — stream S4 (docs/STREAMS.md §S4). The contract (methods, argument and return types, rules) is
+ * SymbolService. The contract (methods, argument and return types, rules) is
  * SERVICE_CONTRACTS.symbols in ../core/contracts.mjs.
  *
  *  - parse/format delegate to core/symbolFormat.mjs (the canonical format is a core decision; it is not forked here).

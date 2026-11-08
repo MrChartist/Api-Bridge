@@ -1,5 +1,5 @@
 /**
- * Demo readiness (docs/spec/p1-05-readiness.md §5): a SIMULATED live view of the "demo" account so every readiness
+ * Demo readiness: a SIMULATED live view of the "demo" account so every readiness
  * state, notification and gate can be seen without a broker. It never changes safety.liveTrading (demo forces live off)
  * and no order can follow from it: the readiness monitor only reads, and the demo adapter has no order methods.
  *

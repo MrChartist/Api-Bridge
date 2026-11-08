@@ -1,5 +1,5 @@
 /**
- * Unit tests for S5's pure helpers: IST time parsing, the freshness cache, the micro-batcher, normalisers, history
+ * Unit tests for market's pure helpers: IST time parsing, the freshness cache, the micro-batcher, normalisers, history
  * planning/aggregation/CSV, option-chain building and the `market` config schema.
  */
 import { describe, expect, it } from "vitest";

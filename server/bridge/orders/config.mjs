@@ -1,5 +1,5 @@
 /**
- * The `orders` config section — stream S7 (owned by the orders module; validated by core with this schema).
+ * The `orders` config section (owned by the orders module; validated by core with this schema).
  *
  *   "orders": {
  *     "ticketTtlMs": 60000,              // how long a ticket waits for a human to confirm it

@@ -1,5 +1,5 @@
 /**
- * IST time helpers for market data (stream S5). India has no daylight saving, so IST is a fixed UTC+05:30 offset and
+ * IST time helpers for market data. India has no daylight saving, so IST is a fixed UTC+05:30 offset and
  * all arithmetic here is plain epoch maths. Pure functions, no I/O.
  */
 import { BridgeError } from "../core/errors.mjs";

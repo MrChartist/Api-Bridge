@@ -1,5 +1,5 @@
 /**
- * One broker read serves every consumer (docs/perf/README.md): pages, the events engine, the recorder and API tools
+ * One broker read serves every consumer : pages, background jobs and API tools
  * watching the same underlying share one cache, one in-flight call and one stream subscription. These tests count
  * real broker calls through the REAL scheduler (Dhan policy: one option chain every second, 20 a minute) on a
  * manual clock, for the scenarios a trader actually has open.

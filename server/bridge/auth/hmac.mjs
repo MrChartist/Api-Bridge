@@ -1,5 +1,5 @@
 /**
- * HMAC request signatures for webhooks and other signed callers — stream S2, used by S11 (hooks).
+ * HMAC request signatures for webhooks and other signed callers, used by the webhook (hooks) module.
  *
  * Header format (Stripe-style, so it is familiar to script authors):
  *
@@ -14,7 +14,7 @@
  *   traffic cannot fill the cache with entries an attacker chooses.
  * - Comparison is constant time (crypto.timingSafeEqual on equal-length buffers).
  *
- * verify() never throws for a bad request: it returns { ok: false, reason } so the caller (S11) decides the HTTP
+ * verify() never throws for a bad request: it returns { ok: false, reason } so the caller (hooks) decides the HTTP
  * answer (normally 401 UNAUTHENTICATED with a generic message; the reason is for the audit log and debug logs).
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -22,7 +22,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 export const SIGNATURE_HEADER = "X-MCB-Signature";
 export const SIGNATURE_VERSION = "v1";
 export const DEFAULT_TOLERANCE_S = 300;
-/** Shortest secret sign() accepts (bytes). S11 should generate 32 random bytes. */
+/** Shortest secret sign() accepts (bytes). hooks should generate 32 random bytes. */
 export const MIN_SECRET_BYTES = 16;
 const MAX_HEADER_LENGTH = 1024;
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -150,7 +150,7 @@ export function createReplayCache({ max = 10_000, now = () => Date.now(), onFull
  * @param {string | Buffer | Uint8Array} rawBody            Exact bytes received.
  * @param {{ now?: number, toleranceS?: number, seen?: { checkAndAdd(id: string, expiresAtMs: number): boolean } }} [opts]
  *   now: milliseconds (default Date.now()). seen: a replay cache from createReplayCache(); strongly recommended, and
- *   S11 must pass one per hook (or one shared cache — ids include the signature, which is secret-specific).
+ *   hooks must pass one per hook (or one shared cache — ids include the signature, which is secret-specific).
  * @returns {VerifyResult}
  */
 export function verify(header, secret, rawBody, { now = Date.now(), toleranceS = DEFAULT_TOLERANCE_S, seen } = {}) {

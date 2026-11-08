@@ -8,7 +8,7 @@
  * Auth: oauthRedirect. The user logs in on kite.zerodha.com/connect/login?v=3&api_key=..., Kite
  * redirects back with a short-lived request_token, and POST /session/token (api_key, request_token,
  * checksum = SHA-256(api_key + request_token + api_secret)) returns the access_token. Today the user
- * pastes the access_token in Broker Settings; exchangeRequestToken() below is the server-side half of
+ * pastes the access_token in the account settings; exchangeRequestToken() below is the server-side half of
  * the redirect flow for when a callback route is added. The access token expires at 6 AM IST the next
  * day (regulatory). Kite answers 403 TokenException once it is dead; that surfaces as UPSTREAM_AUTH.
  *

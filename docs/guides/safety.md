@@ -38,7 +38,7 @@ page and a card on the Safety page; `get_safety_status` (MCP) includes it.
 
 | Order | While its account is `cannot_trade` |
 |---|---|
-| Automated live order (webhook; later guards and alert actions) | **Refused** with `CANNOT_TRADE`; no broker call is made. A stale reading is refreshed first (up to 5 s) |
+| Automated live order (webhook) | **Refused** with `CANNOT_TRADE`; no broker call is made. A stale reading is refreshed first (up to 5 s) |
 | Live order a person sends (REST, CLI, a confirmed MCP ticket) | Sent through the usual checks, with a `READINESS` warning |
 | Paper order | No readiness line (paper never needs the broker session) |
 

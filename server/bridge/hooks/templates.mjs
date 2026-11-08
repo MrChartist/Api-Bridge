@@ -1,5 +1,5 @@
 /**
- * Copy-paste alert templates — stream S11. The hooks UI (and `GET /v1/hooks` callers) show these next to a hook so
+ * Copy-paste alert templates. The hooks UI (and `GET /v1/hooks` callers) show these next to a hook so
  * users do not hand-write alert messages. Each template matches what the receiver parses (receivers/*.mjs).
  */
 

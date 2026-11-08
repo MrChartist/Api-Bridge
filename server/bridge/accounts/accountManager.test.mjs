@@ -464,7 +464,7 @@ describe("AccountManager: marketDataCandidates", () => {
 });
 
 describe("broker policy loading", () => {
-  it("a missing S3 module means every broker is 'unknown', silently", async () => {
+  it("a missing ratelimit module means every broker is 'unknown', silently", async () => {
     const warn = vi.fn();
     const err = Object.assign(new Error("Cannot find module '/x/ratelimit/brokerPolicies.mjs'"), { code: "ERR_MODULE_NOT_FOUND" });
     expect(await loadBrokerPolicies({ warn }, async () => Promise.reject(err))).toEqual({});
@@ -482,7 +482,7 @@ describe("broker policy loading", () => {
     expect(await loadBrokerPolicies(undefined, async () => ({ BROKER_POLICIES: [{ brokerId: "dhan", pooling: "not-allowed" }] }))).toEqual({ dhan: { brokerId: "dhan", pooling: "not-allowed" } });
   });
 
-  it("the real loader works whether or not S3 has shipped its table", async () => {
+  it("the real loader works whether or not ratelimit has shipped its table", async () => {
     const table = await loadBrokerPolicies({ warn: () => {} });
     expect(typeof table).toBe("object");
   });

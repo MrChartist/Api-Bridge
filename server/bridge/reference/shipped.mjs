@@ -1,7 +1,7 @@
 /**
  * The datasets shipped in the repo (reference/data/*.json), read once and frozen. A release updates these files (the
  * holiday list each December); every row from outside the repo carries `verified`, and nothing unverified becomes a
- * blocking rule (docs/spec/p1-02-reference.md §1.3, §7.3).
+ * blocking rule.
  */
 import { readFileSync } from "node:fs";
 

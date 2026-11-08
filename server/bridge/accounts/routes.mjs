@@ -1,9 +1,9 @@
 /**
- * Route handlers for stream S1 (docs/openapi.yaml, tag Accounts). Every handler answers { data, meta } and never
+ * Route handlers for the accounts module (docs/openapi.yaml, tag Accounts). Every handler answers { data, meta } and never
  * includes a credential: AccountSummary/SessionState carry state and times only, and connect() takes the request
  * body straight to AccountManager without logging or echoing it.
  *
- * Auditing: account.connected / account.disconnected / account.added / account.removed go to deps.audit (S9) with
+ * Auditing: account.connected / account.disconnected / account.added / account.removed go to deps.audit (safety) with
  * ids, broker and resulting state only. While the audit service is still a stub the action proceeds and a warning is
  * logged.
  *
@@ -100,7 +100,7 @@ async function audit(deps, ctx, type, accountId, data) {
 /**
  * Build the handlers. `deps` is the full deps object passed to register().
  * @param {object} deps
- * @param {{ policies?: Record<string, any> }} [opts]  policies: S3's table, used when the scheduler is still a stub.
+ * @param {{ policies?: Record<string, any> }} [opts]  policies: ratelimit's table, used when the scheduler is still a stub.
  */
 /** The 41 real adapters as directory entries (demo mode only): names and declared capabilities, available: false. */
 let catalogueCache = null;
@@ -357,5 +357,5 @@ function brokerOf(accounts, id) {
   }
 }
 
-/** S3's policy table for the routes (loaded once per register). */
+/** ratelimit's policy table for the routes (loaded once per register). */
 export const loadRoutePolicies = loadBrokerPolicies;

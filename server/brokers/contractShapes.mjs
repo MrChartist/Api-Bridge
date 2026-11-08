@@ -51,7 +51,7 @@ function minRows(rows, expect, problems, label) {
   if (Array.isArray(rows) && rows.length < min) problems.push(`${label}: expected at least ${min} rows, got ${rows.length}`);
 }
 
-// ── option chain → the app's OptionData (mirror of src/lib/marketApi.ts parseDhanLeg; keep in step) ──
+// ── option chain → OptionData ──
 
 function toLeg(leg) {
   if (!leg) return { ltp: 0, oi: 0, oiChange: 0, volume: 0, iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0, bidPrice: 0, askPrice: 0 };
@@ -72,7 +72,7 @@ function toLeg(leg) {
   };
 }
 
-/** Convert an OptionChainResult into the app's OptionData[] (sorted by strike) plus spot. */
+/** Convert an OptionChainResult into OptionData[] (sorted by strike) plus spot. */
 export function toOptionData(result) {
   const oc = result?.data?.oc ?? {};
   const chain = [];

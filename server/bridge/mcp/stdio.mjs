@@ -1,5 +1,5 @@
 /**
- * MCP over stdio — stream S11. `mc-bridge mcp` calls runStdio().
+ * MCP over stdio. `mc-bridge mcp` calls runStdio().
  *
  * It is a RELAY, not a second Bridge: it forwards newline-delimited JSON-RPC between the AI client (Claude Desktop,
  * Claude Code, Cursor) on stdin/stdout and the running Bridge's Streamable HTTP endpoint (POST /mcp) with the given

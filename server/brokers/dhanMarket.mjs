@@ -105,7 +105,7 @@ export function mapDhanMasterRow(get) {
   if (!instrumentType) return null;
   const underlying = get("UNDERLYING_SYMBOL");
   // Index derivatives on non-canonical underlyings (NIFTYNXT50, SENSEX50, FOCIT, NIFTYFPI) are left out:
-  // the app's index list is CANONICAL_UNDERLYINGS.
+  // the index list is CANONICAL_UNDERLYINGS.
   if ((instrumentType === "OPTIDX" || instrumentType === "FUTIDX") && !CANONICAL.has(underlying)) return null;
   const expiry = String(get("SM_EXPIRY_DATE")).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) return null;

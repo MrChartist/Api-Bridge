@@ -1,8 +1,8 @@
 /**
- * Test fixtures for stream S7: stub SafetyGuard, AuditLog and PaperEngine (S8/S9 publish their own fakes later),
+ * Test fixtures for the orders module: stub SafetyGuard, AuditLog and PaperEngine (the paper and safety modules publish their own fakes),
  * a stub broker adapter whose order methods are wrapped with the REAL withOrderGate (so a missing, reused or stale
  * gate fails exactly as in production), and a builder that wires an OrderService over the published fakes of other
- * streams (accounts, scheduler, symbols, market data). No network, no broker.
+ * modules (accounts, scheduler, symbols, market data). No network, no broker.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

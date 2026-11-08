@@ -103,7 +103,7 @@ export async function abRequest(creds, path, { method = "GET", body } = {}) {
   try { json = await res.json(); } catch { /* non-JSON error page */ }
   if (isSessionFailure(res.status, json)) {
     sessionCache.delete(credKey(requireCreds(creds)));
-    throw new SessionRequiredError("Alice Blue session expired. Open the Alice Blue login link again and paste the new authCode in Broker Settings.");
+    throw new SessionRequiredError("Alice Blue session expired. Open the Alice Blue login link again and paste the new authCode in the account settings.");
   }
   const okStatus = json && (json.status === "Ok" || json.stat === "Ok");
   if (res.status === 429) throw new BrokerError(`Alice Blue rate limit reached on ${path}`, { code: "UPSTREAM_RATE_LIMIT" });

@@ -158,7 +158,7 @@ describe("samco instruments and symbols", () => {
     expect(s.calls.find((c) => c.url.endsWith("/quote/multiQuote")).body).toBe(JSON.stringify({ BFO: ["SENSEX26O2282000CE", "SENSEX26O2282000PE"] }));
   });
 
-  it("maps the native chain onto the app's OptionData with broker IV in percent", async () => {
+  it("maps the native chain onto OptionData with broker IV in percent", async () => {
     stub(fx.byCapability.optionChain.responses);
     const res = await adapter.fetchOptionChain(creds, "NIFTY", "2026-10-20");
     const { spotPrice, chain } = toOptionData(res);

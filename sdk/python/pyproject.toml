@@ -21,11 +21,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/MrChartist/api-bridge"
-Documentation = "https://github.com/MrChartist/api-bridge/tree/main/sdk/python#readme"
-Source = "https://github.com/MrChartist/api-bridge"
-Issues = "https://github.com/MrChartist/api-bridge/issues"
-Changelog = "https://github.com/MrChartist/api-bridge/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/MrChartist/api-bridge-v2"
+Documentation = "https://github.com/MrChartist/api-bridge-v2/tree/main/sdk/python#readme"
+Source = "https://github.com/MrChartist/api-bridge-v2"
+Issues = "https://github.com/MrChartist/api-bridge-v2/issues"
+Changelog = "https://github.com/MrChartist/api-bridge-v2/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["mrchartist_bridge"]

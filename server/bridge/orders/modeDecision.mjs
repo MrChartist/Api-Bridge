@@ -1,5 +1,5 @@
 /**
- * Paper or live? — stream S7.
+ * Paper or live?
  *
  * An order is live only when EVERY one of these holds (docs/ARCHITECTURE.md §4, §8):
  *   1. config.safety.liveTrading is true (config file only; MCB_PAPER_ONLY forces it off)
@@ -21,8 +21,8 @@
 import { liveAllowedByConfig } from "../core/config.mjs";
 
 /**
- * Sources whose LIVE orders the readiness gate refuses while their account cannot trade (docs/spec/p1-05-readiness.md
- * §3.7, §6.9): nobody is watching the order go out. "guard" and "alert" are reserved for P1-11/12. Orders a person
+ * Sources whose LIVE orders the readiness gate refuses while their account cannot trade: nobody is watching the
+ * order go out. "guard" and "alert" are reserved sources for automated rules. Orders a person
  * sends (rest, cli, a confirmed MCP ticket) get a readiness warning instead.
  */
 export const AUTOMATED_SOURCES = Object.freeze(["webhook", "system", "guard", "alert"]);
@@ -34,7 +34,7 @@ export const AUTOMATED_SOURCES = Object.freeze(["webhook", "system", "guard", "a
 
 /**
  * Whether this caller's orders need a human confirmation (before the mode is known).
- * Hooks mark themselves with ctx.confirmationRequired = true (set by the hook worker, S11).
+ * Hooks mark themselves with ctx.confirmationRequired = true (set by the hook worker, hooks).
  * @param {import("../core/context.mjs").RequestContext} ctx
  */
 export function sourceNeedsConfirmation(ctx) {

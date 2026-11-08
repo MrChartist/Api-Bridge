@@ -55,7 +55,7 @@ export { fetchExpiryList, fetchOptionChain, fetchLTP, fetchQuotes, fetchDepth, f
 export { fetchPositions, fetchHoldings, fetchFunds, fetchOrderBook, fetchTradeBook } from "./zebuPortfolio.mjs";
 export { placeOrder, modifyOrder, cancelOrder, buildOrderBody, buildModifyBody } from "./zebuOrders.mjs";
 
-/** Where the user gets an authorisation code (for Broker Settings help text). */
+/** Where the user gets an authorisation code (for the login help text). */
 export const loginUrl = (clientId) => `${OAUTH_LOGIN_URL}?client_id=${encodeURIComponent(clientId || "")}`;
 
 /** One cheap authenticated call (Limits). Never throws. */

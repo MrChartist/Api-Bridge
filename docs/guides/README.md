@@ -7,11 +7,7 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
-| [backup-data.md](backup-data.md) | Yahoo Finance and NSE website as a labelled fallback when no broker can answer |
-| [studies.md](studies.md) | Chart studies, candlestick patterns and ChartistScript indicators computed over any symbol's candles |
-| [scanner.md](scanner.md) | Condition scans over big universes, scheduled scans and alerts |
-| [live-events.md](live-events.md) | Live market events (circuits, volume surges, gaps, levels, F&O OI, option OI/IV/walls): definitions, parameters, API |
-| [notifications.md](notifications.md) | Saved-scan alerts, fills, kill switch and expired sessions to Telegram, Discord, Slack or a webhook |
+| [paper-margin.md](paper-margin.md) | How the paper engine estimates margin for F&O positions |
 | [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [webhooks.md](webhooks.md) | Signed generic, ChartInk and GoCharting alerts |

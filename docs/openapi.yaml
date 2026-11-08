@@ -136,21 +136,21 @@ tags:
   - name: Backup data
     description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
   - name: Reference data
-    description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges (stream S16). Every value carries source and asOf.
+    description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges. Every value carries source and asOf.
   - name: Volatility
-    description: Vol-time clock, daily ATM IV store, IV rank and percentile, IV history and VIX (stream S18). IV in vol points; every series carries quality and source.
+    description: Vol-time clock, daily ATM IV store, IV rank and percentile, IV history and VIX. IV in vol points; every series carries quality and source.
   - name: Options desk
-    description: F&O underlyings, expiry and delivery costs, and the option sweep behind the screener (stream S19).
+    description: F&O underlyings, expiry and delivery costs, and the option sweep behind the screener.
   - name: Participant OI
     description: >-
-      NSE participant-wise open interest (stream S26, store S4): Client, DII, FII and Pro long and short contracts in index
+      NSE participant-wise open interest: Client, DII, FII and Pro long and short contracts in index
       and stock futures and options, one file a day after the close. NSE only; summed over all strikes and expiries;
       number of contracts. Fetched from the NSE archives only when archive downloads are on. Descriptive data, not advice.
   - name: Options data
-    description: Recorded option-chain snapshots (every minute in session), daily derived statistics and the recorder's status (stream S17). Stored only on this computer.
+    description: Recorded option-chain snapshots (every minute in session), daily derived statistics and the recorder's status. Stored only on this computer.
 
   - name: Studies
-    description: Chart studies (`ind.*`) and candlestick patterns from the ChartistScript core, computed on this computer over the Bridge's own candles (docs/guides/studies.md). Read only; nothing here can reach orders.
+    description: Chart studies (`ind.*`) and candlestick patterns from the ChartistScript core, computed on this computer over the Bridge's own candles. Read only; nothing here can reach orders.
   - name: Analytics
     description: Options analytics from the Bridge's own chain and quotes (OI, gamma exposure, skew, basis, Greeks, payoff, position size). Computed from the Bridge's own data; saved alert rules are the only thing it stores.
 paths:
@@ -1090,7 +1090,7 @@ paths:
         Client messages: `{"op":"subscribe","symbols":[...],"mode":"ltp|quote|depth"}`, `{"op":"unsubscribe",...}`,
         `{"op":"subscribe_orders"}`, `{"op":"ping"}`. Server messages: `snapshot`, `tick` (with a per-connection `seq`),
         `order`, `status` (upstream connected or stale), `error`, `heartbeat` every 15 s and `go_away` before a restart.
-        A gap in `seq` means re-subscribe for a fresh snapshot. Full message schemas: docs/asyncapi.yaml (stream S6).
+        A gap in `seq` means re-subscribe for a fresh snapshot. Full message schemas: docs/asyncapi.yaml.
       x-stream: S6
       x-websocket: true
       security: []
@@ -3512,7 +3512,7 @@ components:
               errors: { type: array, items: { type: object, additionalProperties: true } }
               meta: { $ref: "#/components/schemas/Meta" }
     StrategyResult:
-      description: A strategy answer (docs/STRATEGIES-PYTHON.md). `data` depends on the route.
+      description: A strategy answer. `data` depends on the route.
       content:
         application/json:
           schema:
@@ -3683,8 +3683,8 @@ components:
         pcrVolume: { type: [number, "null"] }
         maxPain: { type: [number, "null"] }
         strikesCovered: { type: integer }
-        largestCallOi: { type: [object, "null"], description: "Strike with the largest call OI (not P1-8's gamma Call Wall).", properties: { strike: { type: number }, oi: { type: integer } } }
-        largestPutOi: { type: [object, "null"], description: "Strike with the largest put OI (not P1-8's gamma Put Wall).", properties: { strike: { type: number }, oi: { type: integer } } }
+        largestCallOi: { type: [object, "null"], description: "Strike with the largest call OI (not a gamma Call Wall).", properties: { strike: { type: number }, oi: { type: integer } } }
+        largestPutOi: { type: [object, "null"], description: "Strike with the largest put OI (not a gamma Put Wall).", properties: { strike: { type: number }, oi: { type: integer } } }
         ceOi: { type: [integer, "null"] }
         peOi: { type: [integer, "null"] }
         topAdds: { type: array, items: { type: object, properties: { strike: { type: number }, right: { type: string, enum: [CE, PE] }, dOi: { type: integer } } } }
@@ -3694,8 +3694,8 @@ components:
         slots: { type: integer }
         gapSlots: { type: integer }
         partialSlots: { type: integer }
-        gex: { type: "null", description: "Reserved for P1-8." }
-        zeroGamma: { type: "null", description: "Reserved for P1-8." }
+        gex: { type: "null", description: "Reserved." }
+        zeroGamma: { type: "null", description: "Reserved." }
     RecorderConfig:
       type: object
       additionalProperties: false
@@ -3769,7 +3769,7 @@ components:
         warnings: { type: array, items: { type: string } }
         feasibility:
           type: array
-          description: "Only with ?feasibility=true: one row per broker (default settings), the same words as the table in docs/guides/recorder.md."
+          description: "Only with ?feasibility=true: one row per broker (default settings)."
           items:
             type: object
             properties:
@@ -4713,7 +4713,7 @@ components:
         reason: { type: string, description: "Open enum: NOT_TRACKED, NO_HISTORY, COLLECTING, SOURCE_OFF, NO_CHAIN, NO_DATA_ACCOUNT, NOT_LISTED_IN_DEMO." }
     VolData:
       type: object
-      description: Shapes in docs/spec/p1-03-pricing-vol.md §3.4–3.8; the full schemas land with the handlers (P1-3b/P1-3c).
+      description: Volatility data. Open shape; the fields are described by the volatility routes.
       additionalProperties: true
     VolClockPart:
       type: object
@@ -4948,7 +4948,7 @@ components:
         code:
           type: string
           description: >-
-            An open set. Codes include the error codes, SAFETY_WARNING, LOT_SIZE_STALE, and (p1-06) FNO_BAN (block: an
+            An open set. Codes include the error codes, SAFETY_WARNING, LOT_SIZE_STALE, and (stock derivatives) FNO_BAN (block: an
             opening order in a stock derivative in the F&O ban period; closing orders pass), FNO_BAN_UNCONFIRMED (warn:
             positions could not be read, the broker decides), BAN_DATA_UNAVAILABLE (warn: no ban list loaded) and
             PHYSICAL_SETTLEMENT (warn: from E-4, an opening order in an ITM or close-to-money stock option).
@@ -5205,7 +5205,7 @@ components:
       type: object
       required: [view, asOf, holders, outsideFamily, method, disclaimer]
       description: >-
-        docs/spec/p1-12-guard-participants.md §4.3.1. holders[]: { holder, label, relationship, inFamily, priceSource,
+        holders[]: { holder, label, relationship, inFamily, priceSource,
         accounts[] (account, broker, label, mode, tags, positions, pnl, margin { used, available, asOf, source }, error),
         underlyings[] (underlying, spot, lot, greeks { delta, deltaLots, rupeeDelta, gamma, theta, vega, missing } | null,
         legs[] BookLeg), totals { pnl, theta, vega, rupeeDelta, marginUsed, marginAvailable } }. family (view=family):
@@ -5680,7 +5680,7 @@ components:
         shareOfShort: { type: [number, "null"] }
     ParticipantSummary:
       type: object
-      description: "§4.2.2 of docs/spec/p1-12-guard-participants.md. When available is false only reason, detail, exchange, unit and demo are set."
+      description: "When available is false only reason, detail, exchange, unit and demo are set."
       properties:
         available: { type: boolean }
         reason: { type: string, description: "NO_PARTICIPANT_DATA | PARTICIPANT_STALE | SOURCE_OFF (when available is false)" }

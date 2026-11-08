@@ -7,7 +7,6 @@
  * same action, not yet used and not older than ORDER_GATE_TTL_MS.
  *
  * Call sites that mint gates (keep this list current; each is a real-money surface):
- *  - the proxy's trade route (Dhan), after validateOrder() passed with liveArmed === true;
  *  - the Bridge OrderService (server/bridge/orders/orderService.mjs): sendLeg() for live placeOrder and writeLegs()
  *    for live modifyOrder / cancelOrder, right before the adapter call, after SafetyGuard passed. Its live mappers
  *    (server/bridge/orders/brokerOrders.mjs LIVE_ORDER_MAPPERS) are wired for Dhan, Zerodha and Upstox; only Dhan is

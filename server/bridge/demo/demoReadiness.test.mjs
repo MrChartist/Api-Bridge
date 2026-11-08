@@ -1,5 +1,5 @@
 /**
- * Demo readiness (p1-05 §5): every scenario gives the expected state and reason codes on the simulated demo account,
+ * Demo readiness: every scenario gives the expected state and reason codes on the simulated demo account,
  * the samples follow it, scenarios restore themselves after 10 minutes, only documentation addresses are used, and the
  * check window is ignored (the demo works on a Sunday night).
  */

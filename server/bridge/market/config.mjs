@@ -1,5 +1,5 @@
 /**
- * The `market` config section — stream S5 (owned by the market module; validated by core with this schema).
+ * The `market` config section (owned by the market module; validated by core with this schema).
  *
  *   "market": {
  *     "freshness": { "ltpMs": 1000, "quoteMs": 2000, "depthMs": 1000, "chainMs": 3000, "expiriesMs": 300000, "historyMs": 60000 },
@@ -112,11 +112,11 @@ export const MARKET_CONFIG_SCHEMA = z
         /**
          * DEPRECATED (use reference.rate or the Market calendar page): risk-free rate for computed Greeks (annual,
          * decimal). When set it overrides the reference rate and a warning is logged once. No default: unset means
-         * "use deps.reference.rate()" (docs/spec/p1-02-reference.md §10).
+         * "use deps.reference.rate()".
          */
         riskFreeRate: z.number().min(0).max(0.25).optional(),
         /**
-         * The chain IV model when a request names none (docs/spec/p1-03-pricing-vol.md §10): legacy-bs-spot until the
+         * The chain IV model when a request names none: legacy-bs-spot until the
          * deprecation date (1 May 2027), then b76-forward. Owners can switch early.
          */
         ivModelDefault: z.enum(["legacy-bs-spot", "b76-forward"]).default("legacy-bs-spot"),

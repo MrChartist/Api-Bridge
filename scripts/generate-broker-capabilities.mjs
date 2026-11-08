@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Writes src/lib/brokerCapabilities.generated.ts from the server adapters' own `capabilities`,
- * `credentialFields` and session-login fields, so Broker Settings shows what each adapter actually
+ * `credentialFields` and session-login fields, so the dashboard shows what each adapter actually
  * declares instead of hand-written feature lists. server/brokers/brokerCapabilitiesSnapshot.test.mjs
  * fails when the file drifts from the adapters; rerun:  node scripts/generate-broker-capabilities.mjs
  */

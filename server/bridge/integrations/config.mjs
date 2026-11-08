@@ -1,5 +1,5 @@
 /**
- * The `integrations` config section — stream S10 (owned by the integrations module; validated by core with this
+ * The `integrations` config section (owned by the integrations module; validated by core with this
  * schema). Everything is optional; `{}` gives the defaults below.
  *
  *   "integrations": {

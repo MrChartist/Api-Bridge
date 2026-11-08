@@ -1,5 +1,5 @@
 /**
- * S3 routes end to end through the real request pipeline (createApp) with the real scheduler, a fake AccountManager
+ * ratelimit routes end to end through the real request pipeline (createApp) with the real scheduler, a fake AccountManager
  * and a fake key store: GET /v1/limits, GET /v1/usage, the per-key client limit and the config section.
  */
 import http from "node:http";

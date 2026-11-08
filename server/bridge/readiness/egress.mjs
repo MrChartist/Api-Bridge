@@ -1,5 +1,5 @@
 /**
- * Egress IP detector (docs/spec/p1-05-readiness.md §2.3, §7.3, §7.6). Asks the IP-echo service the USER chose
+ * Egress IP detector. Asks the IP-echo service the USER chose
  * (readiness.egressIp.lookupUrl) which address this computer's requests come from. Off by default; never called in
  * "off" or "manual" mode.
  *
@@ -8,7 +8,7 @@
  * never written to disk (the monitor keeps it in memory). The result is labelled with the service's host name: it is
  * what THAT service saw, which can differ from what the broker sees (VPN split tunnels, dual WAN, IPv6).
  *
- * Clock skew (§7.6): skewMs = Date(response) + 500 − midpoint(requestStart, responseEnd); the +500 ms makes up for the
+ * Clock skew: skewMs = Date(response) + 500 − midpoint(requestStart, responseEnd); the +500 ms makes up for the
  * header's 1 s resolution.
  */
 import { lookupUrlProblem } from "./config.mjs";

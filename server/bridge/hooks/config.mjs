@@ -1,5 +1,5 @@
 /**
- * The `hooks` config section — stream S11 (owned by the hooks module; core validates it with this schema).
+ * The `hooks` config section (owned by the hooks module; core validates it with this schema).
  *
  *   "hooks": {
  *     "queueSize": 200,                 // signals waiting to be processed; a full queue answers 429 (never unbounded)

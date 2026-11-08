@@ -1,16 +1,14 @@
 /**
- * Demo-only routes (docs/spec/README.md §3.1, F0). They exist ONLY when the Bridge runs in demo mode; a Bridge with
+ * Demo-only routes. They exist ONLY when the Bridge runs in demo mode; a Bridge with
  * real accounts never registers them, so no demo control can reach real data or real money.
  *
- * Each Phase 1 spec that needs a demo control adds ONE entry to DEMO_ROUTES below, and in the same commit:
+ * A module that needs a demo control adds ONE entry to DEMO_ROUTES below, and in the same change:
  *  - documents the operation in docs/openapi.yaml with `x-demo-only: true` (plus its usual x-scope and x-stream);
  *  - adds "METHOD /path" to the DEMO_ONLY list in server/bridge/core/openapi.test.mjs.
- * Planned: POST /v1/demo/feed (p1-04), POST /v1/demo/readiness (p1-05), POST /v1/demo/fno (p1-06), alert simulate
- * (p1-11), guard scenarios (p1-12).
  *
  * Rules every entry follows (checked by registerDemoRoutes):
  *  - the path starts with /v1/demo/;
- *  - `module` names the module whose stream owns the route (route logs and the OpenAPI x-stream check use it), and
+ *  - `module` names the module that owns the route (route logs and the OpenAPI x-stream check use it), and
  *    that module must be loaded;
  *  - never `public: true` (demo controls are for this computer and the person trying the demo, not public ingress);
  *  - `handler(deps)` returns the request handler; it reads only services, never touches files outside dataDir.
@@ -26,7 +24,7 @@ import { createReadinessRoutes } from "../readiness/routes.mjs";
 
 /** @type {readonly DemoRoute[]} */
 export const DEMO_ROUTES = Object.freeze([
-  // p1-05 §4.4: simulate a readiness failure on the demo account (restores itself after 10 minutes). Scope read, not
+  // Simulate a readiness failure on the demo account (restores itself after 10 minutes). Scope read, not
   // loopback-only, so the public demo can use it; it touches only simulated in-memory state.
   Object.freeze({
     module: "readiness",

@@ -1,5 +1,5 @@
 /**
- * AccountManager — stream S1 (docs/STREAMS.md §S1). The contract (methods, argument and return types, rules) is
+ * AccountManager. The contract (methods, argument and return types, rules) is
  * SERVICE_CONTRACTS.accounts in ../core/contracts.mjs; app.mjs refuses to boot an implementation that misses a method.
  *
  * What it does
@@ -10,7 +10,7 @@
  *    For sessionLogin brokers the secrets (password/PIN + the current TOTP code) go to adapter.login() exactly once
  *    and are then dropped: they are never stored, cached, logged, registered with the logger or echoed in errors.
  *    Only the adapter's declared auth.sessionFields are kept. Everything kept lives in deps.secrets (encrypted at
- *    rest by S2) under "account:<id>"; see session.mjs for the record shape. Other auth kinds save the typed keys
+ *    rest by the secret store) under "account:<id>"; see session.mjs for the record shape. Other auth kinds save the typed keys
  *    and verify them with one adapter.testConnection() call (requestTokenExchange adapters do their documented
  *    code exchange inside that call).
  *  - Session state machine per account: missing -> (checking) -> connected -> expired | error, with a daily expiry
@@ -18,7 +18,7 @@
  *    timer. Emits "account.status" on every visible change. "account.session_rejected" (from the scheduler) marks
  *    the account expired until the next connect.
  *  - marketDataCandidates(): the accounts that may serve an unpinned market-data read (opt-in AND the broker policy
- *    from S3 says pooling is "allowed" AND the account names its `holder`; only accounts of ONE holder are pooled,
+ *    from the ratelimit policy table says pooling is "allowed" AND the account names its `holder`; only accounts of ONE holder are pooled,
  *    because a family member is a different user under the brokers' personal-use terms), else the single primary
  *    account, in config order. A caller's account restriction (`allowedAccounts`) is applied first, so a key limited
  *    to some accounts never spends another account's market-data entitlement or rate budget.
@@ -60,7 +60,7 @@ export const LOGIN_ATTEMPTS_PER_WINDOW = 5;
 
 /**
  * @typedef {object} AccountManagerOptions
- * @property {Record<string, any> | any[]} [policies]   Broker policy table (tests). Default: S3's brokerPolicies.mjs.
+ * @property {Record<string, any> | any[]} [policies]   Broker policy table (tests). Default: ratelimit's brokerPolicies.mjs.
  * @property {() => Promise<any>} [importPolicies]       Test seam for loading the policy module.
  * @property {number} [pollMs]                           Stat-poll interval for the secrets file (default 5000).
  * @property {boolean} [watchFs]                         Use fs.watch as well as polling (default true).
@@ -218,7 +218,7 @@ export async function createAccountManager(deps, options = {}) {
   }
 
   /**
-   * Account opted in AND the broker's terms (S3 policy) allow spreading one user's reads over their accounts (or the
+   * Account opted in AND the broker's terms (ratelimit policy) allow spreading one user's reads over their accounts (or the
    * terms are unknown and the user opted in to that too with marketData.poolingWhenTermsUnknown) AND the account says
    * whose it is (`holder`), so accounts of different people are never pooled together. "not-allowed" always wins.
    */
@@ -560,9 +560,9 @@ export async function createAccountManager(deps, options = {}) {
       return eligible.length ? [eligible[0].id] : [];
     },
 
-    // ── Extras beyond the contract (module.mjs, CLI, tests). Other streams call only the contract methods. ──
+    // ── Extras beyond the contract (module.mjs, CLI, tests). Other modules call only the contract methods. ──
 
-    /** The S3 policy for a broker, or null when S3 has none (yet). */
+    /** The ratelimit policy for a broker, or null when ratelimit has none (yet). */
     brokerPolicy(brokerId) {
       return policies[brokerId] ?? null;
     },
