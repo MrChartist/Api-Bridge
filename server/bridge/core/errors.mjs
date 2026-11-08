@@ -8,6 +8,15 @@
  * Wire format (application/problem+json):
  *   { type, title, status, detail, code, retryable, requestId, broker?: { id, code, message }, errors?: [...] }
  *
+ * Rate-limit refusals (HTTP 429) say WHOSE limit was hit, so a client can react correctly:
+ *   RATE_LIMITED           the caller's own quota or caps (scope "client": the key's rate, daily cap or concurrency;
+ *                          scope "consumer-cap": too many of its own requests waiting for the broker)
+ *   UPSTREAM_RATE_LIMITED  the shared broker budget (scope "upstream": the budget cannot serve the request in time;
+ *                          scope "queue": the shared queue is full)
+ *   + scope, retryAfterMs (the true wait, in ms) and limit: { name, remaining, resetMs } (the budget that said no).
+ * The Retry-After header is the same wait in whole seconds, jittered 0 to 25 % upward so waiting clients do not
+ * all come back in the same second, and never below the true wait. Clients must not parse `detail`.
+ *
  * Broker adapter errors (server/brokers/contract.mjs BrokerError: 422 = we refused, 502 = upstream) are
  * converted with fromBrokerError(), which keeps the broker's own code in `broker.code`.
  */
@@ -66,6 +75,20 @@ export const ERROR_CODES = Object.freeze({
   OUTCOME_UNKNOWN: { status: 504, title: "The order outcome is unknown. Check the order book before sending it again", retryable: false },
 });
 
+/** Where a rate-limit refusal came from (see the file comment). */
+export const REFUSAL_SCOPES = Object.freeze(["client", "upstream", "queue", "consumer-cap"]);
+
+/**
+ * Retry-After in whole seconds for a wait of `retryAfterMs`: rounded up, then 0 to 25 % added so that clients that
+ * were refused together do not retry together. Never less than the true wait.
+ * @param {number} retryAfterMs
+ * @param {() => number} [random] 0 <= r < 1 (tests)
+ */
+export function jitteredRetryAfterSeconds(retryAfterMs, random = Math.random) {
+  const ms = Math.max(0, Number(retryAfterMs) || 0);
+  return Math.max(1, Math.ceil((ms * (1 + 0.25 * random())) / 1000));
+}
+
 export const PROBLEM_TYPE_BASE = "https://bridge.mrchartist.local/errors/";
 
 /** The one error class handlers throw. Anything else becomes INTERNAL (and its message is not shown). */
@@ -73,7 +96,8 @@ export class BridgeError extends Error {
   /**
    * @param {keyof typeof ERROR_CODES | string} code
    * @param {string} [detail] Human text in Indian English. Clients must not parse it.
-   * @param {{ status?: number, retryable?: boolean, retryAfterMs?: number, broker?: { id?: string, code?: string, message?: string },
+   * @param {{ status?: number, retryable?: boolean, retryAfterMs?: number, scope?: "client"|"upstream"|"queue"|"consumer-cap",
+   *           limit?: { name: string, remaining: number, resetMs: number }, broker?: { id?: string, code?: string, message?: string },
    *           errors?: Array<{ path: string, message: string }>, headers?: Record<string, string>, cause?: unknown,
    *           fields?: Record<string, unknown> }} [extra]
    *   fields: extra documented problem members for one code (CAPACITY_EXCEEDED: canCarry, refused); they never
@@ -88,6 +112,11 @@ export class BridgeError extends Error {
     this.retryable = extra.retryable ?? spec.retryable;
     this.detail = detail ?? spec.title;
     if (extra.retryAfterMs !== undefined) this.retryAfterMs = extra.retryAfterMs;
+    if (extra.scope !== undefined) {
+      if (!REFUSAL_SCOPES.includes(extra.scope)) throw new RangeError(`Unknown refusal scope "${extra.scope}"`);
+      this.scope = extra.scope;
+    }
+    if (extra.limit) this.limit = extra.limit;
     if (extra.broker) this.broker = extra.broker;
     if (extra.errors) this.errors = extra.errors;
     if (extra.headers) this.headers = extra.headers;
@@ -152,16 +181,23 @@ export function toProblem(err, { requestId, instance } = {}) {
   if (requestId) problem.requestId = requestId;
   if (instance) problem.instance = instance;
   if (e.retryAfterMs !== undefined) problem.retryAfterMs = e.retryAfterMs;
+  if (e.scope !== undefined) problem.scope = e.scope;
+  if (e.limit) problem.limit = e.limit;
   if (e.broker) problem.broker = e.broker;
   if (e.errors) problem.errors = e.errors;
   if (e.fields) for (const [k, v] of Object.entries(e.fields)) if (!(k in problem)) problem[k] = v;
   return problem;
 }
 
-/** Response headers that go with an error (Retry-After in whole seconds, plus anything the thrower set). */
+/**
+ * Response headers that go with an error (Retry-After in whole seconds, plus anything the thrower set). Rate-limit
+ * refusals that carry a `scope` get the jittered Retry-After (jitteredRetryAfterSeconds); other errors the plain one.
+ */
 export function problemHeaders(err) {
   const h = { ...(err instanceof BridgeError && err.headers ? err.headers : {}) };
-  if (err instanceof BridgeError && err.retryAfterMs !== undefined) h["Retry-After"] = String(Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
+  if (err instanceof BridgeError && err.retryAfterMs !== undefined) {
+    h["Retry-After"] = String(err.scope !== undefined ? jitteredRetryAfterSeconds(err.retryAfterMs) : Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
+  }
   return h;
 }
 

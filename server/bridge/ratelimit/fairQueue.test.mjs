@@ -99,16 +99,30 @@ describe("start-time fair queueing inside a lane", () => {
 
   it("counts the work ahead of a new request: its consumer's backlog and the tags at or below its start tag, not other backlogs", () => {
     const q = createPriorityQueue({ ageingMs: 1e9 });
-    for (let i = 0; i < 50; i++) q.push(i, { priority: "interactive", now: i, consumer: "flood" });
-    for (let i = 0; i < 3; i++) q.push(i, { priority: "interactive", now: i, consumer: "mine" });
-    const ahead = (c) => {
+    for (let i = 0; i < 50; i++) q.push(i, { priority: "interactive", now: i, consumer: "flood", group: "quote" });
+    for (let i = 0; i < 3; i++) q.push(i, { priority: "interactive", now: i, consumer: "mine", group: i === 2 ? "depth" : "quote" });
+    const ahead = (c, group = null) => {
       let n = 0;
-      q.forEachAhead("interactive", c, () => (n += 1));
+      q.aheadUnits("interactive", c, (g, units) => {
+        if (group === null || g === group) n += units;
+      });
       return n;
     };
     expect(ahead("flood")).toBe(53); // the flooder waits behind everything of its own and every lower tag
     expect(ahead("mine")).toBe(3 + 4); // its own three, and the flood items with tags 0 to 3 (at or below its start tag 3)
     expect(ahead("new-consumer")).toBe(2); // only the two items with start tag 0
+    expect(ahead("flood", "depth")).toBe(1); // totals are kept per group
+    expect(ahead("flood", "quote")).toBe(52);
+  });
+
+  it("keeps its running totals right when items are served or dropped", () => {
+    const q = createPriorityQueue({ ageingMs: 1e9 });
+    const items = Array.from({ length: 6 }, (_, i) => q.push(i, { priority: "interactive", now: i, consumer: "a", cost: 2, group: "g" }));
+    q.remove(items[0], { served: true });
+    q.remove(items[3]);
+    let total = 0;
+    q.aheadUnits("interactive", "a", (_g, u) => (total += u));
+    expect(total).toBe(8);
   });
 
   it("finds the newest waiting request of a consumer in its lowest lane, never an order", () => {

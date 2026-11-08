@@ -79,7 +79,7 @@ export function validateQuota(body) {
 
 /**
  * @param {{ dir?: string | null, config?: { perSecond: number, burst?: number, perDay?: number, keys?: Record<string, object> },
- *   logger?: { warn?: Function }, now?: () => number }} opts
+ *   logger?: { warn?: Function } }} opts
  *   dir: the data folder (omit for a store that lives in memory only: tests, no dataDir).
  */
 export function createQuotaStore({ dir = null, config = { perSecond: 50 }, logger = null } = {}) {

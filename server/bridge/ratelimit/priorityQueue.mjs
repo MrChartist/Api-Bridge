@@ -201,11 +201,12 @@ export function createPriorityQueue({ ageingMs = 2000 } = {}) {
      * Add an item. Unknown priorities are an error.
      * @template T
      * @param {T} value
-     * @param {{ priority: string, now: number, consumer?: string, weight?: number, cost?: number }} opts
+     * @param {{ priority: string, now: number, consumer?: string, weight?: number, cost?: number, group?: string | null }} opts
      *   consumer: the fairness key (default: one shared consumer). weight > 0 (default 1). cost > 0 (default 1).
+     *   group: a label the caller wants waiting units totalled by (aheadUnits); the scheduler passes the endpoint class.
      * @returns {QueueItem<T>}
      */
-    push(value, { priority, now, consumer = DEFAULT_CONSUMER, weight = 1, cost = 1 }) {
+    push(value, { priority, now, consumer = DEFAULT_CONSUMER, weight = 1, cost = 1, group = null }) {
       const laneIx = PRIORITY_RANK[priority];
       if (laneIx === undefined) throw new RangeError(`Unknown priority "${priority}"`);
       const w = weight > 0 && Number.isFinite(weight) ? weight : 1;
@@ -213,13 +214,14 @@ export function createPriorityQueue({ ageingMs = 2000 } = {}) {
       const L = lanes[laneIx];
       const start = Math.max(L.V, L.F.get(consumer) ?? 0);
       L.F.set(consumer, start + c / w);
-      const item = { priority, enqueuedAt: now, seq: seq++, queued: true, value, consumer, weight: w, cost: c, tag: start };
+      const item = { priority, enqueuedAt: now, seq: seq++, queued: true, value, consumer, weight: w, cost: c, group, tag: start };
       let q = L.cons.get(consumer);
       if (!q) {
-        q = { c: consumer, items: [], head: 0, live: 0 };
+        q = { c: consumer, items: [], head: 0, live: 0, units: new Map() };
         L.cons.set(consumer, q);
       }
       q.items.push(item);
+      if (group !== null) q.units.set(group, (q.units.get(group) ?? 0) + c);
       q.live += 1;
       L.live += 1;
       size += 1;
@@ -247,7 +249,10 @@ export function createPriorityQueue({ ageingMs = 2000 } = {}) {
       item.queued = false;
       size -= 1;
       L.live -= 1;
-      if (q) q.live -= 1;
+      if (q) {
+        q.live -= 1;
+        if (item.group !== null) q.units.set(item.group, (q.units.get(item.group) ?? 0) - item.cost);
+      }
       if (iterating === 0) {
         if (q) tidyConsumer(L, q);
         resetIfIdle(L);
@@ -289,24 +294,37 @@ export function createPriorityQueue({ ageingMs = 2000 } = {}) {
     },
 
     /**
-     * Call visit(item) for every waiting item in this lane that a NEW item of `consumer` would wait behind: those
-     * with a start tag at or below the tag the new item would get. For one consumer that is all of its own items;
-     * another consumer's backlog beyond that point is not counted. Items in higher lanes are not visited.
+     * The waiting units a NEW item of `consumer` would sit behind in its own lane, totalled by group: the consumer's own
+     * waiting items and, for every other consumer, the items whose start tag is at or below the tag the new item would
+     * get. Another consumer's backlog beyond that point is not counted. Items in higher lanes are not included.
+     * Calls add(group, units) per group and consumer. A consumer whose newest tag is covered is added from its running
+     * totals (O(1)); only a consumer that straddles the new tag is walked.
      * @param {string} priority
      * @param {string} consumer
-     * @param {(item: QueueItem<any>) => void} visit
+     * @param {(group: string, units: number) => void} add
      */
-    forEachAhead(priority, consumer, visit) {
+    aheadUnits(priority, consumer, add) {
       const L = lanes[PRIORITY_RANK[priority]];
       const start = Math.max(L.V, L.F.get(consumer) ?? 0);
       for (const q of L.cons.values()) {
+        if (q.live === 0) continue;
         const items = q.items;
+        if (items[items.length - 1].tag <= start) {
+          for (const [g, u] of q.units) if (u > 0) add(g, u);
+          continue;
+        }
         for (let i = q.head; i < items.length; i++) {
           const it = items[i];
           if (it.tag > start) break;
-          if (it.queued) visit(it);
+          if (it.queued && it.group !== null) add(it.group, it.cost);
         }
       }
+    },
+
+    /** The start tag a new item of `consumer` would get in a lane right now (where it would stand in line). */
+    startTag(priority, consumer) {
+      const L = lanes[PRIORITY_RANK[priority]];
+      return Math.max(L.V, L.F.get(consumer) ?? 0);
     },
 
     /** Waiting items of one consumer across lanes. */

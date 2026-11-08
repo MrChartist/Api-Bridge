@@ -92,6 +92,9 @@ describe("route table", () => {
     expect(ROUTES.map(([m, p, o]) => [m, p, o])).toEqual([
       ["GET", "/v1/limits", { scope: "read" }],
       ["GET", "/v1/usage", { scope: "read" }],
+      ["GET", "/v1/quotas", { scope: "read" }],
+      ["PUT", "/v1/quotas/:keyId", { scope: "admin", loopbackOnly: true }],
+      ["DELETE", "/v1/quotas/:keyId", { scope: "admin", loopbackOnly: true, body: "none" }],
     ]);
   });
 

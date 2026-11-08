@@ -347,7 +347,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
           if (!isStub(deps.scheduler)) {
             const verdict = deps.scheduler.checkClient(ctx);
             Object.assign(ctx.responseHeaders, verdict.headers ?? {});
-            if (!verdict.ok) throw new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
+            if (!verdict.ok) throw verdict.error ?? new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
           }
         }
       } else if (opts.scope && authMode === "none") {
@@ -365,7 +365,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
 
       // Every broker call this request causes is credited to its consumer (API › Rate limits, Top consumers).
       const consumer = httpConsumer({ headers: req.headers, path: url.pathname, principal: ctx.principal });
-      const result = await runAsConsumer(consumer, () => route.handler(ctx));
+      const result = await runAsConsumer(consumer, () => route.handler(ctx), ctx);
       if (res.headersSent || res.writableEnded) {
         status = res.statusCode;
         return;
