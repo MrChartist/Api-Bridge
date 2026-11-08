@@ -51,6 +51,12 @@ export default defineModule({
       return service;
     },
   },
+  async stop(deps) {
+    // Plugins run in their own processes: stop them with the Bridge.
+    const registry = deps.backupData?.registry;
+    if (!registry) return;
+    await Promise.all(registry.list().map(async (p) => (typeof p.stop === "function" ? p.stop() : undefined)));
+  },
   async register(app, deps) {
     const handlers = createSourcesRoutes(deps);
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);

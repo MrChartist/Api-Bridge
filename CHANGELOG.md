@@ -8,6 +8,16 @@
   own process with a brokered, allow-listed network and a hash pin, and never see credentials or order code. New:
   `mc-bridge sources ...`, [docs/guides/sources.md](docs/guides/sources.md), [docs/source-contract.md](docs/source-contract.md)
   and `examples/source-plugin/`.
+- Sources page in the dashboard (Overview, Providers, Quotas) replaces API > Rate limits. Recent requests show what
+  answered each market read: `GET /v1/requests` entries carry `route` (`from`, `source`, `sourceName`, `class`,
+  `delaySec`).
+- Quote batches are per consumer, so a light reader no longer waits in a heavy reader's place in the queue. Two keys
+  asking for different symbols in the same moment make two broker calls instead of one.
+- Fixes in the sources wiring: the built-in providers now register in a normal start, plugins named in
+  `sources.plugins` are loaded (and stopped with the Bridge), the router's choice is honoured by the sources service,
+  source health shows the outcome of real calls, and a plugin's own health appears in `GET /v1/sources`. `health.nextTryAt`
+  is always ISO text and `health.lastError` plain text.
+- Pooling needs your consent: it stays off until you accept a versioned notice (`GET`, `PUT` and `DELETE /v1/pooling`).
 
 ## 2.0.0
 

@@ -36,6 +36,7 @@ import { z } from "zod";
 import { PRIORITIES, isStub } from "../core/contracts.mjs";
 import { BridgeError, fromBrokerError, fromValidation } from "../core/errors.mjs";
 import { EXCHANGES, parseSymbol } from "../core/symbolFormat.mjs";
+import { currentConsumerInfo } from "../ratelimit/consumer.mjs";
 import { recordSaving as recordSavingGlobal } from "../ratelimit/scheduler.mjs";
 import { DEFAULT_RATE } from "../reference/defaults.mjs";
 import { PURPOSES, classRank, dataQuality } from "../sources/contract.mjs";
@@ -44,6 +45,7 @@ import { createFailureCache } from "../sources/failureCache.mjs";
 import { createHealthTracker, outcomeKindOf } from "../sources/health.mjs";
 import { createSourceRouter, historySupport } from "../sources/router.mjs";
 import { createBatcher } from "./batcher.mjs";
+import { markShared } from "./routeInfo.mjs";
 import { IV_MODELS, applyB76, atmStrike, defaultOptionExchange, finishLeg, legSymbol, rowsFromBrokerChain, rowsFromQuotes, settlementOfKind, strikeStepOf, trimStrikes } from "./chain.mjs";
 import { kindOf, pricingContext } from "../vol/context.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
@@ -172,6 +174,9 @@ export function createMarketDataService(deps) {
   const random = typeof optional("random") === "function" ? optional("random") : Math.random;
   /** How each source (broker accounts and data sources) has been answering; shared with the router and /v1/sources. */
   const health = optional("sourceHealth") ?? createHealthTracker({ clock, random });
+  // The sources service shows this tracker's state on GET /v1/sources. This service records the outcome of every call it
+  // makes through the facade (viaSource), so the facade must not record them a second time.
+  if (usable(backup) && typeof backup.attachHealth === "function") backup.attachHealth(health, { recordsCalls: false });
   const sourceRegistry = optional("sourceRegistry") ?? createFacadeRegistry({ backup, clock, usable });
   const router =
     optional("sourceRouter") ??
@@ -294,12 +299,24 @@ export function createMarketDataService(deps) {
   /** callBroker() behind the failure cache, for the reads that are one call per key (depth, expiries, chain). */
   const guardedBroker = (kind, key) => (opts, fn) => guarded(opts.accountId, kind, key, () => callBroker(opts, fn));
 
-  /** One call to a data source through the BackupDataService facade, with its health recorded. */
-  async function viaSource(cand, call) {
+  /** A quotes answer with no item: the error that says why (a hard one first), else null. Partial answers count as answered. */
+  const unanswered = (res) => (res?.items?.length ? null : ((res?.errors ?? []).find((e) => outcomeKindOf(e) === "hard") ?? res?.errors?.[0] ?? null));
+
+  /**
+   * One call to a data source through the BackupDataService facade, with its health recorded. `failure(result)` names the
+   * error behind a result that came back without throwing but did not answer (a quotes read reports its failures in
+   * `errors`), so such a call counts as a failure and not as a success.
+   */
+  async function viaSource(cand, call, failure) {
     const startedAt = now();
     try {
       const res = await call();
-      health.record(cand.id, { ok: true, ms: Math.max(0, now() - startedAt) });
+      const bad = failure?.(res);
+      if (bad) {
+        const kind = outcomeKindOf(bad);
+        if (kind) health.record(cand.id, { ok: false, ms: Math.max(0, now() - startedAt), kind, message: String(bad?.message ?? "").slice(0, 200) });
+        else health.release?.(cand.id);
+      } else health.record(cand.id, { ok: true, ms: Math.max(0, now() - startedAt) });
       return res;
     } catch (err) {
       const kind = outcomeKindOf(err);
@@ -648,6 +665,7 @@ export function createMarketDataService(deps) {
 
   /** Batch flush: one account, one priority; fetch every id through fetchQuotes in maxQuoteBatch chunks. */
   async function runQuoteBatch(group, ids) {
+    // The sixth part (the opener's fair key) only keeps consumers' batches apart; the run is already credited to it.
     const [accountId, priority, staleFlag, waitRaw, shareRaw] = group.split("|");
     // A background caller's short wait and dispatch floor travel in the group key.
     const callerWait = waitRaw ? Number(waitRaw) : undefined;
@@ -740,10 +758,16 @@ export function createMarketDataService(deps) {
     const running = inflight.get(key);
     if (running) {
       saving("coalesced");
+      markShared();
       return running;
     }
     const share = priority === "background" && backgroundShare !== undefined ? backgroundShare : "";
-    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}|${maxWaitMs ?? ""}|${share}`, symbol).finally(() => inflight.delete(key));
+    // The batch is per consumer (the last part of the key): a batch is credited to whoever opened it, so a light reader
+    // that joined a heavy reader's batch would wait in the heavy reader's place in the fair queue. The cost is that two
+    // consumers asking for different symbols in the same window make two calls, not one. The same symbol asked by both
+    // still joins the call already in flight (the `inflight` check above).
+    const fair = currentConsumerInfo()?.fairKey ?? "";
+    const p = batcher.add(`${accountId}|${priority}|${hasStale ? "s" : "n"}|${maxWaitMs ?? ""}|${share}|${fair}`, symbol).finally(() => inflight.delete(key));
     inflight.set(key, p);
     return p;
   }
@@ -754,6 +778,7 @@ export function createMarketDataService(deps) {
     const running = inflight.get(key);
     if (running) {
       saving("coalesced");
+      markShared();
       return running;
     }
     const p = (async () => {
@@ -887,7 +912,7 @@ export function createMarketDataService(deps) {
         if (!todo.length) return;
         let b;
         try {
-          b = await viaSource(cand, () => backup.quotes(todo, { maxAgeMs: o.maxAgeMs, sourceId: cand.id, signal: o.signal }));
+          b = await viaSource(cand, () => backup.quotes(todo, { maxAgeMs: o.maxAgeMs, purpose: o.purpose, sourceId: cand.id, signal: o.signal }), unanswered);
         } catch (err) {
           if (err?.name === "AbortError") throw err;
           const e = toBridge(err);
@@ -1103,7 +1128,7 @@ export function createMarketDataService(deps) {
     }
 
     const fromSource = async (cand) => {
-      const b = await viaSource(cand, () => backup.history({ symbol, interval: p.interval, fromMs: fetchFromMs, toMs: fetchToMs, sourceId: cand.id }, { sourceId: cand.id, signal: o.signal }));
+      const b = await viaSource(cand, () => backup.history({ symbol, interval: p.interval, fromMs: fetchFromMs, toMs: fetchToMs, sourceId: cand.id }, { sourceId: cand.id, purpose: o.purpose, signal: o.signal }));
       stats.backup += 1;
       // Not put in the shared cache: a later hit would be labelled "cache" and could be mistaken for broker data.
       return { symbol, interval: p.interval, candles: pick(b.candles), partial: b.partial, freshness: sourceFreshness(cand, { at: b.at, provider: b.provider, targetMs, maxAgeMs: o.maxAgeMs }) };
@@ -1240,7 +1265,7 @@ export function createMarketDataService(deps) {
     const fromBackup = async (cand, err) => {
       if (exchange && exchange !== "NFO") throw err;
       try {
-        const b = await viaSource(cand, () => backup.expiries(underlying, { sourceId: cand.id, signal: o.signal }));
+        const b = await viaSource(cand, () => backup.expiries(underlying, { sourceId: cand.id, purpose: o.purpose, signal: o.signal }));
         stats.backup += 1;
         const today = istDate(now());
         return { underlying, expiries: b.expiries.filter((d) => d >= today), freshness: sourceFreshness(cand, { at: b.at, provider: b.provider, targetMs, maxAgeMs: o.maxAgeMs }) };
@@ -1471,10 +1496,10 @@ export function createMarketDataService(deps) {
   }
 
   /** Option chain from a backup source (NSE website), Greeks computed locally. Not cached; rethrows `err` on failure. */
-  async function backupChain(cand, underlying, p, greeks, targetMs, err, maxAgeMs) {
+  async function backupChain(cand, underlying, p, greeks, targetMs, err, maxAgeMs, purpose) {
     let b;
     try {
-      b = await viaSource(cand, () => backup.optionChain(underlying, p.expiry, { sourceId: cand.id }));
+      b = await viaSource(cand, () => backup.optionChain(underlying, p.expiry, { sourceId: cand.id, purpose }));
     } catch {
       throw err;
     }
@@ -1674,7 +1699,7 @@ export function createMarketDataService(deps) {
     } catch (err) {
       if (stale && isPressure(err)) return serveStale();
       const src = err?.name !== "AbortError" ? sourceAfter("optionChain", o, err) : null;
-      if (src) return backupChain(src, underlying, p, greeks, targetMs, err, o.maxAgeMs);
+      if (src) return backupChain(src, underlying, p, greeks, targetMs, err, o.maxAgeMs, o.purpose);
       throw err;
     }
     cache.set(key, got.value, { at: got.at, accountId: got.accountId, broker: got.broker });

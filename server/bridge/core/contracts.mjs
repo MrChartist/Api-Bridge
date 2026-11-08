@@ -29,11 +29,18 @@ import { NotImplementedError } from "./errors.mjs";
  * @typedef {ParsedSymbol & { name: string | null, lotSize: number, tickSize: number, freezeQty: number | null,
  *   isin: string | null, refs: Record<string, BrokerRef> }} ResolvedInstrument   refs keyed by broker id.
  *
+ * @typedef {"realtime"|"delayed"|"eod"} DataClass
  * @typedef {{ source: "stream"|"cache"|"broker"|"paper"|"backup", asOf: string, ageMs: number, stale: boolean,
- *   accountId: string | null, broker: string | null, provider?: string }} Freshness
+ *   accountId: string | null, broker: string | null, provider?: string, class: DataClass, delaySec: number | null,
+ *   official: boolean, confidence: "high"|"medium"|"low", flags: string[] }} Freshness
  *   Attached to every market-data item. `asOf` is ISO-8601 with offset (+05:30). `stale` = older than the freshness
- *   target the caller asked for (maxAgeMs) or than the endpoint default. source "backup" = a free public source
- *   (BackupDataService, named in `provider`), used only when no broker account could answer; accountId/broker null.
+ *   target the caller asked for (maxAgeMs) or than the endpoint default; it is a different label from `class`.
+ *   source "backup" = a data source other than the user's broker accounts (BackupDataService, named in `provider`):
+ *   used only when the read allows backup (or sources.autoFallback is on) and the data class fits the read's purpose;
+ *   accountId/broker are null. `class`: realtime (broker, stream, cache), delayed (slow by nature, `delaySec` says by
+ *   how much) or eod; a composite answer (a chain, a many-symbol quote) takes the least current class of its parts.
+ *   `official` = a documented API from the data's owner. `confidence` and `flags` (for example "unofficial", "plugin",
+ *   "stale") say how far to trust it.
  * @typedef {{ symbol: string, ltp: number, freshness: Freshness }} LtpItem
  * @typedef {{ symbol: string, ltp: number, open: number|null, high: number|null, low: number|null, close: number|null,
  *   change: number|null, changePct: number|null, volume: number|null, oi: number|null, bid: number|null, ask: number|null,
@@ -49,10 +56,16 @@ import { NotImplementedError } from "./errors.mjs";
  *   greeksSource: "broker"|"computed"|null }} ChainLeg   iv in percent.
  * @typedef {{ underlying: string, expiry: string, underlyingLtp: number|null, atmStrike: number|null, lotSize: number|null,
  *   rows: ChainRow[], freshness: Freshness }} OptionChain
- * @typedef {{ accountId?: string, maxAgeMs?: number, priority?: Priority, signal?: AbortSignal, allowBackup?: boolean }} ReadOptions
- *   accountId pins the read to one account (no pooling). maxAgeMs: freshest acceptable data (0 = must hit stream/broker).
- *   allowBackup: an unpinned read that no broker account could answer may be served by BackupDataService. Default
- *   false, so orders, paper fills and safety checks never see backup prices; routes for people and tools opt in.
+ * @typedef {"display"|"analysis"|"alert"|"paper"|"risk"|"order"} Purpose   What a read is for. The last four accept only
+ *   trusted real-time data: never a delayed or end-of-day source, never a stale cached value.
+ * @typedef {{ accountId?: string, maxAgeMs?: number, priority?: Priority, signal?: AbortSignal, allowBackup?: boolean,
+ *   purpose?: Purpose, allowedAccounts?: string[] }} ReadOptions
+ *   accountId pins the read to one account (no pooling, never a data source). maxAgeMs: freshest acceptable data
+ *   (0 = must hit stream/broker); a source whose delay exceeds it cannot answer. allowBackup: an unpinned read may
+ *   be served by an enabled data source when no broker account can answer (or a source ranks first); the source
+ *   router decides which. Default false, so orders, paper fills and safety checks never see backup prices; routes for
+ *   people and tools opt in (?backup=true, or sources.autoFallback). purpose defaults to "display". allowedAccounts:
+ *   the accounts the caller's key may use for an unpinned read.
  *
  * @typedef {"order"|"quote"|"depth"|"history"|"chain"|"portfolio"|"master"|"other"} EndpointClass
  * @typedef {"order"|"live"|"interactive"|"background"} Priority   Highest first.
@@ -183,10 +196,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  disconnect(accountId) -> Promise<SessionState>
    *  testConnection(accountId) -> Promise<{ ok: boolean, message: string }>
    *  capabilities(accountId) -> { capabilities: string[], policy: BrokerPolicy | null }
-   *  marketDataCandidates({ capability: string, accountId?: string }) -> string[]
+   *  marketDataCandidates({ capability: string, accountId?: string, allowedAccounts?: string[] }) -> string[]
    *      accounts that may serve an UNPINNED market-data read: connected, capability declared, account.marketData.pooling
-   *      true and broker policy pooling "allowed". When none qualifies, the single primary account: the first enabled,
-   *      connected account in config order that declares the capability (so nothing is spread, but reads still work).
+   *      true, a holder named, broker policy pooling "allowed" (or "unknown" with poolingWhenTermsUnknown; never
+   *      "not-allowed"), and the owner's versioned pooling consent covering the account (sources/pooling.mjs). When none
+   *      qualifies, the single primary account: the first enabled, connected account in config order that declares the
+   *      capability (so nothing is spread, but reads still work). allowedAccounts limits the answer to the calling key's accounts.
    *      With accountId: just that account (if it has the capability). Empty array = no account can serve it.
    */
   accounts: {
@@ -198,8 +213,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
 
   /**
    * Scheduler (rate-limit engine). Per-account, per-endpoint-class token buckets (second/minute/day windows),
-   * priority queues (order > live > interactive > background, with ageing), singleflight coalescing, upstream
-   * back-off, and account choice for pooled reads. Never exceeds a BrokerPolicy limit.
+   * priority queues (order > live > interactive > background, with ageing) that share each lane fairly between
+   * consumers (API keys, background jobs) by weight, singleflight coalescing, upstream back-off per budget pool with an
+   * adaptive scale below the policy ceiling (halved by a throttle, restored slowly), per-key client quotas (rate, burst,
+   * daily cap, weight, concurrency; runtime overrides in quotaStore.mjs), and account choice for pooled reads. Never
+   * exceeds a BrokerPolicy limit. A refusal is a BridgeError with `scope` ("client" | "consumer-cap" | "queue" |
+   * "upstream"), `retryAfterMs` and `limit: { name, remaining, resetMs }`.
    *  schedule({ accountId, endpointClass, priority?, coalesceKey?, cost?, signal? }, fn: () => Promise<T>) -> Promise<T>
    *      waits for budget, then runs fn; callers with the same coalesceKey share one in-flight run
    *      a session error from fn emits "account.session_rejected"; a throttling error triggers back-off; errors are rethrown
@@ -359,23 +378,30 @@ export const SERVICE_CONTRACTS = Object.freeze({
 
   /**
    * BackupDataService, provided by the sources module (server/bridge/sources/). Market data from sources other than the
-   * user's own broker accounts, for when no broker account can answer: the enabled, configured, non-broker sources in
-   * the source registry. Every answer names its source in `provider` and carries `class` (realtime|delayed|eod),
-   * `delaySec` and `official`, so callers label it honestly. Orders, risk checks, paper fills and alerts never get
-   * anything but a realtime source. The same service also has the management API (list, describe, setEnabled,
-   * setConfig, test, consentFor) used by the /v1/sources routes.
-   *  quotes(symbols: string[], { maxAgeMs?, purpose?, signal? }) -> Promise<{ items: Array<{ symbol, fields, at, provider, class, delaySec, official }>, errors: Array<{ symbol, code, message }> }>   cash and index only
-   *  history({ symbol, interval, fromMs, toMs }) -> Promise<{ symbol, interval, candles, partial, provider, at, class, delaySec, official }>
-   *  expiries(underlying) -> Promise<{ underlying, expiries: string[], provider, at, class, delaySec, official }>
-   *  optionChain(underlying, expiry) -> Promise<{ underlying, expiry, rows, underlyingLtp, provider, at, class, delaySec, official }>   legs without greeks
+   * user's own broker accounts: the enabled, configured, non-broker sources in the source registry (built-in free
+   * providers, demo sources and plugins the owner granted). The market service asks the source router which source to
+   * use and passes its choice as `sourceId`; the facade then asks that source only (it must still be enabled, able to
+   * do the thing, fit the `purpose` and the delay fit `maxAgeMs`). Every answer names its source in `provider` and
+   * carries `class` (realtime|delayed|eod), `delaySec` and `official`, so callers label it honestly. Orders, risk
+   * checks, paper fills and alerts never get anything but a realtime source. The same service also has the management
+   * API (list, describe, setEnabled, setConfig, test, consentFor) used by the /v1/sources routes, and attachHealth(tracker)
+   * so `list()` shows the health of real calls (a plugin's own health() is merged in). Keys live in the secrets store
+   * under `source:<id>` and are never returned or logged.
+   *  quotes(symbols: string[], { maxAgeMs?, purpose?, sourceId?, signal? }) -> Promise<{ items: Array<{ symbol, fields, at, provider, class, delaySec, official }>, errors: Array<{ symbol, code, message }> }>   cash and index only
+   *  history({ symbol, interval, fromMs, toMs, sourceId? }, { purpose?, sourceId?, signal? }) -> Promise<{ symbol, interval, candles, partial, provider, at, class, delaySec, official }>
+   *  expiries(underlying, { purpose?, sourceId?, signal? }) -> Promise<{ underlying, expiries: string[], provider, at, class, delaySec, official }>
+   *  optionChain(underlying, expiry, { purpose?, sourceId?, signal? }) -> Promise<{ underlying, expiry, rows, underlyingLtp, provider, at, class, delaySec, official }>   legs without greeks
    *  status() -> { enabled, autoFallback, providers: [...], order, cacheMs }
    *  autoFallback() -> boolean
    */
   backupData: { iface: "BackupDataService", stream: "S12", requires: ["secrets"], methods: ["quotes", "history", "expiries", "optionChain", "status", "autoFallback"] },
 
   /**
-   * MarketDataService. Streaming-first, then freshness cache, then a scheduled broker call (batched and coalesced),
-   * routed to a pinned account or a pooled candidate. Every item carries Freshness.
+   * MarketDataService. Streaming-first, then freshness cache, then a scheduled broker call (batched per consumer and
+   * coalesced), routed to a pinned account or, for an unpinned read, to the candidates the source router picks: the
+   * caller's broker accounts (pooling only with the owner's consent) and, when the read allows backup, enabled data
+   * sources. At most two are tried. Every item carries Freshness (source, class, delay, official, confidence, flags).
+   * Non-contract: sourceRouter, sourceHealth and failureCache, shared with GET /v1/sources/trace.
    *  ltp(symbols: string[], opts?: ReadOptions) -> Promise<{ items: LtpItem[], errors: Array<{ symbol, code, message }> }>
    *  quotes(symbols: string[], opts?: ReadOptions) -> Promise<{ items: QuoteItem[], errors: Array<{ symbol, code, message }> }>
    *  depth(symbol: string, opts?: ReadOptions) -> Promise<DepthItem>

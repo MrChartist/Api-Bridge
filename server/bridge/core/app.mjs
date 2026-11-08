@@ -138,7 +138,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       log.warn("demo account could not be connected", { err });
     }
   }
-  /** The last requests (method, path without query, status, ms, key id) for the dashboard's request log. Memory only. */
+  /** The last requests (method, path without query, status, ms, key id, and for a market-data read what answered it) for the dashboard's request log. Memory only. */
   const recentRequests = [];
   const RECENT_MAX = 200;
   const router = createRouter();
@@ -412,7 +412,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       log.info("http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined });
       if (!listener.public && path !== "/v1/requests" && !path.startsWith("/dashboard")) {
         const client = req.headers["x-mcb-client"] === "dashboard" ? "dashboard" : null;
-        recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId });
+        recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId, ...(ctx?.route ? { route: ctx.route } : {}) });
         if (recentRequests.length > RECENT_MAX) recentRequests.splice(0, recentRequests.length - RECENT_MAX);
       }
     }

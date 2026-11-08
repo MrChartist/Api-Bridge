@@ -119,6 +119,10 @@ answer or an error, not a delayed price pretending to be fresh.
 enabled source instead, but only if you allow it: `"sources": { "autoFallback": true }` in the config, or `backup=true` on
 one request. It is off by default. The answer carries the labels above, so you can tell.
 
+A source that keeps failing is paused for a while (the Sources page says "Paused" and when it will be tried again),
+and tried again after a cooldown that grows up to five minutes. A rate-limit answer, a bad key or an unknown symbol does
+not pause it. A plugin that crashes is shown with its own reason.
+
 To see why a source was or was not used, ask for a trace. It is a dry run: nothing is fetched.
 
 ```sh
@@ -135,11 +139,19 @@ Class of the answer: realtime. Served by your broker.
 This was a dry run: no source was called.
 ```
 
+## Seeing what answered a request
+
+On the Sources page, **Overview** lists recent requests with a line for each: "answered from Dhan", "served from cache",
+"used Yahoo, delayed 15 min". The same record is on `GET /v1/requests` (this computer only) as `route`:
+`from` (`stream`, `cache`, `shared`, `live` or `stale`), the source and its name, the data class and the delay. For a
+read of many symbols it is a summary, the least current verdict, never a list per symbol. The answer to the request
+itself carries the full `freshness` label.
+
 ## How pooling and quotas fit
 
 - **Pooling** spreads read-only market-data calls over your own accounts of one holder. It is separate from sources, off by
-  default, and needs its own acknowledgement because no broker's published terms clearly allow it. It never touches
-  orders. See [rate-limits.md](rate-limits.md).
+  default, and needs your consent (`GET /v1/pooling`, or the Sources page) because no broker's published terms clearly
+  allow it. It never touches orders. See [rate-limits.md](rate-limits.md).
 - **Source budgets.** Each source has its own budget from its documented limits, kept apart from your broker budgets. A
   free source never uses up your broker's request allowance, and a broker 429 does not slow a source.
 - **Quotas.** Each API key has its own request quota and a weight in the queue, so one runaway spreadsheet cannot starve an
@@ -182,7 +194,12 @@ Read what `pin` prints (the hosts it may reach, its limits, its terms) and the p
 }
 ```
 
-Restart the Bridge, then turn the plugin on like any other source. If you or anyone edits the plugin later, the Bridge
+A plugin may have settings of its own; put them in a `config` object on its entry (the plugin's manifest says which keys
+it takes, and a bad value stops it from loading). Never put a key there: a plugin's API key is saved from the Providers
+tab like any other.
+
+Restart the Bridge, then turn the plugin on like any other source. A plugin you granted but did not switch on is listed
+as off. If you or anyone edits the plugin later, the Bridge
 refuses it until you run `pin` again and update the line. A plugin that crashes four times in ten minutes is switched off,
 and the reason shows in its health on the Sources page.
 
@@ -191,12 +208,14 @@ and the reason shows in its health on the Sources page.
 ```json
 "sources": {
   "autoFallback": false,
+  "timeoutMs": 5000,
   "providers": { "yahoo": { "enabled": false } },
-  "plugins": []
+  "plugins": [{ "path": "./my-plugin", "sha256": "<the pin>", "granted": true, "config": {} }]
 }
 ```
 
-`autoFallback` is off unless you set it. Whether a source is on, and the notices you acknowledged, are kept by the Bridge in
+`autoFallback` is off unless you set it. `timeoutMs` is how long one call to a source may take (100 to 15000, 5000 by
+default). `"enabled": false` under `providers` keeps a source off whatever the dashboard says. Whether a source is on, and the notices you acknowledged, are kept by the Bridge in
 its data folder; use the dashboard or `mc-bridge sources` to change them. Keys are not config.
 
 ## Questions

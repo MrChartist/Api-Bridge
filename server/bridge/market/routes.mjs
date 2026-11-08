@@ -25,6 +25,7 @@ import { parseMarketConfig } from "./config.mjs";
 import { historyCsvRows } from "./history.mjs";
 import { PURPOSES } from "../sources/contract.mjs";
 import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
+import { noteRoute } from "./routeInfo.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
@@ -159,12 +160,23 @@ export function createMarketRoutes(deps) {
     return ivDefault;
   };
   const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
+  /** The name of a data source to show in the request log (its descriptor's name), if the sources service knows it. */
+  const nameOf = (id) => {
+    try {
+      return deps.backupData?.registry?.get?.(id)?.descriptor?.name;
+    } catch {
+      return undefined;
+    }
+  };
+  /** Tell the request log what answered this read (from the freshness labels it already returned). */
+  const route = (ctx, labels) => noteRoute(ctx, labels, nameOf);
 
   return {
     async ltp(ctx) {
       const symbols = parseSymbolList(ctx.query.get("symbols"));
       const opts = readOptions(ctx);
       const r = await md().ltp(symbols, opts);
+      route(ctx, r.items.map((i) => i.freshness));
       return { data: r.items, errors: r.errors, meta: meta(ctx, opts) };
     },
 
@@ -172,6 +184,7 @@ export function createMarketRoutes(deps) {
       const symbols = parseSymbolList(ctx.query.get("symbols"));
       const opts = readOptions(ctx);
       const r = await md().quotes(symbols, opts);
+      route(ctx, r.items.map((i) => i.freshness));
       return { data: r.items, errors: r.errors, meta: meta(ctx, opts) };
     },
 
@@ -180,6 +193,7 @@ export function createMarketRoutes(deps) {
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:RELIANCE.");
       const opts = readOptions(ctx);
       const data = await md().depth(symbol, opts);
+      route(ctx, [data.freshness]);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
 
@@ -200,6 +214,7 @@ export function createMarketRoutes(deps) {
       if (countback !== undefined) params.countback = countback;
       const opts = readOptions(ctx, { maxAge: false });
       const data = await md().history(params, opts);
+      route(ctx, [data.freshness]);
       if (format === "csv") {
         const name = `${data.symbol.replace(/[^A-Za-z0-9-]+/g, "_")}_${data.interval}.csv`;
         const headers = { "X-MCB-Partial": String(Boolean(data.partial)), "X-MCB-Freshness-Source": data.freshness.source };
@@ -215,6 +230,7 @@ export function createMarketRoutes(deps) {
       const exchange = opt(ctx.query, "exchange");
       if (exchange !== undefined) opts.exchange = exchange.toUpperCase();
       const data = await md().expiries(underlying, opts);
+      route(ctx, [data.freshness]);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
 
@@ -234,6 +250,7 @@ export function createMarketRoutes(deps) {
       }
       const opts = readOptions(ctx);
       const data = await md().optionChain(params, opts);
+      route(ctx, [data.freshness]);
       // The legacy model chosen by default (not asked for) is deprecated: say so in the headers (RFC 9745 / 8288). Decided
       // on the effective model, not on whether `pricing` is present (greeks=false has none under either model).
       if (ivModel === undefined && chainIvModelDefault() === "legacy-bs-spot") for (const [k, v] of Object.entries(LEGACY_IV_HEADERS)) ctx.setHeader?.(k, v);

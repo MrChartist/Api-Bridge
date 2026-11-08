@@ -1,6 +1,6 @@
 /**
  * Who caused a broker call: a short consumer name carried through async work (AsyncLocalStorage), so the rate-limit
- * engine can say which tool, page or background job used the budget ("Top consumers" on API › Rate limits).
+ * engine can say which tool, page or background job used the budget ("Top consumers" on the Sources page).
  *
  * The HTTP pipeline runs each request as its consumer (core/app.mjs: the dashboard page, else the API key's label);
  * background jobs wrap their work in runAsConsumer("Data recorder", fn). Work started inside a run (timers, promises,
@@ -45,6 +45,11 @@ export function runAsConsumer(name, fn, ctx = null) {
 /** The consumer name of the work running now, or null. */
 export function currentConsumer() {
   return als.getStore()?.name ?? null;
+}
+
+/** The request context the running work was started with (runAsConsumer's third argument), or null. */
+export function currentRequestContext() {
+  return als.getStore()?.ctx ?? null;
 }
 
 /**
@@ -92,6 +97,7 @@ const PAGE_NAMES = Object.freeze({
   integrations: "API",
   console: "API",
   limits: "API",
+  sources: "Sources",
   activity: "API",
   recorder: "Data recorder",
   prefetch: "prefetch",

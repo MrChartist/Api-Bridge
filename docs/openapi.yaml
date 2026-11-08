@@ -252,7 +252,7 @@ paths:
       tags: [System]
       operationId: listRecentRequests
       summary: Recent requests to this Bridge (newest first)
-      description: The last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id). Requests the dashboard makes for itself carry client "dashboard". Webhook paths are shown as their pattern, never with their token.
+      description: The last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id). Requests the dashboard makes for itself carry client "dashboard". Webhook paths are shown as their pattern, never with their token. A market-data read that returned something also carries `route`, a short record of what answered it.
       x-stream: core
       x-scope: admin
       x-loopback-only: true
@@ -282,6 +282,7 @@ paths:
                         keyId: { type: [string, "null"] }
                         client: { type: [string, "null"] }
                         requestId: { type: string }
+                        route: { $ref: "#/components/schemas/RequestRoute" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -5434,7 +5435,7 @@ components:
             errorRate: { type: number }
             p50Ms: { type: [number, "null"] }
             lastError: { type: [string, "null"] }
-            nextTryAt: { type: [string, integer, "null"] }
+            nextTryAt: { type: [string, "null"], format: date-time }
         terms: { type: [object, "null"], properties: { url: { type: string }, note: { type: string } } }
         noticeVersion: { type: string, description: "Opt-in sources: send this as `acknowledge` to switch the source on." }
         needsKey: { type: boolean }
@@ -5514,6 +5515,20 @@ components:
       type: string
       enum: [quotes, history, expiries, optionChain]
       description: What a source can be asked. All four are read-only; no source places orders.
+    RequestRoute:
+      type: object
+      description: |
+        What answered a market-data read (`/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain`), on its entry in `GET /v1/requests`. It is built from the freshness labels the read already returned, so it costs no extra upstream call, and it is one record per request, never a list per symbol. A read of several symbols is summed up: `from` is the least current verdict and `class` the least current data class. Absent for other routes and for a read that answered nothing.
+      required: [from, class, delaySec]
+      properties:
+        from:
+          type: string
+          enum: [stream, cache, shared, live, stale]
+          description: "`stream` = a live subscription answered. `cache` = a value inside its freshness target. `shared` = the read joined a call another caller already had in flight. `live` = a call was made for this read (a broker account or a data source). `stale` = at least one value came from the cache past its freshness target. For several symbols the order is stale, live, shared, cache, stream."
+        source: { type: string, description: "Id of the broker or data source that answered; a data source is named before a broker, else the one that answered most items." }
+        sourceName: { type: string, description: "A name to show for `source`." }
+        class: { type: string, enum: [realtime, delayed, eod], description: "The least current data class among the answers." }
+        delaySec: { type: integer, description: "The largest delay among the answers, 0 for real-time." }
     SourceHealth:
       type: object
       required: [state]
