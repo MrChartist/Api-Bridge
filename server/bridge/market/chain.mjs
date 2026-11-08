@@ -1,5 +1,5 @@
 /**
- * Option-chain helpers — stream S5. Pure functions that turn a broker's chain (contract OptionChainResult, Dhan-shaped
+ * Option-chain helpers. Pure functions that turn a broker's chain (contract OptionChainResult, Dhan-shaped
  * legs) or a list of option quotes into the OpenAPI OptionChain rows, pick the ATM strike, trim to N strikes each side
  * and fill in computed IV and Greeks (server/lib/blackScholes.mjs) where the broker sent none.
  *
@@ -8,7 +8,7 @@
  * percent; theta per calendar day; vega per one vol point. Every leg says where its Greeks came from (greeksSource).
  * That is the legacy model (`ivModel=legacy-bs-spot`, still the default until 2027-05-01).
  *
- * `ivModel=b76-forward` (docs/spec/p1-03-pricing-vol.md §3.9) prices every leg through dashboard/pricing.js, the same
+ * `ivModel=b76-forward` prices every leg through dashboard/pricing.js, the same
  * code the dashboard runs: Black-76 on the 5-strike parity forward, mid prices, the vol-time clock for σ√T and calendar
  * time for interest. Theta is per trading-day unit. The broker's own IV, if it sent one, is kept as `brokerIv`.
  */
@@ -31,7 +31,7 @@ export function legSymbol(exchange, underlying, expiry, strike, right) {
 }
 
 /**
- * Strike step (docs/spec/p1-06-stocks.md §6.1): the most common positive gap between consecutive distinct listed
+ * Strike step: the most common positive gap between consecutive distinct listed
  * strikes of one expiry; the smaller gap wins a tie; null with fewer than 3 strikes. Inferred, so callers label it.
  * [1360, 1380, 1400, 1410, 1420, 1440, 1460] → 20 (the off-grid 1410 is typical after a corporate action).
  * @param {number[]} strikes
@@ -184,7 +184,7 @@ export function applyB76(chain, { ctx, nowMs, rate, rateQuality = null }) {
     if (!(T > 0)) return { ...out, ivReason: "SETTLED" };
     if (!(F > 0)) return { ...out, ivReason: "NOFORWARD" };
     const r = legIv(q, F, strike, right, { years: T, df, basis: "mid", settling: clock.settling });
-    // Why a leg has no IV (§6.1: SETTLING inside the expiry-day settlement window), so clients can tell it from no quote.
+    // Why a leg has no IV (SETTLING inside the expiry-day settlement window), so clients can tell it from no quote.
     if (!r) return { ...out, ivReason: "NOQUOTE" };
     if (r.iv === null) return { ...out, ivReason: String(r.out ?? "noquote").toUpperCase() };
     const g = greeks76(F, strike, T, r.iv, right, { yearBasis });

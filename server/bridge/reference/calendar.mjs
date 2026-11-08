@@ -1,6 +1,5 @@
 /**
- * Trading-day maths over the holiday calendar and the session windows (stream S16, docs/spec/p1-02-reference.md
- * §6.4–6.6, §6.9). Pure: no I/O, no clock. Dates are IST calendar dates "YYYY-MM-DD"; times are IST "HH:MM". India has
+ * Trading-day maths over the holiday calendar and the session windows (the reference module). Pure: no I/O, no clock. Dates are IST calendar dates "YYYY-MM-DD"; times are IST "HH:MM". India has
  * no daylight saving, so IST is a fixed UTC+05:30 offset and the host time zone never matters.
  *
  * Exchanges: the derivatives segments follow their cash exchange's holidays (NFO -> NSE, BFO -> BSE).
@@ -180,7 +179,7 @@ export function createCalendar({ holidays = [], specialSessions = {}, sessions =
   }
 
   /**
-   * Session state at an instant (§6.5): HOLIDAY, SPECIAL (inside a special session with times), PRE_OPEN, OPEN or
+   * Session state at an instant: HOLIDAY, SPECIAL (inside a special session with times), PRE_OPEN, OPEN or
    * CLOSED. A special session with times wins over a holiday (Muhurat trading is held on a holiday).
    */
   function sessionAt(exchange, tMs) {
@@ -216,7 +215,7 @@ export function createCalendar({ holidays = [], specialSessions = {}, sessions =
     return holidays.filter((h) => h.date >= from && h.date <= to && (!exchange || h.exchanges.includes(holidayKeyFor(exchange))));
   }
 
-  /** Trading days from the dataset's asOf date to today (§6.4). */
+  /** Trading days from the dataset's asOf date to today. */
   const staleTradingDays = (asOfDate, today, exchange = "NFO") => (asOfDate ? Math.max(0, tradingDaysBetween(asOfDate, today, exchange)) : null);
 
   return Object.freeze({
@@ -249,7 +248,7 @@ export function expiryKinds(dates, { futuresOnly = false } = {}) {
 }
 
 /**
- * Expiry shift explanation (§6.6). The usual weekday w is the most common weekday of the listed weekly expiries (the
+ * Expiry shift explanation. The usual weekday w is the most common weekday of the listed weekly expiries (the
  * monthly ones when none are weekly). For a listed expiry whose weekday differs from w, ruleDate is the next date with
  * weekday w within 6 days; when that day is not a trading day the expiry is `shifted`. Explanation only: the listed
  * date always wins.
@@ -291,7 +290,7 @@ export function expiryShifts(expiries, cal, exchange = "NFO") {
 }
 
 /**
- * Delivery-margin dates for an expiry (§6.9): E-n is the n-th trading day before the expiry.
+ * Delivery-margin dates for an expiry: E-n is the n-th trading day before the expiry.
  * @param {string} expiry
  * @param {Array<{ day: string, pct: number }>} schedule  rows like { day: "E-4", pct: 10 }
  * @param {ReturnType<typeof createCalendar>} cal

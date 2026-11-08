@@ -42,7 +42,7 @@ describe("isTradingDay", () => {
   });
 });
 
-describe("tradingDaysBetween and staleness (§6.4)", () => {
+describe("tradingDaysBetween and staleness", () => {
   it("Thu 29 Oct to Mon 2 Nov is 2 trading days (stale); 1 when Fri 30 Oct is a holiday", () => {
     const plain = createCalendar({ holidays: [] });
     expect(plain.tradingDaysBetween("2026-10-29", "2026-11-02")).toBe(2);
@@ -54,7 +54,7 @@ describe("tradingDaysBetween and staleness (§6.4)", () => {
   });
 });
 
-describe("sessionAt (§6.5)", () => {
+describe("sessionAt", () => {
   const cal = createCalendar({ holidays: shippedHolidayRows(), specialSessions: shippedSpecialSessions() });
   it.each([
     ["08:59", "CLOSED"],
@@ -94,7 +94,7 @@ describe("sessionAt (§6.5)", () => {
   });
 });
 
-describe("expiry kinds and shifts (§6.6)", () => {
+describe("expiry kinds and shifts", () => {
   const cal = createCalendar({ holidays: shippedHolidayRows() });
   it("NIFTY 23 Nov 2026 (Mon) is shifted because Tue 24 Nov is a holiday", () => {
     const listed = ["2026-11-03", "2026-11-09", "2026-11-17", "2026-11-23", "2026-12-01", "2026-12-29"];
@@ -111,7 +111,7 @@ describe("expiry kinds and shifts (§6.6)", () => {
   });
 });
 
-describe("delivery-margin dates (§6.9)", () => {
+describe("delivery-margin dates", () => {
   it("E-1..E-4 before the 23 Nov 2026 expiry", () => {
     const cal = createCalendar({ holidays: shippedHolidayRows() });
     expect(deliveryMarginDates("2026-11-23", SHIPPED_DELIVERY_MARGIN.schedule, cal)).toEqual([

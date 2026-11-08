@@ -1,5 +1,5 @@
 /**
- * Spreadsheet and AmiBroker endpoints — stream S10 (docs/openapi.yaml, tag "Spreadsheets").
+ * Spreadsheet and AmiBroker endpoints (docs/openapi.yaml, tag "Spreadsheets").
  *
  *   GET /xl/ltp?symbol=NSE:NIFTY                        one number as text/plain
  *   GET /xl/quote?symbol=NSE:RELIANCE&field=changePct   one quote field as text/plain

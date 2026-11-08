@@ -1,5 +1,5 @@
 /**
- * In-memory AccountManager for OTHER streams' tests (S3, S4, S5, S6, S7, S9, S10, S11). It satisfies
+ * In-memory AccountManager for OTHER modules' tests (ratelimit, symbols, market, stream, orders, safety, integrations, hooks). It satisfies
  * SERVICE_CONTRACTS.accounts exactly, needs no SecretStore, makes no broker call, and lets a test steer sessions.
  *
  *   import { createFakeAccountManager } from "../accounts/fake.mjs";

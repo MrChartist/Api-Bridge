@@ -86,7 +86,7 @@ describe("requireFreshTick — the 09:14 stale-price guard", () => {
     expect(requireFreshTick(ltt, openNow - 500, 5000, openNow)).toEqual({ ok: true, reason: null });
   });
 
-  it("rejects a tick the proxy has not seen recently", () => {
+  it("rejects a tick the Bridge has not seen recently", () => {
     const ltt = Math.floor(openNow / 1000);
     expect(requireFreshTick(ltt, openNow - 30000, 5000, openNow).reason).toBe("STALE_FEED");
   });

@@ -18,7 +18,7 @@ yourself in the settings file.
 
 ## Windows: Setup.exe
 
-1. Open the [latest release](https://github.com/MrChartist/api-bridge/releases/latest) and download
+1. Open the [latest release](https://github.com/MrChartist/api-bridge-v2/releases/latest) and download
    **`Mr-Chartist-Bridge-Setup-….exe`**.
 2. Double-click it. If Windows says *"Windows protected your PC"*, click **More info**, then **Run anyway** (the file
    is not signed yet; this happens only once).
@@ -35,7 +35,7 @@ Mr. Chartist API Bridge → Uninstall** (your settings and data are kept). Runni
 Everything the Bridge needs is inside the ZIP, including its own copy of Node.js, so it works even without internet
 while installing.
 
-1. Open the [latest release](https://github.com/MrChartist/api-bridge/releases/latest) and download the file for your
+1. Open the [latest release](https://github.com/MrChartist/api-bridge-v2/releases/latest) and download the file for your
    computer:
    - Windows: `mr-chartist-bridge-…-windows-x64.zip`
    - Mac with Apple chip (M1, M2, M3, M4…): `…-macos-arm64.zip`; older Intel Mac: `…-macos-x64.zip`
@@ -64,7 +64,7 @@ Next time, double-click the same start file again.
 2. Copy this line, paste it into Terminal and press Enter:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh
+   curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh | sh
    ```
 
 3. Wait a minute or two. It downloads the Bridge (and its own Node.js if your computer does not have Node.js 22),
@@ -78,7 +78,7 @@ Next time, start it like any app:
 Want to try it with sample prices first, without any broker? Use:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh -s -- --demo
+curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh | sh -s -- --demo
 ```
 
 ---
@@ -89,7 +89,7 @@ curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/instal
 2. Copy this line, paste it (right-click pastes) and press Enter:
 
    ```powershell
-   irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1 | iex
+   irm https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.ps1 | iex
    ```
 
 3. Wait a minute or two. It downloads the Bridge (and its own Node.js if needed), sets it up, adds
@@ -109,7 +109,7 @@ are then on the phone itself, at `http://127.0.0.1:4300`.
 2. Open Termux, paste this line and press Enter:
 
    ```sh
-   pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh | sh
+   pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh | sh
    ```
 
    It installs Node.js with Termux's own package manager (no root), sets up paper trading and opens the dashboard in
@@ -136,11 +136,11 @@ Wi-Fi cannot reach it unless you deliberately allow that in `bridge.config.json`
 
 | How you installed | How to remove it |
 |---|---|
-| One line on Mac or Linux | `curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh \| sh -s -- --uninstall` (your settings and data stay in `~/.mc-bridge`; add `--purge` to delete them too) |
-| One line on Windows | `$env:MCB_UNINSTALL = "1"; irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1 \| iex` (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
+| One line on Mac or Linux | `curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh \| sh -s -- --uninstall` (your settings and data stay in `~/.mc-bridge`; add `--purge` to delete them too) |
+| One line on Windows | `$env:MCB_UNINSTALL = "1"; irm https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.ps1 \| iex` (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
 | Setup.exe on Windows | **Settings → Apps → Installed apps → Mr. Chartist API Bridge → Uninstall** (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
 | Ready-to-run download | Delete the **Mr Chartist Bridge** folder. |
-| Android (Termux) | In Termux: `curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.sh \| sh -s -- --uninstall` |
+| Android (Termux) | In Termux: `curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh \| sh -s -- --uninstall` |
 
 ## If something goes wrong
 
@@ -150,7 +150,7 @@ Wi-Fi cannot reach it unless you deliberately allow that in `bridge.config.json`
 | The browser does not open | Copy the link printed in the small window into your browser. It works once, for 10 minutes; start again for a new one. |
 | "Port 4300 is already in use by another program" | Another program uses the Bridge's port. Close it, or change `server.port` in `bridge.config.json`. |
 | "This sign-in link has expired or was already used" | Start the Bridge again from its shortcut; it opens a fresh link. |
-| Anything else | Run `mc-bridge doctor` (or, in the download folder, the start file again) and [open an issue](https://github.com/MrChartist/api-bridge/issues) with what it prints. Never paste your keys. |
+| Anything else | Run `mc-bridge doctor` (or, in the download folder, the start file again) and [open an issue](https://github.com/MrChartist/api-bridge-v2/issues) with what it prints. Never paste your keys. |
 
 For developers: `git clone`, `npm ci`, `npm start -- --demo --open`; see the [README](../../README.md#developers).
 Docker: see the [README](../../README.md#docker).

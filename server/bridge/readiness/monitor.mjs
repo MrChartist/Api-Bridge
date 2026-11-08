@@ -1,5 +1,5 @@
 /**
- * Readiness monitor and service — stream S20 (docs/spec/p1-05-readiness.md §3). Contract: SERVICE_CONTRACTS.readiness.
+ * Readiness monitor and service. Contract: SERVICE_CONTRACTS.readiness.
  *
  * Checks every non-paper account: broker session (state, stated expiry, a cheap probe call), egress IP against
  * live.registeredIp / backupIp (opt-in lookup), order-rate headroom, daily order and loss headroom, and the kill switch.
@@ -110,7 +110,7 @@ export function createReadinessService(deps, opts = {}) {
   const jitter = opts.jitterSeconds ?? (sim ? 0 : jitterSecondsFor(dataDir ?? "bridge"));
   const intervalMinutes = sim ? 1 : cfg.intervalMinutes;
   // A passing probe proves the session only while it is recent; an older one (restored from state.json, or left from
-  // before the close) is shown as unknown, never as ready (§2.3, §3.2). It is still kept for the probe cooldown.
+  // before the close) is shown as unknown, never as ready. It is still kept for the probe cooldown.
   const maxProbeAgeMs = Math.max(cfg.staleAfterMinutes, 2 * intervalMinutes) * 60_000;
 
   /** @type {Map<string, any>} per-account memory */
@@ -128,7 +128,7 @@ export function createReadinessService(deps, opts = {}) {
         lastProbe: p.lastProbe && Number.isFinite(p.lastProbe.at) && p.lastProbe.result === "ok" ? { at: p.lastProbe.at, result: "ok" } : null,
         lastNotifiedAt: Number.isFinite(p.lastNotifiedAt) ? p.lastNotifiedAt : null,
         lastNotifiedKey: typeof p.lastNotifiedKey === "string" ? p.lastNotifiedKey : null,
-        // The key of the restored state, so a restart while the same failure stands is not a "change" (§7.7).
+        // The key of the restored state, so a restart while the same failure stands is not a "change".
         key: restoredState ? notifyKey(restoredState, Array.isArray(p.reasons) ? p.reasons : []) : null,
         probing: false,
         inflight: null,
@@ -504,7 +504,7 @@ export function createReadinessService(deps, opts = {}) {
     if (m.inflight) return m.inflight;
     const run = (async () => {
       try {
-        // Side by side: one evaluation takes max(probe, egress) time, not their sum (§7.5).
+        // Side by side: one evaluation takes max(probe, egress) time, not their sum.
         await Promise.all([doEgress ? refreshEgress(skipped) : null, doProbe ? probe(account, skipped) : null]);
         return computeAndApply(account);
       } catch (err) {
@@ -649,7 +649,7 @@ export function createReadinessService(deps, opts = {}) {
     });
     on("safety.kill_switch", () => {
       // Re-read the kill-switch check at once instead of after the debounce (no probe, no lookup: it costs nothing),
-      // so the GET /v1/readiness the dashboard sends right after an engage or release already sees it (spec §5, §6.3).
+      // so the GET /v1/readiness the dashboard sends right after an engage or release already sees it.
       // The guard emits after it has saved the new state; a microtask keeps this out of the bus dispatch and still runs
       // before the engage/release request answers. A run already in flight recomputes when it settles.
       queueMicrotask(() => {
@@ -807,7 +807,7 @@ export function createReadinessService(deps, opts = {}) {
     }
     const snapshot = status({ accountIds: accountId ? [accountId] : Array.isArray(accountIds) ? accountIds : undefined });
     if (timedOut) {
-      // §4.2: the parts still running carry status unknown / "Still checking" (not the previous answer).
+      // The parts still running carry status unknown / "Still checking" (not the previous answer).
       const still = { status: "unknown", message: "Still checking" };
       snapshot.accounts = snapshot.accounts.map((v) => {
         const probing = memFor(v.accountId).probing;

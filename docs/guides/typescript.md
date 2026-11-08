@@ -4,7 +4,7 @@ A small client with no runtime dependencies (Node 20+), with TypeScript types in
 Node 22's built-in `WebSocket` or the `ws` package. Full method list: [sdk/node/README.md](../../sdk/node/README.md).
 
 ```bash
-npm install /path/to/api-bridge/sdk/node      # or: npm install ws  (Node 20/21 streaming)
+npm install /path/to/api-bridge-v2/sdk/node      # or: npm install ws  (Node 20/21 streaming)
 ```
 
 ```ts
@@ -38,18 +38,3 @@ sent only as a header, and single-use stream tokens.
 
 A page served from another origin (for example a Vite dev server on `http://localhost:5173`) must be listed in
 `cors.allowedOrigins`. Never put an admin or live key in browser code.
-
-## Scans and backup data
-
-```js
-const job = await bridge.scan(
-  { universe: "FNO", condition: "close crosses above ema(20) and rsi(14) > 55", columns: ["rsi(14)"], sort: { by: "rsi(14)" } },
-  { waitMs: 60_000 },
-);
-for (const row of job.data.results ?? []) console.log(row.symbol, row.values["rsi(14)"], row.source);
-
-await bridge.saveScan({ name: "Breakouts", everyMinutes: 15, request: { universe: "NIFTY50", interval: "15m", condition: "close > highest(20)[1]" } });
-await bridge.backupQuotes(["NSE:RELIANCE", "NSE:NIFTY"]); // straight from Yahoo / NSE, labelled source "backup"
-```
-
-See [scanner.md](scanner.md) and [backup-data.md](backup-data.md).

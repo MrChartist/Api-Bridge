@@ -616,7 +616,7 @@ export function createXtsBroker(cfg) {
       requestToken = str(creds?.[requestTokenField]).trim();
       if (!requestToken) missing.push(requestTokenField);
     }
-    if (missing.length) throw new BrokerInputError(`${label}: trading (Interactive API) needs ${missing.join(", ")} in Broker Settings.`);
+    if (missing.length) throw new BrokerInputError(`${label}: trading (Interactive API) needs ${missing.join(", ")} in the account settings.`);
     return { appKey, secretKey, requestToken, cacheKey: sha([id, "ia", appKey, secretKey, requestToken]) };
   }
 
@@ -656,7 +656,7 @@ export function createXtsBroker(cfg) {
   function withDealerClient(creds, session, query, body) {
     if (session.isInvestorClient) return { query, body };
     const clientId = str(creds?.clientId).trim();
-    if (!clientId) throw new BrokerInputError(`${label}: this is a dealer login; add the client code as clientId in Broker Settings.`);
+    if (!clientId) throw new BrokerInputError(`${label}: this is a dealer login; add the client code as clientId in the account settings.`);
     return body ? { query, body: { ...body, clientID: clientId } } : { query: { ...(query || {}), clientID: clientId }, body };
   }
 

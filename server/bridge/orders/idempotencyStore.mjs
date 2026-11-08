@@ -1,5 +1,5 @@
 /**
- * Idempotency records and the clientOrderId map — stream S7.
+ * Idempotency records and the clientOrderId map.
  *
  * Idempotency (docs/ARCHITECTURE.md §7, openapi parameter IdempotencyKey):
  *  - begin(key, fingerprint) is synchronous, so two concurrent requests with one key can never both start: the

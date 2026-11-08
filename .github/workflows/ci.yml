@@ -5,7 +5,7 @@ name: CI
 # Actions are pinned to full commit SHAs (Dependabot keeps them current).
 on:
   push:
-    branches: [main, master, "claude/**"]
+    branches: [main]
   pull_request:
 
 permissions:

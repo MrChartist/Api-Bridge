@@ -16,10 +16,10 @@
  *   HTTP 403 = "Invalid session, please re-login to continue"; 429 = too many requests (every docs/*.md).
  *
  * login() returns only { sessionToken (trade token), sessionSid, sessionBaseUrl, sessionServerId? }. The MPIN and
- * code are never stored, cached or logged. `baseUrl` comes from Kotak but is later sent back by the browser, so the
- * proxy remembers the login-returned value server-side (keyed by a SHA-256 of the trade token) and uses that,
- * ignoring whatever the browser sends. Only when the proxy has no record (for example after a restart) does it fall
- * back to the browser's copy, and then only for an https host that is a single label directly under
+ * code are never stored, cached or logged. `baseUrl` comes from Kotak but a client may later send it back, so the
+ * Bridge remembers the login-returned value server-side (keyed by a SHA-256 of the trade token) and uses that,
+ * ignoring whatever the client sends. Only when the Bridge has no record (for example after a restart) does it fall
+ * back to the client's copy, and then only for an https host that is a single label directly under
  * kotaksecurities.com (not the apex or www), on the default port, with no credentials, query or fragment. Kotak's
  * SDK takes baseUrl from the validate response and does not publish a fixed host list, so an exact allowlist is not
  * possible. Kotak publishes no session TTL; we treat a session as valid until 23:59 IST and rely on the 403 signal
@@ -162,7 +162,7 @@ export function getSession(creds) {
   const s = sessionFromCreds(creds, SESSION_FIELDS, "Kotak Neo");
   // Prefer the login-time value this proxy recorded; the browser's copy is a fallback only.
   const baseUrl = boundKotakBaseUrl(s.sessionToken) ?? safeKotakBaseUrl(s.sessionBaseUrl);
-  if (!baseUrl) throw new BrokerInputError("Kotak Neo session has an invalid baseUrl. Log in again from Broker Settings.");
+  if (!baseUrl) throw new BrokerInputError("Kotak Neo session has an invalid baseUrl. Log in again from the account settings.");
   return {
     baseUrl,
     accessToken: creds.accessToken, // market-data calls authenticate with the app token, not the trade token
@@ -179,8 +179,8 @@ export function throwForResponse(res, json, text, label, { sessionCall = true } 
   const msg = json?.emsg || json?.errMsg || json?.message || text.slice(0, 160) || `HTTP ${res.status}`;
   if (res.status === 429 || Number(json?.stCode) === 429) throw new BrokerError(`Kotak Neo ${label}: too many requests (HTTP 429)`, { code: "UPSTREAM_RATE_LIMIT" });
   if (res.status === 401 || res.status === 403 || [401, 403].includes(Number(json?.stCode)) || SESSION_DEAD_RE.test(String(msg))) {
-    if (sessionCall) throw new SessionRequiredError("Kotak Neo rejected the session. Log in again from Broker Settings.");
-    throw new BrokerError(`Kotak Neo ${label}: the access token was refused (check the access token in Broker Settings).`, { code: "UPSTREAM_AUTH" });
+    if (sessionCall) throw new SessionRequiredError("Kotak Neo rejected the session. Log in again from the account settings.");
+    throw new BrokerError(`Kotak Neo ${label}: the access token was refused (check the access token in the account settings).`, { code: "UPSTREAM_AUTH" });
   }
   throw new BrokerError(`Kotak Neo ${label} error [HTTP ${res.status}]: ${msg}`);
 }

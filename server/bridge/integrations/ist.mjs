@@ -1,5 +1,5 @@
 /**
- * India Standard Time helpers for stream S10. IST is a fixed UTC+05:30 with no daylight saving, so plain offset
+ * India Standard Time helpers for the integrations module. IST is a fixed UTC+05:30 with no daylight saving, so plain offset
  * arithmetic is exact and needs no time-zone database.
  */
 

@@ -40,7 +40,7 @@ describe("preview", () => {
   });
 });
 
-describe("LOT_SIZE_STALE (p1-02 §3.6)", () => {
+describe("LOT_SIZE_STALE", () => {
   const staleRef = ({ block = false, conflict = null, stale = true } = {}) => {
     const calls = [];
     return {
@@ -108,7 +108,7 @@ describe("human confirmation tickets (AI assistants)", () => {
 
     expect(await reject(h.svc.tickets(h.ctx("live")))).toMatchObject({ code: "SCOPE_REQUIRED" });
     expect(await reject(h.svc.confirmTicket(h.ctx("admin", { source: "mcp" }), pv.ticketId))).toMatchObject({ code: "SCOPE_REQUIRED" });
-    // The Phase 1 automations (strategy guards, alert actions) are never a person, even on loopback with admin.
+    // Automated rule sources (strategy guards, alert actions) are never a person, even on loopback with admin.
     for (const source of ["guard", "alert", "webhook"]) {
       expect(await reject(h.svc.confirmTicket(h.ctx("admin", { source }), pv.ticketId)), source).toMatchObject({ code: "SCOPE_REQUIRED" });
     }
@@ -279,7 +279,7 @@ describe("portfolio reads", () => {
   });
 });
 
-describe("F&O ban and physical settlement (p1-06 §2.8, §3.7)", async () => {
+describe("F&O ban and physical settlement", async () => {
   const { INSTRUMENTS, PRICES, createStubSafety } = await import("./__fixtures__/helpers.mjs");
   const { createCalendar } = await import("../reference/calendar.mjs");
   const { shippedHolidayRows } = await import("../reference/shipped.mjs");
@@ -411,7 +411,7 @@ describe("F&O ban and physical settlement (p1-06 §2.8, §3.7)", async () => {
       severity: "warn",
       message: "Physically settled: if ITM at expiry you buy 500 RELIANCE at 1400 (₹700000). Delivery margin today: 25 % (E-3).",
     });
-    // 1420 CE is 17.70 out of the money: within one 20-point step, so close to money (§6.2)
+    // 1420 CE is 17.70 out of the money: within one 20-point step, so close to money
     const ctm = await h.svc.preview(h.ctx(), order({ symbol: `NFO:RELIANCE-${EXP}-1420-CE`, price: 8 }));
     expect(ctm.checks.some((c) => c.code === "PHYSICAL_SETTLEMENT")).toBe(true);
     const otm = await h.svc.preview(h.ctx(), order({ symbol: `NFO:RELIANCE-${EXP}-1440-CE`, price: 3 }));

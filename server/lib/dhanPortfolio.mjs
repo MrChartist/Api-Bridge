@@ -41,9 +41,7 @@ const VALID_ORDER_TYPES = new Set(["LIMIT", "MARKET", "STOP_LOSS", "STOP_LOSS_MA
 const VALID_VALIDITY = new Set(["DAY", "IOC"]);
 
 /** GET /positions — every open (and closed-today) position on the account,
- * Dhan's own untransformed shape. proxy-server.mjs's mapDhanPositionToOpenPosition()
- * calls this same endpoint directly today for the narrower panic-layer shape;
- * this function is the one the portfolio tab reads for the full record. */
+ * Dhan's own untransformed shape. */
 export async function getPositions(creds) {
   return dhanFetch("/positions", null, "GET", creds?.clientId, creds?.accessToken);
 }

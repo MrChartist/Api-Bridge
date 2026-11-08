@@ -8,12 +8,12 @@
   "author": "Mr. Chartist",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MrChartist/api-bridge.git",
+    "url": "git+https://github.com/MrChartist/api-bridge-v2.git",
     "directory": "sdk/node"
   },
-  "homepage": "https://github.com/MrChartist/api-bridge/tree/main/sdk/node#readme",
+  "homepage": "https://github.com/MrChartist/api-bridge-v2/tree/main/sdk/node#readme",
   "bugs": {
-    "url": "https://github.com/MrChartist/api-bridge/issues"
+    "url": "https://github.com/MrChartist/api-bridge-v2/issues"
   },
   "keywords": [
     "trading",

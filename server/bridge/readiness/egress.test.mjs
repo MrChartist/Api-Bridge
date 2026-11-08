@@ -66,7 +66,7 @@ describe("egress detector", () => {
     expect(await createEgressDetector({ cfg: cfg(), fetchImpl: stubFetch(new Response("<html>")) }).lookup()).toMatchObject({ ok: false });
   });
 
-  it("clock skew from the Date header (§7.6 reference)", () => {
+  it("clock skew from the Date header (reference case)", () => {
     const start = Date.parse("2026-10-29T10:12:29.800+05:30");
     const end = Date.parse("2026-10-29T10:12:30.200+05:30");
     expect(clockSkewMs("Thu, 29 Oct 2026 04:42:30 GMT", start, end)).toBe(500);

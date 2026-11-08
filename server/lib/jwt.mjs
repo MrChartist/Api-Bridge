@@ -1,6 +1,6 @@
 /**
  * Read-only JWT helpers for broker session tokens. Nothing here verifies a signature: the broker issued the token and
- * is the only party that checks it. These helpers only read claims the app needs locally (expiry, account id) and
+ * is the only party that checks it. These helpers only read claims the Bridge needs locally (expiry, account id) and
  * never log the token.
  */
 

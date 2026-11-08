@@ -1,4 +1,4 @@
-/** `vol` config section (docs/spec/p1-03-pricing-vol.md §2.5, §9.1). */
+/** `vol` config section. */
 import { describe, expect, it } from "vitest";
 import { yearBasisOf } from "../dashboard/pricing.js";
 import { clockSettings, parseVolConfig } from "./config.mjs";

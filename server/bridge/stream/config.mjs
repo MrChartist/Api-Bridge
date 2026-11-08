@@ -1,5 +1,5 @@
 /**
- * The `stream` config section (owned by stream S6). Every key is optional; defaults are conservative and suit one
+ * The `stream` config section (owned by the stream module). Every key is optional; defaults are conservative and suit one
  * person running a few tools on their own computer.
  *
  *   "stream": {

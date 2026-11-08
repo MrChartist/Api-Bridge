@@ -40,7 +40,7 @@ const LABEL = "Axis Direct";
 const AUTH_TOKEN_LIFETIME_MS = 15 * 60 * 1000;
 const EARLY_REFRESH_MS = 60 * 1000;
 const KEY_FIELDS = ["apiClientId", "authorizationKey", "ssoId"];
-const REGENERATE = "Start a new Axis Direct login, then save the new ssoId from the redirect address in Broker Settings.";
+const REGENERATE = "Start a new Axis Direct login, then save the new ssoId from the redirect address in the account settings.";
 
 let makeSecretKey = newSecretKey;
 /** Tests only: make the per-session AES key deterministic so recorded encrypted fixtures can be replayed. */
@@ -112,7 +112,7 @@ async function publicKeyFor(creds) {
     p = (async () => {
       const res = await brokerFetch(`${AUTH_HOST}/handshake`, { method: "POST", headers: baseHeaders(creds) }, { kind: "login", label: LABEL });
       const json = await readJson(res);
-      if (res.status === 401 || res.status === 403) throw new SessionRequiredError(`${LABEL} refused the API client ID or authorisation key (HTTP ${res.status}). Check them in Broker Settings.`);
+      if (res.status === 401 || res.status === 403) throw new SessionRequiredError(`${LABEL} refused the API client ID or authorisation key (HTTP ${res.status}). Check them in the account settings.`);
       const pk = json?.data?.publicKey;
       if (!res.ok || typeof pk !== "string" || !pk) throw new BrokerError(`${LABEL} handshake failed (HTTP ${res.status}).`);
       return pk;

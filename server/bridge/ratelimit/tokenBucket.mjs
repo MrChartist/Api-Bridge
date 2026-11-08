@@ -1,5 +1,5 @@
 /**
- * Multi-window rate limiter for one (account, endpoint class) or (account, group) budget — stream S3.
+ * Multi-window rate limiter for one (account, endpoint class) or (account, group) budget.
  *
  * The contract calls these "token buckets"; the implementation is deliberately stricter than a classic refilling
  * bucket so that no broker window can ever be exceeded, whatever way the broker aligns its own windows:

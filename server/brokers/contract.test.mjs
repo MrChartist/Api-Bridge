@@ -56,7 +56,7 @@ describe("Dhan on the contract harness", () => {
     }
   });
 
-  it("maps the option chain onto the app's OptionData", () => {
+  it("maps the option chain onto OptionData", () => {
     const fx = loadFixtures("dhan").byCapability.optionChain.responses[0].json;
     const { spotPrice, chain } = toOptionData(fx);
     expect(spotPrice).toBe(25041.35);

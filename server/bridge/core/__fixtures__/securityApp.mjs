@@ -1,5 +1,5 @@
 /**
- * Security-test fixture (p1-05 §3.9, §10.2): boot the REAL app with every built-in module (compat on, a generous
+ * Security-test fixture: boot the REAL app with every built-in module (compat on, a generous
  * per-key client limit so a test can walk every route) on 127.0.0.1:<ephemeral>, and send raw HTTP requests with any
  * header (node:http, so Origin, Host, Cookie and Sec-Fetch-* go out exactly as given).
  */

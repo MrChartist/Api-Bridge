@@ -1,5 +1,5 @@
 /**
- * Freshness cache — stream S5. A bounded, insertion-ordered (LRU on write and read) map of the last value the Bridge
+ * Freshness cache. A bounded, insertion-ordered (LRU on write and read) map of the last value the Bridge
  * fetched for a key, with the time it was fetched and the account that supplied it. It never decides what is fresh:
  * callers ask for an entry no older than a target (get) or for any entry up to a stale limit (getStale), and label
  * the result with Freshness themselves. Keys never contain credentials (they are canonical symbols and arguments).

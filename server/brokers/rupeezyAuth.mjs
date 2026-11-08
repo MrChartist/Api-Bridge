@@ -36,7 +36,7 @@ export function checksumFor(applicationId, authToken, apiKey) {
 }
 
 const str = (v) => (v === undefined || v === null ? "" : String(v).trim());
-const HINT = `Open ${LOGIN_URL}?applicationId=YOUR_APPLICATION_ID, log in, and paste the new "auth" value from the callback URL in Broker Settings (it works once).`;
+const HINT = `Open ${LOGIN_URL}?applicationId=YOUR_APPLICATION_ID, log in, and paste the new "auth" value from the callback URL in the account settings (it works once).`;
 
 export function secretsOf(creds, extra = []) {
   return [creds?.apiKey, creds?.authToken, creds?.accessToken, ...extra].filter((s) => typeof s === "string" && s.length >= 4);
@@ -100,7 +100,7 @@ export const session = createSessionManager({
 
 /** The access token: a pasted one, else the cached or freshly exchanged one. */
 export async function accessTokenFor(creds = {}) {
-  if (!str(creds.apiKey)) throw new SessionRequiredError(`${LABEL}: the API key (x-api-key) is missing. Add it in Broker Settings.`);
+  if (!str(creds.apiKey)) throw new SessionRequiredError(`${LABEL}: the API key (x-api-key) is missing. Add it in the account settings.`);
   return (await session.ensure(creds)).token;
 }
 
@@ -112,7 +112,7 @@ const RATE_LIMIT = /rate limit|too many/i;
  */
 export async function vortexRequest(creds, path, { method = "GET", body } = {}) {
   const apiKey = str(creds?.apiKey);
-  if (!apiKey) throw new SessionRequiredError(`${LABEL}: the API key (x-api-key) is missing. Add it in Broker Settings.`);
+  if (!apiKey) throw new SessionRequiredError(`${LABEL}: the API key (x-api-key) is missing. Add it in the account settings.`);
   const handle = await session.ensure(creds);
   await pace(bucketOf(path));
   const secrets = secretsOf(creds, [handle.token]);

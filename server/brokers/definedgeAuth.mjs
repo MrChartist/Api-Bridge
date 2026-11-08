@@ -120,7 +120,7 @@ export async function definedgeFetch(creds, path, { method = "GET", body, base =
     }
     const message = (json && (json.message || json.emsg)) || "";
     if (res.status === 401 || /session\s*expired|invalid\s*session/i.test(message)) {
-      throw new SessionRequiredError("Definedge session has expired. Log in again from Broker Settings.");
+      throw new SessionRequiredError("Definedge session has expired. Log in again from the account settings.");
     }
     if (res.status === 429) throw new BrokerError(`Definedge ${what}: rate limit reached. Try again shortly.`, { code: "UPSTREAM_RATE_LIMIT" });
     if (!res.ok || (json && String(json.status || "").toUpperCase() === "ERROR")) {

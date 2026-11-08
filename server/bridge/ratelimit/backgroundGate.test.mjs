@@ -1,5 +1,5 @@
 /**
- * backgroundGate (docs/spec/README.md §3.1): background work never leaves any window below 50 % of its limit.
+ * backgroundGate: background work never leaves any window below 50 % of its limit.
  */
 import { describe, expect, it } from "vitest";
 import { createFakeAccountManager } from "../accounts/fake.mjs";

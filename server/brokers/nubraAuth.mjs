@@ -14,7 +14,7 @@
  *   - TOTP (authenticator-app code), once TOTP is enabled on the account.
  *
  * Session login (contract auth.kind "sessionLogin") uses the TOTP path with the CURRENT 6-digit code
- * the user types in Broker Settings, plus their MPIN:
+ * the user types in the account settings, plus their MPIN:
  *   1. POST /totp/login   {phone, totp, otp:""}  -> auth_token
  *   2. POST /verifypin    {pin: mpin}             -> session_token
  * (headers: Authorization + x-device-id [+ Content-Type]). login() returns only { sessionToken };
@@ -149,7 +149,7 @@ export async function nubraFetch(creds, path, { method = "GET", body, what = pat
     delayMs *= 2;
   }
   if (res.status === SESSION_EXPIRED_STATUS || res.status === 401) {
-    throw new SessionRequiredError("Nubra session expired. Log in again from Broker Settings.");
+    throw new SessionRequiredError("Nubra session expired. Log in again from the account settings.");
   }
   const text = await res.text();
   let json = null;

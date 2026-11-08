@@ -1,6 +1,6 @@
 /**
- * Automation registry (docs/spec/p1-05-readiness.md §3.8). In memory only: automations re-register at boot (the hooks
- * module walks its store; P1-11/12 rules register when they load).
+ * Automation registry. In memory only: automations re-register at boot (the hooks
+ * module walks its store; other automated rules register when they load).
  *
  *  register({ id, kind, accountId, mode, label, onState? }) -> { update(patch), remove() }   duplicate id → VALIDATION_FAILED
  *  byAccount(accountId) -> entries                     list(), get(id), count()

@@ -9,12 +9,11 @@ approximate SPAN-like scan in `server/bridge/dashboard/span-margin.js` (docs/gui
 iron condors and futures-covered shorts now block far less: a NIFTY iron condor about ₹87k instead of ₹5.33L. Paper
 `usedMargin`, `availableCash` and the order preview's `margin.required` change accordingly; a preview now reports
 what the order adds to the book (a hedge can add 0). `"model": "simple"` keeps the per-leg percentages. New:
-`POST /v1/paper/accounts/{id}/margin` (basket margin, nothing placed), `POST /v1/paper/accounts/{id}/reset/undo`,
-and the position alerts routes under `/v1/alerts` (they notify only). Demo paper accounts start with ₹25 lakh.
+`POST /v1/paper/accounts/{id}/margin` (basket margin, nothing placed), and `POST /v1/paper/accounts/{id}/reset/undo`. Demo paper accounts start with ₹25 lakh.
 
 ## optionchain-ivmodel
 
-`GET /v1/optionchain` gains `ivModel` (docs/spec/p1-03-pricing-vol.md §3.9, §10).
+`GET /v1/optionchain` gains `ivModel`.
 
 - `ivModel=b76-forward`: every leg's `iv`, `delta`, `gamma`, `theta` and `vega` come from Black-76 on the 5-strike
   put-call-parity forward, mid prices and the vol-time clock (`server/bridge/dashboard/pricing.js`, the same code the

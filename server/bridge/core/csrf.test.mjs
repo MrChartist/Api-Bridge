@@ -1,5 +1,5 @@
 /**
- * T-sec-1 (docs/spec/p1-05-readiness.md §3.9, §10.2): every state-changing route refuses cross-site browser requests.
+ * T-sec-1: every state-changing route refuses cross-site browser requests.
  * Boots the real app (every module, compat on) and, in a second app, demo mode (for the demo-only routes). For EVERY
  * route with a method other than GET:
  *  (a) a foreign Origin with a valid admin+live key → 403 ORIGIN_NOT_ALLOWED, and the handler is not reached;

@@ -1,5 +1,5 @@
 /**
- * Generic signed receiver — stream S11. For your own scripts, Amibroker/Python bridges and anything that can sign.
+ * Generic signed receiver. For your own scripts, Amibroker/Python bridges and anything that can sign.
  *
  * Every request must carry `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + raw body)>`
  * (server/bridge/auth/hmac.mjs). Requests outside the time window (5 minutes at most) or replayed inside it are

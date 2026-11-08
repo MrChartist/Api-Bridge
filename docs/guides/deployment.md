@@ -77,15 +77,15 @@ Click it for the detail; the Safety page has the full card, the last changes and
 |---|---|
 | Ready | Every live account passed: session, static IP, order headroom, daily limits, kill switch |
 | Check: … | Something needs a look but orders can still go (a session that ends before the close, a daily loss limit that is nearly used, the lookup is off) |
-| Cannot trade: … | At least one live account would have its orders refused. Automated live orders (webhooks, later guards and alert actions) on that account are refused with `CANNOT_TRADE`; orders you send yourself carry a warning |
+| Cannot trade: … | At least one live account would have its orders refused. Automated live orders (webhooks) on that account are refused with `CANNOT_TRADE`; orders you send yourself carry a warning |
 | Paper only | No account has live trading on |
 | Not checked since … | Outside market hours the Bridge does not call the broker, so the reading gets old by design |
 
 The routine:
 
 1. Log in to each broker in the morning (Accounts page, or `mc-bridge accounts connect <id>`).
-2. At **09:00 IST** on trading days the Bridge checks every live account and notifies you about any that is not
-   ready, through your notify targets ([notifications.md](notifications.md), event `trading.readiness`).
+2. At **09:00 IST** on trading days the Bridge checks every live account and flags any that is not
+   ready on the badge and in `GET /v1/readiness`.
 3. During the day it checks every 4 minutes, and at once when a session changes, a broker refuses a session or the
    kill switch moves. A changed address is noticed within 5 minutes.
 

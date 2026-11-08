@@ -10,7 +10,7 @@
  *   { "op": "subscribe_scans", "id"?: ... }        scanner progress, completions and saved-scan alerts (SSE: &scans=1)
  *   { "op": "unsubscribe_scans", "id"?: ... }
  *   { "op": "subscribe_events", "asset"?: "stock"|"option", "kinds"?: [...], "sides"?: [...], "id"?: ... }
- *                                                  live market events (S28) as they are detected (SSE: &events=1)
+ *                                                  live market events as they are detected (SSE: &events=1)
  *   { "op": "unsubscribe_events", "id"?: ... }
  *   { "op": "subscribe_budget", "id"?: ... }      the API budget (ratelimit/budget.mjs) once a second while it changes,
  *                                                  at least every 5 s; only accounts the key may use (SSE: &budget=1)
@@ -364,7 +364,7 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     scanOffs = null;
   }
 
-  // Market events (S28): every key with read scope sees them (they describe the market, not an account).
+  // Market events: every key with read scope sees them (they describe the market, not an account).
   function doSubscribeEvents(op) {
     eventsFilter = { asset: op.asset ?? null, kinds: op.kinds?.length ? new Set(op.kinds) : null, sides: op.sides?.length ? new Set(op.sides) : null };
     if (eventsOff) return;

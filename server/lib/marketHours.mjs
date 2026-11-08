@@ -118,7 +118,7 @@ export function minutesToClose(date = new Date()) {
  * cached LTP is real, but its exchange timestamp is from the previous session.
  *
  * @param {number} lttEpochSeconds exchange last-traded time from the feed
- * @param {number} receivedAtMs when the proxy received the tick
+ * @param {number} receivedAtMs when the Bridge received the tick
  * @param {number} maxAgeMs staleness ceiling (default 5s)
  */
 export function requireFreshTick(lttEpochSeconds, receivedAtMs, maxAgeMs = 5000, now = Date.now()) {

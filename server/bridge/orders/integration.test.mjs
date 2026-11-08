@@ -1,5 +1,5 @@
 /**
- * Contract test with the REAL SafetyGuard + AuditLog (S9) and PaperEngine (S8): the S7 OrderService wired by createApp
+ * Contract test with the REAL SafetyGuard + AuditLog and PaperEngine: the OrderService wired by createApp
  * exactly as in production, over the published fakes for accounts, scheduler, symbols and market data, plus a stub
  * adapter whose order methods use the real order gate. Fake clock set inside NSE market hours. No network.
  */
@@ -78,7 +78,7 @@ afterAll(async () => {
   await app?.close();
 });
 
-describe("S7 with the real S8 paper engine and S9 safety guard", () => {
+describe("orders with the real paper engine and safety guard", () => {
   it("places a paper order through the real safety check, paper engine and audit log", async () => {
     const { order } = await app.deps.orders.place(ctx("paper"), liveOrder({ account: "paper", mode: undefined, price: 1402.3 }), { idempotencyKey: "int-paper-0001" });
     expect(order).toMatchObject({ mode: "paper", accountId: "paper", symbol: "NSE:RELIANCE", quantity: 10 });

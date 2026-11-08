@@ -1,6 +1,6 @@
 /**
  * CLI implementation behind bin/mc-bridge.mjs, kept here so it can be tested without spawning processes.
- * Commands delegate to the contract services (KeyStore, AccountManager, AuditLog); until a stream lands, its
+ * Commands delegate to the contract services (KeyStore, AccountManager, AuditLog); until a module lands, its
  * command prints a clear "not built yet" message and exits with code 2.
  */
 import { spawn } from "node:child_process";
@@ -154,7 +154,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
 }
 
 /**
- * The two trading-readiness checks (docs/spec/p1-05-readiness.md §3.1, T15). Pure.
+ * The two trading-readiness checks. Pure.
  *  (a) a live-enabled account without live.registeredIp: the readiness monitor cannot compare the static IP;
  *  (b) notify targets exist but none listens to trading.readiness, so a failing 09:00 check reaches nobody.
  * @returns {Array<{ level: "ok"|"warn", check: string, message: string }>}

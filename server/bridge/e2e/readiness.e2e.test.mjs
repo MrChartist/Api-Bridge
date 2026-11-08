@@ -1,5 +1,5 @@
 /**
- * End-to-end: trading readiness (docs/spec/p1-05-readiness.md §10.3; README §4 step 5 acceptance). The REAL Bridge
+ * End-to-end: trading readiness. The REAL Bridge
  * (every module) on 127.0.0.1 with a stub broker, a local IP-echo server for the egress lookup and a local capture
  * server as the notification target. The clock is shifted to a trading day and moved forward by hand; the 60 s tick
  * is driven with readiness.tick() after each move, exactly as the interval timer would.
@@ -227,7 +227,7 @@ describe("trading readiness end to end", () => {
     const messages = p.json.data.checks.map((c) => `${c.code}: ${c.message}`).join("\n");
     expect(messages).toMatch(/READINESS: Readiness: cannot trade: This computer's internet address does not match/);
     expect(messages).toMatch(/does not match the static IP registered for stub-live \(see readiness\)/);
-    // A non-admin key's preview never carries either address (§9).
+    // A non-admin key's preview never carries either address.
     expect(JSON.stringify(p.json)).not.toMatch(/198\.51\.100\.23|203\.0\.113\.10/);
   });
 });

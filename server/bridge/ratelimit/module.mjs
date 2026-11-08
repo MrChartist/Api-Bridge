@@ -1,5 +1,5 @@
 /**
- * ratelimit module — stream S3: Rate-limit engine and routing. Owned files and tasks: docs/STREAMS.md §S3.
+ * ratelimit module: Rate-limit engine and routing.
  *
  * Provides deps.scheduler (scheduler.mjs), owns the `ratelimit` config section (config.mjs) and serves
  * GET /v1/limits and GET /v1/usage (routes.mjs). stop() refuses whatever is still queued and clears the timer.

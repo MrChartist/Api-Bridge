@@ -1,5 +1,5 @@
 /**
- * Test helpers for stream S4: fixture masters, a recording Scheduler stub, a fake AccountManager wired to stub
+ * Test helpers for the symbols module: fixture masters, a recording Scheduler stub, a fake AccountManager wired to stub
  * adapters, a settable clock and a capturing logger. No network, no real broker.
  */
 import { readFileSync } from "node:fs";

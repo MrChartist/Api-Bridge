@@ -1,6 +1,6 @@
 /**
- * 5paisa orders (real money). Every exported call is wrapped with withOrderGate(); no route mints 5paisa gates
- * today, so these stay unreachable from the browser until the owner reviews a 5paisa order path.
+ * 5paisa orders (real money). Every exported call is wrapped with withOrderGate(); the Bridge has no live 5paisa
+ * order mapper today, so these stay unreachable until a 5paisa order path has been reviewed and verified.
  *
  * Official docs (https://xstream.5paisa.com/dev-docs/order-management-system/*, checked 2026-10):
  *  - POST .../Service1.svc/V1/PlaceOrderRequest  body { Exchange N|B|M, ExchangeType C|D|U, ScripCode, ScripData,

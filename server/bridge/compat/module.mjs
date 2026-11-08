@@ -1,5 +1,5 @@
 /**
- * compat module — stream S14: a compatibility REST API (apikey-in-body style) at /api/v1/* on the Bridge's own port.
+ * compat module: a compatibility REST API (apikey-in-body style) at /api/v1/* on the Bridge's own port.
  *
  * Compat-style clients send the key in the JSON body (`apikey`), so these routes use `auth: "custom"`: the handler
  * authenticates the Bridge API key itself (body `apikey`, or the usual Authorization / X-API-Key header), applies

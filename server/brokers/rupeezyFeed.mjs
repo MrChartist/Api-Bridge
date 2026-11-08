@@ -65,7 +65,7 @@ const nn = (v) => (Number.isFinite(v) ? v : null);
  */
 export function createFeed(creds, { onTick = () => {}, onStatus = () => {} } = {}, { WebSocketImpl = WebSocket, mode = "full" } = {}) {
   if (!String(creds?.accessToken ?? "").trim() && !String(creds?.authToken ?? "").trim()) {
-    throw new SessionRequiredError("Rupeezy: no session for the live feed. Paste today's auth value or an access token in Broker Settings.");
+    throw new SessionRequiredError("Rupeezy: no session for the live feed. Paste today's auth value or an access token in the account settings.");
   }
   const wanted = new Map(); // "NSE_FO|123" -> contract ref
   let ws = null;

@@ -1,5 +1,5 @@
 /**
- * S1 routes end to end through the real request pipeline (createApp), with fixture adapters, an in-memory
+ * accounts routes end to end through the real request pipeline (createApp), with fixture adapters, an in-memory
  * SecretStore, a fake key store and a capturing audit log. The capture tests prove that a typed password/TOTP and
  * saved tokens never reach a response, a log line, the audit log or (for the secrets) the SecretStore.
  */
@@ -136,7 +136,7 @@ describe("GET /v1/brokers", () => {
     expect(r.json.data.filter((b) => b.verified).map((b) => b.id)).toEqual(["dhan"]);
   });
 
-  it("uses the scheduler's policy when S3 is running, else the static table", () => {
+  it("uses the scheduler's policy when ratelimit is running, else the static table", () => {
     const deps = {
       brokers: createStubRegistry({ dhan: apiKeyAdapter({ id: "dhan" }) }),
       accounts: {},

@@ -1,5 +1,5 @@
 /**
- * Micro-batcher — stream S5. Requests that arrive within a short window (default 25 ms) for the same group (one
+ * Micro-batcher. Requests that arrive within a short window (default 25 ms) for the same group (one
  * account and one kind of read) are handed to `run` together, so twenty clients asking for overlapping symbols at
  * the same moment cost one broker call per account instead of twenty. Items with the same id inside one window are
  * merged: every waiter gets the same result.

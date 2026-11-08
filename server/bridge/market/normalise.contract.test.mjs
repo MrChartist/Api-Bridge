@@ -1,7 +1,7 @@
 /**
  * Contract test: every real broker adapter (server/brokers/registry.mjs) is run against its recorded fixtures
  * (server/brokers/__fixtures__/<id>/, fetch stubbed by contractHarness.createFetchStub, so no network) and its
- * market-data output is fed through S5's normalisers. Whatever shape a broker returns within the contract, the Bridge
+ * market-data output is fed through market's normalisers. Whatever shape a broker returns within the contract, the Bridge
  * must turn it into the OpenAPI shapes without losing prices, inventing zeros or failing.
  *
  * Several adapters pace their own upstream calls with timers (the XTS family waits 1 s between market-data calls), so
@@ -67,7 +67,7 @@ async function runAdapter(adapter) {
 const registry = createBrokerRegistry();
 const ids = registry.list();
 
-describe("S5 normalisers accept every adapter's fixture output", async () => {
+describe("market normalisers accept every adapter's fixture output", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const runs = [];
   for (const id of ids) {

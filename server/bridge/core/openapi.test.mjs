@@ -1,7 +1,7 @@
 /**
  * docs/openapi.yaml and the registered routes must agree: same paths and methods, same scope, same auth mode,
- * same loopback/public flags, and the same owning stream. A stream that adds, renames or re-scopes a route without
- * the lead updating the contract fails here.
+ * same loopback/public flags, and the same owning module tag. A module that adds, renames or re-scopes a route without
+ * updating the contract fails here.
  *
  * Demo-only routes (server/bridge/demo/routes.mjs) exist only in demo mode. They are marked `x-demo-only: true` in
  * the spec and listed in DEMO_ONLY below; the non-demo app must not have them, and a demo app must have exactly the

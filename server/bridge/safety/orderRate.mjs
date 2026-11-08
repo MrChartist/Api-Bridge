@@ -1,5 +1,5 @@
 /**
- * Sliding-window order-rate limiter, per account (stream S9). Place, modify and cancel all take a slot, because
+ * Sliding-window order-rate limiter, per account. Place, modify and cancel all take a slot, because
  * exchanges and brokers count every order action against the per-second threshold (needs verification per broker).
  *
  * A rate of R orders per second allows N = max(1, floor(R)) actions in any window of W = N / R seconds. For whole

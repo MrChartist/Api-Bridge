@@ -360,7 +360,7 @@ describe("WebSocket upgrades", () => {
   });
 });
 
-describe("T-sec-5: baseline headers on a route of every module and on errors (p1-05 §3.9 F8)", async () => {
+describe("T-sec-5: baseline headers on a route of every module and on errors", async () => {
   const { bootSecurityApp, samplePath } = await import("./__fixtures__/securityApp.mjs");
   const { BASE_HEADERS } = await import("./security.mjs");
   it("X-Frame-Options, nosniff, no-store, CORP same-origin everywhere; the dashboard CSP on dashboard pages", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { detectionBoundSeconds, parseReadinessConfig, readinessWarnings } from "./config.mjs";
 
-describe("readiness config (p1-05 §3.6)", () => {
+describe("readiness config", () => {
   it("defaults: lookup off, 4 min inside 08:45–15:45, pre-open 09:00, gate on", () => {
     const c = parseReadinessConfig({});
     expect(c).toMatchObject({
@@ -35,7 +35,7 @@ describe("readiness config (p1-05 §3.6)", () => {
     expect(() => parseReadinessConfig({ egressIp: { mode: "manual" } })).toThrow(/manualIp/);
   });
 
-  it("detection bound (§7.5): 280.25 s at the defaults; intervalMinutes > 4 warns, never fails", () => {
+  it("detection bound: 280.25 s at the defaults; intervalMinutes > 4 warns, never fails", () => {
     expect(detectionBoundSeconds(parseReadinessConfig({}))).toBe(280.25);
     expect(readinessWarnings(parseReadinessConfig({}))).toEqual([]);
     const five = parseReadinessConfig({ intervalMinutes: 5 });

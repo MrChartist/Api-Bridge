@@ -1,5 +1,5 @@
 /**
- * IP address helpers for the readiness egress check (docs/spec/p1-05-readiness.md §7.3). Pure functions.
+ * IP address helpers for the readiness egress check. Pure functions.
  *
  *  normaliseIp(s)        -> { ip, family: "ipv4"|"ipv6" } | null   trimmed; "::ffff:a.b.c.d" becomes IPv4; IPv4 must be four
  *                           0-255 decimal octets without leading zeros; IPv6 lower-cased and expanded to 8 groups; zone ids

@@ -1,5 +1,5 @@
 /**
- * Readiness monitor (p1-05 §3.2, §10.1): timers, bus triggers, probe cooldown and singleflight, egress feed to safety,
+ * Readiness monitor: timers, bus triggers, probe cooldown and singleflight, egress feed to safety,
  * trading.readiness payloads and notify decisions, audit, persisted state. Fake timers, fake services, no network.
  */
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -281,7 +281,7 @@ describe("readiness egress, events, audit and storage", () => {
     expect(off.safety.setDetectedEgressIp).toHaveBeenCalledWith(null);
   });
 
-  it("emits trading.readiness with the notify decision (§7.7), appends readiness.changed, never carries the IP", async () => {
+  it("emits trading.readiness with the notify decision, appends readiness.changed, never carries the IP", async () => {
     vi.setSystemTime(MON_1000);
     let ip = "203.0.113.10";
     const h = harness({ readiness: { egressIp: { mode: "lookup", lookupUrl: "https://api.ipify.org" } }, egress: fakeEgress(() => ({ ok: true, ip, family: "ipv4", at: Date.now(), seenBy: "api.ipify.org" })) });

@@ -1,5 +1,5 @@
 /**
- * Test doubles for stream S10: deterministic marketData, symbols and keyStore fakes that satisfy the core contracts.
+ * Test doubles for the integrations module: deterministic marketData, symbols and keyStore fakes that satisfy the core contracts.
  * Nothing here talks to a broker. Candles exist for weekdays from DATA_START, with no data on HOLIDAYS, so empty
  * ranges can be tested exactly.
  */

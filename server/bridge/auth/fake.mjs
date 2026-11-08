@@ -1,5 +1,5 @@
 /**
- * In-memory fakes of SecretStore and KeyStore for OTHER streams' tests (S1, S6, S10, S11 ...). They implement the
+ * In-memory fakes of SecretStore and KeyStore for OTHER modules' tests (accounts, stream, integrations, hooks ...). They implement the
  * exact contract methods (SERVICE_CONTRACTS.secrets / .keyStore), so pass them as createApp({ overrides }) or straight
  * into a factory. No files, no scrypt, no master key: fast and deterministic. Never use them in production code.
  *

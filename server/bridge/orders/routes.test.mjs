@@ -1,6 +1,6 @@
 /**
- * S7 routes end to end through the real request pipeline (createApp): the real OrderService over published fakes
- * (accounts, scheduler, symbols, market data) and the S7 stubs (safety, audit, paper), with a fake key store.
+ * orders routes end to end through the real request pipeline (createApp): the real OrderService over published fakes
+ * (accounts, scheduler, symbols, market data) and the orders stubs (safety, audit, paper), with a fake key store.
  * Checks the OpenAPI shapes ({ data, meta }), status codes, Idempotency-Replayed, auth and scope, validation and
  * the ticket confirmation routes.
  */

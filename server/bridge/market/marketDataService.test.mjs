@@ -1,5 +1,5 @@
 /**
- * MarketDataService (S5) against the published fakes: read path (stream -> cache -> batched broker call), pinned and
+ * MarketDataService (market) against the published fakes: read path (stream -> cache -> batched broker call), pinned and
  * pooled routing, stale labelling under budget pressure, per-item errors, depth, history chunking, expiries and
  * option chains. No network; the manual clock drives every timer.
  */
@@ -637,7 +637,7 @@ describe("secrets", () => {
   });
 });
 
-describe("chain contract facts (P1-6 §6.1)", () => {
+describe("chain contract facts", () => {
   const specs = (rows) => rows.map((s, i) => ({ ...s, refs: { zerodha: { token: `Z${i + 1}` }, dhan: { token: `D${i + 1}` } } }));
   const stockStrikes = [1360, 1380, 1400, 1410, 1420, 1440, 1460];
   const instruments = specs([

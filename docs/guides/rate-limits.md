@@ -14,8 +14,7 @@ For every market-data request, in order:
    (`SUBSCRIPTION_LIMIT` goes only to the client that crossed the cap).
    An **option chain** whose whole strike window (`strikes=N` around ATM) is live on the stream is built from those
    ticks over the day's broker chain, which supplies the previous-day OI behind OI change (`source = "stream"`, no
-   broker call). The dashboard's chain, OI and Strategy pages subscribe their legs, so their refreshes, and every other
-   reader of the same window (the recorder, your scripts), cost the broker nothing while the stream is up.
+   broker call). Every reader of the same window (a dashboard page, your scripts) costs the broker nothing while the stream is up.
    A **quiet strike** (an illiquid far leg that has not traded) does not force a broker read: on a live subscription
    no tick means no trade, so its last tick is used while the feed is ticking now, the tick came on the current
    connection and it is at most `market.quietLegMaxAgeMs` old (60 s by default, 0 turns it off). Such legs carry
@@ -78,18 +77,10 @@ What pooling does:
   chunk goes to the pooled account with the most spare quote budget, so two accounts answer roughly twice as fast.
   An account in broker back-off gets no share.
 - **Single reads** go to the pooled account with the most headroom.
-- **Scans** ([scanner.md](scanner.md)) run one worker pool per pooled account, each pinned to its account and as
-  wide as that account's history budget, all pulling from one queue.
 
 `GET /v1/accounts` shows the effective `pooling` value per account. Orders and portfolio reads are never pooled,
 credentials are never shared, and accounts of different people are never pooled. Read your brokers' API terms before
 turning this on: it is your decision, made in the config file only.
-
-## When no broker can answer: backup data
-
-With `"backup": { "enabled": true }`, an unpinned read that no broker account can answer (none connected, session
-expired, broker down, budget gone) is served from free public sources instead and labelled `source: "backup"`. See
-[backup-data.md](backup-data.md).
 
 ## Your own budget
 
@@ -116,10 +107,9 @@ curl -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/usage?view=budget
 
 `savings` counts the broker calls avoided today: served from stream, served from cache, coalesced and batched. Each
 class lists every window (`windows`: this second, this minute, today) with what it holds now. Admin keys also get
-`consumers`: today's broker calls and saved calls per dashboard page, API key (by label), MCP, Excel / compat, the
-recorder and Live events.
+`consumers`: today's broker calls and saved calls per dashboard page, API key (by label), MCP, Excel / compat and
+background jobs.
 
 The dashboard shows the same figures: the **API** capsule in the top bar (this second and this minute against the
 limit, the stream, calls saved today; fed by `budget` messages on the stream, op `subscribe_budget`), and
-**API › Rate limits** (a live calls-per-second chart against the limit, and Top consumers). Measurements of what this
-saves are in [docs/perf/baseline.md](../perf/baseline.md).
+**API › Rate limits** (a live calls-per-second chart against the limit, and Top consumers).

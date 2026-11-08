@@ -1,5 +1,5 @@
 /**
- * T-sec-3 (docs/spec/p1-05-readiness.md §3.9 F6): every registered WebSocket upgrade path refuses a foreign Origin
+ * T-sec-3: every registered WebSocket upgrade path refuses a foreign Origin
  * and a foreign Host (DNS rebinding) with 403, before any handler runs.
  */
 import http from "node:http";

@@ -202,7 +202,7 @@ describe("runDoctor", () => {
   });
 });
 
-describe("doctor: trading readiness checks (p1-05 T15)", () => {
+describe("doctor: trading readiness checks", () => {
   const cfg = (raw) => loadConfig({ raw: { dataDir: mkdtempSync(join(tmpdir(), "mcb-doc-")), ...raw }, env: {} }).config;
   it("warns about a live-enabled account without live.registeredIp, and passes when every live account has one", async () => {
     const bad = cfg({ safety: { liveTrading: true }, accounts: [{ id: "a1", broker: "dhan", live: { enabled: true } }, { id: "a2", broker: "zerodha", live: { enabled: true, registeredIp: "203.0.113.10" } }, { id: "a3", broker: "upstox" }] });

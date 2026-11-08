@@ -1,5 +1,5 @@
 /**
- * MarketDataService — stream S5 (docs/STREAMS.md §S5). Contract: SERVICE_CONTRACTS.marketData in ../core/contracts.mjs.
+ * MarketDataService. Contract: SERVICE_CONTRACTS.marketData in ../core/contracts.mjs.
  *
  * Read path for LTP and quotes (docs/ARCHITECTURE.md §4 and §6):
  *
@@ -138,7 +138,7 @@ export function createMarketDataService(deps) {
     }
   })();
   const now = () => clock.now();
-  /** Optional (stream S16): the reference rate. Absent in tests and tools that build the service by hand. */
+  /** Optional: the reference rate. Absent in tests and tools that build the service by hand. */
   const reference = (() => {
     try {
       return deps.reference;
@@ -419,7 +419,7 @@ export function createMarketDataService(deps) {
   }
 
   async function brokerRef(symbol, broker) {
-    if (!usable(symbols)) throw new BridgeError("NOT_IMPLEMENTED", "Symbol resolution (stream S4) is not built yet.");
+    if (!usable(symbols)) throw new BridgeError("NOT_IMPLEMENTED", "Symbol resolution is not built yet.");
     const ref = await symbols.toBroker(symbol, broker);
     if (!ref?.token) throw new BridgeError("SYMBOL_NOT_FOUND", `${symbol} is not in ${broker}'s instrument list.`);
     return { token: String(ref.token), exchange: ref.exchange ?? parseSymbol(symbol).exchange };
@@ -493,7 +493,7 @@ export function createMarketDataService(deps) {
   /** Batch flush: one account, one priority; fetch every id through fetchQuotes in maxQuoteBatch chunks. */
   async function runQuoteBatch(group, ids) {
     const [accountId, priority, staleFlag, waitRaw, shareRaw] = group.split("|");
-    // A background caller's short wait and dispatch floor (README §3.1 C12) travel in the group key.
+    // A background caller's short wait and dispatch floor travel in the group key.
     const callerWait = waitRaw ? Number(waitRaw) : undefined;
     const share = shareRaw ? Number(shareRaw) : undefined;
     const results = new Map();
@@ -1096,7 +1096,7 @@ export function createMarketDataService(deps) {
   }
 
   /**
-   * Contract facts for a chain (docs/spec/p1-06-stocks.md §6.1), from the master only (no broker call): underlyingKind
+   * Contract facts for a chain, from the master only (no broker call): underlyingKind
    * from the master's spot row (INDEX vs EQ; else the reference universe), strikeStep inferred from the listed
    * strikes of the expiry, tickSize the largest option tick of the expiry. Memoised for 5 minutes per expiry.
    */
@@ -1192,7 +1192,7 @@ export function createMarketDataService(deps) {
       underlyingLtp: value.underlyingLtp,
       atmStrike: atm,
       lotSize: value.lotSize ?? null,
-      // P1-6 contract facts (additive; null when the master does not say)
+      // Contract facts (additive; null when the master does not say)
       underlyingKind: facts?.underlyingKind ?? null,
       settlement: facts?.settlement ?? null,
       strikeStep: facts?.strikeStep ?? null,

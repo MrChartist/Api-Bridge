@@ -1,5 +1,5 @@
 /**
- * Order request validation — stream S7.
+ * Order request validation.
  *
  *  1. Shape (zod, matching docs/openapi.yaml exactly): OrderRequest, OrderChanges, the cancel-all body and the list
  *     queries. No default product or order type; exactly one of quantity (units) or lots; unknown fields refused.
@@ -35,7 +35,7 @@ export const orderRequestSchema = z
     side: z.enum(["BUY", "SELL"]),
     quantity: z.number().int().min(1).max(100_000_000).optional(),
     lots: z.number().int().min(1).max(100_000).optional(),
-    /** The lot size the caller has checked; used only when reference lot data is stale (p1-02 §3.6, LOT_SIZE_STALE). */
+    /** The lot size the caller has checked; used only when reference lot data is stale (LOT_SIZE_STALE). */
     lotSizeConfirmed: z.number().int().min(1).max(10_000_000).optional(),
     product: z.enum(PRODUCTS),
     orderType: z.enum(ORDER_TYPES),
@@ -228,7 +228,7 @@ export function checkInstrumentOrder(req, resolved, quantity, { sliceAboveFreeze
   let legs = [quantity];
   const freeze = resolved.freezeQty;
   // Freeze quantity: the largest quantity the exchange accepts in one order (needs verification per segment against
-  // the exchange's current freeze-limit circular; S4 supplies the number and marks whether it is verified).
+  // the exchange's current freeze-limit circular; symbols supplies the number and marks whether it is verified).
   if (Number.isFinite(freeze) && freeze > 0 && quantity > freeze) {
     const perLeg = Math.floor(freeze / resolved.lotSize) * resolved.lotSize;
     const count = perLeg > 0 ? Math.ceil(quantity / perLeg) : Infinity;

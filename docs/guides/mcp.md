@@ -24,19 +24,19 @@ Edit `claude_desktop_config.json` (*Settings → Developer → Edit Config*):
   "mcpServers": {
     "mr-chartist-bridge": {
       "command": "node",
-      "args": ["/path/to/api-bridge/bin/mc-bridge.mjs", "mcp"],
+      "args": ["/path/to/api-bridge-v2/bin/mc-bridge.mjs", "mcp"],
       "env": { "MCB_API_KEY": "mcb_..." }
     }
   }
 }
 ```
 
-On Windows use a path such as `"C:\\Users\\you\\api-bridge\\bin\\mc-bridge.mjs"`. Restart Claude Desktop.
+On Windows use a path such as `"C:\\Users\\you\\api-bridge-v2\\bin\\mc-bridge.mjs"`. Restart Claude Desktop.
 
 ## Claude Code
 
 ```bash
-claude mcp add mr-chartist-bridge --env MCB_API_KEY=mcb_... -- node /path/to/api-bridge/bin/mc-bridge.mjs mcp
+claude mcp add mr-chartist-bridge --env MCB_API_KEY=mcb_... -- node /path/to/api-bridge-v2/bin/mc-bridge.mjs mcp
 # or the HTTP transport directly:
 claude mcp add --transport http mr-chartist-bridge http://127.0.0.1:4300/mcp --header "Authorization: Bearer mcb_..."
 ```
@@ -53,10 +53,9 @@ environment); clients that speak Streamable HTTP use `http://127.0.0.1:4300/mcp`
 | Toolset | Tools |
 |---|---|
 | `market` | `get_ltp`, `get_quotes`, `get_depth`, `get_history`, `get_expiries`, `get_option_chain`, `search_instruments`, `convert_symbol` |
-| `analytics` | `option_chain_summary`, `history_summary`, `scan_market` (technical scans, see [scanner.md](scanner.md)) |
+| `analytics` | `option_chain_summary`, `history_summary` |
 | `account` | `list_accounts`, `get_positions`, `get_holdings`, `get_funds`, `list_orders`, `get_order`, `get_safety_status` |
 | `orders` (off by default) | `prepare_order`, `submit_confirmed_order` |
-| `options` (off by default) | `get_reference` (contract facts), `get_option_snapshots` (option chains the Bridge recorded, with gaps and coverage; see [recorder.md](recorder.md)). More options platform tools (volatility, levels, alerts and guards) are added as they ship. Turn it on with `"toolsets": ["market", "analytics", "account", "options"]`. Tools that create something (for example a guard) also need a key with the `paper` scope. |
 
 Every result is wrapped as untrusted data (instrument names and broker messages are third-party text) and carries
 freshness labels.

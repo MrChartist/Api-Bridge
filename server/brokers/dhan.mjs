@@ -16,8 +16,7 @@
  * "NSE_FNO" as this file used to send.
  *
  * `dhanFetch` + the index/underlying maps are also imported by server/lib/dhanOrders.mjs and
- * dhanPortfolio.mjs, so its signature and error text stay as they were. proxy-server.mjs keeps its
- * own richer /api/dhan-proxy path.
+ * dhanPortfolio.mjs, so its signature and error text stay as they were.
  *
  * Futures/MCX helpers live in dhanFutures.mjs, market data beyond the chain in dhanMarket.mjs, the
  * WebSocket feed in dhanFeed.mjs and the portfolio/order surface in dhanContract.mjs; all are
@@ -78,12 +77,11 @@ export class DhanApiError extends BrokerError {
 }
 
 export async function dhanFetch(path, body, method = "POST", customClientId, customAccessToken) {
-  // No implicit .env fallback here: proxy-server.mjs decides when the .env keys may be used
-  // (browser or loopback callers only, see mayUseEnvCreds) and passes them explicitly.
+  // No implicit .env fallback here: callers decide when environment keys may be used and pass them explicitly.
   const clientId = customClientId;
   const accessToken = customAccessToken;
   if (!clientId || !accessToken) {
-    throw new Error("Dhan credentials not configured (Broker settings or .env).");
+    throw new Error("Dhan credentials not configured (account settings or .env).");
   }
 
   const options = {
@@ -139,7 +137,7 @@ export async function fetchExpiryList(creds, symbol) {
   return { status: "success", data: [...new Set(list)].sort() };
 }
 
-/** Already the app's normalised option-chain schema: Dhan IS the reference shape (IV in percent). */
+/** Already the normalised option-chain schema: Dhan IS the reference shape (IV in percent). */
 export async function fetchOptionChain(creds, symbol, expiry) {
   const u = underlyingOf(symbol);
   const body = { UnderlyingScrip: u.underlyingScrip, UnderlyingSeg: u.ocSegment };

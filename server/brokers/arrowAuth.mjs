@@ -36,7 +36,7 @@ export const sha256Hex = (s) => createHash("sha256").update(String(s)).digest("h
 const str = (v) => (v === undefined || v === null ? "" : String(v));
 const keyOf = (creds) => sha256Hex(JSON.stringify(KEY_FIELDS.map((f) => str(creds?.[f]))));
 const regenerate = (creds) =>
-  `Open ${LOGIN_URL}?appID=${encodeURIComponent(str(creds?.appId) || "<App ID>")}, log in and save the new request-token in Broker Settings.`;
+  `Open ${LOGIN_URL}?appID=${encodeURIComponent(str(creds?.appId) || "<App ID>")}, log in and save the new request-token in the account settings.`;
 
 const sessions = createSessionCache(); // key -> { token, expiresAt }
 const inflight = new Map(); // key -> Promise (one exchange per request-token even under concurrent calls)

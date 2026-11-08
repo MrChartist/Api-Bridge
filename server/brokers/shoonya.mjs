@@ -58,6 +58,6 @@ export const {
 export const buildOrderBody = (uid, order, resolvedLotSize) => core.buildOrderBody(uid, order, resolvedLotSize);
 export const buildModifyBody = (uid, orderId, changes, original) => core.buildModifyBody(uid, orderId, changes, original);
 
-/** Where the user gets an authorisation code (for the Broker Settings help text). */
+/** Where the user gets an authorisation code (for the login help text). */
 export const loginUrl = (apiKey) => `${OAUTH_LOGIN_URL}?client_id=${encodeURIComponent(apiKey || "")}`;
 export { OAUTH_LOGIN_BASE };

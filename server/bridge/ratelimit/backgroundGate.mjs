@@ -1,8 +1,7 @@
 /**
- * Background gate (docs/spec/README.md §3.1 F0, conflict C12). The ONE check every scheduled background REST job
- * makes before each broker call: recorder REST source, vol capture and snapshot, fno sweep, exposure REST fallback,
- * alerts poll, readiness probe. Users always go first: background work may use at most `share` of every window, and
- * `share` can never be more than 50 % (BRD §7.2).
+ * Background gate. The ONE check every scheduled background REST job makes before each broker call (for example
+ * vol capture and the readiness probe). Users always go first: background work may use at most `share` of every window, and
+ * `share` can never be more than 50 %.
  *
  * Rule: allow(accountId, endpointClass, { share = 0.5, cost = 1 }) is true only if, for EVERY window covering the
  * class (the class bucket and each group bucket that lists it; per second, minute, hour, day ...),
@@ -20,7 +19,7 @@
  *   await deps.scheduler.schedule({ accountId: acc, endpointClass: "optionChain", priority: "background", backgroundShare: MAX_BACKGROUND_SHARE }, fn);
  */
 
-/** Background work never gets more than half of any window (BRD §7.2). */
+/** Background work never gets more than half of any window. */
 export const MAX_BACKGROUND_SHARE = 0.5;
 /** Retry hint when a window is full but reports no reset time. */
 const FALLBACK_WAIT_MS = 1000;

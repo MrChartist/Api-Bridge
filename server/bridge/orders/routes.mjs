@@ -1,5 +1,5 @@
 /**
- * Route handlers for stream S7 (docs/openapi.yaml, tags "Orders" and "Portfolio"). Every handler answers
+ * Route handlers for the orders module (docs/openapi.yaml, tags "Orders" and "Portfolio"). Every handler answers
  * { data, meta } and delegates to OrderService (deps.orders); the service enforces account access, idempotency,
  * mode decisions and safety. Query parameters are validated here; bodies are validated by the service's zod schemas.
  *

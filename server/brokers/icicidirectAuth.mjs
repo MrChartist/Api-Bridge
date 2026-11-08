@@ -28,7 +28,7 @@ import { getWithBody } from "./icicidirectHttp.mjs";
 export const BASE_URL = "https://api.icicidirect.com/breezeapi/api/v1";
 export const LOGIN_URL = "https://api.icicidirect.com/apiuser/login";
 const LABEL = "ICICI Direct";
-const HINT = `Open ${LOGIN_URL}?api_key=YOUR_APP_KEY (URL-encoded), log in, and paste the new API_Session value in Broker Settings (it works for today only).`;
+const HINT = `Open ${LOGIN_URL}?api_key=YOUR_APP_KEY (URL-encoded), log in, and paste the new API_Session value in the account settings (it works for today only).`;
 
 const str = (v) => (v === undefined || v === null ? "" : String(v).trim());
 
@@ -95,7 +95,7 @@ const RATE_LIMIT = /rate limit|too many|limit exceeded/i;
 const EMPTY = /no data|no record|not found|no (order|trade|position|holding)/i;
 
 function credsOk(creds) {
-  if (!str(creds?.appKey) || !str(creds?.secretKey)) throw new SessionRequiredError(`${LABEL}: the AppKey and secret key are both needed. Add them in Broker Settings.`);
+  if (!str(creds?.appKey) || !str(creds?.secretKey)) throw new SessionRequiredError(`${LABEL}: the AppKey and secret key are both needed. Add them in the account settings.`);
 }
 
 /**

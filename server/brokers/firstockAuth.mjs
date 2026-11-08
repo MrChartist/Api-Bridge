@@ -13,7 +13,7 @@
  * No session lifetime is documented; a fresh login is expected each trading day, so expiresAt is the next
  * IST midnight and any INVALID_JKEY reply throws SessionRequiredError before then.
  *
- * The user types the password and the current 6-digit code in Broker Settings; login() runs once and
+ * The user types the password and the current 6-digit code in the account settings; login() runs once and
  * returns only { sessionToken } (the susertoken). The password and code are never stored, cached or logged.
  */
 
@@ -50,7 +50,7 @@ export function classifyError(httpStatus, json, endpoint) {
   const name = String(json?.name ?? "").toUpperCase().replace(/_/g, "");
   const field = String(json?.error?.field ?? "");
   if (httpStatus === 401 || code === "401" || name === "INVALIDJKEY" || name === "UNAUTHORIZED" || field === "jKey") {
-    return new SessionRequiredError("Firstock rejected the session. Log in again from Broker Settings.");
+    return new SessionRequiredError("Firstock rejected the session. Log in again from the account settings.");
   }
   if (httpStatus === 429 || code === "429" || name === "RATELIMITEXCEEDED" || name === "TOOMANYREQUESTS") {
     return new BrokerError(`Firstock rate limit hit on ${endpoint}.`, { code: "UPSTREAM_RATE_LIMIT" });

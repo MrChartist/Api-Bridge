@@ -1,5 +1,5 @@
 /**
- * Webhook routes — stream S11 (docs/openapi.yaml, tag "Webhooks").
+ * Webhook routes (docs/openapi.yaml, tag "Webhooks").
  *
  *   POST   /hooks/{source}/{token}   public ingress allowed, auth "custom": the URL token (and for generic hooks the
  *                                    HMAC signature) is the credential. Answers 202 in milliseconds.

@@ -14,12 +14,11 @@ How every one of the 41 broker adapters in `server/brokers/` should look, how to
 |---|---|
 | `server/brokers/contract.mjs` | `CAPABILITIES`, `AUTH_KINDS`, `CANONICAL_UNDERLYINGS`, `FORBIDDEN_SECRET_KEY`, JSDoc types for every normalised shape, error classes (`BrokerError`, `SessionRequiredError`, `OrderGateError`, `BrokerInputError`), `normaliseError`, `redactSecrets`, `validateAdapter`, `declaredCapabilities`. Re-exports the order gate. |
 | `server/brokers/orderGate.mjs` | `withOrderGate`, `issueOrderGate`, `consumeOrderGate`, `isOrderGated`. |
-| `server/brokers/contractShapes.mjs` | `check*` shape validators (one per capability) and `toOptionData` (a mirror of the app's `parseDhanLeg`). |
+| `server/brokers/contractShapes.mjs` | `check*` shape validators (one per capability) and `toOptionData` (converts an option-chain result into rows sorted by strike). |
 | `server/brokers/contractHarness.mjs` | `loadFixtures`, `createFetchStub`, `runContractHarness`, `runLoginContract`, `harnessFailures`. |
-| `server/brokers/sessionLogin.mjs` | Helpers for session-login adapters (`readTotpCode`, `requireFields`, `sessionFromCreds`, `nextIstMidnightMs`) and the `/api/broker-session-login` handler and rate limiter. |
+| `server/brokers/sessionLogin.mjs` | Helpers for session-login adapters (`readTotpCode`, `requireFields`, `sessionFromCreds`, `nextIstMidnightMs`) and the session-login handler and rate limiter. |
 | `server/brokers/__fixtures__/<id>/` | `manifest.json` + one `<capability>.json` per declared capability (+ `login.json` for session login). |
 | `server/brokers/contract.test.mjs` | The harness proven on Dhan, plus gate and `validateAdapter` rules. Also checks that **all 41** adapters pass the lenient contract. |
-| `server/brokers/sessionLogin.test.mjs` | All 8 session-login brokers: strict contract, login fixture, no network before login, UI prompts match the adapter. |
 | `server/bridge/accounts/session.mjs` | How the Bridge logs an account in: validates the login fields, calls `adapter.login()` once and keeps only the declared session fields, encrypted. |
 | `src/lib/brokerCatalog*.ts` | The broker catalogue (names, credential fields, docs links) used by the dashboard and `GET /v1/brokers`. |
 
@@ -40,7 +39,7 @@ export async function testConnection(creds) {}      // + one function per declar
 
 ### Capabilities
 
-`creds` is always the first argument. It holds the saved non-secret fields plus any session fields. It never holds a password, PIN or TOTP value: the proxy strips those keys from `x-broker-credentials`.
+`creds` is always the first argument. It holds the saved non-secret fields plus any session fields. It never holds a password, PIN or TOTP value: the Bridge never passes such keys on (`isForbiddenSecretKey`).
 
 | Capability | Method (aliases) | Signature after `creds` | Returns (`{ status: "success", data }` unless noted) | Required |
 |---|---|---|---|---|
@@ -64,7 +63,7 @@ export async function testConnection(creds) {}      // + one function per declar
 | `cancelOrder` | `cancelOrder` (**gated**) | (orderId, gate) | `OrderAck` | no |
 | `normaliseError` | `normaliseError` | (err, { secrets }) | `{ statusCode: 422\|502, code, message }` (secrets redacted). `export { normaliseError } from "./contract.mjs"` is fine. | no |
 
-Field lists for `Position`, `Holding`, `Order`, `Trade`, `Quote` and `Instrument` are in the JSDoc in `contract.mjs`. Products use the app-wide vocabulary: CNC, INTRADAY, MARGIN, MTF, CO, BO. Exchanges are NSE, BSE, NFO, BFO, MCX and CDS.
+Field lists for `Position`, `Holding`, `Order`, `Trade`, `Quote` and `Instrument` are in the JSDoc in `contract.mjs`. Products use one Bridge-wide vocabulary: CNC, INTRADAY, MARGIN, MTF, CO, BO. Exchanges are NSE, BSE, NFO, BFO, MCX and CDS.
 
 ### Auth kinds
 
@@ -79,16 +78,16 @@ Field lists for `Position`, `Holding`, `Order`, `Trade`, `Quote` and `Instrument
 
 - **422** means *we refused* (local decision): `SESSION_LOGIN_REQUIRED` (`SessionRequiredError`), `ORDER_GATE_CLOSED` (`OrderGateError`), `BROKER_INPUT_INVALID` (`BrokerInputError`).
 - **502** means *the upstream failed or refused*: `UPSTREAM_ERROR` by default. Broker-specific codes such as `UPSTREAM_AUTH` and `UPSTREAM_RATE_LIMIT` are welcome (see `dhanContract.normaliseError`).
-- `/api/broker-proxy` answers 422 + `code` for any `BrokerError` with status 422, and does not serve stale last-good data in that case. Every other error keeps the existing 502 / last-good behaviour.
+- The Bridge answers 422 + `code` for any `BrokerError` with status 422. Every other error is reported as a 502.
 - Error messages must never contain credentials. `normaliseError(e, { secrets })` redacts them, and the session-login route redacts again.
 
 ## 4. Order gate (real money)
 
 - Every order method must be `withOrderGate("placeOrder"|"modifyOrder"|"cancelOrder", impl, { brokerId })`. The gate is the **last** argument.
 - Without a gate, with a forged object or with a reused or stale gate (5 s), the method throws `OrderGateError` **before any network call**. The harness checks all three cases.
-- Gates are minted only by `issueOrderGate({ verdict, liveArmed: true, action, brokerId })` after `validateOrder()` has passed. **No route mints gates for non-Dhan brokers today.** The browser order path stays blocked pending owner review. Do not add one.
-- The existing Dhan 1Cliq routes keep calling `server/lib/dhanOrders.mjs` behind `validateOrder` and live arming. The risk engine and basket-deploy never place real orders. Panic close/cancel always re-fetch authoritative broker state.
-- Resolved: every adapter's `placeOrder`/`modifyOrder`/`cancelOrder` is now wrapped with `withOrderGate()` (all 41 are strict; Axis Direct has no order methods). No route mints a gate for them and `/api/broker-proxy` answers `403 ORDER_PATH_BLOCKED` for order endpoints.
+- Gates are minted only by the Bridge's OrderService (`server/bridge/orders/orderService.mjs`), through `issueOrderGate({ verdict, liveArmed: true, action, brokerId })`, right after SafetyGuard has passed. **Nothing else mints gates.** Do not add another call site.
+- Live order mappers exist only for Dhan, Zerodha and Upstox (`server/bridge/orders/brokerOrders.mjs`); every other broker answers live orders with a clear "use paper mode" error.
+- Resolved: every adapter's `placeOrder`/`modifyOrder`/`cancelOrder` is now wrapped with `withOrderGate()` (all 41 are strict; Axis Direct has no order methods).
 
 ## 5. Session login (password/PIN + current TOTP)
 
@@ -105,7 +104,7 @@ encrypted secret store keeps the session  <--  only declared auth.sessionFields 
 - `capabilities.auth = { kind: "sessionLogin", loginFields: [{ key, label, kind: "secret"|"totp" }], sessionFields: ["sessionToken", ...] }`. `loginFields` must include `{ key: "totpCode", kind: "totp" }`. Session field names must not match `FORBIDDEN_SECRET_KEY`.
 - `login(creds)`: call `requireFields` for the stored and secret fields, then `readTotpCode(creds)` (refuses anything but 6 digits, before any network call). Make the broker call(s) and return `{ session, expiresAt }`. Never cache by, log or return a secret.
 - Data calls: `sessionFromCreds(creds, SESSION_FIELDS, name)` throws `SessionRequiredError` when not logged in or expired. Call it **before** any instrument-master download. A broker-side token rejection must throw `SessionRequiredError`. There is no auto re-login.
-- Catalogue: add the broker and its fields to `src/lib/brokerCatalog*.ts`; `mc-bridge accounts connect` prompts for the adapter's `loginFields`. `sessionLogin.test.mjs` fails if the prompts or saveable fields drift from the adapter.
+- Catalogue: add the broker and its fields to `src/lib/brokerCatalog*.ts`; `mc-bridge accounts connect` prompts for the adapter's `loginFields`.
 - Already done for: angelone, fivepaisa, firstock, kotak, motilal, mstock, nubra, tradejini (login fixtures only; data-capability fixtures are each engineer's job). Kotak's `sessionBaseUrl` is pinned to `https://*.kotaksecurities.com` at login and on every use.
 
 ## 6. Fixtures and the harness
@@ -150,7 +149,7 @@ All 41 adapters are on the strict contract with a full fixture harness (`validat
 | requestTokenExchange | aliceblue, arrow, compositedge, flattrade, iifl, iiflcapital, shoonya, tradesmart, zebu |
 | sessionLogin | angelone, definedge, fivepaisa, firstock, indmoney, kotak, motilal, mstock, nubra, tradejini |
 
-Known follow-ups (not blocking): OAuth/third-party callback routes (zerodha, upstox, compositedge) so users need not paste tokens; streaming feeds for the brokers that do not declare `feed`; `server/lib/batch.mjs` swallows `SessionRequiredError` (the brokers that hit this stopped using it); `server/lib/dhanPacketParser.mjs` differs from the official v2 feed layout (SENSEX id 51, BANKEX 69, float32 prices) but only its `tickKey` helper is used in production, the proxy has its own float32 decoder.
+Known follow-ups (not blocking): OAuth/third-party callback routes (zerodha, upstox, compositedge) so users need not paste tokens; streaming feeds for the brokers that do not declare `feed`; `server/lib/batch.mjs` swallows `SessionRequiredError` (the brokers that hit this stopped using it).
 
 ## 8. Per-broker checklist (copy into your PR description)
 

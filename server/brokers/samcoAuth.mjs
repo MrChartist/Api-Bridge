@@ -11,7 +11,7 @@
  *  - Order-related calls from a host that is not a registered static IP fail with HTTP 403 and
  *    "The IP is not the registered static IP" (EOAUTH009).
  *
- * The apiKey/apiSecret pair is saved in Broker Settings (contract auth.kind "apiKeyToken": the adapter swaps
+ * The apiKey/apiSecret pair is saved in the account settings (contract auth.kind "apiKeyToken": the adapter swaps
  * the pair for a session server-side). Sessions live only in this process's memory, keyed by a SHA-256 of the
  * pair, so the secret itself is never a map key, a log line or part of an error message.
  *
@@ -48,7 +48,7 @@ export function nextIst8AmMs(now = Date.now()) {
 
 function requireCreds(creds) {
   if (!String(creds?.apiKey ?? "").trim() || !String(creds?.apiSecret ?? "").trim()) {
-    throw new BrokerInputError("Samco: enter both the API key and the API secret in Broker Settings.");
+    throw new BrokerInputError("Samco: enter both the API key and the API secret in the account settings.");
   }
 }
 

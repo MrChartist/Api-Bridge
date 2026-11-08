@@ -1,5 +1,5 @@
 /**
- * StreamHub — stream S6 (docs/STREAMS.md §S6). Contract: SERVICE_CONTRACTS.streamHub in ../core/contracts.mjs.
+ * StreamHub. Contract: SERVICE_CONTRACTS.streamHub in ../core/contracts.mjs.
  *
  * What it does
  *  - Upstream manager: at most ONE broker feed per account (adapter.createFeed(creds, { onTick, onStatus })), shared by
@@ -897,7 +897,7 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
     stats,
     feedInfo,
 
-    // ── internal helpers for this stream's endpoints (other streams use only the contract methods) ──
+    // ── internal helpers for this stream's endpoints (other modules use only the contract methods) ──
     /**
      * Deliver this client's ticks to `sink(tick, mode)` (WebSocket/SSE sessions). Creates the client if needed;
      * dropClient() detaches it.

@@ -1,11 +1,11 @@
 /**
- * MCP tool registry — stream S11. One registry feeds the MCP server (server.mjs) and the OpenAI function export
+ * MCP tool registry. One registry feeds the MCP server (server.mjs) and the OpenAI function export
  * (openaiSchemas.mjs), so both always describe the same tools.
  *
- * Rules (docs/ARCHITECTURE.md §8 "AI confirmation", docs/STREAMS.md §S11):
+ * Rules (docs/ARCHITECTURE.md §8 "AI confirmation"):
  *  - Fixed order. Tools are listed in TOOL_DEFS order, filtered by toolset, scope and config; never re-sorted.
- *  - Fewer than 20 tools by default (market, analytics and account toolsets: 18). The Phase 1 options tools live in
- *    the opt-in "options" toolset (at most 19 tools); a tool with `requiredScope` is shown only to keys with it.
+ *  - Fewer than 20 tools by default (market, analytics and account toolsets: 18). A tool with
+ *    `requiredScope` is shown only to keys with that scope.
  *  - All four annotations are set explicitly on every tool. Annotations are hints for the client; they are NEVER
  *    treated as consent. Client-side approval prompts are not confirmation either.
  *  - Every successful result has `structuredContent` = { data, meta, untrusted: true } matching the tool's

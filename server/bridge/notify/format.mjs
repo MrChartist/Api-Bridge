@@ -1,5 +1,5 @@
 /**
- * Human-readable messages for notification events (stream S15). Pure functions. Instrument names and broker messages
+ * Human-readable messages for notification events. Pure functions. Instrument names and broker messages
  * are third-party text: they are kept short and never interpreted.
  */
 const clip = (s, n = 200) => {
@@ -11,7 +11,7 @@ const list = (a, n = 20) => {
   return arr.length > n ? `${arr.slice(0, n).join(", ")} and ${arr.length - n} more` : arr.join(", ");
 };
 
-/** "Log in again …" etc.: what to do about the first failing readiness check (p1-05 §6.8). */
+/** "Log in again …" etc.: what to do about the first failing readiness check. */
 function readinessRemedy(check, accountId) {
   if (check === "session") return `Log in again: mc-bridge accounts connect ${clip(accountId, 40)}, or the Accounts page.`;
   if (check === "egress") return "Check your internet connection or VPN; see the deployment guide.";
@@ -26,7 +26,7 @@ const sentence = (parts) => {
 };
 
 /**
- * trading.readiness (p1-05 §6.8). Never an IP address, a lookup host, a token or a broker client code: only the
+ * trading.readiness. Never an IP address, a lookup host, a token or a broker client code: only the
  * account's own local id and label, the broker's name and the reason lines (which carry none of those).
  */
 function formatReadiness(p) {

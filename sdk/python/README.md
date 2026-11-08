@@ -57,10 +57,9 @@ stretches (a slow reader skipped values; the newest value still arrives).
 
 ## Strategies
 
-`mrchartist_bridge.strategy` is a small base class for trading strategies the Bridge runs for you (Trade › Algo):
+`mrchartist_bridge.strategy` is a small base class for trading strategy scripts:
 `on_start`, `on_tick`, `on_bar`, `on_order_update`, `on_stop`, typed `Param`s, `buy` / `sell` / `exit` through the
-Bridge's order API, and positions and P&L of the strategy's own orders. Examples in `examples/strategies/`; the guide is
-`docs/STRATEGIES-PYTHON.md`. Tests: `pytest sdk/python/tests`.
+Bridge's order API, and positions and P&L of the strategy's own orders. Examples in `examples/strategies/`. Tests: `pytest sdk/python/tests`.
 
 ## Methods
 

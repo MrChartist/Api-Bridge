@@ -62,9 +62,9 @@ const APP_NAME = "OptionsDesk";
 const APP_VERSION = "1.0.0";
 
 /**
- * Device description sent in the header table. The proxy is a local Node process, not a browser, so these describe
+ * Device description sent in the header table. The Bridge is a local Node process, not a browser, so these describe
  * the machine it runs on. MacAddress uses the all-zero form the docs' own sample shows, and the IPs are loopback
- * because the proxy only listens on this machine. browsername/browserversion are mandatory for SourceId WEB.
+ * because the Bridge only listens on this machine. browsername/browserversion are mandatory for SourceId WEB.
  */
 const DEVICE = Object.freeze({
   ClientLocalIp: "127.0.0.1",
@@ -202,7 +202,7 @@ export async function authPost(creds, endpointKey, payload) {
   const json = parseJson(text);
   const code = String(json?.errorcode || "").toUpperCase();
   if (res.status === 401 || res.status === 403 || SESSION_DEAD_CODES.has(code)) {
-    throw new SessionRequiredError(`${NAME} rejected the session. Log in again from Broker Settings.`);
+    throw new SessionRequiredError(`${NAME} rejected the session. Log in again from the account settings.`);
   }
   if (res.status === 429) throw new BrokerError(`${NAME} ${endpointKey}: too many requests (HTTP 429)`, { code: "UPSTREAM_RATE_LIMIT" });
   if (!res.ok) throw new BrokerError(`${NAME} API error on ${endpointKey} [HTTP ${res.status}]: ${json?.message || text.slice(0, 160)}`);

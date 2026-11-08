@@ -1,6 +1,6 @@
 /**
- * Append-only JSON-lines (NDJSON) files: the one storage helper every Phase 1 store uses (recorder, vol, exposure,
- * alerts, guards, participants, fno, margin calibration, readiness, strategy). docs/spec/README.md §3.1 (F0), BRD §7.7.
+ * Append-only JSON-lines (NDJSON) files: the one storage helper the Bridge's append-only stores use (for example the vol,
+ * readiness and notification stores).
  *
  *  - appendLine / appendLineSync: one JSON value per line, written with a single append. If the file does not end in
  *    "\n" (a crash cut the last write short) a newline is written first, so the next record never fuses with a torn one.

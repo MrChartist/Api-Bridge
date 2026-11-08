@@ -1,5 +1,5 @@
 /**
- * Test fixtures for stream S1: a recording in-memory SecretStore, stub broker adapters for each auth kind, a
+ * Test fixtures for the accounts module: a recording in-memory SecretStore, stub broker adapters for each auth kind, a
  * registry over them, and a capturing logger. No network, no disk (except where a test passes a real path).
  */
 import { SessionRequiredError, BrokerError } from "../../../brokers/contract.mjs";

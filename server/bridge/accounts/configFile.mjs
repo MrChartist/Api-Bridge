@@ -100,7 +100,7 @@ export function removeAccountFromConfigFile(path, accountId) {
 }
 
 /**
- * Replace one module-owned section of the file (for example `recorder`, docs/spec/p1-01-recorder.md §4.6). The
+ * Replace one module-owned section of the file (for example `readiness`). The
  * section is checked with the module's own schema and the whole file with the core schema before an atomic write;
  * every other section stays as it was. Serialised with the account writes.
  * @param {string} path

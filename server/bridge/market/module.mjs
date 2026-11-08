@@ -1,5 +1,5 @@
 /**
- * market module — stream S5: Market data service and REST. Owned files and tasks: docs/STREAMS.md §S5.
+ * market module: Market data service and REST.
  * The routes below are the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  * Config section `market` (optional; see config.mjs): freshness targets, stale fallback, batch window, stream-first,

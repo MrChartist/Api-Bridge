@@ -1,5 +1,5 @@
 /**
- * Test helpers for readiness consumers (P1-11 alert actions, P1-12 guards, e2e). Not used by the running Bridge.
+ * Test helpers for readiness consumers (automated rules, guards, e2e). Not used by the running Bridge.
  *
  *   const auto = fakeAutomation(deps.readiness, { id: "guard-1", accountId: "stub-live", mode: "live" });
  *   … auto.states  → every onState payload received, in order;  auto.last() → the latest;  auto.remove()

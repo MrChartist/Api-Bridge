@@ -1,5 +1,5 @@
 /**
- * S8 PaperEngine: state machine, fills from market data and ticks, funds and margin, positions and P&L,
+ * PaperEngine: state machine, fills from market data and ticks, funds and margin, positions and P&L,
  * intraday square-off, session-end expiry, day roll, persistence and restart, ids, pagination and reset.
  *
  * Deterministic: a fake clock, fake timers, the published market-data and symbol fakes (no broker calls) and a real

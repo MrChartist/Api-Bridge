@@ -1,5 +1,5 @@
 /**
- * The `vol` config section (stream S18, docs/spec/p1-03-pricing-vol.md §2.5). Every key is optional; `{}` gives the
+ * The `vol` config section (the vol module). Every key is optional; `{}` gives the
  * defaults. The clock weights are stated assumptions (not measured) and every method note prints them.
  *
  *   "vol": {

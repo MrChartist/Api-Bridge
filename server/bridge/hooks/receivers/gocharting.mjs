@@ -1,5 +1,5 @@
 /**
- * GoCharting alert receiver — stream S11.
+ * GoCharting alert receiver.
  *
  * GoCharting posts the alert's message as plain text (needs verification against GoCharting's current webhook help
  * page; if the user writes JSON in the message it is parsed as JSON). The text uses the same grammar as other text

@@ -1,5 +1,5 @@
 /**
- * Scheduler acceptance tests (docs/STREAMS.md §S3) on a fake clock: no sleeps, no network, stub broker calls.
+ * Scheduler acceptance tests on a fake clock: no sleeps, no network, stub broker calls.
  */
 import { describe, expect, it } from "vitest";
 import { SessionRequiredError } from "../../brokers/contract.mjs";

@@ -1,5 +1,5 @@
 /**
- * orders module — stream S7: Orders, idempotency, tickets and portfolio. Owned files and tasks: docs/STREAMS.md §S7.
+ * orders module: Orders, idempotency, tickets and portfolio.
  * The routes below are the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  * Config section `orders` (optional; see config.mjs): ticket and confirmation TTLs, live-call timeout,

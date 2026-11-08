@@ -1,5 +1,5 @@
 /**
- * Paper fill model — stream S8. Pure functions only (no I/O, no clock), so every rule here is unit-tested with plain
+ * Paper fill model. Pure functions only (no I/O, no clock), so every rule here is unit-tested with plain
  * numbers. The engine (paperEngine.mjs) feeds them prices from deps.marketData and `tick` events.
  *
  * Rules (docs/ARCHITECTURE.md §7, also returned to clients as FILL_MODEL_TEXT):

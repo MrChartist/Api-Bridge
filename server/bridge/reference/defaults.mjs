@@ -1,6 +1,6 @@
 /**
- * Reference-data defaults (stream S16, docs/spec/p1-02-reference.md §2.5). This is the ONLY server file allowed to hold
- * the store-S5 default literals: the risk-free rate, the equity-derivatives session times and the default brokerage.
+ * Reference-data defaults (the reference module). This is the ONLY server file allowed to hold
+ * the market default literals: the risk-free rate, the equity-derivatives session times and the default brokerage.
  * Everything else reads them through `deps.reference` (or imports them from here when no service is running, as the
  * demo adapter and the paper engine's fallback do). The static test reference/noConstants.test.mjs keeps them out of
  * every other file.
@@ -10,7 +10,7 @@
  */
 
 /** Where the session defaults come from (shown in API responses and on the Market calendar page). */
-// User-facing words (shown in the Contract facts sheet): no store ids or config keys here (store S5 is the spec's name).
+// User-facing words (shown in the Contract facts sheet): no store ids or config keys here.
 export const DEFAULT_SESSION_SOURCE = "Standard NSE/BSE F&O hours (default, needs verification)";
 /** Where the default rate comes from: nowhere. Said plainly so no page presents it as a market figure. */
 export const DEFAULT_RATE_SOURCE = "default (not sourced)";
@@ -32,7 +32,7 @@ export const DEFAULT_SESSIONS = Object.freeze({
   source: DEFAULT_SESSION_SOURCE,
 });
 
-/** Default brokerage per executed order (rupees). Per-account plans arrive with P1-10 (`chargePlans`). */
+/** Default brokerage per executed order (rupees). Per-account plans are not modelled here. */
 export const DEFAULT_BROKERAGE = Object.freeze({ kind: "flat", perOrder: 20, source: "Default flat brokerage per order" });
 
 /** The session window for an exchange code (NFO/BFO/NSE/BSE), or null for exchanges the reference does not cover. */

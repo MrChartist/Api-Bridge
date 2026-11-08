@@ -1,5 +1,5 @@
 /**
- * Live order payloads per broker — stream S7.
+ * Live order payloads per broker.
  *
  * The broker contract fixes the adapter order SIGNATURES (placeOrder(creds, order, resolvedLotSize, gate),
  * modifyOrder(creds, orderId, changes, gate), cancelOrder(creds, orderId, gate)) but each adapter reads its own

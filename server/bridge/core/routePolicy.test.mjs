@@ -1,5 +1,5 @@
 /**
- * T-sec-2 and T-sec-4 (docs/spec/p1-05-readiness.md §3.9 F1, F4, F5; §10.2). From the real route table:
+ * T-sec-2 and T-sec-4. From the real route table:
  *  - every route authenticates with a key AND names a scope, or is on an explicit allowlist (auth "none": health,
  *    the OpenAPI file, the dashboard pages, and the loopback-only sign-in; auth "custom": webhooks, the compat REST
  *    API and the SSE stream). A new `auth: "none"` write route fails here.

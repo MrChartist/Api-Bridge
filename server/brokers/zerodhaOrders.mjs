@@ -18,8 +18,7 @@
  *  - Limits: 10 orders/second, 400/minute, 5000/day per user; at most 25 modifications per order.
  *
  * Only the "regular" variety is wired. Real-money calls are wrapped with withOrderGate: without a gate
- * minted by the proxy's trade route they refuse before any network call. No route mints gates for
- * Zerodha today (browser order path blocked pending owner review).
+ * minted by the Bridge's OrderService they refuse before any network call.
  */
 
 import { BrokerInputError, withOrderGate } from "./contract.mjs";

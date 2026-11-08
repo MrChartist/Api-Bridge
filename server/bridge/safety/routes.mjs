@@ -1,5 +1,5 @@
 /**
- * Route handlers for stream S9 (docs/openapi.yaml, tag Safety). Every handler answers { data, meta }.
+ * Route handlers for the safety module (docs/openapi.yaml, tag Safety). Every handler answers { data, meta }.
  *
  *   GET    /v1/safety               read            kill switch, live switch, today's counters (key's accounts only)
  *   POST   /v1/safety/kill-switch   read            engage; any key may stop trading. An empty body works (reason

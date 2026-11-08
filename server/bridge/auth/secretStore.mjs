@@ -1,8 +1,8 @@
 /**
- * SecretStore — stream S2 (docs/STREAMS.md §S2, contract SERVICE_CONTRACTS.secrets in ../core/contracts.mjs).
+ * SecretStore (contract SERVICE_CONTRACTS.secrets in ../core/contracts.mjs).
  *
  * Holds the user's saved broker values (API keys, client ids, access tokens, session fields) encrypted at rest in
- * <dataDir>/secrets.enc. Passwords, PINs and TOTP codes never come here (S1 sends them to adapter.login() once).
+ * <dataDir>/secrets.enc. Passwords, PINs and TOTP codes never come here (accounts sends them to adapter.login() once).
  *
  * Crypto
  *  - Master key: 32 bytes from MCB_MASTER_KEY (base64 of exactly 32 bytes), else from a key file

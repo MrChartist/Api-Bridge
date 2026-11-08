@@ -1,12 +1,12 @@
 /**
- * Readiness checks — stream S20 (docs/spec/p1-05-readiness.md §7). Pure functions: no I/O, no clock, no logger; every
+ * Readiness checks. Pure functions: no I/O, no clock, no logger; every
  * input is passed in, so each formula has a reference-value test (checks.test.mjs).
  *
  * Each check returns { check, reasons }: `check` is the API fact object (`status` ∈ pass | warn | fail | unknown | n/a
  * plus the facts it was decided from) and `reasons` the plain-English lines it contributes ({ check, code, severity,
- * message }, severity warn | fail). combine() turns the checks into one account state (§7.1).
+ * message }, severity warn | fail). combine() turns the checks into one account state.
  *
- * Which adapters' testConnection is a light call (T4, §8): Dhan GET /v2/fundlimit (funds), Zerodha GET /user/profile,
+ * Which adapters' testConnection is a light call: Dhan GET /v2/fundlimit (funds), Zerodha GET /user/profile,
  * Upstox GET /v2/user/profile, Angel One getProfile, Fyers /profile, the demo adapter answers locally. None downloads a
  * master, so the probe uses testConnection through scheduler.schedule({ endpointClass: "portfolio", priority:
  * "background" }) for every wired broker.
@@ -66,14 +66,14 @@ export function rupees(n) {
 
 const reason = (check, code, severity, message) => ({ check, code, severity, message });
 
-// ───────────────────────────── §7.2 session ─────────────────────────────
+// ───────────────────────────── session ─────────────────────────────
 
 /**
  * @param {{ session: { state: string, expiresAt: string | null, message?: string | null }, probe: { result: "ok"|"rejected"|"error", at: number, message?: string } | null,
  *   probeRequired?: boolean, now: number, warnMinutes: number, closeMs: number, expirySource?: string, who?: { label?: string } }} input
  *   closeMs: today's session close (reference, else 15:30 IST). probeRequired false when probing is turned off.
  *   maxProbeAgeMs: a passing probe older than this is not proof of a live session (a probe restored from yesterday,
- *   or one left over after the window closed): the check is unknown, "Not checked recently" (§2.3, §3.2).
+ *   or one left over after the window closed): the check is unknown, "Not checked recently".
  */
 export function sessionCheck({ session, probe, probeRequired = true, now, warnMinutes, closeMs, expirySource = "broker-stated", maxProbeAgeMs = Infinity }) {
   const exp = session?.expiresAt ? Date.parse(session.expiresAt) : null;
@@ -126,7 +126,7 @@ export function sessionCheck({ session, probe, probeRequired = true, now, warnMi
   return { check, reasons };
 }
 
-// ───────────────────────────── §7.3 egress ─────────────────────────────
+// ───────────────────────────── egress ─────────────────────────────
 
 /**
  * @param {{ mode: "off"|"lookup"|"manual", registeredIp?: string | null, backupIp?: string | null, manualIp?: string | null,
@@ -226,7 +226,7 @@ export function egressCheck({ mode, registeredIp, backupIp, manualIp, detected, 
   return done(reasons.length ? "warn" : "pass");
 }
 
-// ───────────────────────────── §7.4 order headroom ─────────────────────────────
+// ───────────────────────────── order headroom ─────────────────────────────
 
 /**
  * @param {{ perSecond: number, usedLastSecond: number, broker?: { remaining: number, limit: number, resetMs: number, source?: string } | null, backoffMs?: number }} input
@@ -276,12 +276,12 @@ export function liveConfigCheck(live) {
   return { reasons: [reason("live", "LIVE_OFF", "warn", `Live trading is off for this account (${why}); it can place paper orders only.`)] };
 }
 
-// ───────────────────────────── §7.1 combine ─────────────────────────────
+// ───────────────────────────── combine ─────────────────────────────
 
 const SEVERITY = { fail: 3, unknown: 2, warn: 1, pass: 0 };
 export const STATE_ORDER = Object.freeze({ cannot_trade: 4, unknown: 3, warn: 2, ready: 1, paper_only: 0 });
 
-/** isStale (§7.9). */
+/** isStale. */
 export const isStale = (checkedAtMs, now, staleAfterMinutes) => !Number.isFinite(checkedAtMs) || now - checkedAtMs > staleAfterMinutes * MINUTE;
 
 /**
@@ -313,7 +313,7 @@ export function worstState(states) {
 /** Severity rank of a check status (fail > unknown > warn > pass). */
 export const statusRank = (s) => SEVERITY[s] ?? -1;
 
-// ───────────────────────────── §7.7 notification dedupe ─────────────────────────────
+// ───────────────────────────── notification dedupe ─────────────────────────────
 
 /** state + ":" + sorted failing and warning reason codes. */
 export function notifyKey(state, reasons) {
@@ -347,7 +347,7 @@ export function shouldNotify({ from, to, key, lastKey, lastAt, now, cooldownMinu
   return { notify: false, kind: "change" };
 }
 
-// ───────────────────────────── §7.8 schedule ─────────────────────────────
+// ───────────────────────────── schedule ─────────────────────────────
 
 /**
  * First instant t > now at preOpenAt + jitter on a trading day whose date is not lastRunDate.
@@ -394,7 +394,7 @@ export function nextCycleAt(now, { window, intervalMinutes, jitterSeconds, isTra
   return null;
 }
 
-// ───────────────────────────── §8 probe budget ─────────────────────────────
+// ───────────────────────────── probe budget ─────────────────────────────
 
 /**
  * Probe cooldown for a broker so one probe per cooldown stays ≤ 1 % of the class's per-minute limit (or ≤ 2 % of

@@ -9,7 +9,7 @@
  *  - Trading (Interactive API): CompositEdge uses XTS's 3-legged login. The user opens
  *    https://xts.compositedge.com/interactive/thirdparty?appKey=<Interactive App Key>&returnURL=<registered URL>,
  *    signs in, and the broker posts a session object whose `accessToken` is a one-time request token.
- *    That token goes in Broker Settings as `requestToken`; the adapter exchanges it once via
+ *    That token goes in the account settings as `requestToken`; the adapter exchanges it once via
  *    POST /interactive/user/session {appKey, secretKey, accessToken}. The official XTS docs describe the
  *    same step ("once the request_token is obtained from the login flow, it should be POSTed to
  *    /user/session"). A used or expired token raises SessionRequiredError; there is no automatic re-login.
@@ -33,7 +33,7 @@ const broker = createXtsBroker({
   marketFields: { key: "apiKey", secret: "apiSecret" },
   interactiveMode: "requestToken",
   requestTokenField: "requestToken",
-  loginHint: `Log in again at ${LOGIN_URL}?appKey=<your Interactive App Key>&returnURL=<your registered URL> and save the new accessToken as the request token in Broker Settings.`,
+  loginHint: `Log in again at ${LOGIN_URL}?appKey=<your Interactive App Key>&returnURL=<your registered URL> and save the new accessToken as the request token in the account settings.`,
 });
 
 export const capabilities = xtsCapabilities("requestTokenExchange");

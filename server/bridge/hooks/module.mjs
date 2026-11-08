@@ -1,6 +1,6 @@
 /**
- * hooks module — stream S11: inbound webhooks (signed generic, ChartInk, GoCharting).
- * Owned files and tasks: docs/STREAMS.md §S11. The routes below are the contract in docs/openapi.yaml.
+ * hooks module: inbound webhooks (signed generic, ChartInk, GoCharting).
+ * The routes below are the contract in docs/openapi.yaml.
  *
  * Config section `hooks` (optional; see config.mjs): queue size, concurrency, dedupe window, signature tolerance,
  * per-hook rate, global source-IP allowlist, trusted tunnel header.
@@ -49,7 +49,7 @@ export function createHooksRuntime(deps, { logger, now } = {}) {
 }
 
 /**
- * Live hooks as readiness automations (docs/spec/p1-05-readiness.md §3.8, M7): each `mode: "live"` hook registers with
+ * Live hooks as readiness automations: each `mode: "live"` hook registers with
  * deps.readiness so it can show "cannot trade" and the reason; its orders are gated in OrderService. Paper hooks are
  * not registered (paper never needs the broker session). Without a readiness service this does nothing.
  * @returns {{ sync(hook: any): void, remove(hookId: string): void, syncAll(hooks: any[]): void, state(hook: any): string | null, clear(): void }}

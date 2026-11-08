@@ -1,6 +1,6 @@
 # API Bridge v2
 
-API Bridge v2 is the **API connection layer only** of Mr. Chartist API Bridge: one local service that sits in front of your Indian broker accounts and exposes a single REST + WebSocket API.
+API Bridge v2 is one local service that sits in front of your Indian broker accounts and exposes a single REST + WebSocket API, so every tool you use shares the same connections and stays inside each broker's rate limits.
 
 What is in it:
 
@@ -12,7 +12,7 @@ What is in it:
 - SDKs (`sdk/` for Node and Python) and integrations (`integrations/` for Excel, Google Sheets, AmiBroker)
 - A minimal dashboard with four pages: Accounts, API, Orders, Safety
 
-Analytics, scanners, calendars, recorder, option desks, journal, alerts and the other trading-desk features are not part of v2. The full app lives in [MrChartist/api-bridge](https://github.com/MrChartist/api-bridge).
+It is a connection layer, not a trading desk: it has no analytics, scanners, journal or strategy features. Build those on top of the API.
 
 ## Install and run
 

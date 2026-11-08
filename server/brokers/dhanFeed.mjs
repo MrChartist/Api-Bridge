@@ -22,10 +22,8 @@
  *                             ask orders i16, bid price f32, ask price f32)
  *     50 disconnect          reason code i16 @8
  *
- * NOTE for the platform owner: server/lib/dhanPacketParser.mjs (used by proxy-server.mjs's own feed)
- * reads prices as int32/100 and places OI after the OHLC block in the full packet. The official v2
- * layout above has float32 prices and OI before OHLC. This module decodes per the official layout
- * and does not touch that shared parser.
+ * This module decodes per the official v2 layout above (float32 prices, OI before the OHLC block in the
+ * full packet).
  *
  * The access token rides in the URL (Dhan's documented scheme); it is never logged here.
  */

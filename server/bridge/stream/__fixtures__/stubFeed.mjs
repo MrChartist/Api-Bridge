@@ -1,6 +1,6 @@
 /**
  * Test fixture: a stub broker adapter whose createFeed() records every call and lets a test drive ticks and status.
- * No network. Used by this stream's unit and endpoint tests.
+ * No network. Used by the stream module's unit and endpoint tests.
  *
  *   const a = stubAdapter();                 // a.adapter goes into createFakeAccountManager({ accounts: [{ adapter }] })
  *   a.last().status(true); a.last().tick("13", "NSE", 25000);

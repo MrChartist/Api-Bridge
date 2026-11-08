@@ -333,7 +333,7 @@ describe("generic hooks: junk without the secret cannot use up the hook's budget
   });
 });
 
-describe("live hooks are readiness automations (p1-05 M7)", () => {
+describe("live hooks are readiness automations", () => {
   const liveCfg = { safety: { liveTrading: true }, accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["webhook"] } }, { id: "paper", broker: "paper" }] };
   let registry;
   let state;

@@ -59,7 +59,7 @@ export function classifyError(status, json, text, path) {
   const code = String(json?.errorcode ?? json?.error_type ?? "").toUpperCase();
   const msg = String(json?.message || text || "").replace(/\s+/g, " ").trim().slice(0, 200);
   if (status === 401 || code === "IA401") {
-    return new SessionRequiredError("mStock rejected the session. Log in again from Broker Settings.");
+    return new SessionRequiredError("mStock rejected the session. Log in again from the account settings.");
   }
   if (status === 403 || code === "IA403") {
     return new BrokerError(`mStock refused the API key (${msg || "suspended or expired"}). Check your Trading API subscription.`, { code: "UPSTREAM_AUTH" });

@@ -1,5 +1,5 @@
 /**
- * Persisted kill-switch state for stream S9 (<dataDir>/safety/kill-switch.json).
+ * Persisted kill-switch state for the safety module (<dataDir>/safety/kill-switch.json).
  *
  * Fail-safe rules:
  *  - a missing file means "not engaged" (first run);

@@ -1,5 +1,5 @@
 /**
- * History helpers — stream S5. Pure functions for /v1/history:
+ * History helpers. Pure functions for /v1/history:
  *
  *  - planInterval: map a Bridge interval (1m … 1M) onto what the broker offers (capabilities.historical.intervals).
  *    A broker interval that divides the target evenly is fetched and aggregated (10m from 5m, 1w and 1M from 1d).

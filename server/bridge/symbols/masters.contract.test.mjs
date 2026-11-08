@@ -1,6 +1,6 @@
 /**
- * Round trip canonical <-> broker refs for Dhan, Zerodha, Upstox, Angel One and Fyers (docs/STREAMS.md §S4
- * acceptance). Two layers:
+ * Round trip canonical <-> broker refs for Dhan, Zerodha, Upstox, Angel One and Fyers.
+ * Two layers:
  *  1. snapshot masters (__fixtures__/masters/*.json, the adapters' normalised output) through the full service:
  *     every row maps to a canonical symbol and back to exactly its own token, by token and by trading symbol, and the
  *     chart and compact aliases read back to the same canonical symbol;

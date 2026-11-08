@@ -1,5 +1,5 @@
 /**
- * Query-string helpers for the spreadsheet and AmiBroker routes (stream S10). Every helper throws
+ * Query-string helpers for the spreadsheet and AmiBroker routes. Every helper throws
  * VALIDATION_FAILED with a field path, so clients get the same error shape as the /v1 routes.
  */
 import { BridgeError } from "../core/errors.mjs";

@@ -9,7 +9,7 @@
 services:
   bridge:
     build: ../..
-    image: mrchartist/api-bridge:demo
+    image: mrchartist/api-bridge-v2:demo
     restart: unless-stopped
     environment:
       MCB_DEMO: "1"

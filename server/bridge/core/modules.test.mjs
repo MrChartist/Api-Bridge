@@ -138,7 +138,7 @@ describe("built-in modules", () => {
     }
   });
 
-  it("all eleven streams are represented", () => {
+  it("all eleven module tags are represented", () => {
     const streams = new Set(BUILTIN_MODULES.map((m) => m.stream));
     for (let i = 1; i <= 11; i += 1) expect(streams.has(`S${i}`), `S${i}`).toBe(true);
   });

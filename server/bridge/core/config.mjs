@@ -6,7 +6,7 @@
  * live trading on: that needs the config file (global `safety.liveTrading` AND the account's `live.enabled`),
  * plus a live-scoped key and an explicit `mode: "live"` on the request.
  *
- * Core owns the sections every stream depends on (server, cors, dataDir, logging, accounts, safety). Any other
+ * Core owns the sections every module depends on (server, cors, dataDir, logging, accounts, safety). Any other
  * top-level section belongs to a module that declares `configKey` + `configSchema` (see modules.mjs); the app
  * validates those after the modules are known. An unknown top-level key is an error, so typos are caught.
  *
@@ -31,7 +31,7 @@ export const isLoopbackHost = (h) => LOOPBACK_HOSTS.has(String(h ?? "").toLowerC
 
 const accountId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,31}$/, "use 2-32 lowercase letters, digits or hyphens");
 const money = z.number().finite().nonnegative();
-/** Sources that may send live orders. "guard" and "alert" are the Phase 1 automations (opt-in per account, additive). */
+/** Sources that may send live orders. "guard" and "alert" are the automated rule sources (opt-in per account, additive). */
 const sources = z.enum(["rest", "webhook", "mcp", "cli", "guard", "alert"]);
 
 const limitsOverride = z

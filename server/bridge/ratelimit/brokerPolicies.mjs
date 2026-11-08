@@ -1,5 +1,5 @@
 /**
- * Broker policy table — stream S3, DATA ONLY (S1 and S5 import it; it imports nothing).
+ * Broker policy table — the ratelimit module, DATA ONLY (accounts and market import it; it imports nothing).
  *
  * One entry per adapter id in server/brokers/registry.mjs (all 41). Every number carries `verified` and, where there
  * is one, a `source` URL. What `verified: true` means here: the figure was read on the broker's OWN official API
@@ -17,7 +17,7 @@
  *    (verified or not), since an extra constraint can only slow us down. When a broker declares no groups, quote,
  *    depth and chain share one budget (DEFAULT_GROUPS), because many adapters serve all three from the quote API.
  *  - Orders are additionally capped at the SEBI retail unregistered-algo ceiling (10/s) here and at SafetyGuard's
- *    own per-account cap (default 5/s) in S9.
+ *    own per-account cap (default 5/s) in safety.
  *  - The `ratelimit` config section can only LOWER these numbers.
  *
  * `maxQuoteBatch` is the number of instruments ONE upstream HTTP request carries (the adapter splits longer lists
@@ -27,8 +27,8 @@
  * several of that same user's accounts. No broker's terms say so clearly today, so every entry is "unknown", which
  * the Bridge treats as not allowed. Change one only with a citation to the broker's terms.
  *
- * Field shape: core/contracts.mjs BrokerPolicy / LimitSpec, plus two additive extensions (proposed to the lead for
- * contracts.mjs and the OpenAPI BrokerPolicy schema; consumers that ignore them stay correct, only less precise):
+ * Field shape: core/contracts.mjs BrokerPolicy / LimitSpec, plus two additive extensions (not yet in
+ * contracts.mjs or the OpenAPI BrokerPolicy schema; consumers that ignore them stay correct, only less precise):
  *   LimitSpec.extraWindows?: Array<{ windowMs, limit }>   windows other than second/minute/day (Dhan's hourly cap)
  *   BrokerPolicy.groups?: Record<string, LimitSpec & { classes: EndpointClass[] }>
  */

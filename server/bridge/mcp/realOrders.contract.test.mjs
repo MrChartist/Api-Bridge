@@ -1,6 +1,6 @@
 /**
- * Contract tests: S11 webhooks and MCP tools against S7's REAL OrderService (mode decision, ticket book, idempotency
- * store, order gate), wired by S7's own test harness over fakes and a stub broker adapter. No network.
+ * Contract tests: webhooks and MCP tools against the REAL OrderService (mode decision, ticket book, idempotency
+ * store, order gate), wired by the orders module's own test harness over fakes and a stub broker adapter. No network.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

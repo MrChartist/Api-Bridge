@@ -14,7 +14,7 @@ This project is also not a place to give or ask for investment advice or trading
 
 ## Reporting
 
-If you experience or see unacceptable behaviour, report it privately to the maintainers through GitHub's [private reporting form](https://github.com/MrChartist/api-bridge/security/advisories/new) (choose it even for conduct reports; it reaches the maintainers only), or contact a maintainer directly on GitHub. Every report will be reviewed and investigated promptly and fairly, and the maintainers will respect the privacy and security of the reporter.
+If you experience or see unacceptable behaviour, report it privately to the maintainers through GitHub's [private reporting form](https://github.com/MrChartist/api-bridge-v2/security/advisories/new) (choose it even for conduct reports; it reaches the maintainers only), or contact a maintainer directly on GitHub. Every report will be reviewed and investigated promptly and fairly, and the maintainers will respect the privacy and security of the reporter.
 
 ## Enforcement
 

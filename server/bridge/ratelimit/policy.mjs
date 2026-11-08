@@ -1,5 +1,5 @@
 /**
- * Policy resolution — stream S3. Turns a raw entry of BROKER_POLICIES (data, brokerPolicies.mjs) plus the
+ * Policy resolution. Turns a raw entry of BROKER_POLICIES (data, brokerPolicies.mjs) plus the
  * `ratelimit` config overrides into the EFFECTIVE policy the scheduler enforces and /v1/limits reports.
  *
  * Rules (docs/ARCHITECTURE.md §6):

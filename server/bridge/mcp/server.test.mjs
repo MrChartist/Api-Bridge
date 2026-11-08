@@ -79,7 +79,7 @@ describe("POST /mcp (Streamable HTTP)", () => {
     const refused = await client.callTool({ name: "submit_confirmed_order", arguments: { ticketId, confirmToken: "mct_guessed-token-value-0000" } });
     expect(refused.isError).toBe(true);
     expect(b.orders.all()).toHaveLength(0);
-    // The person confirms (the S7 route does this with an admin key from loopback; here straight on the service).
+    // The person confirms (the orders route does this with an admin key from loopback; here straight on the service).
     const { confirmToken } = await b.orders.confirmTicket({ principal: { kind: "local", id: "cli" }, scopes: new Set(["admin"]), source: "rest", loopback: true }, ticketId);
     const sent = await client.callTool({ name: "submit_confirmed_order", arguments: { ticketId, confirmToken } });
     expect(sent.isError).toBeFalsy();

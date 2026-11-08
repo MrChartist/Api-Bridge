@@ -1,5 +1,5 @@
 /**
- * symbols module — stream S4: Symbology and instruments. Owned files and tasks: docs/STREAMS.md §S4.
+ * symbols module: Symbology and instruments.
  * The routes below are the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  * Config section `symbols` (optional; see symbolsConfig.mjs). On start the module warms the instrument masters of

@@ -1,5 +1,5 @@
 /**
- * OrderService — stream S7 (docs/STREAMS.md §S7, docs/ARCHITECTURE.md §4, §7, §8). The contract is
+ * OrderService (docs/ARCHITECTURE.md §4, §7, §8). The contract is
  * SERVICE_CONTRACTS.orders in ../core/contracts.mjs. This is the only path to an order, paper or live.
  *
  * place():
@@ -302,7 +302,7 @@ export function createOrderService(deps) {
   };
 
   /**
-   * The readiness line for a LIVE order (docs/spec/p1-05-readiness.md §3.7, §6.9), checked before safety.check:
+   * The readiness line for a LIVE order, checked before safety.check:
    *  - automated sources (webhook, system, guard, alert) with readiness.gateAutomated: refused with CANNOT_TRADE while
    *    the account cannot trade, or when its state is still unknown or stale after ensureFresh (5 s at most). No
    *    safety slot is taken and no broker call is made.
@@ -664,7 +664,7 @@ export function createOrderService(deps) {
     p.legs = inst.legs;
     const lotCheck = await lotSizeCheck(body, resolved);
     if (lotCheck) checks.push(lotCheck);
-    // One live positions read per prepare, shared by the ban gate and syncLivePnl (p1-06 §2.8, §7).
+    // One live positions read per prepare, shared by the ban gate and syncLivePnl.
     let livePositions = null;
     const readLivePositions = () => (livePositions ??= brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" }));
     const stock = await stockDerivativeContext(body, resolved, summary, { wantsLive, readLivePositions, checks });
@@ -745,7 +745,7 @@ export function createOrderService(deps) {
         ltp: p.ltp,
         // A passing place check reserves a daily-count slot at once (released when the order is recorded).
         reserve: forPlace,
-        // p1-06: stock derivatives carry the underlying kind; heldQty and ban only when the underlying is in ban.
+        // Stock derivatives carry the underlying kind; heldQty and ban only when the underlying is in ban.
         ...(stock ? { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty } : {}),
       };
       const verdict = await deps.safety.check(ctx, intent);
@@ -760,7 +760,7 @@ export function createOrderService(deps) {
     return finish();
   }
 
-  // ───────────────────────────── stock derivatives (p1-06) ─────────────────────────────
+  // ───────────────────────────── stock derivatives ─────────────────────────────
 
   const kindCache = new Map();
   /** An unknown kind (master still loading, reference not built) is retried after this long, never kept for good. */
@@ -825,8 +825,8 @@ export function createOrderService(deps) {
   }
 
   /**
-   * Ban gate inputs and the delivery warnings for an NFO/BFO derivative of a stock (docs/spec/p1-06-stocks.md §2.8,
-   * §3.7). Index and cash orders, and stocks not in ban, cost nothing extra: the positions are read only when the
+   * Ban gate inputs and the delivery warnings for an NFO/BFO derivative of a stock. Index and cash orders, and
+   * stocks not in ban, cost nothing extra: the positions are read only when the
    * underlying is in ban. Adds BAN_DATA_UNAVAILABLE and PHYSICAL_SETTLEMENT warnings to `checks`.
    * @returns {Promise<{ underlyingKind: string, ban: object|null, heldQty: number|null } | null>}
    */
@@ -848,7 +848,7 @@ export function createOrderService(deps) {
     let heldQty = null;
     const inBan = ban?.inBan === true;
     if (inBan) heldQty = await heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions });
-    // The delivery warning is for opening orders only (§3.7). Inside the window, a paper order's holding is read from
+    // The delivery warning is for opening orders only. Inside the window, a paper order's holding is read from
     // the engine (memory, no broker cost); a live order's stays unknown unless the ban already read it.
     const heldForWarning = async () => (heldQty !== null || wantsLive ? heldQty : heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions }));
     if (physical && resolved.kind === "OPT") await physicalSettlementCheck(body, resolved, heldForWarning, checks).catch(() => {});
@@ -856,7 +856,7 @@ export function createOrderService(deps) {
   }
 
   /**
-   * Ban inputs for a modify that raises the quantity of an order in a stock derivative (p1-06 §2.8), the same rule on
+   * Ban inputs for a modify that raises the quantity of an order in a stock derivative, the same rule on
    * paper and live. The held quantity already includes the order's filled part, so the order's signed effect is its
    * unfilled remainder: new quantity − filled quantity (banQuantity). Empty when the quantity does not rise, nothing
    * is left to fill, the order is not a stock derivative, or nothing can be read.
@@ -891,7 +891,7 @@ export function createOrderService(deps) {
     const qty = Number(body.quantity ?? (body.lots ?? 0) * resolved.lotSize) || 0;
     const x = body.side === "BUY" ? qty : -qty;
     const heldQty = await heldFor();
-    // Closing (the ban rule's reading, §6.8): |n| ≤ |h| without crossing zero. A flip from long to short opens.
+    // Closing (the ban rule's reading): |n| ≤ |h| without crossing zero. A flip from long to short opens.
     if (heldQty !== null) {
       const n = heldQty + x;
       if (Math.abs(n) <= Math.abs(heldQty) && (n === 0 || Math.sign(n) === Math.sign(heldQty))) return;
@@ -1095,7 +1095,7 @@ export function createOrderService(deps) {
   }
 
   /**
-   * LOT_SIZE_STALE (p1-02 §3.6): an order sent in lots whose reference lot data is stale (more than
+   * LOT_SIZE_STALE: an order sent in lots whose reference lot data is stale (more than
    * reference.staleAfterTradingDays trading days old) or disagrees with the broker master. A warning by default; a block
    * when reference.blockLotsWhenStale is true. lotSizeConfirmed equal to the resolved lot clears it; orders sent as
    * quantity are never checked. The master's lot is always the one used (orderValidation is unchanged).

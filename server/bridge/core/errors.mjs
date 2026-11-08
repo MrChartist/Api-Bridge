@@ -95,7 +95,7 @@ export class BridgeError extends Error {
   }
 }
 
-/** Thrown by stub services until the owning stream builds them. */
+/** Thrown by stub services until the owning module builds them. */
 export class NotImplementedError extends BridgeError {
   constructor(what) {
     super("NOT_IMPLEMENTED", `${what} is not built yet.`);

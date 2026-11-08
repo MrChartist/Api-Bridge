@@ -1,14 +1,14 @@
 /**
- * No hard-coded reference constants (BRD P1-2 acceptance criterion 2; docs/spec/p1-02-reference.md §9.2). The rate, the
+ * No hard-coded reference constants. The rate, the
  * session times, the default brokerage and lot sizes come from the reference store (`deps.reference`, the dashboard's
- * reference bundle). Only these files may hold the S5 default literals:
+ * reference bundle). Only these files may hold the market default literals:
  *  - reference/defaults.mjs (server) and dashboard/reference.js (the dashboard fallback, REF_DEFAULTS);
  *  - reference/data/* (the shipped tables) and __fixtures__ (parser fixtures);
  *  - tests and test kits (`testkit.mjs`, helpers imported only by tests).
  * Known exemptions, each with its reason:
  *  - server/brokers/*: adapters format broker request times; that is wire format, not policy (outside server/bridge
  *    anyway, listed so nobody widens the scan to it by accident);
- *  - server/lib/marketHours.mjs: legacy proxy code outside server/bridge (see p1-02 §9.2);
+ *  - server/lib/marketHours.mjs: older helper code outside server/bridge;
  *  - symbols/fake.mjs: the symbols test double's fixture contracts (a test fixture with lot sizes by design);
  *  - lot literals in demo/demoAdapter.mjs's demo underlying table (the one demo lot table besides DEMO_STOCK_LOT).
  * Prints file:line for each hit.
@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const BRIDGE = join(here, "..");
 
-/** [name, regex] — the BRD grep criterion. */
+/** [name, regex] — the grep patterns for market default literals. */
 export const PATTERNS = [
   ["RISK_FREE", /\bRISK_FREE\b/],
   ["RATE = 0.0x", /\bRATE\s*=\s*0\.0\d+/],

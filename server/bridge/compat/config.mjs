@@ -1,5 +1,5 @@
 /**
- * The `compat` config section (stream S14): a compatibility REST API on the Bridge's own port in the widely used
+ * The `compat` config section: a compatibility REST API on the Bridge's own port in the widely used
  * Indian-algo style (POST JSON to /api/v1/<endpoint> with `apikey` in the body, { status } replies), so SDKs and
  * add-ins written for that style work unchanged: point them at http://127.0.0.1:4300 with a Bridge API key as `apikey`.
  *

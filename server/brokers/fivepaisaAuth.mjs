@@ -12,7 +12,7 @@
  *     body.Status 0 success, 1 "no records", 2 invalid input, 9 "Invalid Session" / "Authentication Fails".
  *     A missing token is answered with the plain text "Invalid Token".
  *
- * The user types the PIN and the current 6-digit TOTP code in Broker Settings; login() runs once and returns
+ * The user types the PIN and the current 6-digit TOTP code in the account settings; login() runs once and returns
  * only { sessionToken (AccessToken), sessionClientCode }. After 23:59 IST, or when 5paisa reports the session
  * dead, calls throw SessionRequiredError and the user logs in again. The PIN and code are never stored,
  * cached or logged.
@@ -58,7 +58,7 @@ export async function postJson(path, body, accessToken) {
   const res = await brokerFetch(`${BASE}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
   const { json, text } = await readJson(res);
   if (accessToken && /invalid token/i.test(text) && !json) {
-    throw new SessionRequiredError("5paisa rejected the access token. Log in again from Broker Settings.");
+    throw new SessionRequiredError("5paisa rejected the access token. Log in again from the account settings.");
   }
   if (res.status === 429) throw upstream(`5paisa API [${path}] rate limit reached (HTTP 429)`, "UPSTREAM_RATE_LIMIT");
   if (!json) throw upstream(`5paisa API [${path}] returned a non-JSON response (HTTP ${res.status})`);
@@ -119,10 +119,10 @@ export async function authenticatedPost(creds, path, buildBody) {
   const session = ensureSession(creds);
   const json = await postJson(path, { head: { key: creds.userKey }, body: buildBody(session) }, session.accessToken);
   if (isSessionInvalidBody(json)) {
-    throw new SessionRequiredError("5paisa reports the session is no longer valid. Log in again from Broker Settings.");
+    throw new SessionRequiredError("5paisa reports the session is no longer valid. Log in again from the account settings.");
   }
   if (String(json?.head?.status) === "2") {
-    throw upstream(`5paisa API [${path}]: ${json?.head?.statusDescription || "Invalid head parameters"} (check the User Key in Broker Settings)`, "UPSTREAM_AUTH");
+    throw upstream(`5paisa API [${path}]: ${json?.head?.statusDescription || "Invalid head parameters"} (check the User Key in the account settings)`, "UPSTREAM_AUTH");
   }
   return json;
 }
@@ -136,7 +136,7 @@ export async function authenticatedGet(creds, path) {
   });
   const { json, text } = await readJson(res);
   if (res.status === 401 || (!json && /invalid token/i.test(text))) {
-    throw new SessionRequiredError("5paisa rejected the access token. Log in again from Broker Settings.");
+    throw new SessionRequiredError("5paisa rejected the access token. Log in again from the account settings.");
   }
   if (res.status === 429) throw upstream("5paisa historical API rate limit reached (HTTP 429)", "UPSTREAM_RATE_LIMIT");
   if (!json) throw upstream(`5paisa historical API returned a non-JSON response (HTTP ${res.status})`);

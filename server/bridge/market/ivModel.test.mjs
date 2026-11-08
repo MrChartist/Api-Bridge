@@ -1,5 +1,5 @@
 /**
- * /v1/optionchain ivModel (docs/spec/p1-03-pricing-vol.md §3.9, §10, §9.3): the legacy default is byte-for-byte the
+ * /v1/optionchain ivModel: the legacy default is byte-for-byte the
  * output before this change (fixture generated from the p1-integration base with the same helpers); b76-forward
  * reprices every leg through dashboard/pricing.js, keeps the broker's IV as brokerIv and adds `pricing`; the
  * Deprecation and Link headers appear only when the legacy model was the implicit default; config flips the default.
@@ -33,7 +33,7 @@ async function chains(model, marketCfg = {}) {
   return out;
 }
 
-/** The P1-6 contract-fact fields are additive (docs/spec/p1-06-stocks.md §3.7); every legacy byte is still compared. */
+/** The contract-fact fields are additive; every legacy byte is still compared. */
 const P1_6_FIELDS = ["underlyingKind", "settlement", "strikeStep", "tickSize"];
 function legacyOnly(out) {
   const copy = {};

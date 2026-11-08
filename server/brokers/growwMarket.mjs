@@ -45,7 +45,7 @@ async function requireSession(creds) {
   const pasted = String(creds?.accessToken ?? "").trim();
   const pair = String(creds?.apiKey ?? "").trim() && String(creds?.apiSecret ?? "").trim();
   if (!pasted && !pair) {
-    throw new SessionRequiredError("Groww: paste today's Access Token, or save your API Key and API Secret, in Broker Settings.");
+    throw new SessionRequiredError("Groww: paste today's Access Token, or save your API Key and API Secret, in the account settings.");
   }
   await getAccessToken(creds);
 }

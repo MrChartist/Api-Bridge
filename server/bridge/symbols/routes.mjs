@@ -1,5 +1,5 @@
 /**
- * Route handlers for stream S4 (docs/openapi.yaml, tag Instruments). Every handler answers { data, meta }.
+ * Route handlers for the symbols module (docs/openapi.yaml, tag Instruments). Every handler answers { data, meta }.
  *
  *   GET  /v1/instruments/search     ranked search with cursor pagination (meta.nextCursor)
  *   GET  /v1/instruments/{symbol}   resolve any accepted form; include=refs adds each broker's token/trading symbol

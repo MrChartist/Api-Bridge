@@ -1,5 +1,5 @@
 /**
- * Route handlers for stream S8 (docs/openapi.yaml, tag "Paper"). Both answer { data: PaperAccount, meta }.
+ * Route handlers for the paper module (docs/openapi.yaml, tag "Paper"). Both answer { data: PaperAccount, meta }.
  *
  *   GET  /v1/paper/accounts/{accountId}          scope read
  *   POST /v1/paper/accounts/{accountId}/reset    scope paper   body: { startingCapital? } (₹10,000 to ₹100,00,00,000)
@@ -10,7 +10,7 @@
  *        the basket's margin against the book, portfolio model (dashboard/span-margin.js); nothing is placed
  *
  * The key must be allowed to use the account (ctx.requireAccountAccess) before anything else happens. A reset is
- * written to the audit log when the audit service is available (it is optional here so the routes work before S9).
+ * written to the audit log when the audit service is available (it is optional here so the routes work before safety).
  */
 import { z } from "zod";
 import { isStub } from "../core/contracts.mjs";

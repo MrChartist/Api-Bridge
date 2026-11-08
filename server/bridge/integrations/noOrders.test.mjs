@@ -1,6 +1,6 @@
 /**
- * Acceptance (docs/STREAMS.md §S10): nothing in this stream can place an order. Proved four ways:
- *  1. every S10 route is a GET with scope "read" (no write method, no paper/live scope);
+ * Acceptance: nothing in this module can place an order. Proved four ways:
+ *  1. every integrations route is a GET with scope "read" (no write method, no paper/live scope);
  *  2. the handlers, driven with every route and hostile inputs, touch only deps.marketData (a recording Proxy
  *     around deps);
  *  3. through the real HTTP pipeline, with recording order/paper/safety services installed, no request reaches them,
@@ -39,7 +39,7 @@ function recordingServices(log) {
       svc[m] = (...args) => {
         log.push(`${name}.${m}`);
         if (name === "scheduler" && m === "checkClient") return { ok: true, retryAfterMs: 0, headers: {} };
-        throw new Error(`${name}.${m} must not be called from S10`);
+        throw new Error(`${name}.${m} must not be called from integrations`);
       };
     }
     out[name] = svc;
@@ -48,7 +48,7 @@ function recordingServices(log) {
 }
 
 describe("route table", () => {
-  it("every S10 route is GET with scope read", () => {
+  it("every integrations route is GET with scope read", () => {
     expect(ROUTES.length).toBe(4);
     for (const [method, path, options] of ROUTES) {
       expect(method, path).toBe("GET");
