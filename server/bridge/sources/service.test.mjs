@@ -558,3 +558,27 @@ describe("the read's purpose reaches the source (a plugin refuses strict purpose
     await expect(p.quotes(["NSE:A"], { purpose: "analysis" })).resolves.toBeDefined();
   });
 });
+
+describe("a key a source echoes back is scrubbed in its URL-encoded and base64 forms too", () => {
+  it("test() and reads scrub every form of the key from what they show", async () => {
+    const key = "sk/test+0123456789=abc";
+    const { svc, registry, lines } = setup();
+    await svc.setConfig("eod-src", { apiKey: key });
+    await svc.setEnabled("eod-src", true);
+    const forms = [key, encodeURIComponent(key), Buffer.from(key).toString("base64"), Buffer.from(`user:${key}`).toString("base64"), Buffer.from(key).toString("base64url")];
+    for (const form of forms) {
+      registry.get("eod-src").test = async () => {
+        throw new Error(`vendor says no to ${form}`);
+      };
+      registry.get("eod-src").quotes = async () => {
+        throw new Error(`vendor says no to ${form}`);
+      };
+      const r = await svc.test("eod-src");
+      expect(r.detail, form).toContain("***");
+      expect(r.detail).not.toContain(form);
+      const q = await svc.quotes(["NSE:A"]);
+      expect(JSON.stringify(q.errors)).not.toContain(form);
+    }
+    expect(lines.join("\n")).not.toContain(encodeURIComponent(key));
+  });
+});

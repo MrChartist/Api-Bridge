@@ -16,7 +16,7 @@
 import { BridgeError } from "../../core/errors.mjs";
 import { istMidnight } from "../../market/time.mjs";
 import { parseSymbol } from "../../core/symbolFormat.mjs";
-import { checkRange, createHttp, createLimiter, msToNextUtcDay, num, price, readNow, sessionCloseMinutes, sourceError, systemClock, throwIfAborted, unsupported } from "./common.mjs";
+import { FUTURE_SKEW_MS, checkRange, createHttp, createLimiter, msToNextUtcDay, num, price, readNow, sessionCloseMinutes, sourceError, systemClock, throwIfAborted, unsupported, vendorTime } from "./common.mjs";
 
 export const ALPHAVANTAGE_HOST = "www.alphavantage.co";
 export const ALPHAVANTAGE_USER_AGENT = "Bridge-DataSource/1.0 (self-hosted market-data bridge; read-only; personal use)";
@@ -109,6 +109,7 @@ export function createAlphaVantageProvider({ apiKey, fetch: fetchImpl = globalTh
   async function quotes(symbols, ctx = {}) {
     const items = [];
     let firstError = null;
+    const nowMs = readNow(ctx, clock);
     for (const symbol of symbols) {
       throwIfAborted(ctx.signal);
       try {
@@ -117,11 +118,12 @@ export function createAlphaVantageProvider({ apiKey, fetch: fetchImpl = globalTh
         const q = json["Global Quote"];
         const ltp = price(q?.["05. price"]);
         const day = /^\d{4}-\d{2}-\d{2}$/.test(q?.["07. latest trading day"] ?? "") ? q["07. latest trading day"] : null;
-        if (!q || ltp === null || !day) throw sourceError("not-found", `${NAME} has no quote for ${symbol}.`, { source: "alphavantage" });
+        const at = day ? vendorTime(istDayStart(day) + CLOSE_MS, nowMs) : null;
+        if (!q || ltp === null || !day || at === null) throw sourceError("not-found", `${NAME} has no usable quote for ${symbol}.`, { source: "alphavantage" });
         items.push({
           symbol,
           fields: { ltp, open: price(q["02. open"]), high: price(q["03. high"]), low: price(q["04. low"]), close: price(q["08. previous close"]), volume: num(q["06. volume"]) },
-          at: istDayStart(day) + CLOSE_MS,
+          at,
           provider: "alphavantage",
           flags: flags(),
         });
@@ -152,7 +154,9 @@ export function createAlphaVantageProvider({ apiKey, fetch: fetchImpl = globalTh
       const low = price(row?.["3. low"]);
       const close = price(row?.["4. close"]);
       if (open === null || high === null || low === null || close === null) continue;
-      all.push({ time: Math.floor(istDayStart(day) / 1000), open, high, low, close, volume: Math.max(0, num(row["5. volume"]) ?? 0) });
+      const time = Math.floor(istDayStart(day) / 1000);
+      if (!(time > 0) || time * 1000 > nowMs + FUTURE_SKEW_MS) continue; // a day that has not happened is not a candle
+      all.push({ time, open, high, low, close, volume: Math.max(0, num(row["5. volume"]) ?? 0) });
     }
     all.sort((a, b) => a.time - b.time);
     const candles = [];
@@ -166,7 +170,13 @@ export function createAlphaVantageProvider({ apiKey, fetch: fetchImpl = globalTh
   async function test(ctx = {}) {
     const started = clock.now();
     try {
-      await call({ function: "GLOBAL_QUOTE", symbol: "RELIANCE.BSE" }, ctx.signal);
+      const json = await call({ function: "GLOBAL_QUOTE", symbol: "RELIANCE.BSE" }, ctx.signal);
+      // Success means the answer has the documented shape (a "Global Quote" with a price), not merely that it was JSON: an
+      // empty object or an unrelated document is the vendor changing or something else answering on its host.
+      const q = json["Global Quote"];
+      if (!q || typeof q !== "object" || price(q["05. price"]) === null || !/^\d{4}-\d{2}-\d{2}$/.test(q["07. latest trading day"] ?? "")) {
+        return { ok: false, latencyMs: clock.now() - started, detail: `${NAME} answered, but not in the documented shape (no "Global Quote" with a price), so the check cannot say the key works.` };
+      }
       return { ok: true, latencyMs: clock.now() - started, detail: "The key was accepted. This check used one of the day's requests." };
     } catch (err) {
       if (err?.name === "AbortError") throw err;

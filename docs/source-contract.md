@@ -156,7 +156,8 @@ A source is ejected by the circuit breaker after repeated failures, retried afte
 and a 429, an auth error or a not-found never trips it (see [sources-architecture.md](sources-architecture.md)).
 
 Never throw a raw `Error`: its message may carry a URL or a key. Keep the message to one plain sentence, redact secrets,
-and never echo the response body. A cancelled call throws an `AbortError` (name `AbortError`), not a `BridgeError`.
+and never echo the response body. The Bridge scrubs a key from what it shows or logs in the forms a vendor or library may echo
+it in: verbatim, URL-encoded and base64 (`sources/redact.mjs`). A cancelled call throws an `AbortError` (name `AbortError`), not a `BridgeError`.
 
 **Plugin error codes** (what a plugin sends, and what the Bridge turns it into):
 
@@ -189,7 +190,9 @@ An answer that does not fit the shapes above, or a message that does not parse, 
 | Plugin heap | `--max-old-space-size=128` (megabytes). This bounds the JS heap, not all memory |
 | Restarts | At most **3** restarts in 10 minutes, then the plugin is disabled |
 
-A built-in provider keeps to its own limits with a sliding-window limiter and honours a 429 `Retry-After`. A plugin does not
+A built-in provider reads a vendor's answer as a stream and stops at **2 MB** (`UPSTREAM_ERROR`, "larger than 2 MB"; a declared
+`Content-Length` above that is refused before reading), refuses a price that is not finite, not above 0 or above 1e9, and refuses a vendor timestamp more
+than 5 minutes ahead of the Bridge clock (up to 5 minutes ahead is clamped to now). A built-in provider keeps to its own limits with a sliding-window limiter and honours a 429 `Retry-After`. A plugin does not
 throttle itself: the host enforces its declared limits on every brokered request and refuses the excess with `RATE_LIMITED`.
 
 ## 6. Plugins
@@ -505,7 +508,7 @@ delaySec: 900, official: false, flags: ["plugin", "unofficial", "delayed"], ... 
 ## 9. Writing a built-in provider
 
 Built-in providers live in `server/bridge/sources/providers/`. They take their `fetch` and clock as arguments so tests inject
-fakes, declare `hosts`, build every request with `redirect: "error"` and no cookies, identify themselves honestly in the
+fakes, declare `hosts`, build every request through `createHttp` (which streams the body with the 2 MB cap), use `price()` and `vendorTime()` from `common.mjs` for every price and timestamp, build every request with `redirect: "error"` and no cookies, identify themselves honestly in the
 User-Agent, and throw classified errors (`fields.kind`). Every one ships with fixtures recorded from the vendor's documented
 responses and a test that runs `runProviderConformance`. Use only the vendor's official documentation.
 

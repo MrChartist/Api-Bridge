@@ -23,6 +23,7 @@ import { istDate } from "../../lib/jsonl.mjs";
 import { BridgeError, ERROR_CODES } from "../core/errors.mjs";
 import { sourcesConfigSchema } from "./config.mjs";
 import { classAllowedFor, classRank, meetsMaxAge } from "./contract.mjs";
+import { scrubSecrets, secretForms } from "./redact.mjs";
 import { createSourceState } from "./state.mjs";
 import { outcomeKindOf } from "./health.mjs";
 
@@ -158,19 +159,15 @@ export function createSourcesService(deps) {
     try {
       const v = await secrets.get(secretNameFor(id));
       const key = v && typeof v.apiKey === "string" && v.apiKey ? v.apiKey : null;
-      if (key) deps.logger?.addSecret?.(key);
+      if (key) for (const form of secretForms(key)) deps.logger?.addSecret?.(form);
       return key;
     } catch (err) {
       log?.warn?.("source key could not be read", { id, code: err?.code });
       return null;
     }
   }
-  /** Text safe to show or log: the key is replaced if a source echoed it back. */
-  const scrub = (text, key) => {
-    let s = String(text ?? "").slice(0, 300);
-    if (key && key.length >= 4) s = s.split(key).join("***");
-    return s;
-  };
+  /** Text safe to show or log: the key is replaced if a source echoed it back, verbatim, URL-encoded or as base64. */
+  const scrub = (text, key) => scrubSecrets(String(text ?? "").slice(0, 300), key ? [key] : []);
 
   // ── State ──
   const configuredOf = (d) => !needsKeyOf(d) || state.get(d.id)?.configured === true;
@@ -269,7 +266,7 @@ export function createSourcesService(deps) {
       throw problem("VALIDATION_FAILED", `apiKey must be ${KEY_MIN} to ${KEY_MAX} characters with no spaces.`, { errors: [{ path: "apiKey", message: `${KEY_MIN} to ${KEY_MAX} characters, no spaces` }] });
     }
     if (!secrets) throw problem("INTERNAL", "The secrets store is not available.");
-    deps.logger?.addSecret?.(key);
+    for (const form of secretForms(key)) deps.logger?.addSecret?.(form);
     await secrets.set(secretNameFor(id), { apiKey: key });
     state.update(id, { configured: true });
     log?.info?.("source key saved", { id });
