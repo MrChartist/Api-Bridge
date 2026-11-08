@@ -58,9 +58,10 @@ describe("parseManifest", () => {
     for (const id of ["demo", "yahoo", "broker", "alphavantage"]) bad({ id }, /reserved/);
   });
 
-  it("a delayed plugin states its delay and a realtime one does not", () => {
+  it("a delayed plugin states its delay, and a plugin is never real-time", () => {
     bad({ class: "delayed", delaySec: undefined }, /delaySec/);
-    bad({ class: "realtime", delaySec: 900 }, /must not state delaySec/);
+    bad({ class: "realtime", delaySec: undefined }, /never a real-time source/);
+    bad({ class: "live" }, /class/);
     expect(parseManifest(testManifest({ class: "eod", delaySec: undefined })).ok).toBe(true);
   });
 
@@ -114,12 +115,12 @@ describe("descriptor", () => {
     expect(errors).toEqual([]);
     expect(ok).toBe(true);
     expect(validateDescriptor(descriptor).ok).toBe(true);
-    expect(descriptor).toMatchObject({ kind: "plugin", tier: "plugin", official: false, class: "delayed", delaySec: 900, flags: ["plugin"], trust: "untrusted", needsKey: true });
+    expect(descriptor).toMatchObject({ kind: "plugin", tier: "plugin", official: false, class: "delayed", delaySec: 900, flags: ["plugin", "unofficial", "delayed"], trust: "untrusted", needsKey: true });
     expect(descriptor.limits).toEqual({ perSecond: 5, perMinute: 100 });
   });
 
-  it("a realtime plugin has no delay", () => {
-    expect(descriptorFromManifest(parseManifest(testManifest({ class: "realtime", delaySec: undefined })).manifest).delaySec).toBeNull();
+  it("an end-of-day plugin may omit the delay", () => {
+    expect(descriptorFromManifest(parseManifest(testManifest({ class: "eod", delaySec: undefined })).manifest)).toMatchObject({ class: "eod", delaySec: null });
   });
 });
 

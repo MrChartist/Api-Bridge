@@ -47,7 +47,7 @@ const childMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("result"), id, data: z.unknown() }).strict(),
   z.object({ type: z.literal("error"), id, code: z.string().max(40), message: z.string().max(500).optional(), retryAfterMs: z.number().int().min(0).max(3_600_000).optional() }).strict(),
   z.object({ type: z.literal("log"), level: z.enum(["debug", "info", "warn", "error"]), msg: z.string().max(1000) }).strict(),
-  z.object({ type: z.literal("fetch"), id, url: z.string().max(2048), init: FETCH_INIT.optional() }).strict(),
+  z.object({ type: z.literal("fetch"), id, call: id.optional(), url: z.string().max(2048), init: FETCH_INIT.optional() }).strict(),
   z.object({ type: z.literal("pong"), id }).strict(),
 ]);
 

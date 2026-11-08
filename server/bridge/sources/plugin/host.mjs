@@ -32,6 +32,7 @@ export const READY_TIMEOUT_MS = 5000;
 export const HEARTBEAT_MS = 10_000;
 export const CANCEL_GRACE_MS = 1000;
 export const STOP_GRACE_MS = 1000;
+const DEFAULT_RETRY_AFTER_MS = 5000;
 const MAX_QUEUED = 20;
 const MAX_FETCHES_IN_FLIGHT = 4;
 const MAX_MESSAGES_PER_SEC = 500;
@@ -71,7 +72,10 @@ export function cleanEnv(platform = process.platform, source = process.env) {
   return platform === "win32" && source.SystemRoot ? { SystemRoot: source.SystemRoot } : {};
 }
 
-const unavailable = (detail, extra = {}) => new BridgeError("BROKER_UNAVAILABLE", detail, { retryable: false, ...extra });
+/** `fields.kind` on every error, the same vocabulary as the built-in providers, so the router can tell a 429 or a missing symbol from a real fault. */
+const KIND = Object.freeze({ RATE_LIMITED: "rate-limited", UNAVAILABLE: "unavailable", TIMEOUT: "timeout", BAD_RESPONSE: "upstream", NOT_FOUND: "not-found", UNSUPPORTED: "unsupported", AUTH: "auth", INTERNAL: "upstream", CANCELLED: "upstream" });
+
+const unavailable = (detail, extra = {}) => new BridgeError("BROKER_UNAVAILABLE", detail, { retryable: false, ...extra, fields: { kind: "unavailable", ...(extra.fields ?? {}) } });
 
 /**
  * @param {object} cfg
@@ -129,6 +133,8 @@ export function createPluginHost({
   let inFlight = 0;
   let unacked = 0;
   let spawning = null;
+  let rateBlockedUntil = 0;
+  const callAborts = new Map(); // call id -> AbortController for that call's brokered requests
 
   const redact = (text) => {
     let out = String(text ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 500);
@@ -246,17 +252,20 @@ export function createPluginHost({
       return;
     }
     unacked = 0;
+    callAborts.delete(msg.id);
     if (msg.type === "error") {
-      const mapped = proto.PLUGIN_ERROR_CODES[msg.code] ?? "UPSTREAM_ERROR";
-      const code = proto.PLUGIN_ERROR_CODES[msg.code] ? msg.code : "BAD_RESPONSE";
+      const known = Boolean(proto.PLUGIN_ERROR_CODES[msg.code]);
+      const code = known ? msg.code : "BAD_RESPONSE";
+      const mapped = proto.PLUGIN_ERROR_CODES[code];
       lastError = redact(`${code}: ${msg.message ?? ""}`);
-      if (msg.code === "CANCELLED") return p.reject(Object.assign(new Error("cancelled"), { name: "AbortError" }));
-      return p.reject(new BridgeError(mapped, `Plugin ${id}: ${redact(msg.message || code)}`, { ...(msg.retryAfterMs !== undefined ? { retryAfterMs: msg.retryAfterMs } : {}), broker: { id, code } }));
+      if (code === "CANCELLED") return p.reject(Object.assign(new Error("cancelled"), { name: "AbortError" }));
+      if (code === "RATE_LIMITED") rateBlockedUntil = clock() + (msg.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS);
+      return p.reject(new BridgeError(mapped, `Plugin ${id}: ${redact(msg.message || code)}`, { ...(msg.retryAfterMs !== undefined ? { retryAfterMs: msg.retryAfterMs } : code === "RATE_LIMITED" ? { retryAfterMs: DEFAULT_RETRY_AFTER_MS } : {}), broker: { id, code }, fields: { kind: KIND[code], source: id } }));
     }
     const v = validateResult(p.method, msg.data, clock());
     if (!v.ok) {
       lastError = redact(v.error);
-      return p.reject(new BridgeError("UPSTREAM_ERROR", `Plugin ${id} returned an answer that does not fit the contract (${redact(v.error)}).`, { broker: { id, code: "BAD_RESPONSE" } }));
+      return p.reject(new BridgeError("UPSTREAM_ERROR", `Plugin ${id} returned an answer that does not fit the contract (${redact(v.error)}).`, { broker: { id, code: "BAD_RESPONSE" }, fields: { kind: "upstream", source: id } }));
     }
     p.resolve(v.value);
   }
@@ -265,7 +274,12 @@ export function createPluginHost({
     if (c.fetching >= MAX_FETCHES_IN_FLIGHT) return send(c, proto.fetchFail(msg.id, "RATE_LIMITED", "too many requests in flight", 250));
     c.fetching += 1;
     try {
-      const r = await net.fetch(msg.url, msg.init, { signal: c.fetchAbort.signal, timeoutMs: Math.min(limits.callTimeoutMs, 10_000) });
+      let signal = c.fetchAbort.signal;
+      if (msg.call !== undefined && pending.has(msg.call)) {
+        if (!callAborts.has(msg.call)) callAborts.set(msg.call, new AbortController());
+        signal = AbortSignal.any([signal, callAborts.get(msg.call).signal]);
+      }
+      const r = await net.fetch(msg.url, msg.init, { signal, timeoutMs: Math.min(limits.callTimeoutMs, 10_000) });
       send(c, proto.fetchOk(msg.id, r.status, r.headers, r.body));
     } catch (err) {
       const code = typeof err?.code === "string" ? err.code : "NETWORK";
@@ -381,7 +395,7 @@ export function createPluginHost({
       const timer = setTimeout(() => {
         const i = waiters.indexOf(w);
         if (i >= 0) waiters.splice(i, 1);
-        reject(new BridgeError("UPSTREAM_TIMEOUT", `Plugin ${id} did not take the call in time.`));
+        reject(new BridgeError("UPSTREAM_TIMEOUT", `Plugin ${id} did not take the call in time.`, { fields: { kind: "timeout", source: id } }));
       }, limits.callTimeoutMs);
       const done = () => {
         clearTimeout(timer);
@@ -411,6 +425,8 @@ export function createPluginHost({
   }
 
   function noteCancel(c, callId) {
+    callAborts.get(callId)?.abort();
+    callAborts.delete(callId);
     send(c, proto.cancel(callId));
     const timer = setTimeout(() => {
       cancelled.delete(callId);
@@ -427,29 +443,32 @@ export function createPluginHost({
    * @param {"quotes"|"history"|"expiries"|"optionChain"|"test"} method
    */
   async function call(method, params, { signal } = {}) {
-    if (!proto.METHODS.includes(method)) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Plugin ${id} does not support ${method}.`);
-    if (method !== "test" && !manifest.capabilities.includes(method)) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Plugin ${id} does not declare ${method}.`);
+    if (!proto.METHODS.includes(method)) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Plugin ${id} does not support ${method}.`, { fields: { kind: "unsupported", source: id } });
+    if (method !== "test" && !manifest.capabilities.includes(method)) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Plugin ${id} does not declare ${method}.`, { fields: { kind: "unsupported", source: id } });
     if (signal?.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    const blocked = rateBlockedUntil - clock();
+    if (blocked > 0) throw new BridgeError("UPSTREAM_RATE_LIMITED", `Plugin ${id}'s source asked us to slow down; try again in about ${Math.ceil(blocked / 1000)} s.`, { retryAfterMs: blocked, broker: { id, code: "RATE_LIMITED" }, fields: { kind: "rate-limited", source: id } });
     await acquire(signal);
     try {
       const c = await ensureRunning();
       const callId = ++callSeq;
       return await new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-          cleanup();
           noteCancel(c, callId);
+          cleanup();
           lastError = `no answer within ${limits.callTimeoutMs} ms`;
-          reject(new BridgeError("UPSTREAM_TIMEOUT", `Plugin ${id} did not answer within ${limits.callTimeoutMs} ms.`, { broker: { id, code: "TIMEOUT" } }));
+          reject(new BridgeError("UPSTREAM_TIMEOUT", `Plugin ${id} did not answer within ${limits.callTimeoutMs} ms.`, { broker: { id, code: "TIMEOUT" }, fields: { kind: "timeout", source: id } }));
         }, limits.callTimeoutMs);
         const onAbort = () => {
-          cleanup();
           noteCancel(c, callId);
+          cleanup();
           reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
         };
         const cleanup = () => {
           clearTimeout(timer);
           signal?.removeEventListener("abort", onAbort);
           pending.delete(callId);
+          callAborts.delete(callId);
         };
         pending.set(callId, {
           method,

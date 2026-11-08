@@ -4,7 +4,9 @@
  * restriction.
  *
  * A plugin is a read-only market-data source. The manifest has no way to name accounts, sessions, orders or portfolio:
- * `capabilities` only accepts the four read capabilities of the source contract.
+ * `capabilities` only accepts the four read capabilities of the source contract. A plugin is never real-time: its data
+ * class is `delayed` or `eod`, so it can never be taken for the trusted broker data that orders, risk checks, paper fills
+ * and alerts require.
  */
 import { z } from "zod";
 import { CAPABILITIES, validateDescriptor } from "../contract.mjs";
@@ -51,7 +53,7 @@ const manifestSchema = z
     entry: z.string().min(1).max(120),
     description: z.string().max(300).optional(),
     capabilities: z.array(z.enum(CAPABILITIES, { error: `must be one of ${CAPABILITIES.join(", ")} (a plugin is read-only market data)` })).min(1).max(CAPABILITIES.length),
-    class: z.enum(["realtime", "delayed", "eod"]),
+    class: z.enum(["delayed", "eod"], { error: "class must be delayed or eod: a plugin is never a real-time source" }),
     delaySec: positive.max(7 * 86400).nullable().optional(),
     official: z.literal(false, { error: "official must be false: a plugin is never an official source" }).optional(),
     network: z
@@ -79,7 +81,6 @@ const manifestSchema = z
     const add = (path, message) => ctx.addIssue({ code: "custom", path, message });
     if (RESERVED_IDS.includes(m.id)) add(["id"], `${m.id} is reserved for a built-in source`);
     if (m.class === "delayed" && !m.delaySec) add(["delaySec"], "a delayed plugin must state delaySec");
-    if (m.class === "realtime" && m.delaySec) add(["delaySec"], "a realtime plugin must not state delaySec");
     if (!["perSecond", "perMinute", "perDay"].some((k) => m.limits[k] !== undefined)) add(["limits"], "state at least one of perSecond, perMinute, perDay");
     m.network.allowHosts.forEach((h, i) => {
       const why = checkHostPattern(h);
@@ -175,13 +176,13 @@ export function descriptorFromManifest(manifest) {
     kind: "plugin",
     tier: "plugin",
     class: manifest.class,
-    delaySec: manifest.class === "realtime" ? null : (manifest.delaySec ?? null),
+    delaySec: manifest.delaySec ?? null,
     official: false,
     capabilities: [...manifest.capabilities],
     limits,
     terms: { url: manifest.terms.url, note: manifest.terms.note },
     version: manifest.version,
-    flags: ["plugin"],
+    flags: ["plugin", "unofficial", manifest.class],
     trust: "untrusted",
   };
   if (manifest.secrets?.length) descriptor.needsKey = true;

@@ -49,7 +49,7 @@ describe("loadPlugins: what must hold before a plugin loads", () => {
     expect(providers).toHaveLength(1);
     const d = providers[0].descriptor;
     expect(validateDescriptor(d).ok).toBe(true);
-    expect(d).toMatchObject({ id: "fake-plugin", kind: "plugin", tier: "plugin", official: false, class: "delayed", delaySec: 900, flags: ["plugin"], trust: "untrusted" });
+    expect(d).toMatchObject({ id: "fake-plugin", kind: "plugin", tier: "plugin", official: false, class: "delayed", delaySec: 900, flags: ["plugin", "unofficial", "delayed"], trust: "untrusted" });
     expect(providers[0].plugin).toMatchObject({ version: "1.0.0", pin: pinFor(dir) });
   });
 
@@ -181,14 +181,14 @@ describe("the provider a plugin becomes", () => {
   it("labels every answer: plugin flag, class and official come from the descriptor, never from the plugin", async () => {
     const { p } = provider();
     const r = await p.quotes(["NSE:RELIANCE"], { now: NOW });
-    expect(r.flags).toEqual(["plugin"]);
-    expect(r.items[0].flags).toEqual(["plugin"]);
+    expect(r.flags).toEqual(["plugin", "unofficial", "delayed"]);
+    expect(r.items[0].flags).toEqual(["plugin", "unofficial", "delayed"]);
     expect(p.descriptor).toMatchObject({ class: "delayed", official: false });
     expect(r.items[0].class).toBeUndefined();
   });
 
   it("never serves order, risk, paper or alert reads, even if the router asked", async () => {
-    const { p, fs } = provider({ class: "realtime", delaySec: undefined });
+    const { p, fs } = provider({ class: "eod", delaySec: undefined });
     for (const purpose of PURPOSES_REFUSED_FOR_PLUGINS) {
       await expect(p.quotes(["NSE:X"], { now: NOW, purpose })).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
     }

@@ -68,7 +68,7 @@ if (plugin) {
     return e;
   };
 
-  const hostFetch = (url, init, signal) =>
+  const hostFetch = (url, init, signal, callId) =>
     new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(makeError("CANCELLED", "cancelled"));
       const id = nextFetchId++;
@@ -87,10 +87,10 @@ if (plugin) {
           reject(e);
         },
       });
-      write({ type: "fetch", id, url: String(url), ...(init ? { init } : {}) });
+      write({ type: "fetch", id, ...(callId !== undefined ? { call: callId } : {}), url: String(url), ...(init ? { init } : {}) });
     });
 
-  const contextFor = (signal, now) => ({
+  const contextFor = (signal, now, callId) => ({
     signal,
     now,
     config: settings.config,
@@ -100,7 +100,7 @@ if (plugin) {
       throw makeError(code, message, retryAfterMs);
     },
     async fetch(url, init) {
-      const r = await hostFetch(url, init, signal);
+      const r = await hostFetch(url, init, signal, callId);
       return {
         ok: r.status >= 200 && r.status < 300,
         status: r.status,
@@ -122,7 +122,7 @@ if (plugin) {
     calls.set(msg.id, ac);
     try {
       if (!inited) throw makeError("INTERNAL", "call before init");
-      const ctx = contextFor(ac.signal, msg.now ?? Date.now());
+      const ctx = contextFor(ac.signal, msg.now ?? Date.now(), msg.id);
       const p = msg.params ?? {};
       let data;
       if (msg.method === "test") data = typeof plugin.test === "function" ? await plugin.test(ctx) : { ok: true };

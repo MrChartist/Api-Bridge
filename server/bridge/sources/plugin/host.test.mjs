@@ -682,3 +682,60 @@ describe("heartbeat and stop", () => {
     expect(h.status().state).toBe("stopped");
   });
 });
+
+describe("rate limits and cancellation reach the network", () => {
+  it("errors carry fields.kind, the vocabulary the router reads", async () => {
+    const kinds = {};
+    for (const code of ["RATE_LIMITED", "AUTH", "NOT_FOUND", "UNAVAILABLE", "BAD_RESPONSE", "UNSUPPORTED"]) {
+      const { h } = setup({ spawn: { onMessage: (m, c) => m.type === "call" && c.say({ type: "error", id: m.id, code, message: "x", ...(code === "RATE_LIMITED" ? { retryAfterMs: 10 } : {}) }) } });
+      kinds[code] = (await rejection(h.call("quotes", {}))).fields;
+    }
+    expect(kinds).toEqual({
+      RATE_LIMITED: { kind: "rate-limited", source: "fake-plugin" },
+      AUTH: { kind: "auth", source: "fake-plugin" },
+      NOT_FOUND: { kind: "not-found", source: "fake-plugin" },
+      UNAVAILABLE: { kind: "unavailable", source: "fake-plugin" },
+      BAD_RESPONSE: { kind: "upstream", source: "fake-plugin" },
+      UNSUPPORTED: { kind: "unsupported", source: "fake-plugin" },
+    });
+  });
+
+  it("after RATE_LIMITED the plugin is not asked again until the retry time has passed", async () => {
+    let n = 0;
+    const { h, fs, state } = setup({ spawn: { onMessage: (m, c) => m.type === "call" && (++n === 1 ? c.say({ type: "error", id: m.id, code: "RATE_LIMITED", message: "slow", retryAfterMs: 30_000 }) : answer(m, c)) } });
+    expect((await rejection(h.call("quotes", {}))).retryAfterMs).toBe(30_000);
+    state.now += 10_000;
+    const early = await rejection(h.call("quotes", {}));
+    expect(early.code).toBe("UPSTREAM_RATE_LIMITED");
+    expect(early.retryAfterMs).toBe(20_000);
+    expect(fs.last().of("call")).toHaveLength(1); // the second call never left the Bridge
+    state.now += 20_001;
+    expect((await h.call("quotes", {})).items).toHaveLength(1);
+  });
+
+  it("cancelling a call aborts the requests the host is making for it", async () => {
+    let aborted = false;
+    const broker = createFetchBroker({
+      id: "fake-plugin",
+      version: "1.0.0",
+      allowHosts: ["api.vendor-example.com"],
+      limits: { perSecond: 100 },
+      transport: (req) => new Promise((_, reject) => req.signal.addEventListener("abort", () => ((aborted = true), reject(Object.assign(new Error("a"), { name: "AbortError" }))))),
+    });
+    let callId;
+    const { h, fs } = setup({
+      manifest: { limits: { callTimeoutMs: 5000 } },
+      host: { broker },
+      spawn: { onMessage: (m, c) => m.type === "call" && ((callId = m.id), c.say({ type: "fetch", id: 1, call: m.id, url: "https://api.vendor-example.com/slow" })) },
+    });
+    const ac = new AbortController();
+    const p = rejection(h.call("quotes", {}, { signal: ac.signal }));
+    await tick(20);
+    expect(aborted).toBe(false);
+    ac.abort();
+    expect((await p).name).toBe("AbortError");
+    await tick(10);
+    expect(aborted).toBe(true);
+    expect(fs.last().of("cancel")[0].id).toBe(callId);
+  });
+});

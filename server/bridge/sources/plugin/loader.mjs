@@ -87,13 +87,15 @@ const refusePurpose = (id, ctx) => {
  */
 export function providerFor(descriptor, host, extra = {}) {
   const id = descriptor.id;
-  const provider = { descriptor, ...extra };
+  const provider = { descriptor, hosts: [...(extra.hosts ?? [])], ...extra };
+  // Every answer is labelled: it came from a plugin, it is unofficial, and it is as late as the manifest says.
+  const flags = () => ["plugin", "unofficial", descriptor.class];
   const opts = (ctx) => ({ signal: ctx?.signal });
   if (declares(descriptor, "quotes")) {
     provider.quotes = async (symbols, ctx) => {
       refusePurpose(id, ctx);
       const r = await host.call("quotes", { symbols: ensureStrings(symbols, "symbols") }, opts(ctx));
-      return { items: r.items.map((it) => ({ ...it, flags: ["plugin"] })), flags: ["plugin"] };
+      return { items: r.items.map((it) => ({ ...it, flags: flags() })), flags: flags() };
     };
   }
   if (declares(descriptor, "history")) {
@@ -103,14 +105,14 @@ export function providerFor(descriptor, host, extra = {}) {
       const interval = ensureOne(req?.interval, "interval");
       if (!Number.isFinite(req.fromMs) || !Number.isFinite(req.toMs)) throw new BridgeError("VALIDATION_FAILED", "fromMs and toMs must be numbers.");
       const r = await host.call("history", { symbol, interval, fromMs: req.fromMs, toMs: req.toMs }, opts(ctx));
-      return { ...r, flags: ["plugin"] };
+      return { ...r, flags: flags() };
     };
   }
   if (declares(descriptor, "expiries")) {
     provider.expiries = async (underlying, ctx) => {
       refusePurpose(id, ctx);
       const r = await host.call("expiries", { underlying: ensureOne(underlying, "underlying") }, opts(ctx));
-      return { ...r, flags: ["plugin"] };
+      return { ...r, flags: flags() };
     };
   }
   if (declares(descriptor, "optionChain")) {
@@ -118,7 +120,7 @@ export function providerFor(descriptor, host, extra = {}) {
       refusePurpose(id, ctx);
       if (expiry !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(expiry))) throw new BridgeError("VALIDATION_FAILED", "expiry must be YYYY-MM-DD.");
       const r = await host.call("optionChain", { underlying: ensureOne(underlying, "underlying"), ...(expiry ? { expiry } : {}) }, opts(ctx));
-      return { ...r, flags: ["plugin"] };
+      return { ...r, flags: flags() };
     };
   }
   provider.test = async (ctx) => {
@@ -206,7 +208,7 @@ export function loadPlugins({ entries = [], baseDir = process.cwd(), readSecret,
       ...hostOptions,
     });
     hosts.push(host);
-    providers.push(providerFor(info.descriptor, host, { plugin: { version: info.manifest.version, folder: info.dir, pin: info.pin } }));
+    providers.push(providerFor(info.descriptor, host, { hosts: info.manifest.network.allowHosts, plugin: { version: info.manifest.version, folder: info.dir, pin: info.pin } }));
   }
   return { providers, problems, stop: async () => void (await Promise.all(hosts.map((h) => h.stop()))) };
 }

@@ -170,7 +170,7 @@ describe("a real plugin process", () => {
     hostsToStop.push({ stop });
     expect(problems).toEqual([]);
     const r = await providers[0].quotes(["NSE:PROBE"], { now: Date.now() });
-    expect(r.flags).toEqual(["plugin"]);
+    expect(r.flags).toEqual(["plugin", "unofficial", "delayed"]);
     expect(providers[0].descriptor).toMatchObject({ tier: "plugin", official: false, class: "delayed" });
   }, 30_000);
 });
