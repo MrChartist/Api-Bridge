@@ -158,3 +158,129 @@ export function fundsView(f) {
   const util = used !== null && total !== null && total > 0 ? Math.min(1, Math.max(0, used / total)) : null;
   return { available, used, collateral, total, util, level: util === null ? "none" : util >= 0.9 ? "neg" : util >= 0.7 ? "warn" : "ok" };
 }
+
+// ── Orders page: how a row reads (pure) ──
+
+/** A status in plain words with the tone its pill wears: working orders are accent, a fill is green, a refusal is red. */
+export function orderStatusLook(status) {
+  const map = {
+    filled: { text: "Filled", tone: "ok" },
+    rejected: { text: "Rejected", tone: "bad" },
+    cancelled: { text: "Cancelled", tone: "" },
+    expired: { text: "Expired", tone: "" },
+    open: { text: "Open", tone: "info" },
+    pending: { text: "Sending", tone: "info" },
+    trigger_pending: { text: "Waiting for trigger", tone: "info" },
+    partially_filled: { text: "Part filled", tone: "info" },
+    outcome_unknown: { text: "Outcome unknown", tone: "bad" },
+  };
+  return map[status] ?? { text: status ? `${String(status)[0].toUpperCase()}${String(status).slice(1)}` : "Unknown", tone: "warn" };
+}
+
+/** How long ago a time was, short: "just now", "42 s ago", "5 min ago", "3 h ago"; null for older than a day or a bad time. */
+export function ago(iso, nowMs = Date.now()) {
+  const t = Date.parse(iso ?? "");
+  if (!Number.isFinite(t)) return null;
+  const s = Math.round((nowMs - t) / 1000);
+  if (s < -5) return null;
+  if (s < 10) return "just now";
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return null;
+}
+
+/** "m:ss" for a number of milliseconds (never negative). */
+export function clockText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * A pending ticket's life: time left, share left (for the bar), and whether it is over. `level` is "ok" with more than
+ * 20 s left, "warn" up to that, "bad" when over.
+ * @param {{ createdAt?: string, expiresAt?: string }} t
+ */
+export function ticketLife(t, nowMs = Date.now()) {
+  const end = Date.parse(t?.expiresAt ?? "");
+  const start = Date.parse(t?.createdAt ?? "");
+  if (!Number.isFinite(end)) return { known: false, left: 0, share: 0, over: false, text: "", level: "ok" };
+  const left = end - nowMs;
+  const span = Number.isFinite(start) && end > start ? end - start : 60_000;
+  return { known: true, left: Math.max(0, left), share: Math.min(1, Math.max(0, left / span)), over: left <= 0, text: left <= 0 ? "Expired" : `${clockText(left)} left`, level: left <= 0 ? "bad" : left <= 20_000 ? "warn" : "ok" };
+}
+
+/** Who prepared a ticket, in words: "AI assistant", "Webhook" or "REST client", with the key or hook label. */
+export function ticketSource(t) {
+  const kind = { mcp: "AI assistant", webhook: "Webhook", rest: "REST client" }[t?.source] ?? "Client";
+  return { kind, label: t?.client ? String(t.client) : "" };
+}
+
+/** The order's size as a person says it: "10", "4 of 10" while part filled. */
+export function qtyText(o) {
+  const q = Number(o?.quantity);
+  const f = Number(o?.filledQuantity);
+  if (Number.isFinite(f) && f > 0 && Number.isFinite(q) && f !== q) return `${formatInt(f)} of ${formatInt(q)}`;
+  return formatInt(q);
+}
+
+/** The order type in words: "Market", "Limit", "Stop-loss", "Stop-loss market". */
+export function orderTypeText(type) {
+  return { MARKET: "Market", LIMIT: "Limit", SL: "Stop-loss", "SL-M": "Stop-loss market" }[type] ?? (type ? String(type) : "");
+}
+
+/** The product in words, as the API names it in brackets where that helps: "Delivery (CNC)", "Intraday", "Carry (NRML)". */
+export function productText(p) {
+  return { CNC: "Delivery (CNC)", INTRADAY: "Intraday", MARGIN: "Carry (NRML)", MTF: "MTF" }[p] ?? (p ? String(p) : "");
+}
+
+/** A day "2026-11-08" as "Today, Sun 8 Nov", "Yesterday, Sat 7 Nov" or "Fri 6 Nov", against today's day (IST). */
+export function dayHeading(day, today) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day))) return String(day ?? "");
+  const d = new Date(`${day}T00:00:00Z`);
+  const t = new Date(`${today}T00:00:00Z`);
+  const diff = Math.round((t - d) / 86_400_000);
+  const w = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()];
+  const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()];
+  const long = `${w} ${d.getUTCDate()} ${m}`;
+  return diff === 0 ? `Today, ${long}` : diff === 1 ? `Yesterday, ${long}` : long;
+}
+
+/**
+ * Trades grouped by IST day in the order given (newest first gives the newest day first).
+ * @param {object[]} trades
+ * @param {(iso: string) => string} dayOf
+ * @returns {Array<{ day: string, rows: object[] }>}
+ */
+export function groupByDay(trades, dayOf) {
+  const out = [];
+  for (const t of trades ?? []) {
+    const day = dayOf(t.tradedAt);
+    const last = out[out.length - 1];
+    if (last && last.day === day) last.rows.push(t);
+    else out.push({ day, rows: [t] });
+  }
+  return out;
+}
+
+const csvCell = (v) => {
+  const s = v === null || v === undefined ? "" : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/**
+ * The trade book as CSV (RFC 4180, CRLF): one row per fill, plain numbers (no grouping), the charges estimate empty
+ * where none is priced.
+ * @param {object[]} trades
+ * @param {{ labelOf?: (id: string) => string, chargesOf?: (t: object) => { total: number } | null, timeOf?: (iso: string) => string }} o
+ */
+export function tradesCsv(trades, { labelOf = (id) => id, chargesOf = () => null, timeOf = (x) => x } = {}) {
+  const head = ["Time (IST)", "Account", "Symbol", "Contract", "Side", "Quantity", "Price", "Value", "Product", "Order id", "Trade id", "Estimated charges"];
+  const rows = (trades ?? []).map((t) => {
+    const qty = Number(t.qty ?? t.quantity);
+    const price = Number(t.price);
+    const c = chargesOf(t);
+    return [timeOf(t.tradedAt), labelOf(t.accountId), t.symbol, contractName(t.symbol), t.side, Number.isFinite(qty) ? qty : "", Number.isFinite(price) ? price : "", Number.isFinite(qty * price) ? Math.round(qty * price * 100) / 100 : "", t.product ?? "", t.orderId ?? "", t.tradeId ?? "", c ? Math.round(c.total * 100) / 100 : ""];
+  });
+  return `${[head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n")}\r\n`;
+}

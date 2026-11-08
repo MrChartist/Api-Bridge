@@ -1894,56 +1894,196 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .new-key-snips > .row { align-items: center; gap: 12px; flex-wrap: wrap; }
 .new-key-snips .segmented { max-width: 100%; overflow-x: auto; }
 .chip.own-key { margin-left: 6px; }
-/* Orders (views.js renderOrders): the contract on one line, the reason under a refused order, actions side by side. */
-.order-contract strong { white-space: nowrap; }
-.order-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.order-why { max-width: 280px; white-space: normal; }
-.order-acts { flex-wrap: nowrap; gap: 8px; }
-/* Nothing pending: the card is its head line (title, the one-line reason, Set up an AI assistant). */
-.orders-pending.none > .card-body { display: none; }
-.orders-pending.none > .card-head { padding-bottom: var(--card-pad); }
-/* Phones: an order is three short lines (contract and status; side, quantity, price and mode; time and account), not
-   nine labelled rows of 250 px. Cells: 1 time, 2 account, 3 contract, 4 side, 5 qty, 6 avg price, 7 status, 8 mode,
-   9 actions. */
+/* === PAGE: orders === */
+/* Orders › Orders and Trades (orders-book.js, views.js renderOrders). Three blocks on the grouped canvas: what waits for a
+   person (ticket cards), the day's orders (a grid of rows that becomes stacked rows when its card is narrow), and the money
+   behind them (a card per account). The tables are container-sized, not viewport-sized: the sidebar changes the width. */
+.ob-pending, .ob-funds-sec { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ob-sec-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 0 2px; }
+.ob-sec-head h2 { font: var(--t-title3); letter-spacing: -0.016em; text-wrap: balance; }
+.ob-sec-head > p { flex: 0 0 100%; font: var(--t-subhead); color: var(--label-2); }
+
+/* Nothing waiting: one calm line, not an empty card. */
+.ob-quiet { display: flex; align-items: center; gap: 14px; padding: 14px var(--card-pad); }
+.ob-quiet-text { flex: 1; min-width: 0; }
+.ob-quiet-text strong { font: var(--t-headline); letter-spacing: -0.012em; }
+.ob-quiet-text p { max-width: 72ch; margin-top: 2px; font: var(--t-subhead); color: var(--label-2); }
 @media (max-width: 719px) {
-  .orders-today .table-wrap.stack tr { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto; grid-template-areas: "c c c c st" "sd q p . md" "t a a a a" "x x x x x"; gap: 4px 8px; align-items: center; padding: 10px var(--card-pad); }
-  .orders-today .table-wrap.stack td, .orders-today .table-wrap.stack td.lead { display: block; padding: 0; text-align: left; font-weight: 500; }
-  .orders-today .table-wrap.stack td::before { display: none; }
-  .orders-today .table-wrap.stack td:nth-child(1) { grid-area: t; }
-  .orders-today .table-wrap.stack td:nth-child(2) { grid-area: a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .orders-today .table-wrap.stack td:is(:nth-child(1), :nth-child(2)) { font: 500 12px/1.3 var(--font-body); color: hsl(var(--foreground) / var(--a-quiet)); }
-  .orders-today .table-wrap.stack td:nth-child(3) { grid-area: c; min-width: 0; }
-  .orders-today .table-wrap.stack td:nth-child(4) { grid-area: sd; }
-  .orders-today .table-wrap.stack td:nth-child(5) { grid-area: q; font-variant-numeric: tabular-nums; }
-  .orders-today .table-wrap.stack td:nth-child(6) { grid-area: p; font-variant-numeric: tabular-nums; }
-  .orders-today .table-wrap.stack td:nth-child(6)::before { display: inline; content: "@ "; font: inherit; color: hsl(var(--foreground) / var(--a-quiet)); }
-  .orders-today .table-wrap.stack td:nth-child(7) { grid-area: st; justify-self: end; }
-  .orders-today .table-wrap.stack td:nth-child(7) .order-status { align-items: flex-end; }
-  .orders-today .table-wrap.stack td:nth-child(8) { grid-area: md; justify-self: end; }
-  .orders-today .table-wrap.stack td.act { grid-area: x; padding-top: 4px; }
-  .orders-today .order-contract .muted.small { font-size: 12px; }
+  .ob-quiet { flex-wrap: wrap; }
+  .ob-quiet-text { flex-basis: calc(100% - 60px); }
+  .ob-quiet > button { flex: 1 1 100%; }
 }
+
+/* A pending ticket: ringed in the accent (danger for a live order) with a bar across the top, so it cannot be missed. */
+.ob-tickets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(400px, 100%), 1fr)); gap: var(--panel-gap); }
+.ob-ticket { display: flex; flex-direction: column; gap: 14px; padding: calc(var(--card-pad) + 4px) var(--card-pad) var(--card-pad); box-shadow: 0 0 0 1.5px hsl(var(--accent) / 0.55), var(--shadow-2); }
+.ob-ticket::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; border-radius: var(--r-panel) var(--r-panel) 0 0; background: hsl(var(--accent)); }
+.ob-ticket.live { box-shadow: 0 0 0 1.5px hsl(var(--danger) / 0.6), var(--shadow-2); }
+.ob-ticket.live::before { background: hsl(var(--danger)); }
+.ob-ticket.over { box-shadow: var(--edge-1), var(--card-shadow); }
+.ob-ticket.over::before { background: var(--fill-3); }
+.ob-ticket.over > :not(.ob-ticket-acts) { opacity: 0.6; }
+.ob-ticket-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ob-ticket-title { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 4px; }
+.ob-ticket-title h3 { flex: 1 1 auto; min-width: 0; font: var(--t-headline); letter-spacing: -0.012em; overflow-wrap: anywhere; }
+.ob-ticket-title .pill { flex: none; }
+.ob-ticket-from { font: var(--t-callout); }
+.ob-ticket-from.muted { font: var(--t-subhead); }
+.ob-life { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.ob-life-text { font: 600 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: var(--label-2); }
+.ob-life.warn .ob-life-text { color: hsl(var(--warning-ink)); }
+.ob-life.bad .ob-life-text { color: hsl(var(--danger-ink)); }
+.ob-life .bar { height: 4px; }
+.ob-ticket { container: tk / inline-size; }
+.ob-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 0; padding-top: 14px; box-shadow: inset 0 var(--hl) 0 var(--separator); }
+.ob-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ob-field dt { font: var(--t-footnote); color: var(--label-2); }
+.ob-field dd { display: flex; flex-direction: column; margin: 0; font: 500 14px/1.35 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ob-field dd.mono { font: 400 13px/1.4 var(--font-mono); }
+.ob-field.ob-value { grid-column: 1 / -1; padding-top: 12px; box-shadow: inset 0 var(--hl) 0 var(--hairline); flex-direction: row; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ob-value dt { font: var(--t-label); }
+.ob-value dd { font: 700 22px/1.15 var(--font-display); letter-spacing: -0.02em; }
+@container tk (min-width: 380px) { .ob-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); } .ob-field.wide { grid-column: span 2; } }
+.ob-checks { gap: 8px; }
+.ob-ticket-acts { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; }
+.ob-ticket-acts .ob-review { min-width: 180px; }
+@media (max-width: 519px) { .ob-ticket-acts { flex-direction: column-reverse; align-items: stretch; } .ob-ticket-acts > button { width: 100%; } }
+
+/* Buy and sell, as a pill; the words carry the meaning, the colour is the gain or loss token. */
+.ob-side { display: inline-flex; align-items: center; justify-content: center; min-width: 46px; min-height: 22px; padding: 0 9px; border-radius: 6px; font: 600 12px/1 var(--font-body); letter-spacing: 0.01em; white-space: nowrap; }
+.ob-side.buy { color: hsl(var(--success-ink)); background: hsl(var(--success) / 0.13); }
+.ob-side.sell { color: hsl(var(--danger-ink)); background: hsl(var(--danger) / 0.12); }
+.ob-brief { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-inner); background: var(--fill-1); }
+.ob-brief > div { display: flex; flex-direction: column; min-width: 0; }
+.ob-brief strong { font: var(--t-headline); letter-spacing: -0.012em; overflow-wrap: anywhere; }
+.ob-left { margin: 0; }
+.ob-confirm .kv dd { font: 500 14px/1.4 var(--font-numeric); font-variant-numeric: tabular-nums; }
+
+/* The day's orders and the trade book: one card, a bar of controls, a grid of rows. */
+.ob-orders { container: ob / inline-size; }
+.ob-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 4px var(--card-pad) 14px; }
+.ob-bar[hidden] { display: none; }
+.ob-bar .segmented { flex: none; }
+.ob-search-field { flex: 1 1 220px; max-width: 340px; margin-left: auto; }
+.ob-bar-end { flex: none; }
+.ob-n { margin-left: 6px; font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: var(--label-3); }
+.ob-n:empty { display: none; }
+.segmented button[aria-pressed="true"] .ob-n { color: var(--label-2); }
+.ob-card-acts { flex-wrap: wrap; justify-content: flex-end; }
+.ob-cancel-slot:empty { display: none; }
+.ob-retry { margin-top: 10px; }
+.ob-empty { padding-bottom: 28px; }
+.ob-empty-code { width: min(640px, 100%); margin-top: 18px; text-align: left; }
+.ob-empty-code .code pre { font-size: 12.5px; }
+
+.ob-table { --cols: 96px minmax(200px, 1fr) 72px 100px 130px 160px 44px; display: block; min-width: 0; }
+.ob-trades { --cols: 84px minmax(170px, 1.6fr) 64px 80px 100px 124px 124px; }
+.ob-row { position: relative; display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 12px; padding: var(--td-py) var(--card-pad); }
+.ob-rows > .ob-row + .ob-row::before, .ob-day > .ob-row + .ob-row::before { content: ""; position: absolute; top: 0; left: var(--card-pad); right: 0; height: var(--hl); background: var(--hairline); }
+.ob-headrow { position: sticky; top: calc(var(--toolbar-h) + var(--safe-t)); z-index: var(--z-sticky); padding-block: var(--th-py); background: var(--surface); font: var(--t-table-head); color: var(--label-2); box-shadow: inset 0 calc(-1 * var(--hl)) 0 var(--separator), inset 0 var(--hl) 0 var(--separator); }
+.ob-headrow .ob-cell { font: var(--t-table-head); color: var(--label-2); }
+@media (hover: hover) { .ob-order:hover, .ob-trade:hover { background: var(--fill-1); } }
+.ob-cell { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; min-width: 0; font: var(--t-table); font-variant-numeric: tabular-nums; }
+.ob-cell.num { align-items: flex-end; text-align: right; }
+.ob-main { color: hsl(var(--foreground)); }
+.ob-sub { display: block; font: var(--t-footnote); color: var(--label-3); overflow-wrap: anywhere; }
+.ob-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ob-name strong { font-weight: 600; overflow-wrap: anywhere; }
+.ob-name .pill { flex: none; }
+.ob-num { display: flex; flex-direction: column; align-items: flex-end; }
+.ob-unit { display: none; }
+.ob-id { font: 400 12px/1.3 var(--font-mono); color: var(--label-3); overflow-wrap: anywhere; }
+.ob-order .c-status, .ob-headrow .c-status, .ob-trade .c-order, .ob-headrow .c-order { padding-left: 14px; }
+.c-act { align-items: center; }
+.c-act .ob-more { --btn-bg: transparent; color: var(--label-2); }
+.ob-why { grid-column: 2 / 7; display: flex; gap: 8px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--fill-1); font: var(--t-subhead); }
+.ob-why svg { width: 16px; height: 16px; margin-top: 1px; flex: none; color: var(--label-3); }
+.ob-why p { margin: 0; overflow-wrap: anywhere; }
+.ob-why .ob-fix { margin-top: 2px; color: var(--label-2); }
+.ob-order.refused .ob-why { background: hsl(var(--danger) / 0.08); }
+.ob-order.refused .ob-why svg { color: hsl(var(--danger-ink)); }
+.ob-dayhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 16px; padding: 9px var(--card-pad); background: var(--fill-1); box-shadow: inset 0 var(--hl) 0 var(--hairline), inset 0 calc(-1 * var(--hl)) 0 var(--hairline); }
+.ob-dayhead h3 { font: 600 13px/1.3 var(--font-body); }
+
+/* Trades: the three figures above the book. */
+.ob-trades-top { min-width: 0; }
+.ob-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--panel-gap); }
+.ob-stat .label { font: var(--t-label); }
+.ob-stat .value { font-size: clamp(22px, 2.2vw, 28px); }
+@media (max-width: 719px) { .ob-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ob-stat:last-child { grid-column: 1 / -1; } .ob-stat .value { font-size: 22px; } }
+
+/* Narrow card (phones, tablets, a sidebar-wide window): each order is a few short lines, no column headings. */
+@container ob (max-width: 839px) {
+  .ob-orders .ob-headrow { display: none; }
+  .ob-order { grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "contract contract contract status" "side qty price act" "time time time time" "why why why why"; gap: 8px 12px; padding: 14px var(--card-pad); }
+  .ob-order .c-contract { grid-area: contract; }
+  .ob-order .c-status { grid-area: status; align-self: start; padding-left: 0; }
+  .ob-order .c-side { grid-area: side; }
+  .ob-order .c-qty { grid-area: qty; }
+  .ob-order .c-price { grid-area: price; }
+  .ob-order .c-act { grid-area: act; margin-block: -6px; }
+  .ob-order .c-time { grid-area: time; }
+  .ob-order .ob-why { grid-area: why; margin-top: 0; }
+  .ob-order .num { align-items: flex-start; text-align: left; }
+  .ob-order .c-qty { flex-direction: row; align-items: baseline; gap: 4px; }
+  .ob-unit { display: inline; }
+  .ob-order .ob-num { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+  .ob-time { flex-direction: row; align-items: baseline; gap: 8px; }
+  .ob-time { display: flex; }
+}
+@container ob (max-width: 859px) {
+  .ob-trades .ob-headrow { display: none; }
+  .ob-trade { grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "contract contract contract value" "side qty price charges" "time time order order"; gap: 8px 12px; padding: 14px var(--card-pad); }
+  .ob-trade .c-contract { grid-area: contract; }
+  .ob-trade .c-value { grid-area: value; align-self: start; }
+  .ob-trade .c-side { grid-area: side; }
+  .ob-trade .c-qty { grid-area: qty; flex-direction: row; align-items: baseline; gap: 4px; }
+  .ob-trade .c-price { grid-area: price; align-items: flex-start; text-align: left; }
+  .ob-trade .c-charges { grid-area: charges; }
+  .ob-trade .c-charges:has(.empty-dash) { display: none; }
+  .ob-trade .c-time { grid-area: time; flex-direction: row; justify-content: flex-start; }
+  .ob-trade .c-order { grid-area: order; align-items: flex-end; text-align: right; padding-left: 0; }
+  .ob-trade .c-qty.num { align-items: baseline; text-align: left; }
+  .ob-dayhead { padding-block: 10px; }
+}
+@container ob (min-width: 860px) and (max-width: 1099px) { .ob-trades .c-order { display: none; } }
+@container ob (min-width: 1100px) { .ob-trades { --cols: 84px minmax(170px, 1.6fr) 64px 80px 100px 124px 124px minmax(150px, 1fr); } }
+@container ob (max-width: 559px) { .ob-n { display: none; } .ob-search-field { max-width: none; flex-basis: 100%; margin-left: 0; } .ob-bar .segmented { max-width: 100%; } }
+
+/* Cancel all and the other sheets. */
+.ca-lead { font: var(--t-callout); color: var(--label-2); }
+.ca-group { display: flex; flex-direction: column; gap: 8px; }
+.ca-head { font: var(--t-label); color: var(--label-2); }
+.ca-list { list-style: none; margin: 0; padding: 0; border-radius: var(--r-inner); background: var(--fill-1); overflow: hidden; }
+.ca-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.ca-row + .ca-row::before { content: ""; position: absolute; top: 0; left: 12px; right: 0; height: var(--hl); background: var(--separator); }
+.ca-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ca-what strong { font: 600 14px/1.3 var(--font-body); overflow-wrap: anywhere; }
+.ca-qty { font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; color: var(--label-2); white-space: nowrap; }
+.ca-more { padding: 8px 12px; font: var(--t-subhead); color: var(--label-3); }
+.ca-also { padding-top: 2px; }
+
+/* Funds: a card per account. */
+.ob-funds { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: var(--panel-gap); }
+.ob-fund { display: flex; flex-direction: column; gap: 14px; padding: var(--card-pad); }
+.ob-fund-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ob-fund-names { display: flex; flex-direction: column; min-width: 0; }
+.ob-fund-names h3 { font: var(--t-headline); letter-spacing: -0.012em; overflow-wrap: anywhere; }
+.ob-fund-body { display: flex; flex-direction: column; gap: 14px; }
+.ob-avail { display: flex; flex-direction: column; gap: 2px; }
+.ob-avail strong { font: 700 28px/1.1 var(--font-display); letter-spacing: -0.022em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ob-margin-line { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font: var(--t-subhead); color: var(--label-2); font-variant-numeric: tabular-nums; }
+.ob-margin-line .ob-main { font-weight: 600; }
+.ob-fstats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0; padding-top: 12px; box-shadow: inset 0 var(--hl) 0 var(--hairline); }
+.ob-fstat dt { font: var(--t-footnote); color: var(--label-2); }
+.ob-fstat dd { margin: 0; font: 600 15px/1.35 var(--font-numeric); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ob-fund-error p { margin: 0 0 8px; font: var(--t-callout); }
+.ob-fund-foot { display: flex; justify-content: flex-end; margin: auto calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0; }
+/* === END PAGE: orders === */
 /* The order ticket grows with its fields on tall screens (stop and target add two rows), so the figures stay above
    the footer; shorter screens keep the usual cap and scroll inside the sheet. */
 @media (min-width: 720px) and (min-height: 900px) { dialog.sheet:has(.ticket) { max-height: min(96vh, 1180px); } }
 /* SL / SL-M: four types share the Type control. */
 .ticket .segmented button[data-value="SL-M"] { white-space: nowrap; }
 .bk-pair > :only-child { grid-column: 1 / -1; }
-/* Orders: filters over the day's orders and the trade book. */
-.bk-ob-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 0 16px 12px; }
-.bk-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-button.bk-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--mat-separator); font: 500 13px/1 var(--font-body); color: hsl(var(--foreground) / var(--a-label)); }
-@media (pointer: coarse) { button.bk-chip { min-height: 44px; } }
-.bk-chip-n { font: 500 12px/1 var(--font-numeric); font-variant-numeric: tabular-nums; opacity: 0.72; }
-.bk-ob-search { flex: 1 1 220px; min-width: 0; max-width: 360px; margin-left: auto; }
-@media (max-width: 719px) { .bk-ob-search { max-width: none; margin-left: 0; flex-basis: 100%; } }
-.bk-tb-figs { margin: 0 0 4px; }
-.bk-fix { color: hsl(var(--foreground) / var(--a-label)); font: 500 12px/1.4 var(--font-body); margin: 0; }
-p.bk-fix { font-size: 13px; }
-@media (max-width: 719px) { .ticket-figs.bk-tb-figs { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); } .ticket-figs.bk-tb-figs > div { white-space: normal; } }
-/* Orders › Funds: margin utilisation per account. */
-.bk-util { display: inline-flex; align-items: center; gap: 8px; font: 500 13px/1 var(--font-numeric); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.bk-util-track { position: relative; width: 72px; height: 6px; border-radius: 3px; background: var(--mat-fill-1); box-shadow: inset 0 0 0 var(--hl) var(--mat-separator); overflow: hidden; }
-.bk-util-bar { position: absolute; inset: 0 auto 0 0; width: calc(var(--w, 0) * 100%); background: hsl(var(--pos)); }
-.bk-util-bar[data-level="warn"] { background: hsl(var(--warning)); }
-.bk-util-bar[data-level="neg"] { background: hsl(var(--neg)); }
+

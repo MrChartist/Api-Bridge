@@ -9,7 +9,7 @@ import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
-import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
+import { configureOrdersBook, fundsSection, ordersBook, pendingSection, renderTradesPage, sidePill } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
 const $ = (id) => document.getElementById(id);
@@ -2006,105 +2006,47 @@ async function renderLimits() {
 
 // ── Orders ──
 
+import { clockText, orderTypeText, qtyText, ticketLife } from "./orders-core.js";
+configureOrdersBook({ segmented });
+
+/** The order a sheet is about, on one line: side, contract, size and type. */
+const orderBrief = (o) => h("div", { class: "ob-brief" }, sidePill(o.side), h("div", {}, h("strong", {}, contractName(o.symbol)), h("span", { class: "ob-sub" }, `${qtyText(o)} qty · ${orderTypeText(o.orderType)}${isFigure(o.price) ? ` at ${formatFixed(o.price, 2)}` : ""}`)));
+
 async function renderOrders() {
-  const [tickets, orders, accounts] = await Promise.all([optional(api("/v1/tickets")), optional(api("/v1/orders?limit=100")), api("/v1/accounts")]);
-  const accs = accounts.data.data ?? [];
-  const byId = new Map(accs.map((a) => [a.id, a]));
-  const nodes = [];
-
-  const tk = tickets.data?.data ?? [];
-  // Nothing waiting: the card is its head line only (it was a 300 px empty state above the day's orders).
-  if (!tickets.error && !tk.length)
-    nodes.push(
-      card({
-        glyph: "inbox",
-        tint: "orange",
-        title: "Pending confirmations",
-        sub: "Nothing waiting. When an AI assistant or a confirmation-required webhook prepares an order, it waits here until you check every field and confirm.",
-        cls: "orders-pending none",
-        actions: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
-        flush: true,
-        body: null,
-      }),
-    );
-  else nodes.push(
-    card({
-      glyph: "inbox",
+  const [tickets, orders, accounts] = await Promise.all([optional(api("/v1/tickets")), optional(api("/v1/orders?limit=100")), optional(api("/v1/accounts"))]);
+  if (accounts.error)
+    return card({
+      glyph: "orders",
       tint: "orange",
-      title: "Pending confirmations",
-      sub: "Orders prepared by AI assistants or confirmation-required webhooks wait here. Nothing is sent until you confirm.",
-      flush: true,
-      body: tickets.error
-        ? h("div", { class: "card-body" }, alertBox(tickets.error))
-        : table(
-            [
-              { label: "Ticket", cell: (t) => h("span", { class: "mono" }, t.ticketId) },
-              { label: "From", cell: (t) => `${t.source} · ${t.client}` },
-              { label: "Order", wrap: true, cell: (t) => `${t.order?.side} ${t.order?.lots ? `${t.order.lots} lot(s)` : t.order?.quantity} ${t.order?.symbol} (${t.order?.mode ?? "paper"})` },
-              { label: "Value", num: true, cell: (t) => formatRupee(t.estimatedValue) },
-              {
-                label: "",
-                cell: (t) => {
-                  const blocked = (t.checks ?? []).some((c) => c?.severity === "block");
-                  return h("button", { type: "button", class: "small primary", disabled: blocked, "aria-label": `${blocked ? "Blocked" : "Review"} ticket ${t.ticketId}`, onclick: () => confirmTicket(t, byId) }, blocked ? "Blocked" : "Review");
-                },
-              },
-            ],
-            tk,
-            emptyState("inbox", "Nothing waiting", "When an AI assistant prepares an order, it appears here for you to check every field and confirm.", nextStep("Set up an AI assistant", "#/api/integrations?tool=claude")),
-          ),
-    }),
-  );
+      title: "Orders",
+      cls: "ob-orders",
+      body: h("div", { class: "stack" }, alertBox(accounts.error), h("div", { class: "row" }, nextStep("Try again", () => show({ refresh: true }), "small"))),
+    });
+  const accs = accounts.data?.data ?? [];
+  const byId = new Map(accs.map((a) => [a.id, a]));
+  const send = () => (location.hash = "#/api/console?endpoint=order");
 
-  const ord = orders.data?.data ?? [];
-  // The day's orders with status and side filters, a search and Cancel all (orders-book.js).
-  nodes.push(
-    ordersCard({
-      ord,
-      error: orders.error ?? null,
-      byId,
-      refresh: () => show(),
-      // Orders come in through the API; the test console sends one as JSON (API › Test console).
-      actions: [h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send a paper order")],
-      columns: [
-              { label: "Time", cell: (o) => istTime(o.placedAt) },
-              { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
-              { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
-              { label: "Side", cell: (o) => h("span", { class: "order-side" }, o.side) },
-              { label: "Qty", num: true, cell: (o) => (o.filledQuantity && o.filledQuantity !== o.quantity ? `${formatInt(o.filledQuantity)}/${formatInt(o.quantity)}` : formatInt(o.quantity)) },
-              { label: "Avg price", num: true, cell: (o) => formatFixed(o.avgPrice, 2) },
-              {
-                label: "Status",
-                wrap: true,
-                cell: (o) => {
-                  const t = orderStatusText(o.status);
-                  // Why it was refused or cancelled, right under the pill (the broker's or the paper engine's words).
-                  // ...and the next step, in plain words, when there is one (reasons-core.js).
-                  const why = o.statusMessage && ["rejected", "expired", "outcome_unknown"].includes(o.status) ? o.statusMessage : null;
-                  const fix = why || o.status === "outcome_unknown" ? whatToDo({ code: o.status === "outcome_unknown" ? "OUTCOME_UNKNOWN" : null, message: why ?? "", mode: o.mode }) : null;
-                  return h("div", { class: "order-status" }, pill(t.text, t.tone), why ? h("div", { class: "muted small order-why" }, why) : null, fix ? h("div", { class: "small bk-fix" }, fix) : null);
-                },
-              },
-              { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
-              { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
-      ],
-      empty: emptyState("orders", "No orders today", "Paper orders from your scripts, webhooks and AI assistants show up here.", nextStep("Send a paper order", "#/api/console?endpoint=order")),
-    }),
-  );
+  // What waits for a person, first and unmistakable; then the day's orders; then the money behind them (it fills in
+  // as each account answers, so a slow broker never holds the page).
+  const pending = pendingSection({
+    tickets: tickets.data?.data ?? [],
+    error: tickets.error ?? null,
+    byId,
+    review: (t) => confirmTicket(t, byId),
+    setup: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
+    retry: () => show({ refresh: true }),
+  });
+  const book = ordersBook({ ord: orders.data?.data ?? [], error: orders.error ?? null, byId, actions: orderActions, refresh: () => show(), send });
+  const funds = fundsSection(accs);
 
-  // The Funds card in whole rupees with Indian grouping (the P&L columns too, with an explicit + for gains), like the
-  // other money summaries.
-  const pnlGrouped = (v) => {
-    if (!isFigure(v)) return DASH;
-    const text = formatRupeeGrouped(v, 0);
-    const zero = text === "₹0";
-    const n = Number(v);
-    return h("span", { class: zero ? undefined : n > 0 ? "up" : "down" }, n > 0 && !zero ? `+${text}` : text);
-  };
-  // Funds for every account (orders-book.js): available, margin used, collateral, utilisation and P&L.
-  const funds = await fundsCard(accs, pnlGrouped);
-  if (funds) nodes.push(funds);
-  return nodes;
+  // A ticket or an order that arrives while the page is open shows up without a reload (and the nav count follows).
+  every(4000, async () => {
+    const [t, o] = await Promise.all([optional(api("/v1/tickets", { fresh: true })), optional(api("/v1/orders?limit=100", { fresh: true }))]);
+    if (!t.error) pending.update(t.data?.data ?? []);
+    if (!o.error) book.update(o.data?.data ?? []);
+    refreshTicketCount();
+  });
+  return [pending.el, book.el, funds];
 }
 
 /** Modify and Cancel for a working order (PATCH / DELETE /v1/orders/{id}); each answers with a toast and a redraw. */
@@ -2140,6 +2082,7 @@ function orderActions(o) {
       body: h(
         "div",
         { class: "stack" },
+        orderBrief(o),
         h("label", { class: "field", for: "mod-qty" }, h("span", {}, inLots ? "Lots" : "Quantity"), qty, units),
         stop || limit ? h("div", { class: "form-grid bk-pair" }, stop ? field("Trigger price", trig) : null, limit ? field("Limit price", price) : null) : null,
         err,
@@ -2172,14 +2115,15 @@ function orderActions(o) {
   };
   const cancel = async () => {
     const err = h("div", { "aria-live": "polite" });
+    const left = (o.quantity ?? 0) - (o.filledQuantity ?? 0);
     const ok = await modal({
       title: `Cancel ${o.side === "BUY" ? "buy" : "sell"} ${name}?`,
-      body: h("div", { class: "stack" }, h("p", {}, `The unfilled part (${formatInt((o.quantity ?? 0) - (o.filledQuantity ?? 0))} qty) is withdrawn. What already filled stays in Positions.`), err),
+      body: h("div", { class: "stack" }, orderBrief(o), h("p", {}, `The unfilled part (${formatInt(left)} qty) is withdrawn. What already filled stays in Positions.`), err),
       buttons: [
         { label: "Keep it", value: false },
         {
           label: "Cancel order",
-          cls: "primary",
+          cls: "destructive",
           onClick: async () => {
             try {
               await api(`/v1/orders/${encodeURIComponent(o.orderId)}`, { method: "DELETE" });
@@ -2195,7 +2139,6 @@ function orderActions(o) {
     if (!ok) return;
     // Undo (paper only): place the unfilled part again, as it was. The order goes through every normal check, so a
     // price that is no longer valid is refused and said so. Live orders are never re-sent from a toast.
-    const left = (o.quantity ?? 0) - (o.filledQuantity ?? 0);
     const again = async () => {
       const body = { account: o.accountId, symbol: o.symbol, side: o.side, quantity: left, product: o.product, orderType: o.orderType, validity: o.validity ?? "DAY", mode: "paper", ...(o.price ? { price: o.price } : {}), ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}), ...(o.tag ? { tag: o.tag } : {}) };
       const r = await optional(api("/v1/orders", { method: "POST", body }));
@@ -2206,16 +2149,47 @@ function orderActions(o) {
     const canUndo = o.mode === "paper" && left > 0;
     show().then(() => toast(canUndo ? h("span", { class: "toast-undo-row" }, `Cancelled ${name} · `, h("button", { type: "button", class: "toast-undo", onclick: again }, "Undo")) : `Cancelled ${name}`));
   };
-  return h("div", { class: "row order-acts" }, h("button", { type: "button", class: "small", "aria-label": `Modify ${name}`, onclick: modify }, "Modify"), h("button", { type: "button", class: "small", "aria-label": `Cancel ${name}`, onclick: cancel }, "Cancel"));
+  return { modify, cancel };
 }
 
+/**
+ * The confirmation sheet for a pending ticket: the order in one line, every field again, the time left, and (for a
+ * live order) a box to tick before the button works. Confirming lets the client that prepared it send exactly this
+ * order, once; a single-use code is then shown for it.
+ */
 async function confirmTicket(t, byId) {
+  const o = t.order ?? {};
+  const live = o.mode === "live";
   const fields = ticketFields(t, byId);
+  const left = h("p", { class: "ob-sub ob-left", role: "timer" });
+  const sure = live ? h("input", { type: "checkbox", id: "confirm-live" }) : null;
+  let go = null;
+  const paint = () => {
+    const life = ticketLife(t);
+    left.textContent = life.known ? (life.over ? "This request has expired. Close this and ask the client to prepare it again." : `Expires in ${clockText(life.left)}`) : "";
+    if (go) go.disabled = life.over || (sure ? !sure.checked : false);
+  };
+  const tick = setInterval(paint, 1000);
+  sure?.addEventListener("change", paint);
+  const qtyLine = o.lots ? `${formatInt(o.lots)} lot${Number(o.lots) === 1 ? "" : "s"}` : `${formatInt(o.quantity)} qty`;
   const ok = await modal({
-    title: `Confirm ticket ${t.ticketId}?`,
-    body: h("div", { class: "stack" }, h("p", { class: "muted" }, "The client that prepared it can then send exactly this order, once."), h("dl", { class: "kv" }, ...fields.flatMap(([k, v, cls]) => [h("dt", {}, k), h("dd", { class: cls ? `${cls}-text` : undefined }, v)]))),
-    buttons: [{ label: "Cancel", value: false }, { label: t.order?.mode === "live" ? "Confirm LIVE order" : "Confirm", cls: "primary", value: true }],
+    title: "Confirm this order?",
+    body: h(
+      "div",
+      { class: "stack ob-confirm" },
+      h("div", { class: "ob-brief" }, sidePill(o.side), h("div", {}, h("strong", {}, `${qtyLine} ${contractName(o.symbol)}`), h("span", { class: "ob-sub" }, `${isFigure(t.estimatedValue) ? `About ${formatRupeeGrouped(t.estimatedValue, 0)} · ` : ""}${live ? "Live, real money" : "Paper"} · ticket ${t.ticketId}`))),
+      h("p", { class: "muted" }, "Confirming lets the client that prepared it send exactly this order, once."),
+      live ? h("div", { class: "alert warn", role: "note" }, icon("warn"), h("div", {}, h("strong", {}, "This order uses real money."), h("span", { class: "detail" }, "It goes to your broker as soon as the client sends it."))) : null,
+      h("dl", { class: "kv" }, ...fields.flatMap(([k, v, cls]) => [h("dt", {}, k), h("dd", { class: cls ? `${cls}-text` : undefined }, v)])),
+      sure ? h("label", { class: "check", for: "confirm-live" }, sure, "I have checked every field and want this live order sent") : null,
+      left,
+    ),
+    buttons: [
+      { label: "Not now", value: false },
+      { label: live ? "Confirm live order" : "Confirm order", cls: live ? "destructive" : "primary", value: true, ref: (el) => ((go = el), paint()) },
+    ],
   });
+  clearInterval(tick);
   if (!ok) return;
   try {
     const r = await api(`/v1/tickets/${encodeURIComponent(t.ticketId)}/confirm`, { method: "POST" });
