@@ -174,7 +174,7 @@ export function openQuotaSheet(key, defs) {
 
 /** @returns {Promise<HTMLElement>} the Quotas tab */
 export async function renderQuotas() {
-  const root = h("div", { class: "sx-tab sx-quotas" });
+  const root = h("div", { class: "sx-tab" });
   let data = null;
   let err = null;
   let lastOk = 0;
@@ -183,7 +183,7 @@ export async function renderQuotas() {
   let totalWeight = 0;
   const ownKeyId = String(currentKey() ?? "").split("_")[1] ?? null;
   const list = createKeyedList(rowsBox, { key: (k) => k.keyId, create: createRow, update: updateRow });
-  const intro = h("section", { class: "card sx-q-intro" }, h("div", { class: "card-body stack" }, h("p", { class: "sx-q-lead" }, "Every API key has its own quota, so one busy tool cannot use up everyone's room. The numbers below are what each key may ask for, and how much it used."), h("p", { class: "sx-q-default" })));
+  const intro = h("section", { class: "card" }, h("div", { class: "card-body stack" }, h("p", { class: "sx-q-lead" }, "Every API key has its own quota, so one busy tool cannot use up everyone's room. The numbers below are what each key may ask for, and how much it used."), h("p", { class: "sx-q-default" })));
   const defaultLine = intro.querySelector(".sx-q-default");
   const emptyBox = h("div", { class: "list", hidden: true }, emptyState("keys", "No API keys yet", "Make a key for a tool and its quota appears here.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = "#/api/keys") }, "Create a key")));
   const errBox = h("div", { hidden: true });

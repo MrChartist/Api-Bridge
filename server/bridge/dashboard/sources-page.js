@@ -221,7 +221,7 @@ function openPoolSheet(pool, rows) {
  * @returns {Promise<HTMLElement>}  the Overview tab
  */
 export async function renderOverview() {
-  const root = h("div", { class: "sx-tab sx-overview" });
+  const root = h("div", { class: "sx-tab" });
   const trackers = { tones: createToneTracker(), rates: createRateTracker(), smooth: createSmoother() };
   const local = app.local;
   let sortMode = SORTS.some(([v]) => v === local.get(SORT_SLOT)) ? local.get(SORT_SLOT) : "risk";
@@ -335,7 +335,7 @@ export async function renderOverview() {
   const savedNums = {};
   const savedBox = h(
     "div",
-    { class: "card sx-saved" },
+    { class: "card" },
     h(
       "div",
       { class: "card-body sx-saved-grid" },
@@ -352,7 +352,7 @@ export async function renderOverview() {
     ),
   );
   const savedGroup = h("section", { class: "group sx-group", "aria-labelledby": "sx-sav-h", hidden: true }, h("h2", { class: "group-title", id: "sx-sav-h" }, "Broker calls saved today"), savedBox, h("p", { class: "group-foot" }, "The Bridge answers many requests without calling a broker at all."));
-  const consBox = h("div", { class: "list sx-cons" });
+  const consBox = h("div", { class: "list" });
   const consList = createKeyedList(consBox, {
     key: (c) => c.name,
     create: (c) => {
@@ -369,6 +369,7 @@ export async function renderOverview() {
     },
   });
   const consGroup = h("section", { class: "group sx-group", "aria-labelledby": "sx-con-h", hidden: true }, h("h2", { class: "group-title", id: "sx-con-h" }, "Who used the budget today"), consBox);
+  const moreDetail = h("details", { class: "sx-more" }, h("summary", {}, "More detail"), savedGroup, consGroup);
 
   // ── What each broker allows (read once) ──
   const policyBox = h("div", { class: "sx-policy-box", hidden: true });
@@ -379,7 +380,7 @@ export async function renderOverview() {
   /** Swap the skeleton for the page (the first answer has arrived). The same boxes, so nothing jumps. */
   const build = () => {
     built = true;
-    root.replaceChildren(liveRegion, lost, hero, attnBox, sourcesGroup, budgetsGroup, reqGroup, savedGroup, consGroup, policyBox);
+    root.replaceChildren(liveRegion, lost, hero, attnBox, sourcesGroup, budgetsGroup, reqGroup, moreDetail, policyBox);
     if (new URLSearchParams(location.hash.split("?")[1] ?? "").get("trace")) queueMicrotask(() => openTraceSheet({ nameOf }));
   };
   /** The first read failed: say so in place and keep trying; the page appears by itself when the Bridge answers. */
@@ -455,8 +456,12 @@ export async function renderOverview() {
 
   // ── Broker budgets cards ──
 
+  /** A card shows its two busiest kinds of call; the rest are one tap away (eight calm meters are noise). */
+  const SHOWN_CLASSES = 2;
+
   function createBudgetCard(r) {
     const meters = h("div", { class: "sx-class-meters" });
+    const view = { all: false, rank: new Map(), classes: [] };
     const list = createKeyedList(meters, {
       key: (c) => c.cls,
       create: (c) => {
@@ -474,13 +479,27 @@ export async function renderOverview() {
         el._parts.meter.set({ share: b.share, tone: t, speech: `${c.name}: ${formatInt(b.remaining)} of ${formatInt(b.limit)} calls left ${b.per}, ${TONE_WORD[t].toLowerCase()}`, label: `${r.name}, ${c.name}` });
         setText(el._parts.figs, `${formatInt(b.used)} of ${formatInt(b.limit)} ${b.per}`);
         setText(el._parts.word, TONE_WORD[t]);
+        // Always shown: the busiest kinds, and anything that is not calm.
+        el.hidden = !(view.all || (view.rank.get(c.cls) ?? 0) < SHOWN_CLASSES || t !== "calm");
       },
     });
+    const more = h("button", { type: "button", class: "small plain sx-class-more", "aria-expanded": "false", hidden: true });
+    more.addEventListener("click", () => {
+      view.all = !view.all;
+      list.sync(view.classes, { reorder: false });
+      paintMore();
+    });
+    function paintMore() {
+      const extra = view.classes.length - SHOWN_CLASSES;
+      more.hidden = extra <= 0;
+      more.setAttribute("aria-expanded", String(view.all));
+      setText(more, view.all ? "Show fewer" : `Show all ${view.classes.length} kinds of call`);
+    }
     const today = h("p", { class: "sx-today" });
     const head = h("header", { class: "card-head" }, brokerTile(String(r.sub).split(",")[0].toLowerCase(), r.name), h("div", { class: "card-titles" }, h("h3", { class: "sx-card-title" }, r.name), h("p", { class: "sx-card-sub" }, "")), h("div", { class: "card-actions" }, healthTag().el));
     const tag = head.querySelector(".sx-health");
-    const el = h("section", { class: "card sx-budget-card" }, head, h("div", { class: "card-body stack" }, meters, today));
-    el._parts = { list, today, sub: head.querySelector(".sx-card-sub"), tag };
+    const el = h("section", { class: "card sx-budget-card" }, head, h("div", { class: "card-body stack" }, meters, more, today));
+    el._parts = { view, paintMore, list, today, sub: head.querySelector(".sx-card-sub"), tag };
     return el;
   }
 
@@ -489,7 +508,10 @@ export async function renderOverview() {
     setText(p.sub, `${String(r.sub).split(",")[0]} · ${formatInt(r.inFlight)} in flight · ${formatInt(r.queued)} waiting`);
     setData(p.tag, "tone", r.health.tone);
     setText(p.tag.lastChild, r.health.word);
-    p.list.sync(r.classes.filter((c) => c.binding), { reorder: false });
+    p.view.classes = r.classes.filter((c) => c.binding);
+    p.view.rank = new Map([...p.view.classes].sort((a, b) => b.binding.share - a.binding.share).map((c, i) => [c.cls, i]));
+    p.list.sync(p.view.classes, { reorder: false });
+    p.paintMore();
     const total = (k) => r.classes.reduce((n, c) => n + c[k], 0);
     setText(p.today, `Today: ${plural(total("callsToday"), "broker call")}, ${formatInt(total("throttledToday"))} throttled by the broker, ${formatInt(total("refusedToday"))} held back to stay inside limits.`);
   }
@@ -499,7 +521,7 @@ export async function renderOverview() {
   function createRequestRow(r) {
     const cap = capabilityForPath(r.path);
     const time = h("span", { class: "sx-req-time" });
-    const method = h("span", { class: "method sx-req-method" }, r.method);
+    const method = h("span", { class: "method" }, r.method);
     const path = h("span", { class: "sx-req-path mono", title: r.path }, r.path);
     const who = h("span", { class: "sx-req-who" });
     const verdict = h("span", { class: "pill sx-req-verdict" });
@@ -657,7 +679,7 @@ export async function renderOverview() {
           h("summary", {}, h("span", {}, h("strong", {}, p.brokerId), p.notes ? h("span", { class: "muted small" }, ` · ${p.notes}`) : null)),
           h(
             "div",
-            { class: "list sx-policy" },
+            { class: "list" },
             Object.entries(p.limits ?? {}).map(([cls, l]) => {
               const bits = [l.perSecond ? `${formatFixed(l.perSecond, Number.isInteger(Number(l.perSecond)) ? 0 : 1)} a second` : null, l.perMinute ? `${formatInt(l.perMinute)} a minute` : null, l.perDay ? `${formatInt(l.perDay)} a day` : null].filter(Boolean).join(", ");
               const src = String(l.source ?? "").includes("demo") ? pill("Sample (demo)", "demo") : l.verified ? pill("Broker docs", "ok") : pill("Conservative default", "warn");

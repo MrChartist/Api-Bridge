@@ -816,7 +816,7 @@ function setupChrome() {
   const kc = shortcut("K");
   $("toolbar-actions").replaceChildren(
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", title: `Search pages and actions (${kc.label})`, "aria-keyshortcuts": kc.aria, onclick: () => openPalette() }, searchIcon()),
-    h("button", { type: "button", class: "icon-btn toolbar-refresh", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
+    h("button", { type: "button", class: "icon-btn", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
   );
   watchTitleCollapse();
   // The API budget indicator (budget.js), fed by the shared live connection.
@@ -1953,7 +1953,7 @@ async function drawConsole(accounts) {
     out.replaceChildren(
       h(
         "section",
-        { class: "card ac-res", "aria-label": "Response" },
+        { class: "card", "aria-label": "Response" },
         h("header", { class: "card-head" }, iconTile(ok ? "check" : "warn", ok ? "green" : status >= 500 ? "red" : "orange"), h("div", { class: "card-titles" }, h("h2", {}, "Response")), h("div", { class: "card-actions" }, pill(`${status} ${STATUS_TEXT[status] ?? (ok ? "OK" : "Error")}`, statusTone(status)), pill(`${formatInt(ms)} ms`), pill(sizeText(size)), headers.get("x-mcb-data") === "demo" ? pill("Sample prices", "demo") : null)),
         h(
           "div",
@@ -2029,7 +2029,7 @@ async function drawConsole(accounts) {
   });
   bodyBox.addEventListener("blur", () => (freeTab = false));
   sendBtn.addEventListener("click", send);
-  const form = h("section", { class: "card ac-req", "aria-label": "Request" });
+  const form = h("section", { class: "card", "aria-label": "Request" });
   form.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.isComposing) {
       e.preventDefault();
@@ -2605,7 +2605,7 @@ function newKeyPanel({ key, label, use, scopes, account, onDone }) {
 }
 
 async function renderKeys() {
-  const root = h("div", { class: "api-tab ak" });
+  const root = h("div", { class: "api-tab" });
   const createdBox = h("div", { class: "ak-created" });
   const cols = h("div", { class: "ak-cols" });
   root.append(createdBox, cols);
@@ -2768,7 +2768,7 @@ async function renderKeys() {
 
     const create$ = h(
       "section",
-      { class: "card ak-create" },
+      { class: "card" },
       h("header", { class: "card-head" }, iconTile("plus", "pink"), h("div", { class: "card-titles" }, h("h2", {}, "Create a key"), h("p", {}, "One key per tool, with only the access it needs. Live keys are made in the terminal."))),
       h(
         "div",
@@ -2874,7 +2874,7 @@ async function renderIntegrations() {
           h("div", { class: "ai-meta" }, h("div", { class: "ai-addr" }, h("span", { class: "ai-addr-label" }, "Your Bridge address"), h("code", {}, location.origin), copyButton(location.origin, { ariaLabel: "Copy your Bridge address", toastLabel: "Address copied", cls: "small copy" })), keyBtn ?? null),
           createdKeys[active] ? alertBox({ title: "Your new key is filled into the code below.", detail: "It is shown only on this page, and only until you leave it. Copy it now." }, "info") : null,
           active === "webhooks" ? h("div", { class: "ai-hooks" }) : null,
-          s.length ? h("div", { class: "ai-snips stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : null, s.map(snippetBlock)) : null,
+          s.length ? h("div", { class: "stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : null, s.map(snippetBlock)) : null,
         ),
       ];
       panel.replaceChildren(...parts);
@@ -2965,7 +2965,7 @@ async function webhookPanel(paperAcc, host) {
 const statusTone = (n) => (n < 300 ? "ok" : n < 500 ? "warn" : "bad");
 
 async function renderActivity() {
-  const root = h("div", { class: "api-tab aa" });
+  const root = h("div", { class: "api-tab" });
   // #/api/activity?view=audit opens the audit log (the Ctrl K "Audit log" entry).
   let view = hashParams().get("view") === "audit" ? "audit" : "requests";
   const seg = segmented("Log", [["requests", "Requests"], ["audit", "Audit log"]], view);
@@ -3087,7 +3087,7 @@ async function renderActivity() {
       listBox.replaceChildren(
         h(
           "div",
-          { class: "list aa-audit" },
+          { class: "list" },
           shown.map((x) =>
             h(
               "details",

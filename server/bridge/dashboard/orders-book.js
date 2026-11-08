@@ -129,7 +129,7 @@ const sub = (...parts) => parts.filter(Boolean).join(" · ");
 
 /** The row's own time: the clock in IST, and how long ago under it. */
 function timeCell(iso) {
-  return h("div", { class: "ob-time", title: iso ?? undefined }, h("span", { class: "ob-main" }, istTime(iso)), h("span", { class: "ob-sub ob-ago" }, ago(iso) ?? ""));
+  return h("div", { class: "ob-time", title: iso ?? undefined }, h("span", { class: "ob-main" }, istTime(iso)), h("span", { class: "ob-sub" }, ago(iso) ?? ""));
 }
 
 // ── Pending confirmations ──
@@ -206,7 +206,7 @@ function ticketCard(t, byId, { review, onDecline }) {
     h(
       "footer",
       { class: "ob-ticket-acts" },
-      h("button", { type: "button", class: "quiet ob-decline", "aria-label": `Decline ${o.side === "BUY" ? "buy" : "sell"} ${contractName(o.symbol)}`, onclick: () => onDecline(t) }, "Decline"),
+      h("button", { type: "button", class: "quiet", "aria-label": `Decline ${o.side === "BUY" ? "buy" : "sell"} ${contractName(o.symbol)}`, onclick: () => onDecline(t) }, "Decline"),
       reviewBtn,
     ),
   );
@@ -219,7 +219,7 @@ function ticketCard(t, byId, { review, onDecline }) {
  * @returns {{ el: HTMLElement, update: (tickets: object[]|null, error?: object|null) => void }}
  */
 export function pendingSection({ tickets, error, byId, review, setup, retry }) {
-  const el = h("section", { class: "sec ob-pending", "aria-label": "Pending confirmations", "data-fixed": "" });
+  const el = h("section", { class: "sec", "aria-label": "Pending confirmations", "data-fixed": "" });
   const live = h("p", { class: "sr-only", role: "status", "aria-live": "polite" });
   let signature = null;
   let shown = [];
@@ -509,7 +509,7 @@ async function cancelAllFlow(labelOf = (id) => id) {
     title: cancelAllTitle(g),
     body: h(
       "div",
-      { class: "stack ca-body" },
+      { class: "stack" },
       h("p", { class: "ca-lead" }, "The unfilled part of each order is withdrawn. What already filled stays in Positions. Cancelled orders cannot be brought back from here."),
       ours
         ? h("section", { class: "ca-group" }, h("h3", { class: "ca-head" }, `Placed through the Bridge · ${formatInt(ours)}`), h("p", { class: "ob-sub" }, cancelAllBridgeLine(g)), cancelList(g.bridge, labelOf))
@@ -590,7 +590,7 @@ export function fundsSection(accs) {
   const list = accs.filter((a) => a.broker !== "demo");
   if (!list.length) return null;
   const grid = h("div", { class: "ob-funds" }, ...list.map(() => skeletonCard(3)));
-  const el = h("section", { class: "sec ob-funds-sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it."))), grid);
+  const el = h("section", { class: "sec", "aria-label": "Funds", "data-fixed": "" }, h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Funds"), h("p", {}, "What is free to trade, the margin in use and today's P&L, per account. Paper from the paper engine; a broker account as the broker reports it."))), grid);
   Promise.all(
     list.map(async (a) => {
       const [funds, pos] = await Promise.all([optional(api(`/v1/funds?account=${encodeURIComponent(a.id)}`)), optional(api(`/v1/positions?account=${encodeURIComponent(a.id)}`))]);

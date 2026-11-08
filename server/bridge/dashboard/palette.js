@@ -404,7 +404,7 @@ export function showShortcuts() {
     title: "Keyboard shortcuts",
     body: h(
       "div",
-      { class: "stack shortcuts-sheet" },
+      { class: "stack" },
       h("table", { class: "shortcuts" }, h("caption", { class: "pal-sr-only" }, "Keyboard shortcuts"), h("thead", { class: "pal-sr-only" }, h("tr", {}, h("th", { scope: "col" }, "Keys"), h("th", { scope: "col" }, "Action"))), h("tbody", {}, rows)),
       h("p", { class: "muted small" }, "On a Mac, Command works in place of Ctrl. Some browsers keep Ctrl and a number for switching tabs; the search (Ctrl K) always works."),
     ),

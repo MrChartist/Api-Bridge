@@ -610,7 +610,7 @@ export function accountBlock(row, { expandable = false, compact = false } = {}) 
       pill(row.state.text, row.state.tone),
     ),
     trouble ? h("ul", { class: `sf-reasons ${row.state.tone}` }, row.reasons.map((r) => h("li", {}, r)), row.more ? h("li", { class: "muted" }, `and ${formatInt(row.more)} more`) : null) : null,
-    h("div", { class: "list sf-list" }, row.facts.map((f) => checkItem(f, row.id, { expandable }))),
+    h("div", { class: "list" }, row.facts.map((f) => checkItem(f, row.id, { expandable }))),
   );
 }
 
@@ -728,7 +728,7 @@ export function readinessSection({ demo = false, initial = { snap: null, history
   const working = h("span", { class: "sf-working", hidden: true }, "Checking…");
   const main = h(
     "section",
-    { class: "sec sf-ready", "aria-labelledby": "sf-ready-h" },
+    { class: "sec", "aria-labelledby": "sf-ready-h" },
     h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", { id: "sf-ready-h" }, "Trading readiness"), sub), h("div", { class: "sec-acts" }, working, pillSlot, checkBtn)),
     h("div", { class: "sf-ready-grid" }, checks, aside),
     announce,
@@ -863,6 +863,6 @@ export function readinessSection({ demo = false, initial = { snap: null, history
     );
     d.open = open;
     d.addEventListener("toggle", () => (d.open ? state.open.add("demo-tools") : state.open.delete("demo-tools")));
-    return h("section", { class: "group sf-demo" }, h("div", { class: "sf-card sf-disc-card" }, d));
+    return h("section", { class: "group" }, h("div", { class: "sf-card sf-disc-card" }, d));
   }
 }

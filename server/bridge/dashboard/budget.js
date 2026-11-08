@@ -105,7 +105,7 @@ const STREAM_TEXT = { live: "Stream live", off: "No stream open", down: "Stream 
 export function mountBudget(host, live) {
   let msg = null;
   const dot = h("span", { class: "bud-dot", "aria-hidden": "true" });
-  const sec = h("span", { class: "bud-num bud-sec" });
+  const sec = h("span", { class: "bud-num" });
   const min = h("span", { class: "bud-num bud-min" });
   const setSec = liveWindow(sec, "s");
   const setMin = liveWindow(min, "min");
@@ -195,7 +195,7 @@ function acctBlock(a, el) {
 function jobBlock(j, el) {
   if (!el) {
     const fill = h("i");
-    el = h("div", { class: "bud-win bud-job" }, h("span", { class: "muted" }), h("span", { class: "bud-bar ok", "aria-hidden": "true" }, fill), h("span", { class: "bud-num" }));
+    el = h("div", { class: "bud-win" }, h("span", { class: "muted" }), h("span", { class: "bud-bar ok", "aria-hidden": "true" }, fill), h("span", { class: "bud-num" }));
     el.__r = { label: el.children[0], fill, text: el.children[2] };
   }
   const r = el.__r;

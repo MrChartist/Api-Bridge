@@ -2457,6 +2457,16 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-card-title { font: var(--t-headline); letter-spacing: -0.012em; }
 .sx-card-sub { font: var(--t-subhead); color: var(--label-2); }
 .sx-class-meters { display: flex; flex-direction: column; gap: 14px; }
+.sx-class[hidden] { display: none; }
+.sx-class-more { align-self: flex-start; }
+/* The two groups behind "More detail"; the disclosure is not drawn while both are empty. */
+.sx-more { min-width: 0; }
+.sx-more > .sx-group + .sx-group { margin-top: var(--panel-gap); }
+.sx-more > summary { display: flex; align-items: center; min-height: 36px; padding-inline: var(--space-4); cursor: pointer; font: var(--t-subhead); font-weight: 500; color: hsl(var(--accent-ink)); }
+.sx-more > summary:focus-visible { outline-offset: 2px; border-radius: var(--r-sm); }
+.sx-more[open] > summary { margin-bottom: var(--panel-gap); }
+.sx-more:not(:has(> .sx-group:not([hidden]))) { display: none; }
+@media (pointer: coarse), (max-width: 719px) { .sx-more > summary { min-height: 44px; } }
 .sx-class-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin-bottom: 6px; }
 .sx-class-r { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; font: var(--t-footnote); color: var(--label-2); font-variant-numeric: tabular-nums; }
 

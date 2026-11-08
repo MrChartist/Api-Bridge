@@ -11,12 +11,15 @@ import { formatInt, plural } from "./format.js";
 const isMissing = (err) => err && (err.status === 404 || err.status === 405 || err.status === 501);
 
 /** Run `fn`, putting a failure in `slot` as an alert (and returning false). */
-async function attempt(slot, fn) {
+/** Run `fn`; `asked("on")` is called first (the page can show the switch on at once) and `asked("failed")` if it did not work. */
+async function attempt(slot, fn, asked = null) {
   slot.replaceChildren();
+  asked?.("on");
   try {
     await fn();
     return true;
   } catch (err) {
+    asked?.("failed");
     slot.replaceChildren(alertBox(err));
     return false;
   }
@@ -25,7 +28,7 @@ async function attempt(slot, fn) {
 // ── The sheets ──
 
 /** The notice of an opt-in source: what you are agreeing to, and an explicit button. Resolves true once it is on. */
-export function openNoticeSheet(src) {
+export function openNoticeSheet(src, { asked = null } = {}) {
   const slot = h("div", { class: "sx-slot", role: "alert" });
   const note = src.terms?.note ?? "This source has its own terms.";
   return modal({
@@ -46,7 +49,7 @@ export function openNoticeSheet(src) {
       {
         label: "I understand, turn it on",
         cls: "primary",
-        onClick: async () => ((await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, acknowledge: src.noticeVersion } }))) ? true : false),
+        onClick: async () => ((await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, acknowledge: src.noticeVersion } }), asked)) ? true : false),
       },
     ],
   });
@@ -56,7 +59,7 @@ export function openNoticeSheet(src) {
  * The key sheet: paste the key (a secure field), save it, test it, then turn the source on. The key is sent once and is
  * never shown again; afterwards the page says only "Key saved". Resolves true once the source is on.
  */
-export function openKeySheet(src, { replacing = false } = {}) {
+export function openKeySheet(src, { replacing = false, asked = null } = {}) {
   const slot = h("div", { class: "sx-slot", role: "alert" });
   const input = h("input", { type: "password", id: "sx-key", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "aria-describedby": "sx-key-hint", placeholder: "Paste your key here" });
   const show = h("button", { type: "button", class: "icon-btn tiny", "aria-label": "Show the key", "aria-pressed": "false" }, icon("eye"));
@@ -144,12 +147,12 @@ export function openKeySheet(src, { replacing = false } = {}) {
             // An opt-in source with a key still needs the notice: hand over to it.
             return "notice";
           }
-          return (await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, ...(src.noticeVersion ? { acknowledge: src.noticeVersion } : {}) } }))) ? "on" : false;
+          return (await attempt(slot, () => api(`/v1/sources/${encodeURIComponent(src.id)}`, { method: "PATCH", body: { enabled: true, ...(src.noticeVersion ? { acknowledge: src.noticeVersion } : {}) } }), asked)) ? "on" : false;
         },
       },
     ],
   }).then(async (v) => {
-    if (v === "notice") return openNoticeSheet({ ...src, configured: true });
+    if (v === "notice") return openNoticeSheet({ ...src, configured: true }, { asked });
     return v === "on" || v === true;
   });
 }
@@ -253,7 +256,7 @@ const fallbackUse = (auto) => (auto === true ? "Used only when your brokers cann
 
 /** @returns {Promise<HTMLElement>} the Providers tab */
 export async function renderProviders() {
-  const root = h("div", { class: "sx-tab sx-providers" });
+  const root = h("div", { class: "sx-tab" });
   let sources = null;
   let sourcesErr = null;
   let autoFallback = null;
@@ -268,6 +271,14 @@ export async function renderProviders() {
     rememberSwitch(id, enabled);
     paintSources();
   }
+  /** What a sheet tells the page the moment its "turn it on" request goes out, so the switch moves then and not when the sheet has slid away. */
+  const askedFor = (id) => (state) => {
+    if (state === "on") showAs(id, true);
+    else {
+      forgetSwitch(id);
+      paintSources();
+    }
+  };
   /** Read the Bridge again once its one-second memory has expired, in case it still disagreed. */
   const settle = () => setTimeout(() => root.isConnected && poller.tick(), 1300);
 
@@ -380,7 +391,7 @@ export async function renderProviders() {
     const title = h("h3", { class: "sx-card-title" }, src.name);
     const cls = classPill(src.class, src.delaySec);
     const off = officialBadge(src.official);
-    const tier = h("span", { class: "chip sx-tier" }, tierChipText(src));
+    const tier = h("span", { class: "chip" }, tierChipText(src));
     const input = h("input", { type: "checkbox", role: "switch", "aria-label": `Use ${src.name}` });
     const sw = h("label", { class: "switch" }, input, h("i"));
     const gives = h("p", { class: "sx-gives" });
@@ -407,7 +418,7 @@ export async function renderProviders() {
     input.addEventListener("change", () => onToggle(el._src, input));
     keyBtn.addEventListener("click", async () => {
       const src = el._src;
-      if (await openKeySheet(src, { replacing: src.configured })) {
+      if (await openKeySheet(src, { replacing: src.configured, asked: askedFor(src.id) })) {
         showAs(src.id, true);
         toast(`${src.name} is on`);
       }
@@ -485,8 +496,8 @@ export async function renderProviders() {
     }
     const steps = enableSteps(src);
     let on = false;
-    if (steps.includes("key")) on = await openKeySheet(src);
-    else if (steps.includes("notice")) on = await openNoticeSheet(src);
+    if (steps.includes("key")) on = await openKeySheet(src, { asked: askedFor(src.id) });
+    else if (steps.includes("notice")) on = await openNoticeSheet(src, { asked: askedFor(src.id) });
     else {
       pending.add(src.id);
       showAs(src.id, true);
