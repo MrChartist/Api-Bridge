@@ -4,15 +4,21 @@
 //
 //   node scripts/release/build-bundles.mjs [--out dist] [--only linux-x64,windows-x64] [--node-dist <url>]
 //
+// It also writes the source archives the one-line installers download (mr-chartist-bridge-<version>-source.tar.gz and
+// .zip: the program files without tests and without node_modules), copies install.sh and install.ps1 next to them, and
+// writes SHA256SUMS.txt over all of it (scripts/release/checksums.mjs). The installers check their download against
+// that list before installing anything.
+//
 // Node.js comes from nodejs.org (newest 22.x), checked against its published SHA-256. The production dependencies are
 // pure JavaScript (the build fails if one ever needs an install script), so one node_modules folder fits every system.
 // Needs `zip` and `tar` on the build machine (GitHub's ubuntu runners have both).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SUMS_FILE, checksums } from "./checksums.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -39,6 +45,18 @@ export function shipped(path) {
   if (/^(\.github|test|deploy|docker|scripts\/release)\//.test(path) || path.startsWith("docs/screenshots/")) return false;
   if (/^(\.gitattributes|\.gitignore|\.dockerignore|Dockerfile|docker-compose\.yml|vitest\.config\.mjs|tsconfig\.json)$/.test(path)) return false;
   return true;
+}
+
+/** The names of the source archives the installers download: install.sh looks for the .tar.gz, install.ps1 for the .zip. */
+export const sourceArchiveNames = (version) => ({ tar: `mr-chartist-bridge-${version}-source.tar.gz`, zip: `mr-chartist-bridge-${version}-source.zip`, top: `mr-chartist-bridge-${version}` });
+
+/**
+ * The tar command line for a source archive. With GNU tar the file is byte-for-byte repeatable (sorted names, fixed
+ * times and owners, gzip without a name or time); any other tar just makes the archive.
+ */
+export function tarCreateArgs(tarVersionText, outFile, stage, top) {
+  const gnu = /GNU tar/.test(tarVersionText);
+  return gnu ? ["--sort=name", "--mtime=@0", "--owner=0", "--group=0", "--numeric-owner", "--use-compress-program=gzip -n", "-cf", outFile, "-C", stage, top] : ["-czf", outFile, "-C", stage, top];
 }
 
 /** Newest v<major>.x from nodejs.org's index.json. @param {Array<{ version: string }>} index */
@@ -73,6 +91,18 @@ async function main() {
       mkdirSync(dirname(join(app, f)), { recursive: true });
       cpSync(join(ROOT, f), join(app, f));
     }
+    // 1b. The source archives the one-line installers download (made before node_modules exists), and the installer scripts.
+    const names = sourceArchiveNames(version);
+    const srcStage = join(work, "source");
+    mkdirSync(srcStage, { recursive: true });
+    cpSync(app, join(srcStage, names.top), { recursive: true });
+    rmSync(join(OUT, names.tar), { force: true });
+    run("tar", tarCreateArgs(run("tar", ["--version"]).toString(), join(OUT, names.tar), srcStage, names.top));
+    rmSync(join(OUT, names.zip), { force: true });
+    run("zip", ["-q", "-r", "-X", join(OUT, names.zip), names.top], { cwd: srcStage });
+    for (const f of ["install.sh", "install.ps1"]) cpSync(join(ROOT, f), join(OUT, f));
+    console.log(`  ${names.tar}\n  ${names.zip}\n  install.sh, install.ps1`);
+
     // 2. Production parts, once for every system.
     run("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: app, stdio: "inherit" });
     const lock = JSON.parse(readFileSync(join(app, "package-lock.json"), "utf8"));
@@ -142,18 +172,10 @@ async function main() {
       });
       console.log(`  ${exeName}`);
     }
-    writeFileSync(join(OUT, "SHA256SUMS.txt"), checksums(OUT), "utf8");
+    writeFileSync(join(OUT, SUMS_FILE), checksums(OUT), "utf8");
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-}
-
-function checksums(dir) {
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".zip") || f.endsWith(".exe"))
-    .sort()
-    .map((f) => `${createHash("sha256").update(readFileSync(join(dir, f))).digest("hex")}  ${f}\n`)
-    .join("");
 }
 
 /** The note at the top of the unzipped folder, in plain words. */
