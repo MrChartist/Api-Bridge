@@ -22,9 +22,9 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
-      description: The smallest set of steps. Does it also happen in demo mode (`npm start -- --demo`)?
+      description: The smallest set of steps. Does it also happen in demo mode (`npm run dev`)?
       placeholder: |
-        1. npm start -- --demo
+        1. npm run dev
         2. curl -H "Authorization: Bearer $MCB_API_KEY" "http://127.0.0.1:4300/v1/..."
         3. ...
     validations:

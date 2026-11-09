@@ -23,10 +23,11 @@ In scope, for example:
 - Bypassing a safety gate: paper/live mode, key scopes, account limits, the kill switch, webhook signing or IP allowlists, or the confirmation step for AI-prepared orders.
 - Secrets leaking into logs, API answers, the dashboard or error messages.
 - Cross-site attacks against the local dashboard or API (DNS rebinding, CSRF, XSS).
+- A data-source plugin escaping its restrictions: reading the Bridge's files, environment or credentials, reaching a host its manifest does not list, or loading without the pinned hash matching (see [docs/guides/sources.md](docs/guides/sources.md)).
 
 Out of scope:
 
-- Attacks that need someone who can already run commands as you on your computer. Such a person or program can read your files and use the local CLI; see the README's safety model.
+- Attacks that need someone who can already run commands as you on your computer. Such a person or program can read your files and use the local CLI; see the [safety guide](docs/guides/safety.md).
 - Running the Bridge on a public network address after turning off the loopback-only default.
 - Bugs in a broker's own API.
 
