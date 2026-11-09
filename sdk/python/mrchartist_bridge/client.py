@@ -33,13 +33,13 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Union
 
-from .errors import BridgeApiError, BridgeConnectionError
+from .errors import BridgeApiError, BridgeConnectionError, BridgeNotRunning, error_from_problem
 
 if TYPE_CHECKING:  # pragma: no cover
     from .stream import BridgeStream
 
 DEFAULT_BASE_URL = "http://127.0.0.1:4300"
-USER_AGENT = "mrchartist-bridge-python/0.1"
+USER_AGENT = "mrchartist-bridge-python/0.2"
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
 _MAX_RETRY_WAIT_S = 30.0
 
@@ -102,7 +102,12 @@ class BridgeClient:
         self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
     def __repr__(self) -> str:
-        return "BridgeClient(base_url=%r, api_key=%s)" % (self.base_url, "set" if self.__api_key else "unset")
+        return "%s(base_url=%r, api_key=%s)" % (type(self).__name__, self.base_url, "set" if self.__api_key else "unset")
+
+    @property
+    def has_api_key(self) -> bool:
+        """Whether a key is set (the key itself is never exposed)."""
+        return bool(self.__api_key)
 
     # ── transport ──
 
@@ -149,11 +154,17 @@ class BridgeClient:
             except (urllib.error.URLError, socket.timeout, ConnectionError, http.client.HTTPException, OSError) as e:
                 reason = getattr(e, "reason", e)
                 timed_out = isinstance(reason, socket.timeout) or isinstance(e, socket.timeout) or "timed out" in str(reason)
-                safe = method in _SAFE_METHODS
+                refused = isinstance(reason, ConnectionRefusedError) or isinstance(e, ConnectionRefusedError)
+                safe = method in _SAFE_METHODS or refused  # a refused connection never carried the request
                 if safe and attempt < max_retries:
                     self._sleep(self._backoff(attempt))
                     attempt += 1
                     continue
+                if refused:
+                    raise BridgeNotRunning(
+                        "Nothing is listening at %s (connection refused). %s" % (self.base_url, BridgeNotRunning.hint),
+                        method=method, path=path, outcome_unknown=False, idempotency_key=idempotency_key,
+                    ) from e
                 if safe:
                     msg = "Could not reach the Bridge at %s (%s)." % (self.base_url, "timed out" if timed_out else reason)
                 else:
@@ -167,13 +178,17 @@ class BridgeClient:
             if 200 <= status < 300:
                 return Response(status, rheaders, parsed)
             problem = _to_problem(status, rheaders, parsed)
-            err = BridgeApiError(problem, idempotency_key=idempotency_key)
+            err = error_from_problem(problem, idempotency_key=idempotency_key)
             if err.retryable and attempt < max_retries:
                 wait = problem.get("retryAfterMs")
                 self._sleep(min(_MAX_RETRY_WAIT_S, wait / 1000.0) if wait is not None else self._backoff(attempt))
                 attempt += 1
                 continue
-            raise err
+            raise self._explain(err, method, path)
+
+    def _explain(self, err: BridgeApiError, method: str, path: str) -> BridgeApiError:
+        """Hook for subclasses that know more (whether a key was found) to improve the hint. Returns the error."""
+        return err
 
     def _backoff(self, attempt: int) -> float:
         base = self.retry_base * (2 ** attempt)

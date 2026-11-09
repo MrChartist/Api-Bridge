@@ -47,6 +47,11 @@
   (no longer on the removed list), `/v1/notify/*`, `mc-bridge notify ...`, a Telegram card under Integrations, events
   `ticket.prepared` and `hook.rejected` / `hook.stale` / `hook.failed`, `docs/guides/telegram.md` and `notifications.md`.
   Order approval is never possible from Telegram, and `mc-bridge doctor` reports delivery truthfully.
+- Python library 0.2 (`sdk/python`, still standard library only): `Bridge()` finds the URL and key by itself, typed frozen
+  records with freshness labels (`require_realtime()`), a typed error tree with fix hints, paper-first `bridge.orders`
+  (idempotent, reconciles an unknown outcome instead of retrying, `wait_for_fill`, `to_target`, `batch`), `bridge.tickets`
+  (watch only), reconnecting sync and asyncio streams, `AsyncBridge`, pandas and CSV helpers, retry and batching that honour
+  `Retry-After`, provisional alert helpers. `BridgeClient` is unchanged. See [docs/guides/python.md](docs/guides/python.md).
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the
