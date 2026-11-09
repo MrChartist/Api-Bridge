@@ -14,6 +14,20 @@
   time, the sign-in screen is drawn before the app code has loaded, the live connection and API budget chip start after
   the first page is drawn, and the broker list is kept for a minute (and shown from memory for half an hour while it is
   fetched again behind it).
+- Easier dashboard for people who are not developers ([docs/guides/connect.md](docs/guides/connect.md)):
+  - **Connect a tool** (`#/connect`): choose Excel or Sheets, an AI assistant, a Python or Node script, your own app or
+    AmiBroker; the dashboard makes a key with only the access that tool needs (read only unless you switch on practice
+    orders; never live), fills this Bridge's address and the key into the setup to copy, and **Test it** makes a real
+    read call with the new key and says in plain words whether it worked.
+  - **Simple and Advanced view**: a new browser starts in Simple (Accounts, Connect a tool, Sources, Orders, Safety; Sources
+    opens on the provider cards with one sentence about where prices come from). Advanced adds API, Overview and Quotas.
+    One setting in the account menu and the search palette; nothing is removed and every page still opens by link.
+  - **Something wrong?** and **Stop** in the toolbar of every page; a failed request offers one fix button (log in again,
+    open Keys, see why it is slow, log in to your broker).
+  - A glossary: a **?** button after the first use of each technical word on a page opens a one-sentence meaning.
+  - **Send a practice order** is a short form (stock, buy or sell, quantity) instead of editing JSON in the test console.
+  - The Claude setup on API > Integrations made a read-only key, which cannot prepare orders for you to approve; Connect a
+    tool asks, and makes a paper key when you say yes.
 - Data sources and plugins: optional free sources and owner-approved plugins next to your broker accounts, each answer
   labelled with its data class (`realtime`, `delayed`, `eod`), delay, `official` flag and confidence; `/v1/sources`, a
   routing trace, pooling consent, per-key quotas, `limits?explain=1` and a `purpose` read parameter. Plugins run in their

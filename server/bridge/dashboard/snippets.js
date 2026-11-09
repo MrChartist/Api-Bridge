@@ -31,9 +31,10 @@ export function genericAlert({ orderType = "LIMIT", symbol = "NSE:RELIANCE" } = 
 
 /**
  * Every snippet group, keyed by integration id. Each item: { title, lang, code }.
- * @param {{ base: string, key?: string | null, account?: string, symbol?: string, folder?: string }} o
+ * `orders: false` (a read-only key) leaves the paper-order lines out of the Python and Node examples, which such a key could not run.
+ * @param {{ base: string, key?: string | null, account?: string, symbol?: string, folder?: string, orders?: boolean }} o
  */
-export function snippets({ base, key = null, account = "paper", symbol = "NSE:NIFTY", folder = "/path/to/api-bridge-v2" }) {
+export function snippets({ base, key = null, account = "paper", symbol = "NSE:NIFTY", folder = "/path/to/api-bridge-v2", orders = true }) {
   const read = key ?? PLACEHOLDER.read;
   const paper = key ?? PLACEHOLDER.paper;
   const url = key ?? PLACEHOLDER.url;
@@ -59,7 +60,7 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       // The Python client is not on PyPI: it installs from this repository's sdk/python folder (import name: mrchartist_bridge).
       { title: "Install from your API Bridge folder (it is not on PyPI)", lang: "bash", code: `python3 -m venv .venv && . .venv/bin/activate\npip install ${sh(`${folder}/sdk/python`)}\nexport MCB_API_KEY=${paper}` },
       {
-        title: "Prices and a paper order",
+        title: orders ? "Prices and a paper order" : "Prices",
         lang: "python",
         code: [
           "from mrchartist_bridge import BridgeClient",
@@ -67,10 +68,14 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
           `bridge = BridgeClient(base_url="${host}")   # key from $MCB_API_KEY`,
           `for q in bridge.ltp(["${symbol}", "NSE:RELIANCE"])["data"]:`,
           `    print(q["symbol"], q["ltp"], q["freshness"]["source"])`,
-          "",
-          `res = bridge.place_order({"account": "${account}", "symbol": "NSE:RELIANCE", "side": "BUY",`,
-          `                          "quantity": 1, "product": "CNC", "orderType": "MARKET"})`,
-          `print(res["data"]["orderId"], res["data"]["status"])`,
+          ...(orders
+            ? [
+                "",
+                `res = bridge.place_order({"account": "${account}", "symbol": "NSE:RELIANCE", "side": "BUY",`,
+                `                          "quantity": 1, "product": "CNC", "orderType": "MARKET"})`,
+                `print(res["data"]["orderId"], res["data"]["status"])`,
+              ]
+            : []),
         ].join("\n"),
       },
     ],
@@ -78,7 +83,7 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       // The Node client (@mrchartist/bridge-client) is private: it is packed from this repository's sdk/node folder.
       { title: "Install from your API Bridge folder (it is not on npm)", lang: "bash", code: `cd ${sh(`${folder}/sdk/node`)} && npm pack\n# then, in your project (ws is only needed to stream on Node 20):\nnpm install ${sh(`${folder}/sdk/node/mrchartist-bridge-client-0.1.0.tgz`)} ws` },
       {
-        title: "Prices, a stream and a paper order (ESM)",
+        title: orders ? "Prices, a stream and a paper order (ESM)" : "Prices and a stream (ESM)",
         lang: "js",
         code: [
           `import { BridgeClient } from "@mrchartist/bridge-client";`,
@@ -87,9 +92,13 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
           `const { data, errors } = await bridge.ltp(["${symbol}", "NSE:RELIANCE"]);`,
           `for (const q of data) console.log(q.symbol, q.ltp, q.freshness.source);`,
           "",
-          `const { data: order } = await bridge.placeOrder({ account: "${account}", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET" });`,
-          `console.log(order.orderId, order.status);`,
-          "",
+          ...(orders
+            ? [
+                `const { data: order } = await bridge.placeOrder({ account: "${account}", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET" });`,
+                `console.log(order.orderId, order.status);`,
+                "",
+              ]
+            : []),
           `const stream = bridge.stream({ symbols: ["${symbol}"], mode: "ltp" });`,
           `stream.on("tick", (t) => console.log(t.symbol, t.ltp));`,
         ].join("\n"),

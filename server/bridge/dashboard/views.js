@@ -15,6 +15,10 @@ import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contra
 import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
 import { configureOrdersBook, fundsSection, ordersBook, pendingSection, renderTradesPage, sidePill } from "./orders-book.js";
 import { animatePage, installPullToRefresh, navigationHint, pageLeave, setAttr, trackSelection } from "./motion.js";
+import { getMode, markMode, onMode, pageShown, setMode, tabsShown } from "./easy-core.js";
+import { watchGlossary } from "./glossary.js";
+import { helpRow, openHelp, toolbarHelp } from "./help.js";
+import { configureConnect, renderConnect, simpleSourcesNote } from "./connect.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -192,22 +196,24 @@ const INTEGRATION_TOOLS = [
  */
 export const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, key: 1, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  { id: "connect", label: "Connect a tool", icon: "plug", tint: "green", key: 6, group: "Bridge", keywords: "excel sheets spreadsheet claude chatgpt ai assistant python node script amibroker app key setup integration", title: "Connect a tool", sub: "Give Excel, an AI assistant or a script its own key, with the setup ready to copy", render: renderConnect },
   // Sources has a place in the phone tab bar and API (set up once, used at a desk) moves to More: whether the data is
   // flowing is the question people open the Bridge on a phone to ask, a key is made once.
   {
     id: "sources", label: "Sources", icon: "sources", tint: "teal", tab: true, key: 5, group: "Bridge", title: "Sources", sub: "Where your data comes from, how much room is left, and why a request went where it did",
     defaultTab: "overview",
+    simpleTab: "providers",
     tabs: [
       {
-        id: "overview", label: "Overview", page: "sources", sub: "How much room your brokers and sources have, and why requests go where they do", command: "Sources and rate limits", icon: "sources", tint: "teal", keywords: "sources limits rate limits budget usage room health forecast throttle pooled requests recent", render: renderSourcesOverview,
+        id: "overview", advanced: true, label: "Overview", page: "sources", sub: "How much room your brokers and sources have, and why requests go where they do", command: "Sources and rate limits", icon: "sources", tint: "teal", keywords: "sources limits rate limits budget usage room health forecast throttle pooled requests recent", render: renderSourcesOverview,
         extras: [{ id: "trace", label: "Why this source?", route: "sources/overview?trace=1", keywords: "route trace explain source why which broker answered", sub: "Sources › Overview › Route trace" }],
       },
       { id: "providers", label: "Providers", page: "providers", sub: "Your brokers and the free and key-based sources you can turn on", command: "Data providers", icon: "sources", tint: "teal", keywords: "providers free sources key yahoo delayed pooling brokers terms notice switch", render: renderSourcesProviders },
-      { id: "quotas", label: "Quotas", page: "quotas", sub: "How much each API key and tool may ask for", command: "Key quotas", icon: "limits", tint: "purple", keywords: "quota quotas key tool throttle per second burst weight fair share", render: renderSourcesQuotas },
+      { id: "quotas", advanced: true, label: "Quotas", page: "quotas", sub: "How much each API key and tool may ask for", command: "Key quotas", icon: "limits", tint: "purple", keywords: "quota quotas key tool throttle per second burst weight fair share", render: renderSourcesQuotas },
     ],
   },
   {
-    id: "api", label: "API", icon: "keys", tint: "pink", key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console and the request log",
+    id: "api", advanced: true, label: "API", icon: "keys", tint: "pink", key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console and the request log",
     defaultTab: "keys",
     tabs: [
       { id: "keys", label: "Keys", page: "keys", sub: "One key per tool, with only the access it needs", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
@@ -253,7 +259,7 @@ export const LEGACY_PATHS = {
  * is the first page, an unknown or missing tab the page's last tab (`lastTab(pageId)`) or its default. `view` is the legacy page
  * id the view renders as (the `data-page` value).
  */
-export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {}) {
+export function resolveRoute(hash, { pages = PAGES, lastTab = () => null, mode = "advanced" } = {}) {
   let raw = String(hash ?? "").replace(/^#\/?/, "");
   // A one-time sign-in fragment (#signin=..., app.js removes it at start-up) is never a page name.
   if (raw.startsWith("signin=")) raw = "";
@@ -284,7 +290,8 @@ export function resolveRoute(hash, { pages = PAGES, lastTab = () => null } = {})
   let tab = null;
   if (page.tabs?.length) {
     const find = (id) => (id ? page.tabs.find((t) => t.id === id) : undefined);
-    tab = find(tabId) ?? find(lastTab(page.id)) ?? find(page.defaultTab) ?? page.tabs[0];
+    // Simple opens a page that has a plain tab on that tab, whatever tab Advanced last showed; a named tab is always honoured.
+    tab = find(tabId) ?? (mode === "simple" ? find(page.simpleTab) : undefined) ?? find(lastTab(page.id)) ?? find(page.defaultTab) ?? page.tabs[0];
     // A tab that no longer exists (#/api/nope) shows its stand-in under the stand-in's own address.
     if (tabId && tab.id !== tabId) redirect = `#/${page.id}/${tab.id}${query ? `?${query}` : ""}`;
   }
@@ -319,7 +326,8 @@ const pageGlyph = (p) => {
 
 function nav(active) {
   const navEl = $("nav");
-  const sig = PAGES.map((p) => p.id).join("|");
+  const shown = PAGES.filter((p) => pageShown(p, getMode(), active));
+  const sig = shown.map((p) => p.id).join("|");
   // Built once: later routes only move aria-current and the indicator (the nodes persist, so the selection can slide and
   // the ticket count and focus are never rebuilt).
   if (navEl.dataset.pages === sig && navEl.__selection) {
@@ -330,7 +338,7 @@ function nav(active) {
   }
   const out = [];
   let group = null;
-  for (const p of PAGES) {
+  for (const p of shown) {
     if (p.group !== group) {
       group = p.group;
       // A group label heads each run of pages.
@@ -452,7 +460,7 @@ function listRow({ tag = "button", tile, title, sub, value, cls = "", ...attrs }
  * a check), then appearance, density and this browser (the signed-in key, keyboard shortcuts, About and Forget key).
  */
 function moreSheet(active) {
-  const pages = PAGES.filter((p) => !p.tab);
+  const pages = PAGES.filter((p) => !p.tab && pageShown(p, getMode(), active));
   const groups = [...new Set(pages.map((p) => p.group))];
   return modal({
     title: "More",
@@ -480,6 +488,8 @@ function moreSheet(active) {
             ),
           ),
         ),
+        h("section", { class: "group" }, h("div", { class: "list" }, helpRow(() => { close(undefined); setTimeout(() => openHelp(null), 260); }))),
+        h("section", { class: "group" }, h("h3", { class: "group-title", id: "more-view" }, "View"), viewControl("more-view")),
         h(
           "section",
           { class: "group" },
@@ -519,6 +529,7 @@ function accountPopover(trigger) {
     "div",
     { class: "acct-pop" },
     h("div", { class: "acct-pop-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
+    h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-view" }, "View"), viewControl("acct-view"), h("p", { class: "group-foot" }, "Simple shows the essentials. Advanced adds keys, the test console, activity and quotas.")),
     h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-appearance" }, "Appearance"), appearanceControl("acct-appearance")),
     h("section", { class: "group density-ctl" }, h("h3", { class: "group-title", id: "acct-density" }, "Density"), densityControl("acct-density")),
     h(
@@ -569,6 +580,14 @@ const checkMark = () => {
   s.classList.add("check");
   return s;
 };
+/** Simple / Advanced: the one view setting (easy-core.js). Nothing is removed in Simple; the menu only lists fewer pages. */
+function viewControl(labelledBy) {
+  const seg = segmented("View", [["simple", "Simple"], ["advanced", "Advanced"]], getMode());
+  seg.removeAttribute("aria-label");
+  seg.setAttribute("aria-labelledby", labelledBy);
+  seg.addEventListener("change", () => setMode(seg.value));
+  return seg;
+}
 /** Light / Dark / Auto, as in the sidebar (app.js handles the clicks for every copy). */
 function appearanceControl(labelledBy) {
   const current = document.documentElement.getAttribute("data-theme") ?? "auto";
@@ -619,7 +638,7 @@ const headline = (page) => page.headline ?? page.title;
  */
 async function show(opts) {
   const reload = opts?.refresh === true;
-  const route = resolveRoute(location.hash, { lastTab: readLastTab });
+  const route = resolveRoute(location.hash, { lastTab: readLastTab, mode: getMode() });
   // An old link (#/console?endpoint=order) becomes its tab's address, without a second history entry.
   if (route.redirect && typeof history !== "undefined") history.replaceState(history.state, "", route.redirect);
   const { page, tab } = route;
@@ -728,11 +747,13 @@ function revealActiveTab(bar) {
  * (kept on the returned row as `__panel`), so the tab list is not inside the panel it controls.
  */
 function pageTabs(page, tab) {
+  const shown = tabsShown(page, getMode(), tab.id);
+  if (shown.length < 2) return null;
   // Moving between the tabs of one page keeps the strip: its buttons, its scroll position and the thumb that slides under it.
   const kept = document.getElementById(`page-tabs-${page.id}`);
   const bar = kept?.__selection && kept.parentElement?.classList.contains("page-tabs-row") ? kept : h("div", { class: "segmented page-tabs", role: "tablist", id: `page-tabs-${page.id}`, "aria-label": `${page.label} sections` });
   const panel = (bar === kept && kept.parentElement?.__panel) || h("div", { class: "tab-panel", id: `page-panel-${page.id}` });
-  drawTabs(bar, panel, page.tabs.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
+  drawTabs(bar, panel, shown.map((t) => [t.id, t.label]), tab.id, (id) => go(`${page.id}/${id}`, `#page-tabs-${page.id}-${id}`));
   // A full-width row of its own (pages that lay their panels out in a wrapping row stretch every child).
   const row = bar.parentElement?.classList.contains("page-tabs-row") ? bar.parentElement : h("div", { class: "page-tabs-row" }, bar);
   row.__panel = panel;
@@ -841,6 +862,7 @@ function watchTitleCollapse() {
 function setupChrome() {
   const kc = shortcut("K");
   $("toolbar-actions").replaceChildren(
+    ...toolbarHelp(),
     h("button", { type: "button", class: "icon-btn toolbar-search-m", "aria-label": "Search pages and actions", title: `Search pages and actions (${kc.label})`, "aria-keyshortcuts": kc.aria, onclick: () => openPalette() }, searchIcon()),
     h("button", { type: "button", class: "icon-btn", title: "Reload this page's data", "aria-label": "Reload this page's data", onclick: () => show({ refresh: true }) }, icon("refresh")),
   );
@@ -952,8 +974,16 @@ function forgetOldPanelLayouts() {
 
 export async function startRouter() {
   forgetOldPanelLayouts();
+  markMode();
   setupA11y();
   setupChrome();
+  // Plain words: a "?" after the first use of each technical word on a page (glossary.js).
+  watchGlossary($("content"));
+  // Switching between Simple and Advanced redraws the menu and the page.
+  onMode(() => {
+    nav(document.documentElement.dataset.route);
+    show({ refresh: true });
+  });
   initPalette({ pages: () => PAGES, go, refresh: () => show({ refresh: true }) });
   // Pull to refresh on touch screens: the same reload as the toolbar button, except on Sources and limits, which already
   // updates live (a pull there would be a second way to do the same thing).
@@ -1781,7 +1811,7 @@ async function renderAccounts() {
     "acct-h-accounts",
     "Your accounts",
     null,
-    h("div", { class: "row nowrap" }, excel, addBtn(accs.length ? "primary small" : "tinted small")),
+    h("div", { class: "row nowrap" }, h("a", { class: "btn small tinted acct-connect", href: "#/connect" }, icon("plug"), "Connect a tool"), excel, addBtn(accs.length ? "primary small" : "tinted small")),
     accs.length
       ? h("div", { class: "list acct-list", role: "list", "aria-labelledby": "acct-h-accounts" }, rows)
       : h("div", { class: "card" }, emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addBtn("primary"))),
@@ -2100,7 +2130,10 @@ async function renderSourcesOverview() {
   return m.renderOverview();
 }
 async function renderSourcesProviders() {
-  return (await import("./sources-providers.js")).renderProviders();
+  const page = (await import("./sources-providers.js")).renderProviders();
+  if (getMode() !== "simple") return page;
+  // Simple: where your prices come from, in one sentence, above the provider cards.
+  return [await simpleSourcesNote(), await page];
 }
 async function renderSourcesQuotas() {
   const m = await import("./quotas-view.js");
@@ -2112,6 +2145,7 @@ async function renderSourcesQuotas() {
 
 import { clockText, orderTypeText, qtyText, ticketLife } from "./orders-core.js";
 configureOrdersBook({ segmented });
+configureConnect({ segmented, snippetBlock });
 
 /** The order a sheet is about, on one line: side, contract, size and type. */
 const orderBrief = (o) => h("div", { class: "ob-brief" }, sidePill(o.side), h("div", {}, h("strong", {}, contractName(o.symbol)), h("span", { class: "ob-sub" }, `${qtyText(o)} qty · ${orderTypeText(o.orderType)}${isFigure(o.price) ? ` at ${formatFixed(o.price, 2)}` : ""}`)));
@@ -2128,7 +2162,12 @@ async function renderOrders() {
     });
   const accs = accounts.data?.data ?? [];
   const byId = new Map(accs.map((a) => [a.id, a]));
-  const send = () => (location.hash = "#/api/console?endpoint=order");
+  const send = () => import("./practice.js").then((m) => (m.configurePractice({ segmented }), m.practiceOrderSheet({ onPlaced: () => show({ refresh: true }) })));
+  // #/orders?practice=1 (the palette's "Place a paper order") opens the form.
+  if (new URLSearchParams(location.hash.split("?")[1] ?? "").get("practice")) {
+    history.replaceState(history.state, "", "#/orders");
+    setTimeout(send, 0);
+  }
   // Paper orders are priced from a data source: the demo, or any connected broker account. Without one the console answers 404.
   const canSend = Boolean(app.state.demo) || accs.some((a) => a.broker !== "paper");
 
@@ -2141,7 +2180,7 @@ async function renderOrders() {
     byId,
     review: (t) => confirmTicket(t, byId),
     changed: refreshTicketCount,
-    setup: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
+    setup: nextStep("Set up an AI assistant", "#/connect?tool=ai", "small"),
     retry: () => show({ refresh: true }),
   });
   const book = ordersBook({ ord: orders.data?.data ?? [], error: orders.error ?? null, byId, actions: orderActions, refresh: () => show(), send, canSend });
@@ -2567,7 +2606,7 @@ function oncePanel({ title, sub, fields, body, ariaLabel, doneLabel = "Done, hid
     "section",
     { class: "once", "aria-label": ariaLabel ?? title, tabindex: "-1" },
     h("header", { class: "once-head" }, iconTile("check", "green", "lg"), h("div", { class: "once-titles" }, h("h2", {}, title), sub ? h("p", {}, sub) : null)),
-    alertBox({ title: "Copy it and store it now. It is shown only once.", detail: "The Bridge keeps only a fingerprint, so it cannot show this again. If you lose it, revoke it and make another." }, "warn"),
+    alertBox({ title: "Copy it and store it now. It is shown only once.", detail: "The Bridge keeps only a short code that recognises the key, so it cannot show it again. If you lose it, revoke it and make another." }, "warn"),
     ...rows,
     body ? h("div", { class: "once-body" }, body) : null,
     h("div", { class: "once-foot" }, h("label", { class: "check once-ack", for: ack.id }, ack, "I have copied it and stored it safely"), done),
@@ -2598,7 +2637,7 @@ function apiRow({ glyph = "keys", tint = "pink", title, badge, sub, chips, aside
 const SNIPPET_TABS = Object.freeze({ excel: "Excel and Sheets", claude: "Claude (MCP)", chatgpt: "ChatGPT / OpenAI", python: "Python", node: "Node", amibroker: "AmiBroker", rest: "curl" });
 const CLIENT_LABEL = Object.freeze({ excel: "Excel / Sheets", mcp: "AI assistant", script: "Script", ui: "App", other: "Other" });
 const USE_NAME = Object.freeze({ excel: "Excel or Sheets", claude: "AI assistant", python: "Python script", node: "Node script", amibroker: "AmiBroker", app: "My own app", other: "Something else" });
-const USE_BLURB = Object.freeze({ excel: "Live prices in cells", claude: "Claude, ChatGPT and others", python: "Scripts and notebooks", node: "Scripts and services", amibroker: "Live values in AFL", app: "Your own tool or bot", other: "Anything not listed" });
+const USE_BLURB = Object.freeze({ excel: "Live prices in cells", claude: "Claude, ChatGPT and others", python: "Scripts and notebooks", node: "Scripts and services", amibroker: "Live values in your charts", app: "Your own tool or bot", other: "Anything not listed" });
 const SCOPE_WORD = Object.freeze({ read: "Read", paper: "Paper orders", admin: "Admin", live: "Live orders" });
 const SCOPE_HELP = Object.freeze({ read: "Prices, charts and option chains", paper: "Paper (practice) orders", admin: "Manage keys, accounts and webhooks", live: "Real orders with real money" });
 /** The three access levels the dashboard can make, in plain words: what the key can do and what it cannot. */
@@ -2794,7 +2833,7 @@ async function renderKeys() {
       const gone = data.filter((k) => k.revokedAt);
       const wasOpen = listBox.querySelector("details")?.open;
       listBox.replaceChildren(...[
-        h("section", { class: "group" }, h("h2", { class: "group-title" }, `Your keys · ${formatInt(live.length)} active`), live.length ? h("div", { class: "list" }, live.map(keyRow)) : h("div", { class: "list" }, emptyState("keys", "No active keys", "Create one key per tool, so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus()))), h("p", { class: "group-foot" }, "Only a fingerprint of each key is stored. The key itself was shown once, when you made it.")),
+        h("section", { class: "group" }, h("h2", { class: "group-title" }, `Your keys · ${formatInt(live.length)} active`), live.length ? h("div", { class: "list" }, live.map(keyRow)) : h("div", { class: "list" }, emptyState("keys", "No active keys", "Create one key per tool, so you can revoke one without touching the others.", nextStep("Create a key", () => label.focus()))), h("p", { class: "group-foot" }, "The Bridge keeps only a short code for each key. The key itself was shown once, when you made it.")),
         gone.length ? h("details", { class: "ak-gone", open: wasOpen }, h("summary", {}, `Revoked keys (${formatInt(gone.length)})`), h("div", { class: "list" }, gone.map(keyRow))) : null,
       ].filter(Boolean));
     };
@@ -2844,7 +2883,7 @@ const INTRO = {
   chatgpt: "ChatGPT connectors cannot reach a server on your computer. Use the same tools from your own script with OpenAI function calling.",
   rest: "Every route answers { data, meta } JSON with freshness labels. Errors are problem+json with a stable code.",
 };
-const TOOL_BLURB = { webhooks: "Alerts place paper orders", python: "Scripts and notebooks", node: "Scripts and services", excel: "Live prices in cells", amibroker: "Live values in AFL", claude: "MCP server for assistants", chatgpt: "Function calling", rest: "Plain HTTP and JSON" };
+const TOOL_BLURB = { webhooks: "Alerts place paper orders", python: "Scripts and notebooks", node: "Scripts and services", excel: "Live prices in cells", amibroker: "Live values in your charts", claude: "MCP server for assistants", chatgpt: "Function calling", rest: "Plain HTTP and JSON" };
 const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
 /** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */

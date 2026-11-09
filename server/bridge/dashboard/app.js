@@ -9,6 +9,7 @@ import { DASH, formatRupee } from "./format.js";
 import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
 import { watch as liveWatch } from "./live.js";
 import { connection, onSignedOut } from "./connection.js";
+import { fixFor } from "./easy-core.js";
 
 const KEY_SLOT = "mcb.dashboard.key";
 /** Set (in this tab) when the Bridge refused the key mid-session, so the sign-in screen can say why. */
@@ -994,7 +995,20 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
 
 export function alertBox(err, cls = "bad") {
   const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err), detail: err?.detail ?? "" };
-  return h("div", { class: `alert ${cls}`, role: "alert" }, icon(cls === "info" ? "info" : cls === "ok" ? "check" : "warn"), h("div", {}, h("strong", {}, f.title), f.detail ? h("span", { class: "detail" }, f.detail) : null));
+  // The likely fix as one button (easy-core.js fixFor): log in, open Keys, see why it is slow. A plain retry is left to the
+  // caller, which knows what to run again.
+  const fix = cls === "bad" && (err instanceof Error || err?.code || err?.status) ? fixFor(err) : null;
+  const act = fix && fix.id !== "retry" ? h("div", { class: "alert-actions alert-fix" }, h("button", { type: "button", class: "small tinted", onclick: () => runFix(fix) }, fix.label)) : null;
+  return h("div", { class: `alert ${cls}`, role: "alert" }, icon(cls === "info" ? "info" : cls === "ok" ? "check" : "warn"), h("div", {}, h("strong", {}, f.title), f.detail ? h("span", { class: "detail" }, f.detail) : null, act));
+}
+
+/** Do what a fix button says (easy-core.js fixFor): sign in again, or go to the page that explains and fixes it. */
+export function runFix(fix) {
+  const d = document.getElementById("dialog");
+  if (d?.open) (d.closeNow ? d.closeNow() : d.close());
+  if (fix.id === "login") forgetKey();
+  else if (fix.id === "retry") dispatchEvent(new HashChangeEvent("hashchange"));
+  else if (fix.route) location.hash = `#/${fix.route}`;
 }
 
 /**
