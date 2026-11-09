@@ -61,6 +61,7 @@ export async function exposeCard(host, focus = "alerts") {
   const draw = (state) => {
     const m = exposeModel(state, cli);
     const order = m.listeners.slice().sort((a, b) => (a.id === focus ? -1 : b.id === focus ? 1 : 0));
+    const rowOf = (x) => row({ title: x.title, sub: x.fix ? `${x.detail} Fix: ${x.fix}` : x.detail, chips: [pill(x.word, x.tone)] });
     const runBtn = h("button", { type: "button", class: "small tinted" }, icon("check"), "Check it now");
     runBtn.addEventListener("click", async () => {
       runBtn.disabled = true;
@@ -68,11 +69,12 @@ export async function exposeCard(host, focus = "alerts") {
       try {
         const r = await api("/v1/expose/check", { method: "POST", body: {} });
         const c = checkModel(r.data.data);
-        checkSlot.replaceChildren(
+        checkSlot.replaceChildren(...[
           h("p", { class: "ai-expose-verdict" }, pill(c.tone === "ok" ? "Good" : c.tone === "bad" ? "Unsafe" : "Notes", c.tone === "ok" ? "ok" : c.tone === "bad" ? "bad" : "warn"), " ", c.headline),
-          h("div", { class: "list" }, c.rows.map((x) => row({ title: x.title, sub: x.fix ? `${x.detail} Fix: ${x.fix}` : x.detail, chips: [pill(x.word, x.tone)] }))),
+          h("div", { class: "list" }, c.rows.filter((x) => x.tone !== "ok").map(rowOf)),
+          c.rows.some((x) => x.tone === "ok") ? h("details", { class: "ai-expose-passed" }, h("summary", {}, `${c.rows.filter((x) => x.tone === "ok").length} checks passed`), h("div", { class: "list" }, c.rows.filter((x) => x.tone === "ok").map(rowOf))) : null,
           h("p", { class: "api-row-note" }, "These tests ran on this computer only. Nothing was sent to the internet."),
-        );
+        ].filter(Boolean));
       } catch (err) {
         toast(err.message, { tone: "error" });
       } finally {
@@ -81,7 +83,7 @@ export async function exposeCard(host, focus = "alerts") {
       }
     });
     checkSlot = h("div", { class: "stack" });
-    box.replaceChildren(
+    box.replaceChildren(...[
       h("h3", { class: "group-title" }, "Reaching the Bridge from outside"),
       h("div", { class: "list" }, row({ title: m.headline || "Not set up.", chips: [pill(m.pill.text, m.pill.tone)], aside: [guideLink()] })),
       m.tone === "bad" ? alertBox({ title: "Something here is not safe.", detail: "Turn the tunnel off until you have fixed it (the lines below say how). Your keys and orders are not affected by turning it off." }, "bad") : null,
@@ -97,7 +99,7 @@ export async function exposeCard(host, focus = "alerts") {
       h("p", { class: "api-row-note" }, m.restartNote ? `Changes from the setup command need a restart of the Bridge.` : null),
       h("div", { class: "card-actions" }, runBtn),
       checkSlot,
-    );
+    ].filter(Boolean));
   };
 
   try {
