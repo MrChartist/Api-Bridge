@@ -863,7 +863,12 @@ export function createNotifyService(deps, opts = {}) {
       running = true;
       subscribe();
       arm();
-      await syncPollers();
+      // An unreadable secrets file must not stop the Bridge: Telegram stays off until it is fixed, and the rest runs.
+      try {
+        await syncPollers();
+      } catch (err) {
+        log.warn("Telegram is off: the saved bot settings could not be read", { err: err?.message });
+      }
       void pump();
     },
     async stop() {

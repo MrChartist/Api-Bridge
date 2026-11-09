@@ -141,3 +141,15 @@ describe("secrets never leak", () => {
     expect(secretsFile(n.dataDir)).not.toContain("555");
   });
 });
+
+describe("start-up with an unreadable secrets file", () => {
+  it("logs that Telegram is off and still starts, so the rest of the Bridge keeps running", async () => {
+    const n = bootNotify();
+    n.secrets.list = async () => {
+      throw new Error("secrets.enc is not a valid secrets file");
+    };
+    await expect(n.svc.start()).resolves.toBeUndefined();
+    expect(n.logs.some((l) => /Telegram is off/.test(String(l)))).toBe(true);
+    await n.svc.stop();
+  });
+});
