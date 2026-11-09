@@ -45,10 +45,11 @@ function tag(adapter, err) {
 }
 
 const guards = new WeakMap();
+const proxies = new WeakSet();
 
 /** @returns {object} a view of `adapter` whose functions tag session errors; every other property is passed through */
 export function guardAdapterErrors(adapter) {
-  if (!adapter || typeof adapter !== "object") return adapter;
+  if (!adapter || typeof adapter !== "object" || proxies.has(adapter)) return adapter;
   const cached = guards.get(adapter);
   if (cached) return cached;
   const fns = new Map();
@@ -83,5 +84,6 @@ export function guardAdapterErrors(adapter) {
     },
   });
   guards.set(adapter, proxy);
+  proxies.add(proxy);
   return proxy;
 }

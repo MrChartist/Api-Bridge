@@ -10,6 +10,8 @@
  *     "maxSymbolsPerRequest": 200,          // one subscribe op / one SSE URL
  *     "maxSubscriptionsPerUpstream": null,  // extra cap per broker feed; null = broker policy, else FEED_LIMITS
  *     "staleAfterMs": 60000,                // connected feed with no tick for this long reports "stale"
+ *     "staleRebuildAfterMs": 180000,        // during market hours, a feed silent this long is treated as a half-open socket and rebuilt (0 = never); doubles after each silent rebuild, up to 16x
+ *     "connectTimeoutMs": 45000,            // a feed that has not reported "connected" this long after it was built is rebuilt
  *     "upstreamIdleMs": 60000,              // close a broker feed this long after its last subscription went away
  *     "unsubscribeLingerMs": 0,             // keep a symbol subscribed upstream this long after the last client left
  *     "adapterGraceMs": 35000,              // let the adapter reconnect by itself before the hub rebuilds the feed
@@ -30,6 +32,8 @@ export const streamConfigSchema = z
     maxSymbolsPerRequest: z.number().int().min(1).max(1000).default(200),
     maxSubscriptionsPerUpstream: z.number().int().positive().nullable().default(null),
     staleAfterMs: z.number().int().min(5000).max(3_600_000).default(60_000),
+    staleRebuildAfterMs: z.number().int().min(0).max(3_600_000).default(180_000),
+    connectTimeoutMs: z.number().int().min(1000).max(600_000).default(45_000),
     upstreamIdleMs: z.number().int().min(0).max(3_600_000).default(60_000),
     unsubscribeLingerMs: z.number().int().min(0).max(600_000).default(0),
     adapterGraceMs: z.number().int().min(0).max(600_000).default(35_000),

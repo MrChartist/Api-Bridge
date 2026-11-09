@@ -4521,6 +4521,7 @@ components:
               reason: { type: [string, "null"] }
               modes: { type: object, additionalProperties: { type: integer } }
               reconnects: { type: integer }
+              rebuilds: { type: integer, description: "Times the Bridge itself rebuilt this feed because it was silent during market hours (a half-open connection) or never connected." }
               ticks: { type: integer }
               lastTickAt: { type: [string, "null"], format: date-time }
         downstream:
