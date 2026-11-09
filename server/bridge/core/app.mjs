@@ -34,6 +34,7 @@ import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs
 import { createRouter } from "./router.mjs";
 import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
+import { backupHealth } from "../backup/health.mjs";
 import { httpConsumer, runAsConsumer } from "../ratelimit/consumer.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
@@ -194,7 +195,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       } catch {
         sources = undefined;
       }
-      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}) };
+      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}), backup: backupHealth({ config, dataDir: config.dataDir }) };
     },
     { auth: "none", summary: "Liveness; detail only for loopback callers" },
   );

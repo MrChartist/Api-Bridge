@@ -119,6 +119,8 @@ tags:
     description: Kill switch, safety counters and the audit log.
   - name: Readiness
     description: "Whether each live account can trade now: session, static IP, order headroom, kill switch."
+  - name: Backup
+    description: Copies of your data folder (keys store, accounts, state, paper books, audit log), made on this computer only. The archive is never served over HTTP.
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
@@ -2409,6 +2411,66 @@ paths:
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/backup:
+    get:
+      tags: [Backup]
+      operationId: getBackup
+      summary: The last backup, the schedule and the copies kept on this computer
+      description: >-
+        This computer only, admin key. Lists the archives in the backups folder inside the data folder (name, size, time,
+        kind) and the last success or failure. The archives themselves are never served over HTTP.
+      x-module: backup
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Backup status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/BackupStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Backup]
+      operationId: createBackup
+      summary: Make a backup now
+      description: >-
+        This computer only, admin key. Writes one verified archive (tar.gz, mode 600) into the backups folder of the data
+        folder and answers with its path on this computer. It holds the settings file, API key records, accounts, safety
+        and quota state, source settings, pooling consent, paper books, order records and the audit log. It never holds the
+        master key. `secrets.enc` (saved broker logins) is included only with `includeSecrets`, and is useful only with the
+        original master key. Emits the bus events `backup.completed` or `backup.failed`.
+      x-module: backup
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                includeSecrets: { type: boolean, default: false }
+      responses:
+        "200":
+          description: The backup was written.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/BackupCreated" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/audit:
     get:
       tags: [Safety]
@@ -4051,6 +4113,23 @@ components:
         services:
           type: object
           additionalProperties: { type: string, enum: [ready, not_built] }
+        backup:
+          type: object
+          description: For callers on this computer. When the last backup was made, whether the last one failed, and whether the daily schedule is on.
+          properties:
+            lastBackupAt: { type: [string, "null"], format: date-time }
+            lastBackupBytes: { type: [integer, "null"] }
+            lastError:
+              type: [object, "null"]
+              properties:
+                at: { type: string, format: date-time }
+                kind: { type: string }
+                message: { type: string }
+            schedule:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                time: { type: string }
         startup:
           type: object
           description: >-
@@ -4069,6 +4148,53 @@ components:
                   name: { type: string, description: 'For example "demo book seed".' }
                   done: { type: [integer, "null"], description: "Steps done (seeded legs), null until the job reports." }
                   total: { type: [integer, "null"], description: "Steps in all, null until known." }
+    BackupFile:
+      type: object
+      required: [name, path, bytes, at, kind]
+      properties:
+        name: { type: string, examples: [mc-bridge-backup-20261109-021500-upgrade.tar.gz] }
+        path: { type: string, description: "Where the file is on this computer." }
+        bytes: { type: integer }
+        at: { type: string, format: date-time }
+        kind: { type: string, enum: [manual, upgrade, scheduled, safety], description: "upgrade: before a new version ran; safety: before a restore." }
+    BackupStatus:
+      type: object
+      required: [lastBackupAt, lastBackupBytes, lastBackupKind, lastError, schedule, keep, folder, items, restoreCommand]
+      properties:
+        lastBackupAt: { type: [string, "null"], format: date-time }
+        lastBackupBytes: { type: [integer, "null"] }
+        lastBackupKind: { type: [string, "null"] }
+        lastError:
+          type: [object, "null"]
+          description: The last backup that failed, until a later backup of the same kind succeeds.
+          properties:
+            at: { type: string, format: date-time }
+            kind: { type: string }
+            message: { type: string }
+        schedule:
+          type: object
+          required: [enabled, time, keep]
+          properties:
+            enabled: { type: boolean }
+            time: { type: string, examples: ["02:30"], description: "This computer's clock, 24-hour." }
+            keep: { type: integer }
+        keep: { type: integer, description: "Snapshots kept per kind (before an upgrade, before a restore)." }
+        folder: { type: string }
+        items: { type: array, items: { $ref: "#/components/schemas/BackupFile" } }
+        restoreCommand: { type: string }
+    BackupCreated:
+      type: object
+      required: [path, name, bytes, files, createdAt, kind, includesSecrets, masterKeyIncluded, restoreCommand]
+      properties:
+        path: { type: string, description: "Where the archive is on this computer. Copy it to another disk." }
+        name: { type: string }
+        bytes: { type: integer }
+        files: { type: integer }
+        createdAt: { type: string, format: date-time }
+        kind: { type: string, enum: [manual] }
+        includesSecrets: { type: boolean }
+        masterKeyIncluded: { type: boolean, enum: [false], description: "Always false: the master key is never part of a backup." }
+        restoreCommand: { type: string }
     MetaInfo:
       type: object
       required: [bridgeVersion, apiVersion, brokers, modules, routes]
