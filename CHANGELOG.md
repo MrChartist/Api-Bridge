@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- TradingView alerts are a first-class source: `POST /v1/hooks` with `"source": "tradingview"` (URL token plus a
+  passphrase inside the message, stored hashed; JSON or plain-text alerts in our own schema; chart tickers such as
+  `NSE:M_M` and `NSE:NIFTY1!` resolved through the chart mapping; an editable TradingView sender-address preset;
+  `maxAgeSec` stale-alert limit; replay and duplicate protection on id + time + symbol + side that survives a restart;
+  a derived `clientOrderId`; bursts wait for an order slot instead of being rejected). New `GET /v1/hooks/{hookId}/signals`,
+  `POST /v1/hooks/{hookId}/test`, `GET /v1/hooks/presets`, the `hook.rejected` bus event, a TradingView panel in the
+  dashboard, and a verified TradingView section in [docs/guides/webhooks.md](docs/guides/webhooks.md). Generic hooks no
+  longer swallow a later alert that reuses an `id` with a new `time`.
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the
