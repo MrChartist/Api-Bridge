@@ -7,6 +7,7 @@
  */
 import { isStub } from "../core/contracts.mjs";
 import { defineModule } from "../core/modules.mjs";
+import { createCalendarRoutes } from "./calendarRoutes.mjs";
 import { MARKET_CONFIG_SCHEMA } from "./config.mjs";
 import { createMarketDataService } from "./marketDataService.mjs";
 import { createMarketRoutes } from "./routes.mjs";
@@ -19,6 +20,9 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/history", { scope: "read" }, "history"],
   ["GET", "/v1/expiries", { scope: "read" }, "expiries"],
   ["GET", "/v1/optionchain", { scope: "read" }, "optionChain"],
+  ["GET", "/v1/calendar/holidays", { scope: "read" }, "calendarHolidays"],
+  ["GET", "/v1/calendar/sessions", { scope: "read" }, "calendarSessions"],
+  ["GET", "/v1/calendar/status", { scope: "read" }, "calendarStatus"],
 ]);
 
 export default defineModule({
@@ -27,7 +31,7 @@ export default defineModule({
   configSchema: MARKET_CONFIG_SCHEMA,
   services: { marketData: (deps) => createMarketDataService(deps) },
   register(app, deps) {
-    const handlers = createMarketRoutes(deps);
+    const handlers = { ...createMarketRoutes(deps), ...createCalendarRoutes(deps) };
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
   },
   async stop(deps) {

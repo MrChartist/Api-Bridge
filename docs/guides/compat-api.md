@@ -27,6 +27,7 @@ Compact trading symbols with an exchange code: `RELIANCE` / `NSE`, `NIFTY` / `NS
 | Orders | `placeorder`, `placesmartorder` (towards `position_size`), `basketorder`, `splitorder` (`splitsize`), `modifyorder`, `cancelorder`, `cancelallorder`, `closeposition`, `orderstatus`, `openposition`, `optionsorder` (by `offset` ATM / ITMn / OTMn) |
 | Market data | `quotes`, `multiquotes`, `depth`, `history`, `intervals` |
 | Instruments | `symbol`, `search`, `expiry`, `optionchain`, `optionsymbol` |
+| Margin | `margin` (up to 50 `positions`; the same calculation as `POST /v1/margin/basket`) |
 
 Compat answers have no field that says how current a price is, so they are **never built from a backup data source**
 (Yahoo, a plugin, ...): the market-data and instrument endpoints read from your broker accounts only, whatever
@@ -34,7 +35,7 @@ Compat answers have no field that says how current a price is, so they are **nev
 only). When your broker is out of request budget, a recent cached value may still answer; in that rare case the `data` of a
 quote carries `"stale": true`. Use the `/v1` routes when you want labelled backup data.
 
-`margin` answers with an error for now. Every endpoint is in [openapi.yaml](../openapi.yaml) under "Compat REST".
+`margin` takes `positions` (`symbol`, `exchange`, `action`, `product`, `pricetype`, `quantity`, `price`) and answers `total_margin_required`, `span_margin`, `exposure_margin`, `hedge_benefit` and `source` (`broker` or `paper-model`, the approximate paper model) as numbers; see [alert-orders.md](alert-orders.md). Every endpoint is in [openapi.yaml](../openapi.yaml) under "Compat REST".
 
 ## Which account
 

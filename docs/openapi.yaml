@@ -1546,6 +1546,103 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/calendar/holidays:
+    get:
+      tags: [Market data]
+      operationId: getCalendarHolidays
+      summary: Trading holidays of a year for an exchange
+      description: |
+        From the holiday list shipped with the Bridge (the NSE and BSE circulars; the list's date and source are in
+        `calendar`). Every row keeps its own `verified` flag. A year the list does not cover gives an empty list with
+        `calendar.covered: false`: that is "no data", not "no holidays". Weekends are not listed. NFO follows NSE and BFO
+        follows BSE. MCX and CDS have their own hours that this list does not hold (422).
+      x-module: market
+      x-scope: read
+      parameters:
+        - name: exchange
+          in: query
+          description: NSE (default), BSE, NFO or BFO.
+          schema: { type: string, enum: [NSE, BSE, NFO, BFO], default: NSE }
+        - name: year
+          in: query
+          description: Four-digit year (default this year, IST).
+          schema: { type: integer, minimum: 2000, maximum: 2100 }
+      responses:
+        "200":
+          description: The holidays.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CalendarHolidays" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/calendar/sessions:
+    get:
+      tags: [Market data]
+      operationId: getCalendarSessions
+      summary: The session of one date (trading day or not, and the times)
+      description: |
+        Whether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close
+        times (IST), a special session such as Muhurat trading, and the neighbouring trading days. The standard hours are
+        marked `sessionTimes.verified: false`: the Bridge has not confirmed them against a current circular.
+      x-module: market
+      x-scope: read
+      parameters:
+        - name: exchange
+          in: query
+          schema: { type: string, enum: [NSE, BSE, NFO, BFO], default: NSE }
+        - name: date
+          in: query
+          description: A real date, YYYY-MM-DD (default today, IST).
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CalendarSession" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/calendar/status:
+    get:
+      tags: [Market data]
+      operationId: getCalendarStatus
+      summary: Is the exchange open now, and when does it next open
+      description: |
+        `open`, `pre-open` or `closed`, by the Bridge's clock in IST, with the reason (a holiday is named), when it closes
+        or opens and the next regular or special open. This is the calendar's answer, not the exchange's live state: a
+        halt or an unlisted closure is not in it. Read `calendar.verified` and `calendar.note`.
+      x-module: market
+      x-scope: read
+      parameters:
+        - name: exchange
+          in: query
+          schema: { type: string, enum: [NSE, BSE, NFO, BFO], default: NSE }
+      responses:
+        "200":
+          description: The status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CalendarStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/stream:
     get:
       tags: [Streaming]
@@ -4393,6 +4490,120 @@ components:
     Exchange:
       type: string
       enum: [NSE, BSE, NFO, BFO, MCX, CDS]
+    CalendarInfo:
+      type: object
+      required: [asOf, source, coveredYears, covered, verified]
+      description: What the answer rests on. `verified` is false when the date is outside the covered years or a row used is not verified.
+      properties:
+        asOf: { type: [string, "null"], format: date, description: The date of the shipped holiday list. }
+        source: { type: [string, "null"] }
+        coveredYears: { type: array, items: { type: integer } }
+        covered: { type: boolean, description: "False: the date is outside the list, so a weekday is assumed to trade and the answer is not verified." }
+        verified: { type: boolean }
+        note: { type: [string, "null"], description: Said plainly whenever the answer is not fully verified. }
+    CalendarSessionTimes:
+      type: object
+      required: [preOpen, open, close, verified]
+      properties:
+        preOpen: { type: string, description: "IST, HH:MM." }
+        open: { type: string }
+        close: { type: string }
+        timezone: { type: string, enum: [IST] }
+        verified: { type: boolean, description: "False: the standard hours, not confirmed against a current circular." }
+        source: { type: string }
+    CalendarHolidays:
+      type: object
+      required: [exchange, year, holidays, specialSessions, calendar]
+      properties:
+        exchange: { type: string, enum: [NSE, BSE, NFO, BFO] }
+        year: { type: integer }
+        holidays:
+          type: array
+          items:
+            type: object
+            required: [date, weekday, label, exchanges, verified]
+            properties:
+              date: { type: string, format: date }
+              weekday: { type: string }
+              label: { type: string }
+              exchanges: { type: array, items: { type: string } }
+              verified: { type: boolean }
+        specialSessions:
+          type: array
+          description: Sessions on a day that is otherwise closed or has its own hours (Muhurat trading).
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              weekday: { type: string }
+              label: { type: string }
+              open: { type: [string, "null"] }
+              close: { type: [string, "null"] }
+              verified: { type: boolean }
+        calendar: { $ref: "#/components/schemas/CalendarInfo" }
+    CalendarSession:
+      type: object
+      required: [exchange, date, weekday, isTradingDay, reason, sessionTimes, calendar]
+      properties:
+        exchange: { type: string, enum: [NSE, BSE, NFO, BFO] }
+        date: { type: string, format: date }
+        weekday: { type: string }
+        isTradingDay: { type: boolean }
+        reason: { type: string }
+        preOpen:
+          oneOf:
+            - type: object
+              properties:
+                start: { type: string }
+                end: { type: string }
+            - type: "null"
+        open: { type: [string, "null"], description: "IST HH:MM; null on a day that does not trade." }
+        close: { type: [string, "null"] }
+        holiday:
+          oneOf:
+            - type: object
+              properties:
+                label: { type: string }
+                verified: { type: boolean }
+            - type: "null"
+        specialSession:
+          oneOf:
+            - type: object
+              properties:
+                label: { type: string }
+                open: { type: [string, "null"] }
+                close: { type: [string, "null"] }
+                verified: { type: boolean }
+            - type: "null"
+        sessionTimes: { $ref: "#/components/schemas/CalendarSessionTimes" }
+        previousTradingDay: { type: string, format: date }
+        nextTradingDay: { type: string, format: date }
+        calendar: { $ref: "#/components/schemas/CalendarInfo" }
+    CalendarStatus:
+      type: object
+      required: [exchange, status, reason, asOf, date, time, sessionTimes, calendar]
+      properties:
+        exchange: { type: string, enum: [NSE, BSE, NFO, BFO] }
+        status: { type: string, enum: [open, pre-open, closed] }
+        reason: { type: string }
+        closedBecause: { type: [string, "null"], enum: [weekend, holiday, before-open, after-close, null] }
+        asOf: { type: string, format: date-time, description: "The Bridge's clock, IST." }
+        date: { type: string, format: date }
+        time: { type: string, description: "IST HH:MM." }
+        opensAt: { type: [string, "null"], format: date-time, description: Pre-open only. Today's open. }
+        closesAt: { type: [string, "null"], format: date-time, description: "Open and pre-open only." }
+        nextOpen:
+          oneOf:
+            - type: object
+              properties:
+                date: { type: string, format: date }
+                time: { type: string }
+                at: { type: string, format: date-time }
+                kind: { type: string, enum: [regular, special] }
+                label: { type: [string, "null"] }
+            - type: "null"
+        sessionTimes: { $ref: "#/components/schemas/CalendarSessionTimes" }
+        calendar: { $ref: "#/components/schemas/CalendarInfo" }
     InstrumentKind:
       type: string
       enum: [INDEX, EQ, FUT, OPT]

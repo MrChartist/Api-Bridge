@@ -14,6 +14,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [webhooks.md](webhooks.md) | Signed generic, ChartInk and GoCharting alerts |
+| [alert-orders.md](alert-orders.md) | Target-size and basket orders, MIS/NRML words, symbol check, basket margin, market calendar |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |
