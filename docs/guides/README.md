@@ -13,7 +13,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [paper-margin.md](paper-margin.md) | How the paper engine estimates margin for F&O positions |
 | [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
-| [webhooks.md](webhooks.md) | Signed generic, ChartInk and GoCharting alerts |
+| [webhooks.md](webhooks.md) | TradingView, signed generic, ChartInk and GoCharting alerts |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |

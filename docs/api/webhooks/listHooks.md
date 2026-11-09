@@ -35,7 +35,7 @@ An admin key limited to some accounts lists only the hooks of those accounts.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `id` | string | yes |  |
-| `source` | one of `generic`, `chartink`, `gocharting` | yes |  |
+| `source` | one of `generic`, `chartink`, `gocharting`, `tradingview` | yes |  |
 | `label` | string | yes |  |
 | `account` | `AccountId` | yes |  |
 | `mode` | one of `paper`, `live` | yes |  |
@@ -46,6 +46,9 @@ An admin key limited to some accounts lists only the hooks of those accounts.
 | `product` | one of `CNC`, `INTRADAY`, `MARGIN`, `null` | no |  |
 | `orderType` | one of `LIMIT`, `MARKET` | no |  |
 | `allowSourceIps` | array of string | no |  |
+| `sourceIpPreset` | one of `tradingview`, `null` | no | Also accept alerts only from this published address list (see /v1/hooks/presets). |
+| `maxAgeSec` | integer or null | no | An alert whose own time is older than this many seconds is refused as stale. TradingView hooks default to 120; null means no age check. |
+| `hasPassphrase` | boolean | no | True for tradingview hooks: alerts must carry the passphrase shown when the hook was created. |
 | `createdAt` | string (date-time) | yes |  |
 | `lastSignalAt` | string (date-time) or null (date-time) | no |  |
 | `readiness` | `ReadinessState` or null | no | Live hooks: the readiness state of the hook's account (orders are refused with CANNOT_TRADE while it is cannot_trade). null for paper hooks. |

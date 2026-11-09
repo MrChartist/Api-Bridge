@@ -1,0 +1,38 @@
+meta {
+  name: Send a test alert through the real pipeline, as a paper order
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/hooks/:hookId/test
+  body: json
+  auth: bearer
+}
+
+params:path {
+  hookId: <hookId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Send a test alert through the real pipeline, as a paper order
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Builds a realistic alert for this hook (or reads the one you paste) and runs it through the same parsing, checks and
+  order path as a real alert, always as a PAPER order, never needing a confirmation, even on a live hook. Answers 200
+  with the outcome, because the test ran; a refusal (an unreadable or stale alert) is an outcome too. A test is not a
+  duplicate of an earlier one, does not touch `lastSignalAt`, and is not announced on the event bus. It does not prove
+  that TradingView can reach the hook.
+
+  Reference: docs/api/webhooks/testHook.md in the repository.
+}

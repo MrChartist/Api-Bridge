@@ -404,6 +404,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       const problem = toProblem(err, { requestId });
       if (config.demo && problem.code === "ACCOUNT_NOT_FOUND") problem.detail = `${problem.detail ?? ""} ${DEMO_ACCOUNT_HINT}`.trim();
       status = problem.status;
+      if (ctx && typeof matched?.options?.onError === "function") {
+        try {
+          matched.options.onError(ctx, err);
+        } catch (hookErr) {
+          log.error("route error observer failed", { requestId, path, err: hookErr });
+        }
+      }
       if (!(err instanceof BridgeError)) log.error("unhandled error", { requestId, path, err });
       else if (status >= 500 && status !== 501) log.warn("request failed", { requestId, path, code: problem.code });
       if (res.headersSent) res.destroy();

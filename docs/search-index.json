@@ -135,7 +135,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "117 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "120 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -1182,6 +1182,24 @@
     },
     {
       "headings": [
+        "GET /v1/hooks/presets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/getHookPresets.md",
+      "text": "GET /v1/hooks/presets. What the hook creator needs to show: the editable TradingView sender-address list (with the date it was last checked and where it came from), hooks.clientIpHeader (the header trusted for the real client address behind a local tunnel; null means the address ",
+      "title": "Address presets, trusted-tunnel header and public hosts, for building a hook"
+    },
+    {
+      "headings": [
+        "GET /v1/hooks/{hookId}/signals"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/listHookSignals.md",
+      "text": "GET /v1/hooks/{hookId}/signals. Newest first, bounded (hooks.signalsKept, memory only: the audit log is the durable record).",
+      "title": "Recent alerts of one hook, with what happened to each"
+    },
+    {
+      "headings": [
         "GET /v1/hooks"
       ],
       "kind": "endpoint",
@@ -1196,7 +1214,16 @@
       "kind": "endpoint",
       "path": "docs/api/webhooks/receiveHook.md",
       "text": "POST /hooks/{source}/{token}. Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background, through the same preview and safety checks as any order.",
-      "title": "Inbound alert (signed generic, ChartInk or GoCharting)"
+      "title": "Inbound alert (TradingView, signed generic, ChartInk or GoCharting)"
+    },
+    {
+      "headings": [
+        "POST /v1/hooks/{hookId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/testHook.md",
+      "text": "POST /v1/hooks/{hookId}/test. Builds a realistic alert for this hook (or reads the one you paste) and runs it through the same parsing, checks and order path as a real alert, always as a PAPER order, never needing a confirmation, even on a live hook.",
+      "title": "Send a test alert through the real pipeline, as a paper order"
     },
     {
       "headings": [
@@ -1225,7 +1252,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 113 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 116 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1509,6 +1536,14 @@
     },
     {
       "headings": [
+        "TradingView",
+        "What TradingView does (checked against TradingView's own pages)",
+        "Set it up",
+        "The alert message",
+        "Names: chart tickers, products",
+        "What protects a TradingView hook",
+        "Where to look when it does not work",
+        "Settings for TradingView hooks",
         "1. Create a hook",
         "2. Make the URL reachable",
         "3. Alert messages",
@@ -1520,7 +1555,7 @@
       "kind": "guide",
       "path": "docs/guides/webhooks.md",
       "text": "An alert from your own code or a charting site becomes an order through a hook: a URL with a secret token, tied to one account and a set of limits. Every signal goes through the same safety checks, rate limits, idempotency and audit log as an order sent from a script. Hooks are...",
-      "title": "Alerts: signed generic hooks, ChartInk and GoCharting"
+      "title": "Alerts: TradingView, signed generic hooks, ChartInk and GoCharting"
     },
     {
       "headings": [

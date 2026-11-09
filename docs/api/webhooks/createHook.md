@@ -19,7 +19,7 @@ Required, `application/json`, schema `HookCreate`.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `source` | one of `generic`, `chartink`, `gocharting` | yes |  |
+| `source` | one of `generic`, `chartink`, `gocharting`, `tradingview` | yes |  |
 | `label` | string, up to 60 characters | yes |  |
 | `account` | `AccountId` | yes |  |
 | `mode` | one of `paper`, `live` | no | Default `"paper"`. |
@@ -30,7 +30,9 @@ Required, `application/json`, schema `HookCreate`.
 | `orderType` | one of `LIMIT`, `MARKET` | no | Default `"LIMIT"`. |
 | `side` | one of `BUY`, `SELL` | no | Fix the side for every signal (needed for ChartInk, whose alerts carry no side). |
 | `allowSourceIps` | array of string | no | Optional allowlist of sender IP addresses or IPv4 CIDR blocks. |
-| `acknowledgeUnsignedLive` | boolean | no | Live mode on an unsigned source (chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement. Default `false`. |
+| `acknowledgeUnsignedLive` | boolean | no | Live mode on an unsigned source (chartink, gocharting, tradingview) needs allowSourceIps, sourceIpPreset, requireConfirmation or this acknowledgement. Default `false`. |
+| `maxAgeSec` | integer, min 5, max 3600 or null | no | Refuse alerts older than this many seconds (from the alert's `time`). Default 120 for tradingview; a live tradingview hook must have one. |
+| `sourceIpPreset` | one of `tradingview`, `null` | no | Accept alerts only from TradingView's published sender addresses (the editable list in /v1/hooks/presets), in addition to allowSourceIps. Behind a tunnel this needs hooks.clientIpHeader. |
 
 Example:
 
@@ -63,7 +65,7 @@ Example:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `id` | string | yes |  |
-| `source` | one of `generic`, `chartink`, `gocharting` | yes |  |
+| `source` | one of `generic`, `chartink`, `gocharting`, `tradingview` | yes |  |
 | `label` | string | yes |  |
 | `account` | `AccountId` | yes |  |
 | `mode` | one of `paper`, `live` | yes |  |
@@ -74,13 +76,18 @@ Example:
 | `product` | one of `CNC`, `INTRADAY`, `MARGIN`, `null` | no |  |
 | `orderType` | one of `LIMIT`, `MARKET` | no |  |
 | `allowSourceIps` | array of string | no |  |
+| `sourceIpPreset` | one of `tradingview`, `null` | no | Also accept alerts only from this published address list (see /v1/hooks/presets). |
+| `maxAgeSec` | integer or null | no | An alert whose own time is older than this many seconds is refused as stale. TradingView hooks default to 120; null means no age check. |
+| `hasPassphrase` | boolean | no | True for tradingview hooks: alerts must carry the passphrase shown when the hook was created. |
 | `createdAt` | string (date-time) | yes |  |
 | `lastSignalAt` | string (date-time) or null (date-time) | no |  |
 | `readiness` | `ReadinessState` or null | no | Live hooks: the readiness state of the hook's account (orders are refused with CANNOT_TRADE while it is cannot_trade). null for paper hooks. |
 | `url` | string | yes | Full hook URL including the secret token. Shown once. |
 | `path` | string | no | The URL path alone (for tunnels and public ingress). Shown once. |
 | `signingSecret` | string | no | For generic hooks only. Shown once. |
-| `templates` | object | no | Ready-to-paste alert message templates for this source. |
+| `passphrase` | string | no | For tradingview hooks only. Shown once; only its hash is stored. It goes inside the alert message. |
+| `ipPreset` | `HookIpPreset` | no |  |
+| `templates` | array of `HookTemplate` | no | Ready-to-paste alert message templates for this source (for tradingview a plain alert |
 | `warnings` | array of string | no |  |
 
 ## Errors

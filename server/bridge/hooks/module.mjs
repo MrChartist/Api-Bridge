@@ -1,5 +1,5 @@
 /**
- * hooks module: inbound webhooks (signed generic, ChartInk, GoCharting).
+ * hooks module: inbound webhooks (TradingView, signed generic, ChartInk, GoCharting).
  * The routes below are the contract in docs/openapi.yaml.
  *
  * Config section `hooks` (optional; see config.mjs): queue size, concurrency, dedupe window, signature tolerance,
@@ -8,19 +8,24 @@
  * The module owns no contract service; it keeps a small runtime (hook store, dedupe, signal worker) per app,
  * created in register() and stopped in stop().
  */
+import { join } from "node:path";
 import { isStub } from "../core/contracts.mjs";
 import { defineModule } from "../core/modules.mjs";
 import { HOOKS_CONFIG_SCHEMA, hooksConfig } from "./config.mjs";
 import { createHookStore } from "./hookStore.mjs";
 import { createHookRoutes } from "./routes.mjs";
+import { createSignalLog } from "./signalLog.mjs";
 import { createSignalWorker } from "./worker.mjs";
 
 /** [method, path, route options, handler name in createHookRoutes()] */
 export const ROUTES = Object.freeze([
-  ["POST", "/hooks/:source/:token", { auth: "custom", public: true, body: "json-or-text", bodyLimitBytes: 16384 }, "receiveHook"],
+  ["POST", "/hooks/:source/:token", { auth: "custom", public: true, body: "json-or-text", bodyLimitBytes: 16384, onErrorHandler: "onReceiveError" }, "receiveHook"],
   ["GET", "/v1/hooks", { scope: "admin", loopbackOnly: true }, "listHooks"],
   ["POST", "/v1/hooks", { scope: "admin", loopbackOnly: true }, "createHook"],
+  ["GET", "/v1/hooks/presets", { scope: "admin", loopbackOnly: true }, "hookPresets"],
   ["DELETE", "/v1/hooks/:hookId", { scope: "admin", loopbackOnly: true }, "deleteHook"],
+  ["GET", "/v1/hooks/:hookId/signals", { scope: "admin", loopbackOnly: true }, "listSignals"],
+  ["POST", "/v1/hooks/:hookId/test", { scope: "admin", loopbackOnly: true }, "testHook"],
 ]);
 
 /** deps -> runtime, so stop() finds what register() built. */
@@ -42,10 +47,11 @@ export function createHooksRuntime(deps, { logger, now } = {}) {
     maxHooks: cfg.maxHooks,
     logger: log,
   });
-  const worker = createSignalWorker({ deps, store, logger: log, queueSize: cfg.queueSize, concurrency: cfg.concurrency, now: clock });
+  const signals = createSignalLog({ keep: cfg.signalsKept, now: clock });
+  const worker = createSignalWorker({ deps, store, logger: log, queueSize: cfg.queueSize, concurrency: cfg.concurrency, now: clock, burstWaitSec: cfg.burstWaitSec, onUpdate: (rec) => signals.update(rec) });
   const automations = createHookAutomations(deps, log);
-  const handlers = createHookRoutes({ deps, cfg, store, worker, logger: log, now: clock, automations });
-  return { cfg, store, worker, handlers, automations };
+  const handlers = createHookRoutes({ deps, cfg, store, worker, logger: log, now: clock, automations, signals, dedupeFile: join(deps.paths.dataDir, "hooks-seen.json") });
+  return { cfg, store, worker, handlers, automations, signals };
 }
 
 /**
@@ -118,7 +124,9 @@ export default defineModule({
   register(app, deps) {
     const rt = createHooksRuntime(deps, { logger: app.logger });
     runtimes.set(deps, rt);
-    for (const [method, path, options, name] of ROUTES) app.route(method, path, rt.handlers[name], options);
+    for (const [method, path, { onErrorHandler, ...options }, name] of ROUTES) {
+      app.route(method, path, rt.handlers[name], onErrorHandler ? { ...options, onError: rt.handlers[onErrorHandler] } : options);
+    }
   },
   async start(deps) {
     // Live hooks re-register with readiness at every boot (its registry is memory only).
@@ -130,6 +138,7 @@ export default defineModule({
     if (!rt) return;
     rt.automations.clear();
     await rt.worker.stop();
+    rt.handlers._dedupe.close();
     rt.store.close();
   },
 });

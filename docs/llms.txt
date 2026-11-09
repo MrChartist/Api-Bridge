@@ -20,9 +20,9 @@ Facts that help when writing code against it:
 
 ## API reference
 
-- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 117 operations with schemas, scopes and error codes
+- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 120 operations with schemas, scopes and error codes
 - [AsyncAPI description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/asyncapi.yaml): WebSocket and SSE message formats
-- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (117), grouped by area, each with curl and Python examples
+- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (120), grouped by area, each with curl and Python examples
 - [Error codes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/errors.md): every stable error code with its HTTP status and whether a retry is safe
 - [Postman and Bruno collections](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/collections/README.md): import every request, with paper-mode examples and no real keys
 
@@ -37,7 +37,7 @@ Facts that help when writing code against it:
 - [Paper margin: how the Bridge estimates it](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/paper-margin.md): How the paper engine estimates margin for F&O positions
 - [Compat REST and WebSocket API (/api/v1)](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/compat-api.md): /api/v1 apikey-in-body REST and WebSocket for existing algo tools and SDKs
 - [Live streaming: WebSocket and SSE](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/streaming.md): WebSocket and SSE live data
-- [Alerts: signed generic hooks, ChartInk and GoCharting](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/webhooks.md): Signed generic, ChartInk and GoCharting alerts
+- [Alerts: TradingView, signed generic hooks, ChartInk and GoCharting](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/webhooks.md): TradingView, signed generic, ChartInk and GoCharting alerts
 - [AmiBroker](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/amibroker.md): AmiBroker AFL and ASCII import
 - [Python](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/python.md): Python SDK
 - [TypeScript and Node](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/typescript.md): Node and TypeScript SDK

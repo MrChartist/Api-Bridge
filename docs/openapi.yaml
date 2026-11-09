@@ -2577,22 +2577,30 @@ paths:
       - name: source
         in: path
         required: true
-        schema: { type: string, enum: [generic, chartink, gocharting] }
+        schema: { type: string, enum: [generic, chartink, gocharting, tradingview] }
       - name: token
         in: path
         required: true
-        description: The hook's secret token (shown once when the hook is created). It is the only credential ChartInk and GoCharting can carry, since they cannot sign requests.
+        description: The hook's secret token (shown once when the hook is created). It is the credential ChartInk and GoCharting can carry, since they cannot sign requests; TradingView adds a `passphrase` inside the alert message.
         schema: { type: string, minLength: 32, maxLength: 128 }
     post:
       tags: [Webhooks]
       operationId: receiveHook
-      summary: Inbound alert (signed generic, ChartInk or GoCharting)
+      summary: Inbound alert (TradingView, signed generic, ChartInk or GoCharting)
       description: |
         Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,
         through the same preview and safety checks as any order. The hook decides what an alert may do (account,
         symbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send
         `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`; requests older than 5 minutes or
         replayed are refused. Served on the public ingress listener when it is enabled.
+
+        `tradingview` hooks cannot sign (TradingView cannot add headers): the credential is the secret URL plus a
+        `passphrase` field inside the alert message (a JSON field, or `passphrase=...` in a plain-text alert), checked in
+        constant time before anything else is read. Wrong or missing: 401. The message is JSON (when TradingView sends
+        `application/json`) or one line of text (`text/plain`); see the `TradingViewAlert` schema. An alert older than
+        the hook's `maxAgeSec` (from its `time`) is refused with 400; a repeat of the same id + time + symbol + side is
+        acknowledged as `duplicate: true`. A rejected order after the 202 is shown in
+        `GET /v1/hooks/{hookId}/signals` and announced on the event bus as `hook.rejected`.
       x-module: hooks
       x-public: true
       security: []
@@ -2618,7 +2626,7 @@ paths:
                 properties:
                   accepted: { type: boolean }
                   signalId: { type: string }
-                  duplicate: { type: boolean }
+                  duplicate: { type: boolean, description: The same alert was already received (same id and time for TradingView); nothing new was queued. }
                   dropped: { type: integer, description: Orders in the alert that were dropped before queueing (for example over the per-alert cap). }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -2675,7 +2683,9 @@ paths:
                           url: { type: string, description: "Full hook URL including the secret token. Shown once." }
                           path: { type: string, description: "The URL path alone (for tunnels and public ingress). Shown once." }
                           signingSecret: { type: string, description: "For generic hooks only. Shown once." }
-                          templates: { type: object, additionalProperties: true, description: Ready-to-paste alert message templates for this source. }
+                          passphrase: { type: string, description: "For tradingview hooks only. Shown once; only its hash is stored. It goes inside the alert message." }
+                          ipPreset: { $ref: "#/components/schemas/HookIpPreset" }
+                          templates: { type: array, items: { $ref: "#/components/schemas/HookTemplate" }, description: Ready-to-paste alert message templates for this source (for tradingview a plain alert, a strategy alert and a plain-text alert, with the passphrase filled in). }
                           warnings: { type: array, items: { type: string } }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
@@ -2698,6 +2708,114 @@ paths:
       responses:
         "204":
           description: Deleted.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/hooks/presets:
+    get:
+      tags: [Webhooks]
+      operationId: getHookPresets
+      summary: Address presets, trusted-tunnel header and public hosts, for building a hook
+      description: |
+        What the hook creator needs to show: the editable TradingView sender-address list (with the date it was last
+        checked and where it came from), `hooks.clientIpHeader` (the header trusted for the real client address behind a
+        local tunnel; null means the address check sees the tunnel), and the public ingress hosts from the config.
+      x-module: hooks
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Presets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/HookPresets" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/hooks/{hookId}/signals:
+    parameters:
+      - name: hookId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 40 }
+    get:
+      tags: [Webhooks]
+      operationId: listHookSignals
+      summary: Recent alerts of one hook, with what happened to each
+      description: |
+        Newest first, bounded (`hooks.signalsKept`, memory only: the audit log is the durable record). Each entry has an
+        `outcome` and, where it applies, the reason and the order id. Alerts refused at the door because they were
+        unreadable (400) or stale are listed; wrong passphrases, refused addresses and rate limits are only counted.
+        Never contains an alert body, the URL token or a passphrase. A hook of an account the key may not use answers 404.
+      x-module: hooks
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: outcome, in: query, schema: { $ref: "#/components/schemas/HookSignalOutcome" } }
+      responses:
+        "200":
+          description: Recent alerts and counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/HookSignals" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/hooks/{hookId}/test:
+    parameters:
+      - name: hookId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 40 }
+    post:
+      tags: [Webhooks]
+      operationId: testHook
+      summary: Send a test alert through the real pipeline, as a paper order
+      description: |
+        Builds a realistic alert for this hook (or reads the one you paste) and runs it through the same parsing, checks and
+        order path as a real alert, always as a PAPER order, never needing a confirmation, even on a live hook. Answers 200
+        with the outcome, because the test ran; a refusal (an unreadable or stale alert) is an outcome too. A test is not a
+        duplicate of an earlier one, does not touch `lastSignalAt`, and is not announced on the event bus. It does not prove
+        that TradingView can reach the hook.
+      x-module: hooks
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                alert:
+                  description: An alert to run instead of the generated one: the message text, or its JSON object. A passphrase in it is not needed and is dropped.
+                  oneOf: [{ type: string }, { type: object }]
+                symbol: { type: string, description: "Symbol for the generated alert (default: the hook's first allowed symbol, else NSE:RELIANCE)." }
+                side: { type: string, enum: [BUY, SELL, buy, sell] }
+                price: { type: number, description: "Price for a LIMIT hook's generated alert (default: the current price)." }
+      responses:
+        "200":
+          description: The outcome of the test.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/HookTestResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -5213,7 +5331,7 @@ components:
       required: [id, source, label, account, mode, createdAt]
       properties:
         id: { type: string }
-        source: { type: string, enum: [generic, chartink, gocharting] }
+        source: { type: string, enum: [generic, chartink, gocharting, tradingview] }
         label: { type: string }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live] }
@@ -5224,6 +5342,9 @@ components:
         product: { type: [string, "null"], enum: [CNC, INTRADAY, MARGIN, null] }
         orderType: { type: string, enum: [LIMIT, MARKET] }
         allowSourceIps: { type: array, items: { type: string } }
+        sourceIpPreset: { type: [string, "null"], enum: [tradingview, null], description: "Also accept alerts only from this published address list (see /v1/hooks/presets)." }
+        maxAgeSec: { type: [integer, "null"], description: "An alert whose own time is older than this many seconds is refused as stale. TradingView hooks default to 120; null means no age check." }
+        hasPassphrase: { type: boolean, description: "True for tradingview hooks: alerts must carry the passphrase shown when the hook was created." }
         createdAt: { type: string, format: date-time }
         lastSignalAt: { type: [string, "null"], format: date-time }
         readiness:
@@ -5236,7 +5357,7 @@ components:
       required: [source, label, account]
       additionalProperties: false
       properties:
-        source: { type: string, enum: [generic, chartink, gocharting] }
+        source: { type: string, enum: [generic, chartink, gocharting, tradingview] }
         label: { type: string, minLength: 1, maxLength: 60 }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live], default: paper }
@@ -5247,4 +5368,148 @@ components:
         orderType: { type: string, enum: [LIMIT, MARKET], default: LIMIT }
         side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
         allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist of sender IP addresses or IPv4 CIDR blocks." }
-        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
+        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (chartink, gocharting, tradingview) needs allowSourceIps, sourceIpPreset, requireConfirmation or this acknowledgement." }
+        maxAgeSec: { type: [integer, "null"], minimum: 5, maximum: 3600, description: "Refuse alerts older than this many seconds (from the alert's `time`). Default 120 for tradingview; a live tradingview hook must have one." }
+        sourceIpPreset: { type: [string, "null"], enum: [tradingview, null], description: "Accept alerts only from TradingView's published sender addresses (the editable list in /v1/hooks/presets), in addition to allowSourceIps. Behind a tunnel this needs hooks.clientIpHeader." }
+
+    HookTemplate:
+      type: object
+      required: [name, contentType, message, notes]
+      properties:
+        name: { type: string }
+        contentType: { type: string, enum: [application/json, text/plain] }
+        message: { type: string, description: "Paste this into the alert's Message box." }
+        notes: { type: array, items: { type: string } }
+
+    HookIpPreset:
+      type: object
+      required: [name, ips, verifiedAt, source, edited]
+      properties:
+        name: { type: string, enum: [tradingview] }
+        ips: { type: array, items: { type: string } }
+        verifiedAt: { type: [string, "null"], description: "The date the list was last checked against its source." }
+        source: { type: [string, "null"], description: "The sender's own page that publishes the list." }
+        edited: { type: boolean, description: "True when the config file (hooks.presets) overrides the built-in list." }
+
+    HookPresets:
+      type: object
+      required: [ipPresets, clientIpHeader, publicIngress]
+      properties:
+        ipPresets: { type: array, items: { $ref: "#/components/schemas/HookIpPreset" } }
+        clientIpHeader: { type: [string, "null"], enum: [cf-connecting-ip, x-forwarded-for, x-real-ip, null], description: "hooks.clientIpHeader: trusted for the real client address only when the connection comes from this computer (a local tunnel)." }
+        publicIngress:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            port: { type: [integer, "null"] }
+            allowedHosts: { type: array, items: { type: string } }
+            urls: { type: array, items: { type: string }, description: "https://<host> for each allowed host, to put in front of the hook path." }
+        tradingview:
+          type: object
+          properties:
+            defaultMaxAgeSec: { type: integer }
+            sourceIpPreset: { type: string }
+        limits:
+          type: object
+          properties:
+            maxSignalsPerMinute: { type: integer }
+            bodyLimitBytes: { type: integer }
+            queueSize: { type: integer }
+            burstWaitSec: { type: integer }
+
+    HookSignalOutcome:
+      type: string
+      enum: [queued, processing, placed, awaiting_confirmation, duplicate, stale, rejected, refused, failed, outcome_unknown, dropped]
+      description: |
+        queued/processing: received, not finished. placed: an order was placed (paper or live). awaiting_confirmation: a
+        person must confirm it in the Bridge. duplicate: seen before, not placed twice. stale: older than maxAgeSec.
+        rejected: the hook's rules, the safety checks or the broker said no (see reason). refused: the alert could not be
+        read (a 400). failed / outcome_unknown / dropped: see reason.
+
+    HookSignal:
+      type: object
+      required: [index, outcome, receivedAt, summary]
+      properties:
+        signalId: { type: [string, "null"], description: "null for an alert refused at the door." }
+        index: { type: integer, description: "Position of the order within the alert." }
+        receivedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, "null"], format: date-time }
+        outcome: { $ref: "#/components/schemas/HookSignalOutcome" }
+        code: { type: [string, "null"] }
+        reason: { type: [string, "null"] }
+        summary: { type: string, description: "One plain sentence for people." }
+        symbol: { type: [string, "null"] }
+        side: { type: [string, "null"] }
+        id: { type: [string, "null"], description: "The alert's own id." }
+        time: { type: [string, "null"], description: "The alert's own time." }
+        mode: { type: [string, "null"] }
+        orderId: { type: [string, "null"] }
+        ticketId: { type: [string, "null"] }
+        test: { type: boolean }
+
+    HookSignals:
+      type: object
+      required: [hookId, counts, signals]
+      properties:
+        hookId: { type: string }
+        label: { type: string }
+        source: { type: string }
+        mode: { type: string, enum: [paper, live] }
+        lastSignalAt: { type: [string, "null"], format: date-time }
+        serverTime: { type: string, format: date-time }
+        countsSince: { type: string, format: date-time, description: "Counts start at this time (when the Bridge started or the hook was first used since)." }
+        lastAuthFailureAt: { type: [string, "null"], format: date-time }
+        counts:
+          type: object
+          additionalProperties: { type: integer }
+          description: "received, accepted, duplicate, stale, badRequest, authFailed, addressRefused, rateLimited, queueFull, keyRevoked, placed, awaitingConfirmation, rejected, failed, outcomeUnknown, dropped (only those that happened)."
+        queue:
+          type: object
+          properties:
+            queued: { type: integer }
+            waitingForSlot: { type: integer }
+            active: { type: integer }
+            capacity: { type: integer }
+        signals: { type: array, items: { $ref: "#/components/schemas/HookSignal" } }
+
+    HookTestResult:
+      type: object
+      required: [test, mode, accepted, outcome, summary]
+      properties:
+        test: { type: boolean, enum: [true] }
+        mode: { type: string, enum: [paper] }
+        hookId: { type: string }
+        signalId: { type: [string, "null"] }
+        accepted: { type: boolean, description: "False when the alert was refused before it was queued (unreadable or stale)." }
+        outcome: { $ref: "#/components/schemas/HookSignalOutcome" }
+        code: { type: [string, "null"] }
+        reason: { type: [string, "null"] }
+        orderId: { type: [string, "null"] }
+        summary: { type: string }
+        message: { description: "The alert that was run (never with a passphrase).", oneOf: [{ type: string }, { type: object }] }
+        note: { type: string }
+
+    TradingViewAlert:
+      type: object
+      description: |
+        The alert message of a `tradingview` hook, as JSON (or the same fields as `key=value` words in a one-line text alert:
+        `BUY NSE:RELIANCE 1 @ 1402.5 MIS mode=paper id=a1 time=2026-11-09T09:56:00Z passphrase=...`). TradingView placeholders
+        such as {{exchange}}:{{ticker}}, {{close}}, {{timenow}} and {{strategy.order.action}} are filled in by TradingView before it
+        sends the message. Any other field refuses the alert.
+      required: [symbol, passphrase]
+      additionalProperties: false
+      properties:
+        symbol: { type: string, description: "Chart ticker with its exchange: NSE:RELIANCE, NSE:M_M, NSE:NIFTY1! (also a canonical contract such as NFO:NIFTY-2026-10-27-FUT). A bare ticker with no exchange is refused." }
+        side: { type: string, enum: [buy, sell, BUY, SELL], description: "Needed unless the hook fixes the side. TradingView's {{strategy.order.action}} gives buy or sell." }
+        quantity: { type: integer, description: "Shares or units. Not together with lots." }
+        lots: { type: integer, description: "Lots (1 lot = 1 share for cash). For futures and options send {{strategy.order.contracts}} as lots." }
+        orderType: { type: string, enum: [limit, market, LIMIT, MARKET], description: "Must match the hook's order type." }
+        price: { type: number, description: "Needed on a LIMIT hook." }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MIS, NRML, DELIVERY, CARRYFORWARD], description: "MIS = INTRADAY, NRML = MARGIN. Must match the hook's product when the hook fixes one." }
+        account: { type: string, description: "Optional; must be the hook's own account." }
+        mode: { type: string, enum: [paper, live], default: paper, description: "Must equal the hook's mode. An alert without it means paper, so a live hook refuses it." }
+        marketPosition: { type: string, enum: [long, flat, short], description: "Strategy alerts: {{strategy.market_position}}. Recorded; the order is the buy or sell TradingView sent." }
+        positionSize: { type: number, minimum: 0, description: "Strategy alerts: {{strategy.market_position_size}} (never negative)." }
+        time: { type: string, description: "{{timenow}}, like 2026-11-09T09:56:00Z. Needed on a live hook. Together with id, symbol and side it identifies the alert." }
+        id: { type: string, maxLength: 128, description: "Your alert's name or {{strategy.order.id}}; with time it identifies the alert." }
+        passphrase: { type: string, description: "The passphrase shown once when the hook was created." }

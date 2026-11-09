@@ -11,6 +11,12 @@
  *     "allowSourceIps": [],             // global allowlist added to every hook's own list
  *     "clientIpHeader": null            // "cf-connecting-ip" | "x-forwarded-for" | "x-real-ip": trusted ONLY when the
  *                                       //  TCP peer is loopback (a local tunnel such as cloudflared), never otherwise
+ *     "burstWaitSec": 30,               // an alert that meets the per-account order-rate cap waits (queued) up to this long
+ *                                       //  for a free slot, then is reported as rejected; 0 turns the waiting off
+ *     "signalsKept": 100,               // recent alerts remembered per hook for GET /v1/hooks/{id}/signals (memory only)
+ *     "presets": {                      // address lists a hook can switch on; editable, with the date you last checked them
+ *       "tradingview": { "ips": ["52.89.214.238", "..."], "verifiedAt": "2026-11-09", "source": "https://..." }
+ *     }
  *   }
  *
  * Everything is optional; `{}` gives the defaults. Nothing here can switch live trading on: a hook created with
@@ -28,7 +34,24 @@ export const HOOKS_DEFAULTS = Object.freeze({
   maxHooks: 100,
   allowSourceIps: [],
   clientIpHeader: null,
+  burstWaitSec: 30,
+  signalsKept: 100,
 });
+
+/**
+ * Where TradingView says its webhook requests come from. Checked against TradingView's own help page on
+ * 2026-11-09 (https://www.tradingview.com/support/solutions/43000529348-about-webhooks/). TradingView can change this
+ * list at any time: check the page again now and then, and edit `hooks.presets.tradingview` in your config file when
+ * it differs. IPv6 is not used (the page says it is not supported for webhooks).
+ */
+export const TRADINGVIEW_IP_PRESET = Object.freeze({
+  ips: Object.freeze(["52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7"]),
+  verifiedAt: "2026-11-09",
+  source: "https://www.tradingview.com/support/solutions/43000529348-about-webhooks/",
+});
+
+/** The preset names a hook may switch on (HookCreate.sourceIpPreset). */
+export const IP_PRESET_NAMES = Object.freeze(["tradingview"]);
 
 /** An IPv4/IPv6 address or an IPv4 CIDR block (a.b.c.d/n). */
 export const ipEntrySchema = z
@@ -46,6 +69,21 @@ export const HOOKS_CONFIG_SCHEMA = z
     maxHooks: z.number().int().min(1).max(1000).default(HOOKS_DEFAULTS.maxHooks),
     allowSourceIps: z.array(ipEntrySchema).max(100).default([]),
     clientIpHeader: z.enum(["cf-connecting-ip", "x-forwarded-for", "x-real-ip"]).nullable().default(null),
+    burstWaitSec: z.number().int().min(0).max(300).default(HOOKS_DEFAULTS.burstWaitSec),
+    signalsKept: z.number().int().min(10).max(1000).default(HOOKS_DEFAULTS.signalsKept),
+    presets: z
+      .object({
+        tradingview: z
+          .object({
+            ips: z.array(ipEntrySchema).min(1).max(50),
+            verifiedAt: z.string().max(40).nullable().default(null),
+            source: z.string().max(300).nullable().default(null),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -58,6 +96,19 @@ export function hooksConfig(config) {
   const raw = config?.hooks;
   const parsed = HOOKS_CONFIG_SCHEMA.safeParse(raw ?? {});
   return parsed.success ? parsed.data : { ...HOOKS_DEFAULTS };
+}
+
+/**
+ * The address preset `name` as it applies now: the config file's version when it has one, else the built-in list.
+ * @param {ReturnType<typeof hooksConfig>} cfg
+ * @param {string} name
+ * @returns {{ name: string, ips: string[], verifiedAt: string | null, source: string | null, edited: boolean }}
+ */
+export function ipPreset(cfg, name) {
+  const mine = cfg?.presets?.[name];
+  if (mine) return { name, ips: [...mine.ips], verifiedAt: mine.verifiedAt ?? null, source: mine.source ?? null, edited: true };
+  if (name === "tradingview") return { name, ips: [...TRADINGVIEW_IP_PRESET.ips], verifiedAt: TRADINGVIEW_IP_PRESET.verifiedAt, source: TRADINGVIEW_IP_PRESET.source, edited: false };
+  return { name, ips: [], verifiedAt: null, source: null, edited: false };
 }
 
 /** @param {string} s */

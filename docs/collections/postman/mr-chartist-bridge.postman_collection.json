@@ -2770,7 +2770,7 @@
       "description": "Inbound alerts from ChartInk, GoCharting and signed senders.",
       "item": [
         {
-          "name": "Inbound alert (signed generic, ChartInk or GoCharting)",
+          "name": "Inbound alert (TradingView, signed generic, ChartInk or GoCharting)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -2784,7 +2784,7 @@
               },
               "raw": "{\n  \"symbol\": \"NSE:RELIANCE\",\n  \"side\": \"BUY\",\n  \"quantity\": 1,\n  \"orderType\": \"MARKET\",\n  \"id\": \"sig-1\"\n}"
             },
-            "description": "Inbound alert (signed generic, ChartInk or GoCharting)\n\n- No Bridge key. The hook token in the URL is the credential (generic hooks also need a signature).\n- Served on the public ingress listener when it is enabled.\n\nAnswers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,\nthrough the same preview and safety checks as any order. The hook decides what an alert may do (account,\nsymbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send\n`X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of \"<t>.<raw body>\">`; requests older than 5 minutes or\nreplayed are refused. Served on the public ingress listener when it is enabled.\n\nReference: docs/api/webhooks/receiveHook.md in the repository.",
+            "description": "Inbound alert (TradingView, signed generic, ChartInk or GoCharting)\n\n- No Bridge key. The hook token in the URL is the credential (generic hooks also need a signature).\n- Served on the public ingress listener when it is enabled.\n\nAnswers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,\nthrough the same preview and safety checks as any order. The hook decides what an alert may do (account,\nsymbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send\n`X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of \"<t>.<raw body>\">`; requests older than 5 minutes or\nreplayed are refused. Served on the public ingress listener when it is enabled.\n\n`tradingview` hooks cannot sign (TradingView cannot add headers): the credential is the secret URL plus a\n`passphrase` field inside the alert message (a JSON field, or `passphrase=...` in a plain-text alert), checked in\nconstant time before anything else is read. Wrong or missing: 401. The message is JSON (when TradingView sends\n`application/json`) or one line of text (`text/plain`); see the `TradingViewAlert` schema. An alert older than\nthe hook's `maxAgeSec` (from its `time`) is refused with 400; a repeat of the same id + time + symbol + side is\nacknowledged as `duplicate: true`. A rejected order after the 202 is shown in\n`GET /v1/hooks/{hookId}/signals` and announced on the event bus as `hook.rejected`.\n\nReference: docs/api/webhooks/receiveHook.md in the repository.",
             "header": [
               {
                 "disabled": true,
@@ -2892,6 +2892,107 @@
                 ":hookId"
               ],
               "raw": "{{baseUrl}}/v1/hooks/:hookId",
+              "variable": [
+                {
+                  "key": "hookId",
+                  "value": "<hookId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Address presets, trusted-tunnel header and public hosts, for building a hook",
+          "request": {
+            "description": "Address presets, trusted-tunnel header and public hosts, for building a hook\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nWhat the hook creator needs to show: the editable TradingView sender-address list (with the date it was last\nchecked and where it came from), `hooks.clientIpHeader` (the header trusted for the real client address behind a\nlocal tunnel; null means the address check sees the tunnel), and the public ingress hosts from the config.\n\nReference: docs/api/webhooks/getHookPresets.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "hooks",
+                "presets"
+              ],
+              "raw": "{{baseUrl}}/v1/hooks/presets"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recent alerts of one hook, with what happened to each",
+          "request": {
+            "description": "Recent alerts of one hook, with what happened to each\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nNewest first, bounded (`hooks.signalsKept`, memory only: the audit log is the durable record). Each entry has an\n`outcome` and, where it applies, the reason and the order id. Alerts refused at the door because they were\nunreadable (400) or stale are listed; wrong passphrases, refused addresses and rate limits are only counted.\nNever contains an alert body, the URL token or a passphrase. A hook of an account the key may not use answers 404.\n\nReference: docs/api/webhooks/listHookSignals.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "hooks",
+                ":hookId",
+                "signals"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "disabled": true,
+                  "key": "outcome",
+                  "value": "queued"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/hooks/:hookId/signals",
+              "variable": [
+                {
+                  "key": "hookId",
+                  "value": "<hookId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send a test alert through the real pipeline, as a paper order",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Send a test alert through the real pipeline, as a paper order\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nBuilds a realistic alert for this hook (or reads the one you paste) and runs it through the same parsing, checks and\norder path as a real alert, always as a PAPER order, never needing a confirmation, even on a live hook. Answers 200\nwith the outcome, because the test ran; a refusal (an unreadable or stale alert) is an outcome too. A test is not a\nduplicate of an earlier one, does not touch `lastSignalAt`, and is not announced on the event bus. It does not prove\nthat TradingView can reach the hook.\n\nReference: docs/api/webhooks/testHook.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "hooks",
+                ":hookId",
+                "test"
+              ],
+              "raw": "{{baseUrl}}/v1/hooks/:hookId/test",
               "variable": [
                 {
                   "key": "hookId",

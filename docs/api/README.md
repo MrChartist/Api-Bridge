@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-117 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+120 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -206,10 +206,13 @@ Inbound alerts from ChartInk, GoCharting and signed senders.
 
 | Call | What it does | Needs |
 |---|---|---|
-| [POST /hooks/{source}/{token}](webhooks/receiveHook.md) | Inbound alert (signed generic, ChartInk or GoCharting) | no key |
+| [POST /hooks/{source}/{token}](webhooks/receiveHook.md) | Inbound alert (TradingView, signed generic, ChartInk or GoCharting) | no key |
 | [GET /v1/hooks](webhooks/listHooks.md) | List configured hooks (never the token) | `admin`, this computer only |
 | [POST /v1/hooks](webhooks/createHook.md) | Create a hook; the URL with its token is shown once | `admin`, this computer only |
 | [DELETE /v1/hooks/{hookId}](webhooks/deleteHook.md) | Delete a hook (its URL stops working immediately) | `admin`, this computer only |
+| [GET /v1/hooks/presets](webhooks/getHookPresets.md) | Address presets, trusted-tunnel header and public hosts, for building a hook | `admin`, this computer only |
+| [GET /v1/hooks/{hookId}/signals](webhooks/listHookSignals.md) | Recent alerts of one hook, with what happened to each | `admin`, this computer only |
+| [POST /v1/hooks/{hookId}/test](webhooks/testHook.md) | Send a test alert through the real pipeline, as a paper order | `admin`, this computer only |
 
 ## AI (MCP)
 

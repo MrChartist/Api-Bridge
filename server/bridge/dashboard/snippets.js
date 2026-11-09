@@ -30,6 +30,20 @@ export function genericAlert({ orderType = "LIMIT", symbol = "NSE:RELIANCE" } = 
 }
 
 /**
+ * The alert message for a TradingView hook (what the hook creator shows with the real passphrase). The {{ }} words are
+ * TradingView's own placeholders; it fills them in when the alert fires.
+ * @param {{ strategy?: boolean, passphrase?: string }} [o]
+ */
+export function tradingViewAlert({ strategy = false, passphrase = "YOUR_PASSPHRASE" } = {}) {
+  const side = strategy ? '"{{strategy.order.action}}"' : '"buy"';
+  const lots = strategy ? "{{strategy.order.contracts}}" : "1";
+  const price = strategy ? "{{strategy.order.price}}" : "{{close}}";
+  const id = strategy ? '"{{strategy.order.id}}"' : '"my-alert"';
+  const position = strategy ? '  "marketPosition": "{{strategy.market_position}}",\n  "positionSize": {{strategy.market_position_size}},\n' : "";
+  return `{\n  "symbol": "{{exchange}}:{{ticker}}",\n  "side": ${side},\n  "lots": ${lots},\n  "orderType": "limit",\n  "price": ${price},\n  "product": "MIS",\n  "mode": "paper",\n${position}  "id": ${id},\n  "time": "{{timenow}}",\n  "passphrase": "${passphrase}"\n}`;
+}
+
+/**
  * Every snippet group, keyed by integration id. Each item: { title, lang, code }.
  * `orders: false` (a read-only key) leaves the paper-order lines out of the Python and Node examples, which such a key could not run.
  * @param {{ base: string, key?: string | null, account?: string, symbol?: string, folder?: string, orders?: boolean }} o
@@ -41,6 +55,8 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
   const host = base.replace(/\/$/, "");
   return {
     webhooks: [
+      { title: "TradingView alert message, plain alert (paper)", lang: "json", code: tradingViewAlert() },
+      { title: "TradingView alert message, strategy alert (paper)", lang: "json", code: tradingViewAlert({ strategy: true }) },
       { title: "Generic alert body (JSON)", lang: "json", code: genericAlert() },
       {
         title: "Send a signed generic alert (bash + openssl)",
@@ -176,4 +192,93 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       },
     ],
   };
+}
+
+// ── Webhook panel helpers (pure: the DOM code in views.js only draws what these return) ──
+
+/**
+ * The address to paste into TradingView: the hook's secret path on the public address the person types (their tunnel
+ * or domain). Without one, the local address, which only works on this computer.
+ * @param {{ path: string, localUrl?: string | null, publicBase?: string | null }} o
+ * @returns {{ url: string, isPublic: boolean, problem: string | null }}
+ */
+export function finalHookUrl({ path, localUrl = null, publicBase = "" }) {
+  const raw = String(publicBase ?? "").trim();
+  if (!raw) return { url: localUrl ?? path, isPublic: false, problem: null };
+  const m = /^(https?):\/\/([A-Za-z0-9.-]+)(?::(\d{1,5}))?\/?$/.exec(raw);
+  if (!m) return { url: localUrl ?? path, isPublic: false, problem: "Type the address as https://your-name.example.com, with nothing after the name." };
+  const [, scheme, host, port] = m;
+  if (/^(localhost|127\.|0\.0\.0\.0)/.test(host)) return { url: localUrl ?? path, isPublic: false, problem: "That address only works on this computer. TradingView needs an address on the internet." };
+  if (port && port !== "80" && port !== "443") return { url: `${scheme}://${host}:${port}${path}`, isPublic: true, problem: "TradingView only sends to port 80 or 443. Use an address without another port." };
+  return { url: `${scheme}://${host}${port ? `:${port}` : ""}${path}`, isPublic: true, problem: null };
+}
+
+/** How one alert ended, as a short word for a pill and its tone. */
+const OUTCOME_WORDS = Object.freeze({
+  placed: ["Placed", "ok"],
+  queued: ["Waiting", ""],
+  processing: ["Checking", ""],
+  awaiting_confirmation: ["Needs you", "warn"],
+  duplicate: ["Repeat", ""],
+  stale: ["Too old", "warn"],
+  refused: ["Unreadable", "warn"],
+  rejected: ["Not placed", "bad"],
+  failed: ["Failed", "bad"],
+  outcome_unknown: ["Check broker", "bad"],
+  dropped: ["Not run", "bad"],
+});
+
+/**
+ * @param {{ outcome: string, summary?: string | null, reason?: string | null }} e a signal from GET /v1/hooks/{id}/signals
+ * @returns {{ word: string, tone: string, text: string }}
+ */
+export function outcomeView(e) {
+  const [word, tone] = OUTCOME_WORDS[e?.outcome] ?? ["Unknown", "warn"];
+  return { word, tone, text: e?.summary || e?.reason || "" };
+}
+
+/** "3 placed, 1 not placed, 2 wrong passphrases" from the counts of a signals answer; "" when there is nothing to say. */
+export function countsLine(counts = {}) {
+  const n = (k) => Number(counts[k]) || 0;
+  const part = (k, one, many) => (n(k) ? `${n(k)} ${n(k) === 1 ? one : many}` : null);
+  return [
+    part("placed", "placed", "placed"),
+    part("awaitingConfirmation", "waiting for you", "waiting for you"),
+    part("duplicate", "repeat", "repeats"),
+    part("rejected", "not placed", "not placed"),
+    part("stale", "too old", "too old"),
+    part("badRequest", "unreadable", "unreadable"),
+    part("authFailed", "wrong passphrase", "wrong passphrases"),
+    part("addressRefused", "from an address that is not allowed", "from addresses that are not allowed"),
+  ].filter(Boolean).join(", ");
+}
+
+const ago = (ms) => {
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
+  const hrs = Math.floor(m / 60);
+  if (hrs < 48) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+  return `${Math.floor(hrs / 24)} days ago`;
+};
+
+/**
+ * What to tell the person about a hook that may have gone quiet.
+ * @param {{ lastSignalAt: string | null, createdAt: string | null }} hook
+ * @param {number} nowMs
+ * @returns {{ state: "new" | "never" | "recent" | "quiet", tone: string, text: string, hint: string | null }}
+ */
+export function silentHint(hook, nowMs) {
+  const last = hook?.lastSignalAt ? Date.parse(hook.lastSignalAt) : Number.NaN;
+  const made = hook?.createdAt ? Date.parse(hook.createdAt) : Number.NaN;
+  if (Number.isFinite(last)) {
+    const age = nowMs - last;
+    if (age > 3 * 86_400_000) {
+      return { state: "quiet", tone: "warn", text: `Quiet for ${Math.floor(age / 86_400_000)} days`, hint: "No alert has arrived for a while. If one should have, open the alert in TradingView and check its log and that it is still on, and check that your tunnel is running." };
+    }
+    return { state: "recent", tone: "", text: `Last alert ${ago(age)}`, hint: null };
+  }
+  const age = Number.isFinite(made) ? nowMs - made : 0;
+  if (age < 15 * 60_000) return { state: "new", tone: "", text: "No alert received yet", hint: "Send a test alert to check the hook, then create the alert in TradingView." };
+  return { state: "never", tone: "warn", text: `No alert received since it was made ${ago(age)}`, hint: "Nothing has reached this hook. Check the address in TradingView's alert (Notifications, Webhook URL), that your tunnel is running, and that the alert has fired." };
 }

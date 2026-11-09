@@ -1,4 +1,4 @@
-# Inbound alert (signed generic, ChartInk or GoCharting)
+# Inbound alert (TradingView, signed generic, ChartInk or GoCharting)
 
 `POST /hooks/{source}/{token}`
 
@@ -19,12 +19,20 @@ symbols, quantity caps, paper or live, whether a human must confirm). `generic` 
 `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`; requests older than 5 minutes or
 replayed are refused. Served on the public ingress listener when it is enabled.
 
+`tradingview` hooks cannot sign (TradingView cannot add headers): the credential is the secret URL plus a
+`passphrase` field inside the alert message (a JSON field, or `passphrase=...` in a plain-text alert), checked in
+constant time before anything else is read. Wrong or missing: 401. The message is JSON (when TradingView sends
+`application/json`) or one line of text (`text/plain`); see the `TradingViewAlert` schema. An alert older than
+the hook's `maxAgeSec` (from its `time`) is refused with 400; a repeat of the same id + time + symbol + side is
+acknowledged as `duplicate: true`. A rejected order after the 202 is shown in
+`GET /v1/hooks/{hookId}/signals` and announced on the event bus as `hook.rejected`.
+
 ## Parameters
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `source` | path | one of `generic`, `chartink`, `gocharting` | yes |  |
-| `token` | path | string, up to 128 characters | yes | The hook's secret token (shown once when the hook is created). It is the only credential ChartInk and GoCharting can carry, since they cannot sign requests. |
+| `source` | path | one of `generic`, `chartink`, `gocharting`, `tradingview` | yes |  |
+| `token` | path | string, up to 128 characters | yes | The hook's secret token (shown once when the hook is created). It is the credential ChartInk and GoCharting can carry, since they cannot sign requests; TradingView adds a `passphrase` inside the alert message. |
 | `X-MCB-Signature` | header | string | no |  |
 
 ## Request body
@@ -59,7 +67,7 @@ Example:
 |---|---|---|---|
 | `accepted` | boolean | yes |  |
 | `signalId` | string | yes |  |
-| `duplicate` | boolean | no |  |
+| `duplicate` | boolean | no | The same alert was already received (same id and time for TradingView); nothing new was queued. |
 | `dropped` | integer | no | Orders in the alert that were dropped before queueing (for example over the per-alert cap). |
 
 ## Errors
