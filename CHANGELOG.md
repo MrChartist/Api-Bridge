@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Dashboard Data page (`#/data`): a download wizard with an estimate before start, live progress, recordings with auto-record rules and one-click presets, datasets with Update now, collections with an option-universe builder and live preview, and a Saving API calls card.
 - Developer files generated from `docs/openapi.yaml`: Postman and Bruno collections (`docs/collections/`), one Markdown page
   per endpoint and the error codes (`docs/api/`), `docs/llms.txt`, `docs/llms-full.txt` and a search index. The curl
   examples in them and in the quickstart run in the tests; `npm run docs:generate` rewrites everything and `npm run

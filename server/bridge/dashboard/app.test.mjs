@@ -227,8 +227,8 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, 
   const { fuzzyScore, pageCommands, rank } = await import("./palette.js");
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
-  it("has 6 pages in two groups, in the order of the sidebar", () => {
-    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "connect", "sources", "api", "orders", "safety"]);
+  it("has the pages in two groups, in the order of the sidebar", () => {
+    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "connect", "sources", "data", "api", "orders", "safety"]);
     expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["Bridge", "Trade"]);
     // The phone tab bar holds four pages and More: Sources (is the data flowing?) is in it, API (set up once) is under More.
     expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["accounts", "sources", "orders", "safety"]);
@@ -242,7 +242,7 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, 
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
     const tabbed = PAGES.filter((p) => p.tabs);
-    expect(tabbed.map((p) => p.id)).toEqual(["sources", "api", "orders"]);
+    expect(tabbed.map((p) => p.id)).toEqual(["sources", "data", "api", "orders"]);
     for (const p of tabbed) {
       expect(p.tabs.some((t) => t.id === p.defaultTab), p.id).toBe(true);
       for (const t of p.tabs) {

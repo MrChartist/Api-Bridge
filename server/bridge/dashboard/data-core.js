@@ -349,7 +349,7 @@ export function universeSentence(u) {
 /** The short form used in rule rows: "NIFTY ATM +/- 10, current weekly". */
 export function universeShort(u) {
   if (!u?.underlying) return "";
-  const strikes = u.strikes?.from !== undefined ? `${formatInt(u.strikes.from)}-${formatInt(u.strikes.to)}` : `ATM +/- ${formatInt(u.strikes?.count ?? 10)}`;
+  const strikes = u.strikes?.from !== undefined ? [formatInt(u.strikes.from), formatInt(u.strikes.to)].join("-") : `ATM +/- ${formatInt(u.strikes?.count ?? 10)}`;
   const ex = Array.isArray(u.expiries) ? `${plural(u.expiries.length, "date")}` : (EXPIRY_CHOICES.find((c) => c.id === u.expiries)?.label ?? "").replace(" expiry", "").toLowerCase();
   return `${u.underlying} ${strikes}${ex ? `, ${ex}` : ""}`;
 }
