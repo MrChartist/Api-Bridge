@@ -23,6 +23,10 @@
  *  key.revoked         { keyId }                    StreamHub closes WS/SSE connections opened with this key
  *  ticket.confirmed    { ticketId, accountId, principal }   a person confirmed an order ticket (no token in the payload)
  *  ticket.rejected     { ticketId, accountId, principal }   a person declined an order ticket (principal: who prepared it)
+ *  hook.rejected       { hookId, label, source, signalId, stage: "order"|"receive", outcome, code, reason, symbol, side, accountId, mode, at }
+ *                      a webhook alert that was accepted (202) but did not end in an order (rejected, failed, outcome unknown,
+ *                      dropped), or was refused at the door as stale, unreadable or because the queue was full; never a test alert
+ *                      and never a wrong passphrase. No alert body, token or passphrase is in it.
  *  position.converted  { accountId, mode, symbol, from, to, quantity, at }   units moved between products
  *  trading.readiness   account readiness change; notify only when `notify: true`
  */
@@ -41,6 +45,7 @@ export const TOPICS = Object.freeze([
   "key.revoked",
   "ticket.confirmed",
   "ticket.rejected",
+  "hook.rejected",
   "position.converted",
   "trading.readiness",
 ]);

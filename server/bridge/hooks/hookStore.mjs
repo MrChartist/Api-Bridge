@@ -12,15 +12,17 @@
  *
  * Both the token and the signing secret are returned exactly once, by create().
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
-import { ipEntrySchema } from "./config.mjs";
+import { IP_PRESET_NAMES, ipEntrySchema } from "./config.mjs";
 
-export const HOOK_SOURCES = Object.freeze(["generic", "chartink", "gocharting"]);
+export const HOOK_SOURCES = Object.freeze(["generic", "chartink", "gocharting", "tradingview"]);
+/** TradingView hooks refuse alerts older than this many seconds unless the hook says otherwise. */
+export const DEFAULT_MAX_AGE_SEC = 120;
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const HOOK_ID_RE = /^hk_[a-z2-7]{12}$/;
 const B32 = "abcdefghijklmnopqrstuvwxyz234567";
@@ -47,6 +49,10 @@ export const hookCreateSchema = z
     side: z.enum(["BUY", "SELL"]).optional(),
     /** Live mode on a source that cannot sign its alerts (only the URL token protects it): the person says so. */
     acknowledgeUnsignedLive: z.boolean().default(false),
+    /** An alert whose own time is older than this many seconds is refused as stale (needs `time` in the alert). */
+    maxAgeSec: z.number().int().min(5).max(3600).nullable().optional(),
+    /** Also accept alerts only from a published address list kept in the hooks config (for example "tradingview"). */
+    sourceIpPreset: z.enum(IP_PRESET_NAMES).nullable().optional(),
   })
   .strict();
 
@@ -54,6 +60,7 @@ export const hookCreateSchema = z
  * @typedef {{ id: string, source: "generic"|"chartink"|"gocharting", label: string, account: string,
  *   mode: "paper"|"live", requireConfirmation: boolean, allowedSymbols: string[], maxLotsPerSignal: number,
  *   product: "CNC"|"INTRADAY"|"MARGIN"|null, orderType: "LIMIT"|"MARKET", allowSourceIps: string[], side: "BUY"|"SELL"|null,
+ *   maxAgeSec: number | null, sourceIpPreset: "tradingview" | null, passphraseHash: string | null,
  *   tokenHash: string, createdAt: string, lastSignalAt: string | null }} HookRecord
  */
 
@@ -82,6 +89,9 @@ export function publicHook(h) {
     orderType: h.orderType,
     side: h.side,
     allowSourceIps: [...h.allowSourceIps],
+    sourceIpPreset: h.sourceIpPreset ?? null,
+    maxAgeSec: h.maxAgeSec ?? null,
+    hasPassphrase: typeof h.passphraseHash === "string",
     acknowledgeUnsignedLive: h.acknowledgeUnsignedLive === true,
     createdByKeyId: h.createdByKeyId ?? null,
     createdAt: h.createdAt,
@@ -139,6 +149,9 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
         allowSourceIps: [],
         product: null,
         side: null,
+        maxAgeSec: null,
+        sourceIpPreset: null,
+        passphraseHash: null,
         lastSignalAt: null,
         requireConfirmation: false,
         orderType: "LIMIT",
@@ -194,7 +207,8 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
      * @param {unknown} input  HookCreate
      * @param {{ createdByKeyId?: string | null }} [opts]  the API key that created it (audited; a live hook stops
      *   accepting signals when that key is revoked)
-     * @returns {Promise<{ hook: HookRecord, token: string, signingSecret: string | null }>}
+     * @returns {Promise<{ hook: HookRecord, token: string, signingSecret: string | null, passphrase: string | null }>}
+     *   passphrase: TradingView hooks only; only its SHA-256 is kept
      */
     async create(input, { createdByKeyId = null } = {}) {
       const parsed = hookCreateSchema.safeParse(input);
@@ -210,8 +224,16 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
         await secrets.set(`hook:${id}`, { signingSecret });
         secretCache.set(id, signingSecret);
       }
+      // TradingView cannot sign, so its alerts carry a passphrase in the message. It is random (128 bits), shown once,
+      // and only its hash is stored (compared in constant time).
+      const passphrase = d.source === "tradingview" ? randomBytes(16).toString("base64url") : null;
       logger?.addSecret?.(token);
       if (signingSecret) logger?.addSecret?.(signingSecret);
+      if (passphrase) logger?.addSecret?.(passphrase);
+      const maxAgeSec = d.maxAgeSec !== undefined ? d.maxAgeSec : d.source === "tradingview" ? DEFAULT_MAX_AGE_SEC : null;
+      if (d.mode === "live" && d.source === "tradingview" && maxAgeSec === null) {
+        throw new BridgeError("VALIDATION_FAILED", "A live TradingView hook needs maxAgeSec, so an old or replayed alert can never place a real order.", { errors: [{ path: "maxAgeSec", message: "required for a live TradingView hook (5 to 3600 seconds)" }] });
+      }
       /** @type {HookRecord} */
       const hook = {
         id,
@@ -226,6 +248,9 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
         orderType: d.orderType,
         allowSourceIps: [...new Set(d.allowSourceIps ?? [])],
         side: d.side ?? null,
+        maxAgeSec,
+        sourceIpPreset: d.sourceIpPreset ?? null,
+        passphraseHash: passphrase ? hashToken(passphrase) : null,
         acknowledgeUnsignedLive: d.acknowledgeUnsignedLive === true,
         createdByKeyId: typeof createdByKeyId === "string" ? createdByKeyId : null,
         tokenHash: hashToken(token),
@@ -242,7 +267,7 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
         secretCache.delete(id);
         throw err;
       }
-      return { hook, token, signingSecret };
+      return { hook, token, signingSecret, passphrase };
     },
 
     /**
@@ -279,6 +304,18 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
       const s = typeof v?.signingSecret === "string" ? v.signingSecret : null;
       if (s) secretCache.set(id, s);
       return s;
+    },
+
+    /**
+     * Whether `given` is this hook's passphrase. Both sides are hashed first, so the comparison runs over equal-length
+     * digests in constant time whatever was sent; a hook without a passphrase never matches.
+     * @param {string} id @param {unknown} given
+     */
+    checkPassphrase(id, given) {
+      const h = byId.get(id);
+      const a = createHash("sha256").update(typeof given === "string" ? given : "", "utf8").digest();
+      const b = Buffer.from(typeof h?.passphraseHash === "string" ? h.passphraseHash : "0".repeat(64), "hex");
+      return timingSafeEqual(a, b) && typeof h?.passphraseHash === "string";
     },
 
     /** Record that a hook received a signal (written to disk lazily). */

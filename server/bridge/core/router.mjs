@@ -24,6 +24,9 @@ export const METHODS = Object.freeze(["GET", "POST", "PUT", "PATCH", "DELETE"]);
  *   formatError?: (err: unknown, info: { requestId: string }) => import("./http.mjs").Reply,
  *                                          // error body for clients that cannot read problem+json (Excel);
  *                                          // used for every failure on the route, including auth and rate limit
+ *   onError?: (ctx: import("./context.mjs").RequestContext, err: unknown) => void,
+ *                                          // told of every failure on the route once the request is matched (body too
+ *                                          // large, wrong content type, errors the handler threw); must not throw or await
  * }} RouteOptions
  * @typedef {(ctx: import("./context.mjs").RequestContext) => unknown | Promise<unknown>} Handler
  * @typedef {{ method: string, pattern: string, handler: Handler, options: RouteOptions, module?: string }} Route
