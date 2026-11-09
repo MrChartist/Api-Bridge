@@ -12,7 +12,18 @@ post {
 
 body:json {
   {
-    "apikey": "<apikey>"
+    "apikey": "{{apiKey}}",
+    "strategy": "my-script",
+    "orders": [
+      {
+        "symbol": "RELIANCE",
+        "exchange": "NSE",
+        "action": "BUY",
+        "quantity": 1,
+        "pricetype": "MARKET",
+        "product": "CNC"
+      }
+    ]
   }
 }
 

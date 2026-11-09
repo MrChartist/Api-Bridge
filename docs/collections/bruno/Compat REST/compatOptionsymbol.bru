@@ -12,7 +12,11 @@ post {
 
 body:json {
   {
-    "apikey": "<apikey>"
+    "apikey": "{{apiKey}}",
+    "underlying": "NIFTY",
+    "exchange": "NSE_INDEX",
+    "offset": "ATM",
+    "option_type": "CE"
   }
 }
 

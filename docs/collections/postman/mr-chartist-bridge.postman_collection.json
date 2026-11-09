@@ -1451,7 +1451,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"price\": 1400\n}"
+              "raw": "{\n  \"price\": 1450\n}"
             },
             "description": "Modify an open order\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nCounts towards the order-rate cap. Brokers limit modifications per order (for example 25); after that, cancel and place again.\n\nReference: docs/api/orders/modifyOrder.md in the repository.",
             "header": [
@@ -2755,10 +2755,10 @@
                 },
                 {
                   "key": "layout",
-                  "value": "rows"
+                  "value": "standard"
                 }
               ],
-              "raw": "{{baseUrl}}/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=rows"
+              "raw": "{{baseUrl}}/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=standard"
             }
           },
           "response": []
@@ -3308,7 +3308,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"product\": \"CNC\",\n  \"pricetype\": \"MARKET\",\n  \"position_size\": 1\n}"
             },
             "description": "Order towards a target position size\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatPlacesmartorder.md in the repository.",
             "header": [
@@ -3346,7 +3346,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"orders\": [\n    {\n      \"symbol\": \"RELIANCE\",\n      \"exchange\": \"NSE\",\n      \"action\": \"BUY\",\n      \"quantity\": 1,\n      \"pricetype\": \"MARKET\",\n      \"product\": \"CNC\"\n    }\n  ]\n}"
             },
             "description": "Several orders in one call\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatBasketorder.md in the repository.",
             "header": [
@@ -3384,7 +3384,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"quantity\": 5,\n  \"splitsize\": 2,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"CNC\"\n}"
             },
             "description": "One order split into pieces\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatSplitorder.md in the repository.",
             "header": [
@@ -3422,7 +3422,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"orderid\": \"<orderId>\",\n  \"quantity\": 1,\n  \"price\": 1450,\n  \"pricetype\": \"LIMIT\"\n}"
             },
             "description": "Modify an open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatModifyorder.md in the repository.",
             "header": [
@@ -3498,7 +3498,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
             },
             "description": "Cancel every open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCancelallorder.md in the repository.",
             "header": [
@@ -3536,7 +3536,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
             },
             "description": "Square off every open position\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCloseposition.md in the repository.",
             "header": [
@@ -3612,7 +3612,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"product\": \"CNC\"\n}"
             },
             "description": "Net quantity for one symbol and product\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOpenposition.md in the repository.",
             "header": [
@@ -3650,7 +3650,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"underlying\": \"NIFTY\",\n  \"exchange\": \"NSE_INDEX\",\n  \"offset\": \"ATM\",\n  \"option_type\": \"CE\",\n  \"action\": \"BUY\",\n  \"quantity\": 75,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"MIS\"\n}"
             },
             "description": "Order an option by offset (ATM, ITM2, OTM1 ...)\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOptionsorder.md in the repository.",
             "header": [
@@ -3840,7 +3840,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
             },
             "description": "Supported candle intervals\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatIntervals.md in the repository.",
             "header": [
@@ -4030,7 +4030,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"underlying\": \"NIFTY\",\n  \"exchange\": \"NSE_INDEX\",\n  \"offset\": \"ATM\",\n  \"option_type\": \"CE\"\n}"
             },
             "description": "Option symbol for an offset\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOptionsymbol.md in the repository.",
             "header": [
@@ -4068,7 +4068,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"apikey\": \"<apikey>\"\n}"
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
             },
             "description": "Margin calculation (not available yet)\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatMargin.md in the repository.",
             "header": [

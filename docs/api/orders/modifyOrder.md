@@ -39,7 +39,7 @@ Example:
 
 ```json
 {
-  "price": 1400
+  "price": 1450
 }
 ```
 
@@ -127,7 +127,7 @@ curl -s -X PATCH "http://127.0.0.1:4300/v1/orders/<orderId>" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"price":1400}'
+  -d '{"price":1450}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -137,6 +137,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-result = bridge.modify_order("<orderId>", {"price": 1400})
+result = bridge.modify_order("<orderId>", {"price": 1450})
 print(result)
 ```

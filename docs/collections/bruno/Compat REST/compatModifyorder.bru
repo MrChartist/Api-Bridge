@@ -12,7 +12,11 @@ post {
 
 body:json {
   {
-    "apikey": "<apikey>"
+    "apikey": "{{apiKey}}",
+    "orderid": "<orderId>",
+    "quantity": 1,
+    "price": 1450,
+    "pricetype": "LIMIT"
   }
 }
 

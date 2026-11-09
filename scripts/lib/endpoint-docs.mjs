@@ -168,7 +168,7 @@ export const PY_HELPERS = Object.freeze({
   listTrades: 'bridge.trades(account="demo-paper")',
   previewOrder: "bridge.preview_order(order)",
   placeOrder: "bridge.place_order(order)",
-  modifyOrder: 'bridge.modify_order("<orderId>", {"price": 1400})',
+  modifyOrder: 'bridge.modify_order("<orderId>", {"price": 1450})',
   cancelOrder: 'bridge.cancel_order("<orderId>")',
   cancelAllOrders: 'bridge.cancel_all_orders(account="demo-paper", mode="paper")',
   getPaperAccount: 'bridge.paper_account("demo-paper")',

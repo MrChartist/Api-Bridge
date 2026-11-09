@@ -5,7 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=rows
+  url: {{baseUrl}}/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=standard
   body: none
   auth: bearer
 }
@@ -15,7 +15,7 @@ params:query {
   interval: 5m
   ~from: 2026-11-02
   ~to: 2026-11-06
-  layout: rows
+  layout: standard
 }
 
 auth:bearer {

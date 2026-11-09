@@ -136,6 +136,7 @@ function readme(spec, ops, groups) {
     "- Order examples are **paper orders** on the demo paper account (`demo-paper`, from `mc-bridge start --demo`).",
     "  A live order needs the opt-ins in [safety.md](../guides/safety.md); nothing here turns them on.",
     "- Calls that act on something you create (an order id, a key id, a ticket) show a placeholder such as `<orderId>`: replace it.",
+    "- Dates such as `expiry` in the examples are samples. Send **Expiries** first and use one of the dates it returns.",
     "",
     "## Postman",
     "",

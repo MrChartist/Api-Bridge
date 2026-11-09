@@ -12,7 +12,16 @@ post {
 
 body:json {
   {
-    "apikey": "<apikey>"
+    "apikey": "{{apiKey}}",
+    "strategy": "my-script",
+    "underlying": "NIFTY",
+    "exchange": "NSE_INDEX",
+    "offset": "ATM",
+    "option_type": "CE",
+    "action": "BUY",
+    "quantity": 75,
+    "pricetype": "MARKET",
+    "product": "MIS"
   }
 }
 

@@ -24,7 +24,7 @@ export const BODIES = Object.freeze({
   placeOrder: ORDER,
   previewOrder: ORDER,
   cancelAllOrders: { account: "demo-paper", mode: "paper" },
-  modifyOrder: { price: 1400 },
+  modifyOrder: { price: 1450 },
   rejectTicket: { reason: "Not the order I meant" },
   resetPaperAccount: { startingCapital: 1000000 },
   paperBasketMargin: { legs: [{ symbol: "NSE:RELIANCE", side: "BUY", quantity: 1 }] },
@@ -48,6 +48,17 @@ export const BODIES = Object.freeze({
   compatMultiquotes: COMPAT({ symbols: [{ symbol: "RELIANCE", exchange: "NSE" }, { symbol: "NIFTY", exchange: "NSE_INDEX" }] }),
   compatDepth: COMPAT({ symbol: "RELIANCE", exchange: "NSE" }),
   compatHistory: COMPAT({ symbol: "RELIANCE", exchange: "NSE", interval: "5m", start_date: "2026-11-02", end_date: "2026-11-06" }),
+  compatPlacesmartorder: COMPAT({ strategy: "my-script", symbol: "RELIANCE", exchange: "NSE", action: "BUY", product: "CNC", pricetype: "MARKET", position_size: 1 }),
+  compatBasketorder: COMPAT({ strategy: "my-script", orders: [{ symbol: "RELIANCE", exchange: "NSE", action: "BUY", quantity: 1, pricetype: "MARKET", product: "CNC" }] }),
+  compatSplitorder: COMPAT({ strategy: "my-script", symbol: "RELIANCE", exchange: "NSE", action: "BUY", quantity: 5, splitsize: 2, pricetype: "MARKET", product: "CNC" }),
+  compatModifyorder: COMPAT({ orderid: "<orderId>", quantity: 1, price: 1450, pricetype: "LIMIT" }),
+  compatCancelallorder: COMPAT({}),
+  compatCloseposition: COMPAT({}),
+  compatOpenposition: COMPAT({ symbol: "RELIANCE", exchange: "NSE", product: "CNC" }),
+  compatOptionsorder: COMPAT({ strategy: "my-script", underlying: "NIFTY", exchange: "NSE_INDEX", offset: "ATM", option_type: "CE", action: "BUY", quantity: 75, pricetype: "MARKET", product: "MIS" }),
+  compatOptionsymbol: COMPAT({ underlying: "NIFTY", exchange: "NSE_INDEX", offset: "ATM", option_type: "CE" }),
+  compatIntervals: COMPAT({}),
+  compatMargin: COMPAT({}),
   compatSymbol: COMPAT({ symbol: "RELIANCE", exchange: "NSE" }),
   compatSearch: COMPAT({ query: "RELIANCE", exchange: "NSE" }),
   compatExpiry: COMPAT({ symbol: "NIFTY", exchange: "NFO" }),
@@ -59,7 +70,7 @@ export const QUERY_EXTRAS = Object.freeze({
   getHistory: { countback: 50 },
   getOptionChain: { strikes: 5 },
   xlChain: { format: "csv" },
-  xlHistory: { layout: "rows" },
+  xlHistory: { layout: "standard" },
   listOrders: { limit: 20 },
 });
 
@@ -93,7 +104,7 @@ export function requestExample(spec, op) {
   if (op.requestBody) {
     contentType = op.requestBody.contentType;
     body = Object.hasOwn(BODIES, op.id) ? BODIES[op.id] : sample(spec, op.requestBody.schema);
-    if (op.bodyKey && body && typeof body === "object" && !("apikey" in body)) body = { apikey: "{{apiKey}}", ...body };
+    if (op.bodyKey && body && typeof body === "object") body = { ...body, apikey: "{{apiKey}}" };
     bodyText = JSON.stringify(body, null, 2);
   }
   return { path, pathParams, query, headers, body, bodyText, contentType };

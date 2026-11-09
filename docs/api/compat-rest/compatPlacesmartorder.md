@@ -25,7 +25,14 @@ Example:
 
 ```json
 {
-  "apikey": "<apikey>"
+  "apikey": "YOUR_API_KEY",
+  "strategy": "my-script",
+  "symbol": "RELIANCE",
+  "exchange": "NSE",
+  "action": "BUY",
+  "product": "CNC",
+  "pricetype": "MARKET",
+  "position_size": 1
 }
 ```
 
@@ -64,16 +71,31 @@ curl (set `MCB_API_KEY` to your key first; replace `YOUR_API_KEY` in the body):
 ```bash
 curl -s -X POST "http://127.0.0.1:4300/api/v1/placesmartorder" \
   -H "Content-Type: application/json" \
-  -d '{"apikey":"<apikey>"}'
+  -d '{"apikey":"YOUR_API_KEY","strategy":"my-script","symbol":"RELIANCE","exchange":"NSE","action":"BUY","product":"CNC","pricetype":"MARKET","position_size":1}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
 
 ```python
+import os
+
 from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/api/v1/placesmartorder", body={"apikey": "<apikey>"})
+response = bridge.request(
+    "POST",
+    "/api/v1/placesmartorder",
+    body={
+    "apikey": os.environ["MCB_API_KEY"],
+    "strategy": "my-script",
+    "symbol": "RELIANCE",
+    "exchange": "NSE",
+    "action": "BUY",
+    "product": "CNC",
+    "pricetype": "MARKET",
+    "position_size": 1,
+},
+)
 print(response.body)
 ```

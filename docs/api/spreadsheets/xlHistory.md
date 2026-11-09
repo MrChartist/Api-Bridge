@@ -45,7 +45,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s "http://127.0.0.1:4300/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=rows" \
+curl -s "http://127.0.0.1:4300/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=standard" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -59,7 +59,7 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "GET",
     "/xl/history",
-    query={"symbol": "NSE:RELIANCE", "interval": "5m", "layout": "rows"},
+    query={"symbol": "NSE:RELIANCE", "interval": "5m", "layout": "standard"},
 )
 print(response.body)
 ```
