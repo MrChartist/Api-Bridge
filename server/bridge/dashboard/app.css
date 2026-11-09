@@ -2291,12 +2291,11 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .tg-acts, .tg-card .row-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 0 var(--space-4); }
 .tg-group { gap: 8px; }
 .gs-more { margin: 0; padding: 0 var(--card-pad) var(--card-pad); }
-.tg-wrap { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.tg-card .list-row .sub.tg-wrap { display: block; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 .tg-chat > .small.destructive { flex: none; }
 .tg-card .alert > .small { margin-left: auto; align-self: center; flex: none; }
 .tg-card .group > .alert { margin: 0 var(--space-4); }
-.tg-card .list-row .names .sub.tg-wrap { display: block; }
-@media (max-width: 719px) { .tg-card .list-row { flex-wrap: wrap; } .tg-card .list-row .names { flex-basis: 60%; } }
+@media (max-width: 719px) { .tg-card .list-row.tg-chat { flex-wrap: wrap; } .tg-card .tg-chat .names { flex: 1 1 calc(100% - 64px); } }
 
 /* Test console */
 .ac { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--panel-gap); min-width: 0; }
