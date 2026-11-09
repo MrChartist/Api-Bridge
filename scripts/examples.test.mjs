@@ -114,8 +114,9 @@ describe("docs examples run against a demo Bridge", () => {
   async function openOrder() {
     const clientOrderId = `docs-client-${++orderNo}`;
     const q = await call("GET", "/v1/ltp?symbols=NSE:RELIANCE");
-    const price = Math.round((q.json.data[0].ltp * 0.99) / 0.05) * 0.05;
-    const body = { account: "demo-paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "LIMIT", price: Number(price.toFixed(2)), clientOrderId };
+    // The tick size of the demo RELIANCE is 0.1: a price that is not a multiple of it is refused, so round to it.
+    const price = Math.round((q.json.data[0].ltp * 0.99) / 0.1) * 0.1;
+    const body = { account: "demo-paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "LIMIT", price: Number(price.toFixed(1)), clientOrderId };
     const r = await call("POST", "/v1/orders", { body, headers: { "Idempotency-Key": `docs-${Math.random().toString(36).slice(2, 12)}` } });
     expect([200, 201], r.text).toContain(r.status);
     return { ...r.json.data, clientOrderId };
