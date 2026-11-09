@@ -2637,3 +2637,75 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
   .sx-dot { background: CanvasText; border: 1px solid CanvasText; }
 }
 /* === END PAGE: sources === */
+
+/* === PAGE: connect === */
+/* Everything for making the product easy: the Connect a tool page, the Simple view, the glossary "?", "Something wrong?"
+   and the toolbar Stop, and the practice-order sheet. Tokens and the foundation's components only. */
+:root[data-mode="simple"] #toolbar-budget { display: none; }
+
+.cn { container-type: inline-size; display: flex; flex-direction: column; gap: var(--panel-gap); min-width: 0; }
+.cn-note, .cn-status { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px var(--card-pad); border-radius: var(--r-md); background: hsl(var(--accent) / 0.08); box-shadow: inset 0 0 0 1px hsl(var(--accent) / 0.2); font: var(--t-callout); }
+.cn-note > svg.ic { width: 18px; height: 18px; flex: none; color: hsl(var(--accent-ink)); }
+.cn-note p, .cn-status p { margin: 0; flex: 1 1 240px; min-width: 0; }
+.cn-status { margin-bottom: var(--panel-gap); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); }
+.cn-step { display: flex; flex-direction: column; gap: 16px; padding: calc(var(--card-pad) + 4px); border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--edge-1), var(--card-shadow); min-width: 0; }
+.cn-q { margin: 0; font: var(--t-title3); letter-spacing: -0.014em; text-wrap: balance; }
+.cn-q:focus { outline: none; }
+.cn-q:focus-visible { outline: 2px solid hsl(var(--accent)); outline-offset: 4px; border-radius: 6px; }
+.cn-h3 { margin: 0; font: var(--t-headline); }
+.cn-grid { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
+.cn-tool { min-height: 64px; }
+.cn-tool > svg.ic { opacity: 0.45; }
+.cn-back { align-self: flex-start; margin-inline-start: -8px; }
+.cn-back > svg.ic { rotate: 180deg; }
+.cn-choice { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0; }
+.cn-choice-label, .cn-label { font: 600 13px/1.3 var(--font-body); color: var(--label-2); }
+.cn-choice .segmented { max-width: 100%; }
+.cn-caps { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-md); background: var(--fill-1); }
+.cn-caps p { display: flex; gap: 10px; align-items: flex-start; margin: 0; font: var(--t-callout); }
+.cn-caps svg.ic { width: 16px; height: 16px; flex: none; margin-top: 2px; stroke-width: 2.4; }
+.cn-can svg.ic { color: hsl(var(--success-ink)); }
+.cn-cannot svg.ic { color: var(--label-2); }
+.cn-small { margin: 0; font: var(--t-footnote); color: var(--label-2); text-wrap: pretty; }
+.cn-go { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.cn-head { display: flex; gap: 14px; align-items: center; }
+.cn-head > div { min-width: 0; }
+.cn-keybox { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: var(--r-md); background: var(--fill-1); box-shadow: inset 0 0 0 1px var(--separator); }
+.cn-key { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cn-key-v { flex: 1 1 260px; min-width: 0; padding: 9px 12px; border-radius: 8px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator); font: 500 13px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.cn-setup { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cn-blocks { min-width: 0; }
+.cn-test { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
+.cn-result:empty { display: none; }
+.cn-cannot-line { padding-inline-start: 2px; }
+.cn-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-inline: -8px; }
+.alert-fix { margin-top: 8px; }
+@container (max-width: 480px) { .cn-go > .primary, .cn-go > button.lg { width: 100%; } }
+
+/* The glossary "?" after a technical word: a small round button, a 44px target on touch. */
+.gl { white-space: normal; }
+button.gl-btn { --btn-h: 18px; --btn-px: 0; --btn-fs: 11px; --btn-r: 50%; --btn-fw: 700; --btn-bg: hsl(var(--accent) / 0.14); --btn-bg-h: hsl(var(--accent) / 0.26); --btn-fg: hsl(var(--accent-ink)); --press: 0.9; display: inline-flex; width: 18px; min-height: 18px; margin-inline: 4px 2px; vertical-align: 1px; flex: none; }
+button.gl-btn::after { content: ""; position: absolute; inset: -4px; }
+@media (pointer: coarse) { button.gl-btn::after { inset: -13px; } }
+.gl-pop .gl-text, .help-popover .help-lead { margin: 0; padding: 4px 16px 16px; max-width: 320px; font: var(--t-callout); color: var(--label-2); }
+.help-popover .help-lead { max-width: 360px; padding-bottom: 8px; }
+.help-sheet .list { margin: 0 8px 8px; }
+.help-row .sub { white-space: normal; }
+.help-row.danger .nm { color: hsl(var(--danger-ink)); }
+
+/* The toolbar: "Something wrong?" and the emergency Stop. Text on wide screens, icons on phones (labels stay for readers). */
+.toolbar button.toolbar-help, .toolbar button.toolbar-stop { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 13px; --btn-bg: var(--fill-2); --btn-bg-h: var(--fill-3); --btn-r: 999px; --btn-fw: 500; }
+.toolbar button.toolbar-stop { --btn-bg: hsl(var(--danger) / 0.12); --btn-bg-h: hsl(var(--danger) / 0.22); --btn-fg: hsl(var(--danger-ink)); --btn-fw: 600; }
+@media (max-width: 1099px) {
+  .toolbar button.toolbar-help, .toolbar button.toolbar-stop { width: var(--ctl-h); padding: 0; justify-content: center; }
+  .toolbar :is(.toolbar-help, .toolbar-stop) > .tb-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* The practice-order sheet. */
+.po-sheet .po-lead { margin: 0; font: var(--t-callout); color: var(--label-2); }
+.po-sheet .seg-field { margin: 0; }
+
+@media (forced-colors: active) {
+  .cn-step, .cn-caps, .cn-keybox, .cn-key-v, .cn-note, .cn-status, button.gl-btn { border: 1px solid CanvasText; }
+}
+/* === END PAGE: connect === */

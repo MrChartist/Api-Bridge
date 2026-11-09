@@ -1,6 +1,7 @@
 // Command palette (Spotlight style) and keyboard shortcuts for the dashboard.
 // Browser only: nothing here touches the DOM until initPalette() runs (views.js calls it from startRouter()).
 import { app, chooseDensity, chooseTheme, copyText, h, icon, iconTile, lockScroll, modal, toast, toggleSidebarRail } from "./app.js";
+import { getMode, setMode } from "./easy-core.js";
 
 /** The modifier shown in every shortcut hint. One label for everyone: the key handler accepts Control or Command alike. */
 export const MOD = "Ctrl";
@@ -182,7 +183,9 @@ function commands() {
     { id: "ready", label: "Check trading readiness now", sub: "Run the session, IP, limits and kill-switch checks", keywords: "safety status session static ip health", icon: "safety", tint: "green", run: () => import("./readiness.js").then((m) => m.checkNow(null)) },
     { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", navigates: true, run: () => ctx.go("api/keys", "#key-label") },
     { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", navigates: true, run: () => ctx.go("api/console") },
-    { id: "paper", label: "Place a paper order", sub: "Send a paper order as JSON in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", navigates: true, run: () => ctx.go("api/console?endpoint=order") },
+    { id: "paper", label: "Place a paper order", sub: "Practice buy or sell with pretend money", keywords: "buy sell trade order practice paper shares stock", icon: "orders", tint: "orange", navigates: true, run: () => ctx.go("orders?practice=1") },
+    { id: "connect", label: "Connect a tool", sub: "Excel, an AI assistant or a script: a key and the setup to copy", keywords: "excel sheets claude chatgpt python node script ai assistant key setup connect integration amibroker", icon: "plug", tint: "green", navigates: true, run: () => ctx.go("connect") },
+    { id: "help", label: "Something wrong?", sub: "Rate limited, an old price, a key that does not work", keywords: "help problem trouble error rate limited slow old delayed stale stop why", icon: "info", tint: "blue", run: () => import("./help.js").then((m) => m.openHelp(null)) },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
     { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
@@ -190,7 +193,10 @@ function commands() {
   const themes = [["auto", "Theme: Auto (match system)", "monitor", "appearance system"], ["light", "Theme: Light", "sun", "appearance day"], ["dark", "Theme: Dark", "moon", "appearance night"]].map(([v, label, ic, kw]) => ({ id: `theme-${v}`, label, sub: theme === v ? "Current" : undefined, keywords: kw, icon: ic, tint: "indigo", run: () => setTheme(v) }));
   const density = fineDesktop() ? [["auto", "Density: Automatic"], ["comfortable", "Density: Comfortable"], ["compact", "Density: Compact"]].map(([v, label]) => ({ id: `density-${v}`, label, sub: v !== "auto" && densityNow() === v ? "Current" : undefined, keywords: "spacing rows tighter roomier", icon: "density", tint: "teal", run: () => (chooseDensity(v), toast(`Density: ${v === "auto" ? "Automatic" : v === "compact" ? "Compact" : "Comfortable"}`))})) : [];
   const sidebar = sb === "rail" || sb === "full" ? [{ id: "sidebar", label: sb === "rail" ? "Expand the sidebar" : "Collapse the sidebar to icons", keywords: "menu navigation rail", icon: sb === "rail" ? "rail" : "sidebar", tint: "blue", run: () => toggleSidebarRail() }] : [];
-  const settings = [...themes, ...density, ...sidebar].map((a) => ({ ...a, group: "Settings", section: "Settings" }));
+  const view = getMode() === "simple"
+    ? [{ id: "view-advanced", label: "View: Advanced", sub: "Adds keys, the test console, activity and quotas to the menu", keywords: "advanced everything all pages developer expert show more simple", icon: "console", tint: "indigo", run: () => (setMode("advanced"), toast("Advanced view: every page is in the menu")) }]
+    : [{ id: "view-simple", label: "View: Simple", sub: "Only the essentials in the menu; nothing is removed", keywords: "simple basic fewer pages essentials hide advanced", icon: "accounts", tint: "indigo", run: () => (setMode("simple"), toast("Simple view")) }];
+  const settings = [...view, ...themes, ...density, ...sidebar].map((a) => ({ ...a, group: "Settings", section: "Settings" }));
   return [...pageCmds, ...actions, ...settings];
 }
 
