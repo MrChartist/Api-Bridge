@@ -460,6 +460,26 @@ export const SERVICE_CONTRACTS = Object.freeze({
     requires: ["secrets", "audit", "accounts", "safety", "marketData", "orders", "readiness", "backupData"],
     methods: ["status", "listTargets", "events", "publish", "testTarget"],
   },
+
+  /**
+   * DownloadService (module downloads). History downloads that run in the background and save files under
+   * dataDir/downloads/, and datasets that grow by incremental updates. Every broker call goes through
+   * deps.marketData.history() at priority "background", paced to downloads.maxBudgetShare of the account's budget; a
+   * job is saved after every window and continues after a pause, a restart, a kill switch or a lost session.
+   *  estimate(request, { allowedAccounts? }) -> Promise<{ brokerCalls, callsSaved, rows, bytes, etaSec, ... }>   starts nothing
+   *  create(request, { allowedAccounts? }) -> Promise<{ job: Job, existing: boolean }>
+   *  get(id) -> Job                                      throws NOT_FOUND
+   *  list({ status?, tag?, items? }) -> Job[]            newest first
+   *  pause(id) | resume(id) | cancel(id) -> Promise<Job>
+   *  remove(id) -> Promise<void>                          deletes the job's files (never a dataset's)
+   *  updateDataset(name, { allowedAccounts? }) -> Promise<{ job: Job, existing: boolean }>   continues from the last stored bar
+   *  Extras: files, fileOf, patchJob, listDatasets, getDataset, patchDataset, removeDataset, attachLibrary, start, stop.
+   */
+  downloads: {
+    iface: "DownloadService",
+    requires: ["accounts", "scheduler", "marketData", "safety"],
+    methods: ["estimate", "create", "get", "list", "pause", "resume", "cancel", "remove", "updateDataset"],
+  },
 });
 
 /** Core deps every factory receives in addition to its `requires`. */

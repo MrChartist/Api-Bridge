@@ -121,6 +121,8 @@ tags:
     description: Kill switch, safety counters and the audit log.
   - name: Readiness
     description: "Whether each live account can trade now: session, static IP, order headroom, kill switch."
+  - name: Data downloads
+    description: History downloads that run in the background and save files on this computer, datasets that grow by incremental updates, and the instrument master as a file. Every file says its data class, source and delay.
   - name: Backup
     description: Copies of your data folder (keys store, accounts, state, paper books, audit log), made on this computer only. The archive is never served over HTTP.
   - name: Spreadsheets
@@ -753,7 +755,7 @@ paths:
         - $ref: "#/components/parameters/AccountQueryOptional"
         - name: explain
           in: query
-          description: "`1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer)."
+          description: "`1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer) and `savedCalls` (broker calls not made today)."
           schema: { type: boolean, default: false }
       responses:
         "200":
@@ -1229,6 +1231,38 @@ paths:
                 properties:
                   data: { $ref: "#/components/schemas/Instrument" }
                   meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/instruments/export:
+    get:
+      tags: [Data downloads]
+      operationId: exportInstruments
+      summary: The instrument master as a CSV or JSONL file
+      description: >-
+        Streams every instrument the connected brokers' masters hold (symbol, exchange, kind, underlying, name, expiry, strike,
+        right, lot size, tick size, freeze quantity, ISIN), optionally for one exchange or kind. It reads the master the Bridge
+        already loaded; it makes no broker call.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: exchange
+          in: query
+          schema: { type: string, enum: [NSE, BSE, NFO, BFO, MCX, CDS] }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [INDEX, EQ, FUT, OPT] }
+        - name: format
+          in: query
+          schema: { type: string, enum: [csv, jsonl], default: csv }
+      responses:
+        "200":
+          description: The file, streamed.
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+            application/x-ndjson:
+              schema: { type: string, format: binary }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -1746,6 +1780,432 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/CalendarStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/downloads:
+    post:
+      tags: [Data downloads]
+      operationId: createDownload
+      summary: Start a history download, or only estimate it with dryRun=1
+      description: >-
+        Saves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a
+        `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the
+        lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks
+        and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill
+        switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already
+        stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the
+        answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: dryRun
+          in: query
+          description: "`1` or `true` returns the estimate and starts nothing."
+          schema: { type: boolean, default: false }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DownloadRequest" }
+      responses:
+        "200":
+          description: The estimate (dryRun only).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadEstimate" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "202":
+          description: The job was accepted and is queued.
+          headers:
+            Location: { description: "The job's address.", schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    get:
+      tags: [Data downloads]
+      operationId: listDownloads
+      summary: Download jobs, newest first
+      description: The list leaves out each job's `items` unless `include=items`.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/DownloadStatus" }
+        - name: tag
+          in: query
+          schema: { type: string, maxLength: 32 }
+        - name: include
+          in: query
+          schema: { type: string, enum: [items] }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: Jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/DownloadJob" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/downloads/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^dl_[0-9a-f]{12}$" }
+    get:
+      tags: [Data downloads]
+      operationId: getDownload
+      summary: One download job with its progress and items
+      x-module: downloads
+      x-scope: read
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Data downloads]
+      operationId: updateDownload
+      summary: Rename a job or change its tags
+      x-module: downloads
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                tags: { type: array, maxItems: 20, items: { type: string, maxLength: 32 } }
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Data downloads]
+      operationId: deleteDownload
+      summary: Delete a job and its files
+      description: >-
+        This computer only, admin key. Stops the job if it runs and removes its folder with the files and the manifest. The
+        files of a dataset are never removed by this call; delete the dataset instead.
+      x-module: downloads
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204": { description: Deleted. }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/downloads/{id}/pause:
+    post:
+      tags: [Data downloads]
+      operationId: pauseDownload
+      summary: Pause a queued or running job
+      description: The job keeps what it has written and continues from there when resumed.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: "^dl_[0-9a-f]{12}$" }
+      responses:
+        "200":
+          description: The job, now paused.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/downloads/{id}/resume:
+    post:
+      tags: [Data downloads]
+      operationId: resumeDownload
+      summary: Resume a paused job, or retry the failed items of a failed job
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: "^dl_[0-9a-f]{12}$" }
+      responses:
+        "200":
+          description: The job, queued again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/downloads/{id}/cancel:
+    post:
+      tags: [Data downloads]
+      operationId: cancelDownload
+      summary: Cancel a job
+      description: Files of items that were already whole are kept; half-written parts are dropped. A cancelled job cannot be resumed.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: "^dl_[0-9a-f]{12}$" }
+      responses:
+        "200":
+          description: The job, now cancelled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadJob" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/downloads/{id}/files:
+    get:
+      tags: [Data downloads]
+      operationId: listDownloadFiles
+      summary: The files of a job, as listed in its manifest
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: "^dl_[0-9a-f]{12}$" }
+      responses:
+        "200":
+          description: The files (name, symbol, interval, rows, bytes, first and last bar, sha256).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/DownloadFile" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/downloads/{id}/files/{name}:
+    get:
+      tags: [Data downloads]
+      operationId: getDownloadFile
+      summary: Stream one file of a job (or manifest.json)
+      description: >-
+        The file as the Bridge wrote it. The response headers say what the data is: X-Data-Class (realtime, delayed or eod),
+        X-Data-Source, X-Data-Official and X-Data-Delay-Sec. Data that is delayed or end-of-day must never feed orders, risk
+        checks, paper fills or alerts.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, pattern: "^dl_[0-9a-f]{12}$" }
+        - name: name
+          in: path
+          required: true
+          description: A file name from the job's file list, or manifest.json.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Data-Class: { description: "realtime, delayed or eod.", schema: { type: string } }
+            X-Data-Source: { description: "Where the bars came from.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+            application/x-ndjson:
+              schema: { type: string, format: binary }
+            application/json:
+              schema: { type: string, format: binary }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/datasets:
+    get:
+      tags: [Data downloads]
+      operationId: listDatasets
+      summary: Datasets stored on this computer
+      description: A dataset is a named set of files (one per symbol and interval) that grows by incremental updates.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: tag
+          in: query
+          schema: { type: string, maxLength: 32 }
+      responses:
+        "200":
+          description: Datasets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Dataset" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/datasets/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$" }
+    get:
+      tags: [Data downloads]
+      operationId: getDataset
+      summary: One dataset with its files, coverage and gaps
+      description: >-
+        Each file lists its `coverage` (the stretch already fetched and stored) and its `gaps` (places inside it where bars
+        are missing; a thin stock has no bar for a minute with no trade, so a gap is reported and never filled with a made-up bar).
+      x-module: downloads
+      x-scope: read
+      responses:
+        "200":
+          description: The dataset.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Dataset" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Data downloads]
+      operationId: updateDatasetInfo
+      summary: Rename a dataset or change its tags and title
+      x-module: downloads
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$" }
+                title: { type: [string, "null"], maxLength: 120 }
+                tags: { type: array, maxItems: 20, items: { type: string, maxLength: 32 } }
+      responses:
+        "200":
+          description: The dataset.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Dataset" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Data downloads]
+      operationId: deleteDataset
+      summary: Delete a dataset and its files
+      description: This computer only, admin key.
+      x-module: downloads
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204": { description: Deleted. }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/datasets/{name}/update:
+    post:
+      tags: [Data downloads]
+      operationId: updateDataset
+      summary: Fetch what is new since the last stored bar
+      description: >-
+        Starts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is
+        already running, that job is returned and `meta.existing` is true.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$" }
+      responses:
+        "202":
+          description: The update job.
+          headers:
+            Location: { description: "The job's address.", schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadJob" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -6355,6 +6815,22 @@ components:
           type: array
           description: Only with `explain=1`. Who is waiting in the fair queue and each one's share.
           items: { $ref: "#/components/schemas/LimitsConsumer" }
+        savedCalls:
+          type: object
+          description: Only with `explain=1`. Broker calls not made today because the data was already on this computer, in the stream or in the cache.
+          properties:
+            day: { type: string, description: "The IST day these counts are for." }
+            total: { type: integer, minimum: 0, description: "Calls avoided by serving stored data (datasets, recordings)." }
+            byReason: { type: object, additionalProperties: { type: integer }, description: "For example local-dataset and dataset-incremental." }
+            scheduler:
+              type: object
+              description: What the rate-limit engine saved today.
+              properties:
+                servedFromStream: { type: integer }
+                servedFromCache: { type: integer }
+                coalesced: { type: integer }
+                batched: { type: integer }
+            totalToday: { type: integer, minimum: 0, description: "total plus everything the scheduler saved." }
     UsageReport:
       type: object
       properties:
@@ -6390,6 +6866,160 @@ components:
         slow by nature (usually about 15 minutes). `eod`: end-of-day values only. A composite answer (an option chain, a
         many-symbol quote) takes the least current class of its parts. `delayed` is not the same as `freshness.stale`:
         stale means older than the freshness target for that source.
+    DownloadStatus:
+      type: string
+      enum: [queued, running, paused, done, failed, cancelled]
+    DownloadRequest:
+      type: object
+      additionalProperties: false
+      required: [intervals, from]
+      description: Give `symbols` or `collection`, not both.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        symbols: { type: array, minItems: 1, maxItems: 500, items: { type: string, maxLength: 64 }, description: "Canonical symbols such as NSE:NIFTY." }
+        collection: { type: string, maxLength: 64, description: "The name of a collection; it is resolved when the job starts." }
+        intervals: { type: array, minItems: 1, maxItems: 10, items: { $ref: "#/components/schemas/Interval" } }
+        from: { type: string, description: "ISO date or date-time (IST when no offset), or epoch seconds. For an existing dataset the job continues from its last stored bar." }
+        to: { type: string, description: "Default: now. The bar still forming is never stored." }
+        format: { type: string, enum: [csv, jsonl, amibroker], default: csv }
+        layout: { type: string, enum: [per-symbol, combined], default: per-symbol, description: "combined writes one file per interval with a symbol column. A dataset is always per-symbol." }
+        dataset: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$", description: "Continue (or create) this dataset instead of writing a one-off set of files." }
+        account: { type: string, description: "Use only this broker account." }
+        backup: { type: boolean, default: false, description: "Allow data sources other than your broker accounts. The files then carry the source's data class (delayed or eod)." }
+        afterHoursOnly: { type: boolean, description: "Wait outside market hours. Default: downloads.afterHoursOnly." }
+        tags: { type: array, maxItems: 20, items: { type: string, maxLength: 32 } }
+    DownloadEstimate:
+      type: object
+      description: What a download will cost. Rows assume every trading minute has a bar, so a thin stock has fewer; the time assumes the broker's published limit is the only limit.
+      properties:
+        symbols: { type: integer }
+        intervals: { type: integer }
+        items: { type: integer }
+        brokerCalls: { type: integer, description: "Calls the broker will see, after what is already stored on this computer." }
+        callsSaved: { type: integer, description: "Calls not needed because that part is already stored." }
+        rows: { type: integer }
+        rowsToFetch: { type: integer }
+        bytes: { type: integer }
+        bytesPerRow: { type: integer }
+        etaSec: { type: [integer, "null"], description: "Seconds at your budget share; null when no account is known." }
+        callsPerSecond: { type: [number, "null"] }
+        limitingWindow: { type: [string, "null"], description: "The broker window that sets the pace (1s, 1m, 1h or day)." }
+        budgetShare: { type: number }
+        account: { type: [string, "null"] }
+        broker: { type: [string, "null"] }
+        alreadyStored: { type: integer, description: "Items that need no broker call at all." }
+        disk:
+          type: object
+          properties:
+            usedBytes: { type: integer }
+            maxBytes: { type: integer }
+            wouldExceed: { type: boolean }
+        notes: { type: array, items: { type: string } }
+    DownloadJob:
+      type: object
+      required: [id, name, status, progress, request, dataClass, createdAt, manifestUrl]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { $ref: "#/components/schemas/DownloadStatus" }
+        reason: { type: [string, "null"], description: "Why a job is paused or failed: user, kill_switch, session_lost, market_hours, disk_limit, items_failed, restart or internal." }
+        message: { type: [string, "null"], description: "A plain sentence about the reason." }
+        progress:
+          type: object
+          properties:
+            total: { type: integer }
+            done: { type: integer }
+            failed: { type: integer }
+            rows: { type: integer }
+            bytes: { type: integer }
+            etaSec: { type: [integer, "null"] }
+            current: { type: [object, "null"], properties: { symbol: { type: string }, interval: { type: string } } }
+            waiting: { type: [object, "null"], description: "Set while the job waits for budget, a retry or market close.", properties: { reason: { type: string }, waitMs: { type: integer } } }
+        items:
+          type: array
+          description: Left out of the list answer unless include=items.
+          items:
+            type: object
+            properties:
+              symbol: { type: string }
+              interval: { type: string }
+              status: { type: string, enum: [pending, running, done, failed] }
+              rows: { type: integer }
+              error: { type: object, properties: { code: { type: string }, message: { type: string } } }
+        request: { type: object, description: "The request as the Bridge understood it." }
+        dataset: { type: [string, "null"] }
+        collection: { type: object, description: "Present when the symbols came from a collection.", properties: { name: { type: string }, resolvedAt: { type: string }, rule: {} } }
+        tags: { type: array, items: { type: string } }
+        dataClass: { $ref: "#/components/schemas/DataClass" }
+        source: { type: [string, "null"], description: "Where the bars came from (broker id or data source)." }
+        official: { type: [boolean, "null"] }
+        delaySec: { type: [integer, "null"] }
+        callsSaved: { type: integer, description: "Broker calls this job did not need because the data was already stored." }
+        notes: { type: array, items: { type: string }, description: "Gaps found, bars served from a dataset, and the data-class warning." }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, "null"], format: date-time }
+        finishedAt: { type: [string, "null"], format: date-time }
+        manifestUrl: { type: string }
+    DownloadFile:
+      type: object
+      required: [name, rows, bytes, sha256]
+      properties:
+        name: { type: string }
+        symbol: { type: [string, "null"], description: "null for a combined file." }
+        interval: { type: string }
+        rows: { type: integer }
+        bytes: { type: integer }
+        firstBar: { type: [string, "null"], description: "IST bar-open time of the first bar." }
+        lastBar: { type: [string, "null"] }
+        sha256: { type: [string, "null"] }
+    Dataset:
+      type: object
+      required: [name, format, series, rows, bytes]
+      properties:
+        name: { type: string }
+        title: { type: [string, "null"] }
+        tags: { type: array, items: { type: string } }
+        format: { type: string, enum: [csv, jsonl, amibroker] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+        request: { type: object }
+        dataClass: { $ref: "#/components/schemas/DataClass" }
+        source: { type: [string, "null"] }
+        official: { type: [boolean, "null"] }
+        delaySec: { type: [integer, "null"] }
+        series: { type: integer, description: "Number of symbol and interval files." }
+        rows: { type: integer }
+        bytes: { type: integer }
+        gaps: { type: integer, description: "Stretches with missing bars, over all files." }
+        lastJobId: { type: [string, "null"] }
+        activeJobId: { type: [string, "null"], description: "A job that is queued, running or paused for this dataset." }
+        files:
+          type: array
+          description: Only on GET /v1/datasets/{name}.
+          items:
+            type: object
+            properties:
+              symbol: { type: string }
+              interval: { type: string }
+              name: { type: string }
+              rows: { type: integer }
+              bytes: { type: integer }
+              firstBar: { type: [string, "null"] }
+              lastBar: { type: [string, "null"] }
+              coverage: { type: [object, "null"], description: "The stretch fetched and stored, with no failed call inside it.", properties: { from: { type: string }, to: { type: string } } }
+              sha256: { type: [string, "null"] }
+              gapsTotal: { type: integer }
+              gaps:
+                type: array
+                description: The first 50 stretches with missing bars.
+                items:
+                  type: object
+                  properties:
+                    from: { type: string }
+                    to: { type: string }
+                    missing: { type: integer }
+                    kind: { type: string, enum: [missing-bars, missing-days] }
+        notes: { type: array, items: { type: string } }
     Confidence:
       type: string
       enum: [high, medium, low]
