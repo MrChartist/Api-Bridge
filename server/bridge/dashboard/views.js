@@ -10,7 +10,7 @@ import { onReconnected } from "./connection.js";
 import { createGetStarted } from "./getstarted.js";
 import { keyStepLink } from "./getstarted-core.js";
 import * as live from "./live.js";
-import { KEY_PRESETS, snippets } from "./snippets.js";
+import { KEY_PRESETS, countsLine, finalHookUrl, outcomeView, silentHint, snippets } from "./snippets.js";
 import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
 import { configureOrdersBook, fundsSection, ordersBook, pendingSection, renderTradesPage, sidePill } from "./orders-book.js";
@@ -213,7 +213,7 @@ export const PAGES = [
       { id: "keys", label: "Keys", page: "keys", sub: "One key per tool, with only the access it needs", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
       {
         id: "integrations", label: "Integrations", page: "integrations", sub: "Connect Excel, a script, an AI assistant or a webhook", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
-        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
+        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert tradingview chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
       },
       { id: "console", label: "Test console", page: "console", sub: "Try any call and see what a script would get back", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
       {
@@ -2813,7 +2813,7 @@ async function renderKeys() {
 // ── Integrations ──
 
 const INTRO = {
-  webhooks: "Alerts from your scripts, ChartInk scans or GoCharting place paper orders through a webhook. Each hook has its own secret address.",
+  webhooks: "Alerts from TradingView, your scripts, ChartInk scans or GoCharting place paper orders through a webhook. Each hook has its own secret address.",
   python: "The Python client: standard library only, Python 3.9 or newer. Paper orders get an Idempotency-Key for you.",
   node: "The Node client (ESM). Streaming on Node 20 needs the ws package; Node 22 has a WebSocket built in.",
   excel: "Live prices in cells with WEBSERVICE. The key goes in the address, so use a read-only key with an expiry.",
@@ -2900,56 +2900,192 @@ async function renderIntegrations() {
   return root;
 }
 
+/** Where the dashboard remembers the public address typed for hooks (this browser only; a convenience, never required). */
+const HOOK_PUBLIC_SLOT = "mcb.dashboard.hookPublicAddress";
+const TV_GUIDE = "https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/webhooks.md#tradingview";
+const EXPOSE_GUIDE = "https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/expose-alerts.md";
+
+/** One test alert: the button, and a slot that shows what happened in plain words. `onDone` runs after an answer. */
+function hookTester(hook, onDone) {
+  const slot = h("div", { class: "ai-test-result", role: "status", "aria-live": "polite" });
+  const btn = h("button", { type: "button", class: "tinted" }, icon("play"), "Send a test alert");
+  btn.addEventListener("click", async () => {
+    busy(btn, true);
+    slot.replaceChildren(h("p", { class: "muted small" }, "Sending a test alert through the same checks a real one passes…"));
+    try {
+      const r = await api(`/v1/hooks/${encodeURIComponent(hook.id)}/test`, { method: "POST", body: {} });
+      const d = r.data.data;
+      const v = outcomeView(d);
+      const tone = v.tone === "ok" ? "ok" : v.tone === "bad" ? "bad" : v.tone === "warn" ? "warn" : "info";
+      const sent = typeof d.message === "string" ? d.message : JSON.stringify(d.message);
+      slot.replaceChildren(
+        alertBox({ title: `${v.word}: ${d.summary}`, detail: [d.reason, d.orderId ? `Paper order ${d.orderId}.` : null].filter(Boolean).join(" ") }, tone),
+        h("details", { class: "ai-details" }, h("summary", {}, "What the test sent"), h("pre", { class: "snip-code", tabindex: "0" }, sent)),
+        h("p", { class: "muted small" }, d.note),
+      );
+      onDone?.();
+    } catch (err) {
+      slot.replaceChildren(alertBox(err));
+    } finally {
+      busy(btn, false);
+    }
+  });
+  return { btn, slot };
+}
+
+/** The recent alerts of one hook, with what happened to each, in a sheet. */
+function openHookAlerts(hook) {
+  const body = h("div", { class: "stack ai-alerts" });
+  const test = hookTester(hook, () => draw());
+  const reload = h("button", { type: "button", class: "small plain", onclick: () => draw() }, icon("refresh"), "Refresh");
+  async function draw() {
+    const r = await optional(api(`/v1/hooks/${encodeURIComponent(hook.id)}/signals?limit=30`));
+    if (r.error) {
+      body.replaceChildren(alertBox(r.error));
+      return;
+    }
+    const d = r.data.data;
+    const real = d.signals.filter((s) => !s.test);
+    const quiet = silentHint({ lastSignalAt: d.lastSignalAt, createdAt: hook.createdAt }, Date.parse(d.serverTime) || Date.now());
+    const line = countsLine(d.counts);
+    const rows = d.signals.map((s) => {
+      const v = outcomeView(s);
+      const detail = [s.symbol, s.side, s.id ? `id ${s.id}` : null, s.orderId ? `order ${s.orderId}` : null].filter(Boolean).join(" · ");
+      return h("li", { class: "ai-alert" }, h("span", { class: "ai-alert-time" }, istDateTime(s.receivedAt)), pill(v.word, v.tone), h("div", { class: "ai-alert-text" }, h("span", {}, v.text), detail || s.test ? h("span", { class: "ai-alert-sub" }, [s.test ? "Test alert" : null, detail].filter(Boolean).join(" · ")) : null));
+    });
+    body.replaceChildren(
+      !real.length || quiet.tone === "warn" ? (quiet.hint ? alertBox({ title: quiet.text, detail: quiet.hint }, quiet.tone === "warn" ? "warn" : "info") : null) : null,
+      h("div", { class: "ai-alerts-bar" }, line ? h("p", { class: "muted small" }, line) : h("p", { class: "muted small" }, d.countsSince ? `Counting since ${istDateTime(d.countsSince)}.` : ""), reload),
+      rows.length ? h("ol", { class: "list ai-alert-list", "aria-label": "Recent alerts, newest first" }, rows) : emptyState("activity", "No alert received yet", "Send a test alert above to check the hook. Real alerts appear here a moment after TradingView sends them.", null, { compact: true }),
+      h("p", { class: "muted small" }, "Kept in memory only (the last alerts since the Bridge started). The Activity page has the permanent audit log."),
+    );
+  }
+  modal({
+    title: `Alerts: ${hook.label}`,
+    body: h("div", { class: "stack" }, h("div", { class: "ai-test" }, test.btn, h("span", { class: "muted small" }, "Places a paper order only, never a real one.")), test.slot, body),
+    buttons: [{ label: "Close", value: true }],
+  });
+  draw();
+}
+
 async function webhookPanel(paperAcc, host) {
+  const presets = (await optional(api("/v1/hooks/presets"))).data?.data ?? null;
   const box = h("div", { class: "stack", "aria-live": "polite" });
   const listSlot = h("div", { class: "ai-hook-list" });
   const label = h("input", { id: "hook-name", value: "NIFTY breakout", maxlength: "60", autocomplete: "off" });
-  const source = h("select", { id: "hook-source" }, [["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
+  const source = h("select", { id: "hook-source" }, [["tradingview", "TradingView"], ["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
   const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
   const lots = h("input", { id: "hook-lots", type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
+  const maxAge = h("input", { id: "hook-maxage", type: "number", inputmode: "numeric", value: "120", min: "5", max: "3600" });
+  const ipSwitch = h("input", { type: "checkbox", role: "switch", id: "hook-ips" });
+  ipSwitch.checked = Boolean(presets?.clientIpHeader);
+  const publicBase = h("input", { id: "hook-public", type: "url", inputmode: "url", placeholder: "https://your-name.example.com", autocomplete: "off", spellcheck: "false" });
+  publicBase.value = local.get(HOOK_PUBLIC_SLOT) ?? presets?.publicIngress?.urls?.[0] ?? "";
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
+  const ipList = presets?.ipPresets?.find((p) => p.name === "tradingview") ?? null;
+  const ipNote = presets?.clientIpHeader
+    ? `Behind a tunnel the Bridge reads the real sender from the “${presets.clientIpHeader}” header (hooks.clientIpHeader), so this check works.`
+    : "hooks.clientIpHeader is not set in your config. Through a tunnel the Bridge then sees the tunnel, not TradingView, and would refuse every alert. Leave this off, or set it first (see the guide).";
+  const tvFields = [
+    h("label", { class: "field", for: "hook-maxage" }, h("span", {}, "Refuse alerts older than (seconds)"), maxAge),
+    h("label", { class: "field", for: "hook-public" }, h("span", {}, "Your public address (optional)"), publicBase, h("span", { class: "field-hint" }, "From your tunnel. Used to show the final address to paste into TradingView.")),
+    h(
+      "div",
+      { class: "field wide ai-ips" },
+      h("label", { class: "ai-switch", for: "hook-ips" }, h("span", {}, "Only accept alerts from TradingView's own addresses"), h("span", { class: "switch" }, ipSwitch, h("i"))),
+      h("p", { class: "muted small" }, ipNote),
+      ipList ? h("details", { class: "ai-details" }, h("summary", {}, `TradingView's addresses, checked ${ipList.verifiedAt ?? "on an unknown date"}${ipList.edited ? " (your edited list)" : ""}`), h("p", { class: "mono small" }, ipList.ips.join("   ")), ipList.source ? h("a", { href: ipList.source, target: "_blank", rel: "noopener" }, "TradingView's own page for this list") : null) : null,
+    ),
+  ];
+  const syncSource = () => {
+    for (const f of tvFields) f.hidden = source.value !== "tradingview";
+  };
+  source.addEventListener("change", syncSource);
+  syncSource();
   let list = [];
-  const hookRow = (x) =>
-    apiRow({
+  const hookRow = (x) => {
+    const quiet = silentHint(x, Date.now());
+    return apiRow({
       glyph: "integrations",
       tint: "teal",
       title: x.label,
-      sub: h("span", {}, h("span", { class: "mono" }, x.id), ` · ${cap(x.source)} · ${x.account}`),
-      chips: [x.mode === "live" ? pill("Live", "bad") : pill("Paper"), x.mode === "live" && x.readiness ? pill(STATE_TEXT[x.readiness] ?? x.readiness, STATE_TONE[x.readiness] ?? "") : null],
-      aside: [h("span", { class: "api-row-note" }, x.lastSignalAt ? `Last alert ${istDateTime(x.lastSignalAt)}` : "No alerts yet")],
-      action: h("button", {
-        type: "button",
-        class: "small plain destructive",
-        "aria-label": `Delete webhook ${x.label}`,
-        onclick: async () => {
-          if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its address are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete webhook", cls: "destructive", value: true }] }))) return;
-          await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
-          list = list.filter((h2) => h2.id !== x.id);
-          drawList();
-          toast(`Deleted ${x.label}`);
-        },
-      }, icon("trash"), "Delete"),
+      sub: h("span", {}, h("span", { class: "mono" }, x.id), ` · ${x.source === "tradingview" ? "TradingView" : cap(x.source)} · ${x.account}`),
+      chips: [x.mode === "live" ? pill("Live", "bad") : pill("Paper"), x.mode === "live" && x.readiness ? pill(STATE_TEXT[x.readiness] ?? x.readiness, STATE_TONE[x.readiness] ?? "") : null, quiet.tone === "warn" ? pill(quiet.state === "quiet" ? "Quiet" : "Nothing yet", "warn") : null],
+      aside: [h("span", { class: "api-row-note" }, quiet.state === "recent" ? `${quiet.text} (${istDateTime(x.lastSignalAt)})` : quiet.text)],
+      action: h(
+        "div",
+        { class: "api-row-acts" },
+        h("button", { type: "button", class: "small tinted", "aria-label": `Recent alerts and test for ${x.label}`, onclick: () => openHookAlerts(x) }, icon("activity"), "Alerts"),
+        h("button", {
+          type: "button",
+          class: "small plain destructive",
+          "aria-label": `Delete webhook ${x.label}`,
+          onclick: async () => {
+            if (!(await modal({ title: `Delete “${x.label}”?`, body: h("p", {}, "Alerts sent to its address are refused from now on."), buttons: [{ label: "Cancel", value: false }, { label: "Delete webhook", cls: "destructive", value: true }] }))) return;
+            await optional(api(`/v1/hooks/${encodeURIComponent(x.id)}`, { method: "DELETE" }));
+            list = list.filter((h2) => h2.id !== x.id);
+            drawList();
+            toast(`Deleted ${x.label}`);
+          },
+        }, icon("trash"), "Delete"),
+      ),
     });
+  };
   const listNode = () => h("section", { class: "group" }, h("h3", { class: "group-title" }, `Your webhooks · ${formatInt(list.length)}`), list.length ? h("div", { class: "list" }, list.map(hookRow)) : h("div", { class: "list" }, emptyState("integrations", "No webhooks yet", "Fill in the form above and choose Create webhook. Its secret address appears here once.", null, { compact: true })));
   const drawList = () => listSlot.replaceChildren(listNode());
+
+  /** What the person does in TradingView, in order, after a TradingView hook is made. */
+  const tvSteps = (d, base) => {
+    const f = finalHookUrl({ path: d.path, localUrl: d.url, publicBase: base });
+    return { f, steps: h("ol", { class: "ai-steps" }, h("li", {}, "In TradingView, open a chart and create an alert (the alarm-clock icon, or Alt+A)."), h("li", {}, "Open the Notifications tab, tick Webhook URL and paste the address above."), h("li", {}, "On the Settings tab, replace the whole Message box with one of the messages below."), h("li", {}, "Create the alert. When it fires, it appears under Alerts for this webhook."), h("li", {}, "TradingView needs two-step sign-in turned on, and webhook alerts are a paid-plan feature.")) };
+  };
+
   btn.addEventListener("click", async () => {
     busy(btn, true);
     try {
-      const r = await api("/v1/hooks", { method: "POST", body: { source: source.value, label: label.value.trim() || "Webhook", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1, ...(side.value ? { side: side.value } : {}) } });
+      const isTv = source.value === "tradingview";
+      const body = { source: source.value, label: label.value.trim() || "Webhook", account: paperAcc, orderType: orderType.value, product: product.value, maxLotsPerSignal: Number(lots.value) || 1, ...(side.value ? { side: side.value } : {}) };
+      if (isTv) {
+        body.maxAgeSec = Number(maxAge.value) || 120;
+        if (ipSwitch.checked) body.sourceIpPreset = "tradingview";
+      }
+      const r = await api("/v1/hooks", { method: "POST", body });
       const d = r.data.data;
       list = [...list, d];
       drawList();
-      const panel = oncePanel({
-        title: `Webhook created: ${d.label ?? "Webhook"}`,
-        sub: `Paper orders on ${paperAcc}`,
-        ariaLabel: "New webhook",
-        fields: [{ label: "Webhook address (its secret token is shown once)", value: d.url, toast: "Address copied" }, ...(d.signingSecret ? [{ label: "Signing secret (shown once; sign every request with it)", value: d.signingSecret, toast: "Secret copied" }] : [])],
-        body: h("div", { class: "stack" }, ...(d.templates ?? []).slice(0, 1).map((t) => snippetBlock({ title: t.name, lang: t.contentType === "application/json" && t.message.startsWith("{") ? "json" : "text", code: t.message })), ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")), h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default.")),
-        doneLabel: "Done, hide it",
-        onDone: () => box.replaceChildren(),
-      });
+      const tester = hookTester(d, () => {});
+      const warnings = (d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn"));
+      let fields;
+      let content;
+      if (isTv) {
+        const { f: current, steps } = tvSteps(d, publicBase.value);
+        if (current.isPublic) local.set(HOOK_PUBLIC_SLOT, publicBase.value.trim());
+        fields = [{ label: "Webhook address (paste into TradingView's Webhook URL box)", value: current.url, toast: "Address copied" }, { label: "Passphrase (it goes inside every alert message)", value: d.passphrase, toast: "Passphrase copied" }];
+        const helper = current.isPublic ? null : addressHelper(d, (v) => finalHookUrl({ path: d.path, localUrl: d.url, publicBase: v }));
+        const tpl = (i) => d.templates[i] && snippetBlock({ title: d.templates[i].name, lang: d.templates[i].contentType === "application/json" ? "json" : "text", code: d.templates[i].message });
+        content = h(
+          "div",
+          { class: "stack" },
+          current.problem ? alertBox({ title: "Check the public address", detail: current.problem }, "warn") : null,
+          helper,
+          h("h3", { class: "ai-sub" }, "Set it up in TradingView"),
+          steps,
+          h("h3", { class: "ai-sub" }, "Alert messages to paste"),
+          tpl(0),
+          tpl(1),
+          h("details", { class: "ai-details" }, h("summary", {}, "Plain-text alternative"), tpl(2)),
+          h("div", { class: "ai-test" }, tester.btn, h("span", { class: "muted small" }, "Places a paper order only, never a real one.")),
+          tester.slot,
+          ...warnings,
+          h("p", { class: "muted small" }, "More: ", h("a", { href: TV_GUIDE, target: "_blank", rel: "noopener" }, "the TradingView guide"), " and ", h("a", { href: EXPOSE_GUIDE, target: "_blank", rel: "noopener" }, "how to give TradingView a safe public address"), "."),
+        );
+      } else {
+        fields = [{ label: "Webhook address (its secret token is shown once)", value: d.url, toast: "Address copied" }, ...(d.signingSecret ? [{ label: "Signing secret (shown once; sign every request with it)", value: d.signingSecret, toast: "Secret copied" }] : [])];
+        content = h("div", { class: "stack" }, ...(d.templates ?? []).slice(0, 1).map((t) => snippetBlock({ title: t.name, lang: t.contentType === "application/json" && t.message.startsWith("{") ? "json" : "text", code: t.message })), h("div", { class: "ai-test" }, tester.btn, h("span", { class: "muted small" }, "Places a paper order only, never a real one.")), tester.slot, ...warnings, h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."));
+      }
+      const panel = oncePanel({ title: `Webhook created: ${d.label ?? "Webhook"}`, sub: `Paper orders on ${paperAcc}`, ariaLabel: "New webhook", fields, body: content, doneLabel: "Done, hide it", onDone: () => box.replaceChildren() });
       box.replaceChildren(panel);
       panel.focusFirst();
     } catch (err) {
@@ -2958,12 +3094,29 @@ async function webhookPanel(paperAcc, host) {
       busy(btn, false);
     }
   });
+
+  /** Typed after creation: the public address of the tunnel, turned into the final address with a live Copy button. */
+  function addressHelper(d, build) {
+    const input = h("input", { id: "hook-final-base", type: "url", inputmode: "url", placeholder: "https://your-name.example.com", autocomplete: "off", spellcheck: "false", "aria-describedby": "hook-final-note" });
+    const out = h("code", { class: "once-value", tabindex: "0", "aria-label": "Final webhook address" }, d.url);
+    const note = h("p", { class: "muted small", id: "hook-final-note", role: "status" }, "This address only works on this computer. TradingView needs an address on the internet: type yours here to see the final address.");
+    let current = build("");
+    const copy = copyButton(() => current.url, { label: "Copy", toastLabel: "Address copied", cls: "primary lg once-copy", ariaLabel: "Copy the final webhook address" });
+    input.addEventListener("input", () => {
+      current = build(input.value);
+      out.textContent = current.url;
+      note.textContent = current.problem ?? (current.isPublic ? "This is the address to paste into TradingView." : "This address only works on this computer. TradingView needs an address on the internet: type yours here to see the final address.");
+      if (current.isPublic && !current.problem) local.set(HOOK_PUBLIC_SLOT, input.value.trim());
+    });
+    return h("div", { class: "once-field" }, h("label", { class: "once-label", for: "hook-final-base" }, "Your public address"), input, h("div", { class: "once-row" }, out, copy), note, h("p", { class: "muted small" }, "No public address yet? ", h("a", { href: EXPOSE_GUIDE, target: "_blank", rel: "noopener" }, "See how to set one up safely"), "."));
+  }
+
   host.replaceChildren(
     h(
       "section",
       { class: "ai-hook-form" },
       h("div", { class: "card-titles" }, h("h3", {}, "Create an alert webhook"), h("p", {}, `Each hook has its own secret address and places paper orders on ${paperAcc}.`)),
-      h("div", { class: "form-grid" }, h("label", { class: "field", for: "hook-name" }, h("span", {}, "Name"), label), h("label", { class: "field", for: "hook-source" }, h("span", {}, "Source"), source), segField("Side", side), segField("Product", product), segField("Order type", orderType, { wide: true }), h("label", { class: "field", for: "hook-lots" }, h("span", {}, "Max lots per alert"), lots), btn),
+      h("div", { class: "form-grid" }, h("label", { class: "field", for: "hook-name" }, h("span", {}, "Name"), label), h("label", { class: "field", for: "hook-source" }, h("span", {}, "Source"), source), segField("Side", side), segField("Product", product), segField("Order type", orderType, { wide: true }), h("label", { class: "field", for: "hook-lots" }, h("span", {}, "Max lots per alert"), lots), ...tvFields, btn),
       box,
     ),
     listSlot,

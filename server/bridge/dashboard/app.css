@@ -2282,6 +2282,28 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ai-hook-form .card-titles h3 { font: var(--t-headline); }
 .ai-sub { font: var(--t-headline); }
 .ai-hook-list { container-type: inline-size; min-width: 0; }
+/* Webhook panel: TradingView options, alert steps, test result and the recent-alerts sheet. */
+.ai-hook-form [hidden] { display: none !important; }
+.ai-hook-form .field-hint { font: var(--t-footnote); color: var(--label-2); }
+.ai-ips { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ai-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; font: var(--t-label); color: hsl(var(--foreground)); }
+.ai-details { min-width: 0; }
+.ai-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: var(--t-subhead); color: hsl(var(--accent)); }
+.ai-details summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-ctl); }
+.ai-details > :not(summary) { margin-top: 6px; overflow-wrap: anywhere; }
+.ai-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; font: var(--t-body); }
+.ai-test { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.ai-test-result { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.api-row-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.ai-alerts { min-width: 0; }
+.ai-alerts-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-alert-list { list-style: none; margin: 0; padding: 0; }
+.ai-alert { display: grid; grid-template-columns: 9.5em auto minmax(0, 1fr); gap: 4px 12px; align-items: start; padding: 12px 16px; box-shadow: inset 0 var(--hl) 0 var(--separator); }
+.ai-alert:first-child { box-shadow: none; }
+.ai-alert-time { font: var(--t-footnote); color: var(--label-2); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.ai-alert-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.ai-alert-sub { font: var(--t-footnote); color: var(--label-2); }
+@media (max-width: 560px) { .ai-alert { grid-template-columns: auto minmax(0, 1fr); } .ai-alert-time { grid-column: 1 / -1; } }
 
 /* Test console */
 .ac { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--panel-gap); min-width: 0; }
@@ -2476,7 +2498,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-more { min-width: 0; }
 .sx-more > .sx-group + .sx-group { margin-top: var(--panel-gap); }
 .sx-more > summary { display: flex; align-items: center; min-height: 36px; padding-inline: var(--space-4); cursor: pointer; font: var(--t-subhead); font-weight: 500; color: hsl(var(--accent-ink)); }
-.sx-more > summary:focus-visible { outline-offset: 2px; border-radius: var(--r-sm); }
+.sx-more > summary:focus-visible { outline-offset: 2px; border-radius: var(--r-ctl); }
 .sx-more[open] > summary { margin-bottom: var(--panel-gap); }
 .sx-more:not(:has(> .sx-group:not([hidden]))) { display: none; }
 @media (pointer: coarse), (max-width: 719px) { .sx-more > summary { min-height: 44px; } }
@@ -2549,7 +2571,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sx-fallback-err:empty { display: none; }
 .sx-explain { padding-inline: var(--space-4); }
 .sx-explain > summary { display: flex; align-items: center; min-height: 32px; cursor: pointer; font: var(--t-subhead); color: hsl(var(--accent-ink)); }
-.sx-explain > summary:focus-visible { outline-offset: 2px; border-radius: var(--r-sm); }
+.sx-explain > summary:focus-visible { outline-offset: 2px; border-radius: var(--r-ctl); }
 .sx-explain dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 6px 0 4px; font: var(--t-footnote); color: var(--label-2); }
 .sx-explain dt { font-weight: 600; color: hsl(var(--foreground)); }
 .sx-explain dd { margin: 0; }
