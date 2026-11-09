@@ -1,0 +1,28 @@
+meta {
+  name: Positions for one account (live from the broker, or paper)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/positions?account=demo-paper
+  body: none
+  auth: bearer
+}
+
+params:query {
+  account: demo-paper
+  ~mode: paper
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Positions for one account (live from the broker, or paper)
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/portfolio/getPositions.md in the repository.
+}

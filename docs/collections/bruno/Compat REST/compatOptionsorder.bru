@@ -1,0 +1,34 @@
+meta {
+  name: Order an option by offset (ATM, ITM2, OTM1 ...)
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/api/v1/optionsorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "strategy": "my-script",
+    "underlying": "NIFTY",
+    "exchange": "NSE_INDEX",
+    "offset": "ATM",
+    "option_type": "CE",
+    "action": "BUY",
+    "quantity": 75,
+    "pricetype": "MARKET",
+    "product": "MIS"
+  }
+}
+
+docs {
+  Order an option by offset (ATM, ITM2, OTM1 ...)
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatOptionsorder.md in the repository.
+}

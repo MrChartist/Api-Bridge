@@ -1,0 +1,33 @@
+meta {
+  name: Read the append-only audit log
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/audit
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~from: 2026-11-02
+  ~to: 2026-11-06
+  ~type: <type>
+  ~account: demo-paper
+  ~limit: 100
+  ~cursor: <cursor>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Read the append-only audit log
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/safety/queryAudit.md in the repository.
+}

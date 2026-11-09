@@ -1,0 +1,35 @@
+meta {
+  name: Cancel every open order for an account (or all accounts this key may use)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/orders/cancel-all
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "account": "demo-paper",
+    "mode": "paper"
+  }
+}
+
+docs {
+  Cancel every open order for an account (or all accounts this key may use)
+
+  - An API key with the `paper` scope (or `live`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Reference: docs/api/orders/cancelAllOrders.md in the repository.
+}

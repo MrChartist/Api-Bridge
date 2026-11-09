@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Developer files generated from `docs/openapi.yaml`: Postman and Bruno collections (`docs/collections/`), one Markdown page
+  per endpoint and the error codes (`docs/api/`), `docs/llms.txt`, `docs/llms-full.txt` and a search index. The curl
+  examples in them and in the quickstart run in the tests; `npm run docs:generate` rewrites everything and `npm run
+  docs:check` (run in CI) fails when a file is out of date. New docs home: `docs/README.md`. Pull requests that change
+  `server/`, the OpenAPI file or `sdk/` need a line under Unreleased (`scripts/changelog-check.mjs`).
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the

@@ -1,0 +1,25 @@
+meta {
+  name: Supported brokers and what each can do
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/brokers
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Supported brokers and what each can do
+
+  - An API key with the `read` scope (any key).
+
+  Capabilities come from each adapter's declared contract; limits from the Bridge's broker policy table (each number marked verified or not).
+
+  Reference: docs/api/accounts/listBrokers.md in the repository.
+}

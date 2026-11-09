@@ -1,0 +1,26 @@
+meta {
+  name: List configured hooks (never the token)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/hooks
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  List configured hooks (never the token)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  An admin key limited to some accounts lists only the hooks of those accounts.
+
+  Reference: docs/api/webhooks/listHooks.md in the repository.
+}

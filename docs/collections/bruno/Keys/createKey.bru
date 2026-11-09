@@ -1,0 +1,38 @@
+meta {
+  name: Create an API key
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/keys
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "label": "my-script",
+    "scopes": [
+      "read",
+      "paper"
+    ],
+    "accounts": "*",
+    "clientKind": "script"
+  }
+}
+
+docs {
+  Create an API key
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The key is in the response once and cannot be shown again; only a scrypt hash is stored.
+
+  Reference: docs/api/keys/createKey.md in the repository.
+}

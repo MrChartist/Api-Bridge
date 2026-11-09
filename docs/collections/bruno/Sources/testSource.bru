@@ -1,0 +1,30 @@
+meta {
+  name: Check that a source answers
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/sources/:id/test
+  body: none
+  auth: bearer
+}
+
+params:path {
+  id: demo
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Check that a source answers
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Makes one small call through the source's own `test` (a status or sample request) and reports the result. It counts against the source's quota.
+
+  Reference: docs/api/sources/testSource.md in the repository.
+}

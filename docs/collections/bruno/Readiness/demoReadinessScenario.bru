@@ -1,0 +1,32 @@
+meta {
+  name: Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/demo/readiness
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "scenario": "session-expired"
+  }
+}
+
+docs {
+  Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)
+
+  - An API key with the `read` scope (any key).
+  - Demo mode only: a Bridge with real accounts answers 404.
+
+  Exists only when the Bridge runs in demo mode. Changes only the simulated view of the demo account (no live trading is possible in demo mode). A scenario is shared by everyone viewing the demo and reverts after 10 minutes.
+
+  Reference: docs/api/readiness/demoReadinessScenario.md in the repository.
+}

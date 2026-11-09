@@ -1,0 +1,37 @@
+meta {
+  name: Historical candles, automatically split across broker limits
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/history?symbol=NSE:RELIANCE&interval=5m&countback=50
+  body: none
+  auth: bearer
+}
+
+params:query {
+  symbol: NSE:RELIANCE
+  interval: 5m
+  ~from: 2026-11-02
+  ~to: 2026-11-06
+  countback: 50
+  ~format: json
+  ~backup: false
+  ~purpose: display
+  ~account: demo-paper
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Historical candles, automatically split across broker limits
+
+  - An API key with the `read` scope (any key).
+
+  Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.
+
+  Reference: docs/api/market-data/getHistory.md in the repository.
+}

@@ -1,0 +1,25 @@
+meta {
+  name: Square off every open position
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/api/v1/closeposition
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}"
+  }
+}
+
+docs {
+  Square off every open position
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatCloseposition.md in the repository.
+}

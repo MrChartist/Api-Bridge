@@ -1,0 +1,28 @@
+meta {
+  name: Funds and margin for one account
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/funds?account=demo-paper
+  body: none
+  auth: bearer
+}
+
+params:query {
+  account: demo-paper
+  ~mode: paper
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Funds and margin for one account
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/portfolio/getFunds.md in the repository.
+}

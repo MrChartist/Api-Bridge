@@ -1,0 +1,4112 @@
+{
+  "auth": {
+    "bearer": [
+      {
+        "key": "token",
+        "type": "string",
+        "value": "{{apiKey}}"
+      }
+    ],
+    "type": "bearer"
+  },
+  "info": {
+    "description": "Every HTTP operation of the Bridge, one folder per area. Set `baseUrl` (default http://127.0.0.1:4300) and `apiKey` (a key from `mc-bridge keys create`) in the environment.\n\nOrder examples are paper orders on the demo paper account. Nothing here contains a real key.\n\nGenerated from docs/openapi.yaml (1.0.0-draft.1). Do not edit by hand: run node scripts/gen-collections.mjs.",
+    "name": "Mr. Chartist API Bridge",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "description": "Health, versions and this document.",
+      "item": [
+        {
+          "name": "Liveness check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Liveness check\n\n- No API key needed.\n\nNo key needed. Callers on this computer also see which services are built.\n\nReference: docs/api/system/getHealth.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "health"
+              ],
+              "raw": "{{baseUrl}}/v1/health"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Versions, brokers, modules and routes",
+          "request": {
+            "description": "Versions, brokers, modules and routes\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/system/getMeta.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "meta"
+              ],
+              "raw": "{{baseUrl}}/v1/meta"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recent requests to this Bridge (newest first)",
+          "request": {
+            "description": "Recent requests to this Bridge (newest first)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id). Requests the dashboard makes for itself carry client \"dashboard\". Webhook paths are shown as their pattern, never with their token. A market-data read that returned something also carries `route`, a short record of what answered it.\n\nReference: docs/api/system/listRecentRequests.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "requests"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "100"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/requests"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "This document",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "This document\n\n- No API key needed.\n\nReference: docs/api/system/getOpenApi.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openapi.yaml"
+              ],
+              "raw": "{{baseUrl}}/openapi.yaml"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "System"
+    },
+    {
+      "description": "Your broker accounts, sessions and broker capabilities.",
+      "item": [
+        {
+          "name": "Supported brokers and what each can do",
+          "request": {
+            "description": "Supported brokers and what each can do\n\n- An API key with the `read` scope (any key).\n\nCapabilities come from each adapter's declared contract; limits from the Bridge's broker policy table (each number marked verified or not).\n\nReference: docs/api/accounts/listBrokers.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "brokers"
+              ],
+              "raw": "{{baseUrl}}/v1/brokers"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Your configured accounts and their session state",
+          "request": {
+            "description": "Your configured accounts and their session state\n\n- An API key with the `read` scope (any key).\n\nOnly accounts this key may use are listed. Never includes credentials.\n\nReference: docs/api/accounts/listAccounts.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounts"
+              ],
+              "raw": "{{baseUrl}}/v1/accounts"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add a broker or paper account (saved to the config file, usable at once)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"broker\": \"paper\",\n  \"id\": \"paper-2\",\n  \"label\": \"Second paper account\"\n}"
+            },
+            "description": "Add a broker or paper account (saved to the config file, usable at once)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nAdds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started\nwithout one), keeping the file's other content, and starts using it without a restart. New accounts are always\npaper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks\n`<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with\nPOST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer\nonly. Audited as `account.added`.\n\nDemo mode saves a real broker's account for the next normal start instead (`savedForLater: true`,\n`account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is\ncontacted. `leaveDemo: true` also removes `\"demo\": true` from the file. Paper accounts are refused in demo mode\n(it has its own), and so is everything when the demo dashboard is served to other computers.\n\nReference: docs/api/accounts/addAccount.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounts"
+              ],
+              "raw": "{{baseUrl}}/v1/accounts"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One account",
+          "request": {
+            "description": "One account\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/accounts/getAccount.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                ":accountId"
+              ],
+              "raw": "{{baseUrl}}/v1/accounts/:accountId",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove an account (from the config file and the running Bridge)",
+          "request": {
+            "description": "Remove an account (from the config file and the running Bridge)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nFor an account added by mistake. Removes it from the config file and the running Bridge and deletes its saved\nkeys and session from the encrypted store; its paper-trading history stays in the data folder. Refuses an\naccount with live trading set up in the config file (remove those in the file, on purpose) and the last paper\naccount. Admin scope with an admin key that may use every account, this computer only. Refused in demo mode.\nAudited as `account.removed`.\n\nReference: docs/api/accounts/removeAccount.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                ":accountId"
+              ],
+              "raw": "{{baseUrl}}/v1/accounts/:accountId",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Connect or log in to the broker",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"values\": {\n    \"apiKey\": \"<broker api key>\",\n    \"clientId\": \"<client id>\"\n  }\n}"
+            },
+            "description": "Connect or log in to the broker\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nSaves the non-secret values (API key, client id, access token) encrypted at rest, then logs in where the broker\nneeds it. For session-login brokers send the password/PIN and the current 6-digit TOTP code in `secrets`: they\nare used once for the broker login and never stored, cached or logged. Admin scope, this computer only.\n\nReference: docs/api/accounts/connectAccount.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                ":accountId",
+                "session"
+              ],
+              "raw": "{{baseUrl}}/v1/accounts/:accountId/session",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forget the broker session (saved keys stay)",
+          "request": {
+            "description": "Forget the broker session (saved keys stay)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/accounts/disconnectAccount.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                ":accountId",
+                "session"
+              ],
+              "raw": "{{baseUrl}}/v1/accounts/:accountId/session",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Make one cheap authenticated broker call",
+          "request": {
+            "description": "Make one cheap authenticated broker call\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/accounts/testAccount.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "accounts",
+                ":accountId",
+                "test"
+              ],
+              "raw": "{{baseUrl}}/v1/accounts/:accountId/test",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Accounts"
+    },
+    {
+      "description": "Bridge API keys and their scopes.",
+      "item": [
+        {
+          "name": "List API keys (never the key itself)",
+          "request": {
+            "description": "List API keys (never the key itself)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nAn admin key limited to some accounts lists only keys limited to those same accounts.\n\nReference: docs/api/keys/listKeys.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "keys"
+              ],
+              "raw": "{{baseUrl}}/v1/keys"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create an API key",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"label\": \"my-script\",\n  \"scopes\": [\n    \"read\",\n    \"paper\"\n  ],\n  \"accounts\": \"*\",\n  \"clientKind\": \"script\"\n}"
+            },
+            "description": "Create an API key\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe key is in the response once and cannot be shown again; only a scrypt hash is stored.\n\nReference: docs/api/keys/createKey.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "keys"
+              ],
+              "raw": "{{baseUrl}}/v1/keys"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Revoke a key (takes effect immediately)",
+          "request": {
+            "description": "Revoke a key (takes effect immediately)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nAn admin key limited to some accounts can revoke only keys limited to those accounts; any other key answers 404, as an unknown id does.\n\nReference: docs/api/keys/revokeKey.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "keys",
+                ":keyId"
+              ],
+              "raw": "{{baseUrl}}/v1/keys/:keyId",
+              "variable": [
+                {
+                  "key": "keyId",
+                  "value": "<keyId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Exchange a one-time sign-in code for a dashboard key",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"<one-time code from mc-bridge open>\"\n}"
+            },
+            "description": "Exchange a one-time sign-in code for a dashboard key\n\n- No API key needed.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nUsed by the dashboard when it is opened from `mc-bridge start --open` or `mc-bridge open`, whose link carries a\none-time code in the URL fragment (`/dashboard#signin=<code>`, never sent to the server in a URL). The code is\nvalid for 10 minutes and works once; only its SHA-256 hash is stored. A valid code creates a new admin key\n(scopes admin and paper, all accounts, label \"Dashboard sign-in\") that expires in 30 days; audited `key.created`.\nA wrong, expired or used code gets one generic 401. After 20 failed attempts in a minute the route answers 429\nfor the rest of that minute. No API key needed; this computer only.\n\nReference: docs/api/keys/signIn.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sign-in"
+              ],
+              "raw": "{{baseUrl}}/v1/sign-in"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Keys"
+    },
+    {
+      "description": "Instrument search, resolution and symbol conversion.",
+      "item": [
+        {
+          "name": "Search instruments across connected brokers' masters",
+          "request": {
+            "description": "Search instruments across connected brokers' masters\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/instruments/searchInstruments.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                "search"
+              ],
+              "query": [
+                {
+                  "description": "Free text (RELIANCE, nifty 25000 ce, banknifty fut).",
+                  "key": "q",
+                  "value": "RELIANCE"
+                },
+                {
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NSE"
+                },
+                {
+                  "disabled": true,
+                  "key": "kind",
+                  "value": "INDEX"
+                },
+                {
+                  "disabled": true,
+                  "key": "underlying",
+                  "value": "NIFTY"
+                },
+                {
+                  "disabled": true,
+                  "key": "expiry",
+                  "value": "2026-11-24"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/instruments/search?q=RELIANCE"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resolve one instrument (lot size, tick size, freeze quantity)",
+          "request": {
+            "description": "Resolve one instrument (lot size, tick size, freeze quantity)\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/instruments/getInstrument.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                ":symbol"
+              ],
+              "query": [
+                {
+                  "description": "`refs` adds each broker's native token and trading symbol.",
+                  "disabled": true,
+                  "key": "include",
+                  "value": "refs"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/instruments/:symbol",
+              "variable": [
+                {
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Convert one symbol between formats",
+          "request": {
+            "description": "Convert one symbol between formats\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/instruments/convertSymbolGet.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "symbols",
+                "convert"
+              ],
+              "query": [
+                {
+                  "key": "input",
+                  "value": "NSE:RELIANCE"
+                },
+                {
+                  "disabled": true,
+                  "key": "from",
+                  "value": "auto"
+                },
+                {
+                  "description": "Needed for compact and broker trading symbols.",
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "<exchange>"
+                },
+                {
+                  "description": "Needed when `from` is `broker`, and to include that broker's native alias.",
+                  "disabled": true,
+                  "key": "broker",
+                  "value": "<broker>"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/symbols/convert?input=NSE:RELIANCE"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Convert up to 200 symbols in one call",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"items\": [\n    {\n      \"input\": \"NSE:RELIANCE\"\n    }\n  ]\n}"
+            },
+            "description": "Convert up to 200 symbols in one call\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/instruments/convertSymbols.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "symbols",
+                "convert"
+              ],
+              "raw": "{{baseUrl}}/v1/symbols/convert"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Instruments"
+    },
+    {
+      "description": "Quotes, LTP, depth, history, expiries and option chains, served streaming-first within broker limits.",
+      "item": [
+        {
+          "name": "Last traded price for up to 200 symbols",
+          "request": {
+            "description": "Last traded price for up to 200 symbols\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/market-data/getLtp.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "ltp"
+              ],
+              "query": [
+                {
+                  "description": "Comma-separated symbols (up to 200).",
+                  "key": "symbols",
+                  "value": "NSE:RELIANCE,NSE:NIFTY"
+                },
+                {
+                  "description": "Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source \"backup\", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources).",
+                  "disabled": true,
+                  "key": "backup",
+                  "value": "false"
+                },
+                {
+                  "description": "What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a\ndelayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled\nsource. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer.\n",
+                  "disabled": true,
+                  "key": "purpose",
+                  "value": "display"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "Oldest data you accept, in ms. 0 forces a live read (still within rate limits). Default depends on the endpoint (LTP 1000, quotes 2000, chain 3000).",
+                  "disabled": true,
+                  "key": "maxAgeMs",
+                  "value": "0"
+                },
+                {
+                  "description": "Stale-while-revalidate. When only an older cached value exists (inside market.stale.maxStaleMs), answer with it at once, labelled `freshness.stale` and `freshness.revalidating`, and refresh it in the background (one refresh however many readers ask).",
+                  "disabled": true,
+                  "key": "swr",
+                  "value": "false"
+                },
+                {
+                  "description": "`background` for a prefetch: it waits behind every interactive read, and a read for the same thing joins it and raises its priority. Reads never run at order priority.",
+                  "disabled": true,
+                  "key": "priority",
+                  "value": "interactive"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/ltp?symbols=NSE:RELIANCE,NSE:NIFTY"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Full quotes for up to 200 symbols",
+          "request": {
+            "description": "Full quotes for up to 200 symbols\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/market-data/getQuotes.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "quotes"
+              ],
+              "query": [
+                {
+                  "description": "Comma-separated symbols (up to 200).",
+                  "key": "symbols",
+                  "value": "NSE:RELIANCE,NSE:NIFTY"
+                },
+                {
+                  "description": "Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source \"backup\", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources).",
+                  "disabled": true,
+                  "key": "backup",
+                  "value": "false"
+                },
+                {
+                  "description": "What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a\ndelayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled\nsource. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer.\n",
+                  "disabled": true,
+                  "key": "purpose",
+                  "value": "display"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "Oldest data you accept, in ms. 0 forces a live read (still within rate limits). Default depends on the endpoint (LTP 1000, quotes 2000, chain 3000).",
+                  "disabled": true,
+                  "key": "maxAgeMs",
+                  "value": "0"
+                },
+                {
+                  "description": "Stale-while-revalidate. When only an older cached value exists (inside market.stale.maxStaleMs), answer with it at once, labelled `freshness.stale` and `freshness.revalidating`, and refresh it in the background (one refresh however many readers ask).",
+                  "disabled": true,
+                  "key": "swr",
+                  "value": "false"
+                },
+                {
+                  "description": "`background` for a prefetch: it waits behind every interactive read, and a read for the same thing joins it and raises its priority. Reads never run at order priority.",
+                  "disabled": true,
+                  "key": "priority",
+                  "value": "interactive"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/quotes?symbols=NSE:RELIANCE,NSE:NIFTY"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Market depth (5 levels where the broker offers it)",
+          "request": {
+            "description": "Market depth (5 levels where the broker offers it)\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/market-data/getDepth.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "depth"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "Oldest data you accept, in ms. 0 forces a live read (still within rate limits). Default depends on the endpoint (LTP 1000, quotes 2000, chain 3000).",
+                  "disabled": true,
+                  "key": "maxAgeMs",
+                  "value": "0"
+                },
+                {
+                  "description": "`background` for a prefetch: it waits behind every interactive read, and a read for the same thing joins it and raises its priority. Reads never run at order priority.",
+                  "disabled": true,
+                  "key": "priority",
+                  "value": "interactive"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/depth?symbol=NSE:RELIANCE"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Historical candles, automatically split across broker limits",
+          "request": {
+            "description": "Historical candles, automatically split across broker limits\n\n- An API key with the `read` scope (any key).\n\nGive `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.\n\nReference: docs/api/market-data/getHistory.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                },
+                {
+                  "key": "interval",
+                  "value": "5m"
+                },
+                {
+                  "description": "ISO date or date-time (IST if no offset), or epoch seconds.",
+                  "disabled": true,
+                  "key": "from",
+                  "value": "2026-11-02"
+                },
+                {
+                  "disabled": true,
+                  "key": "to",
+                  "value": "2026-11-06"
+                },
+                {
+                  "key": "countback",
+                  "value": "50"
+                },
+                {
+                  "disabled": true,
+                  "key": "format",
+                  "value": "json"
+                },
+                {
+                  "description": "Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source \"backup\", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources).",
+                  "disabled": true,
+                  "key": "backup",
+                  "value": "false"
+                },
+                {
+                  "description": "What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a\ndelayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled\nsource. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer.\n",
+                  "disabled": true,
+                  "key": "purpose",
+                  "value": "display"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/history?symbol=NSE:RELIANCE&interval=5m&countback=50"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Expiry dates for an underlying",
+          "request": {
+            "description": "Expiry dates for an underlying\n\n- An API key with the `read` scope (any key).\n\nSee /v1/reference/expiries for kind, lot and holiday shifts.\n\nReference: docs/api/market-data/getExpiries.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "expiries"
+              ],
+              "query": [
+                {
+                  "description": "NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, BANKEX or a stock symbol.",
+                  "key": "underlying",
+                  "value": "NIFTY"
+                },
+                {
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NFO"
+                },
+                {
+                  "description": "Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source \"backup\", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources).",
+                  "disabled": true,
+                  "key": "backup",
+                  "value": "false"
+                },
+                {
+                  "description": "What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a\ndelayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled\nsource. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer.\n",
+                  "disabled": true,
+                  "key": "purpose",
+                  "value": "display"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/expiries?underlying=NIFTY"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Option chain with IV and Greeks",
+          "request": {
+            "description": "Option chain with IV and Greeks\n\n- An API key with the `read` scope (any key).\n\nWorks for every F&O stock; see /v1/options/underlyings.\n\nReference: docs/api/market-data/getOptionChain.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "optionchain"
+              ],
+              "query": [
+                {
+                  "key": "underlying",
+                  "value": "NIFTY"
+                },
+                {
+                  "key": "expiry",
+                  "value": "2026-11-24"
+                },
+                {
+                  "description": "Strikes on each side of ATM (default all).",
+                  "key": "strikes",
+                  "value": "5"
+                },
+                {
+                  "disabled": true,
+                  "key": "greeks",
+                  "value": "true"
+                },
+                {
+                  "description": "b76-forward: every leg's IV and Greeks from Black-76 on the 5-strike parity forward, mid prices and the vol-time clock (theta per trading-day unit), the broker's own IV kept as brokerIv, and a chain-level pricing object. legacy-bs-spot: Black-Scholes on spot with calendar days (theta per calendar day). Default: market.chain.ivModelDefault (legacy-bs-spot until 2027-05-01); a response that used the legacy default carries Deprecation and Link headers.",
+                  "disabled": true,
+                  "key": "ivModel",
+                  "value": "b76-forward"
+                },
+                {
+                  "description": "Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source \"backup\", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources).",
+                  "disabled": true,
+                  "key": "backup",
+                  "value": "false"
+                },
+                {
+                  "description": "What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a\ndelayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled\nsource. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer.\n",
+                  "disabled": true,
+                  "key": "purpose",
+                  "value": "display"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "Oldest data you accept, in ms. 0 forces a live read (still within rate limits). Default depends on the endpoint (LTP 1000, quotes 2000, chain 3000).",
+                  "disabled": true,
+                  "key": "maxAgeMs",
+                  "value": "0"
+                },
+                {
+                  "description": "Stale-while-revalidate. When only an older cached value exists (inside market.stale.maxStaleMs), answer with it at once, labelled `freshness.stale` and `freshness.revalidating`, and refresh it in the background (one refresh however many readers ask).",
+                  "disabled": true,
+                  "key": "swr",
+                  "value": "false"
+                },
+                {
+                  "description": "`background` for a prefetch: it waits behind every interactive read, and a read for the same thing joins it and raises its priority. Reads never run at order priority.",
+                  "disabled": true,
+                  "key": "priority",
+                  "value": "interactive"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/optionchain?underlying=NIFTY&expiry=2026-11-24&strikes=5"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Market data"
+    },
+    {
+      "description": "WebSocket and SSE live data.",
+      "item": [
+        {
+          "name": "Short-lived token for WebSocket and SSE URLs",
+          "request": {
+            "description": "Short-lived token for WebSocket and SSE URLs\n\n- An API key with the `read` scope (any key).\n\nUse it as `?token=` on `/v1/stream` or `/v1/stream/sse` so your API key never appears in a URL or a log. Valid for 60 seconds to connect; the connection then lives on with the key's scopes.\n\nReference: docs/api/streaming/createStreamToken.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "stream",
+                "token"
+              ],
+              "raw": "{{baseUrl}}/v1/stream/token"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Server-Sent Events stream (same messages as the WebSocket)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Server-Sent Events stream (same messages as the WebSocket)\n\n- No API key needed.\n\n`GET /v1/stream/sse?token=<stream token>&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp`. Each event's `id` is its `seq`; a reconnect gets a fresh snapshot first.\n\nReference: docs/api/streaming/openSse.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "stream",
+                "sse"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "token",
+                  "value": "<hook token>"
+                },
+                {
+                  "description": "Comma-separated symbols (up to 200).",
+                  "key": "symbols",
+                  "value": "NSE:RELIANCE,NSE:NIFTY"
+                },
+                {
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "ltp"
+                },
+                {
+                  "description": "1 to also receive `order` messages for the accounts the key may use. The key may instead be sent in an Authorization header.",
+                  "disabled": true,
+                  "key": "orders",
+                  "value": "1"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/stream/sse?symbols=NSE:RELIANCE,NSE:NIFTY"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upstream feeds, subscriptions and clients",
+          "request": {
+            "description": "Upstream feeds, subscriptions and clients\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/streaming/getStreamStats.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "stream",
+                "stats"
+              ],
+              "raw": "{{baseUrl}}/v1/stream/stats"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Streaming"
+    },
+    {
+      "description": "Positions, holdings and funds per account.",
+      "item": [
+        {
+          "name": "Positions for one account (live from the broker, or paper)",
+          "request": {
+            "description": "Positions for one account (live from the broker, or paper)\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/portfolio/getPositions.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "positions"
+              ],
+              "query": [
+                {
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "`paper` reads the account's paper book; `live` the broker's (default for portfolio reads).",
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/positions?account=demo-paper"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Convert a position between Intraday (MIS) and carry (NRML)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"from\": \"INTRADAY\",\n  \"to\": \"CNC\"\n}"
+            },
+            "description": "Convert a position between Intraday (MIS) and carry (NRML)\n\n- An API key with the `paper` scope (or `live`).\n\nPaper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused into Intraday after the square-off time, while the kill switch is on, when the other product holds the opposite side, or into a product the contract cannot be traded in (shares to MARGIN, futures and options to CNC or MTF: INVALID_ORDER, as for an order). Live: not supported through the Bridge yet (CAPABILITY_UNSUPPORTED); convert in the broker's app.\n\nReference: docs/api/portfolio/convertPosition.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "positions",
+                "convert"
+              ],
+              "raw": "{{baseUrl}}/v1/positions/convert"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Demat holdings for one account",
+          "request": {
+            "description": "Demat holdings for one account\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/portfolio/getHoldings.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "holdings"
+              ],
+              "query": [
+                {
+                  "key": "account",
+                  "value": "demo-paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/holdings?account=demo-paper"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Funds and margin for one account",
+          "request": {
+            "description": "Funds and margin for one account\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/portfolio/getFunds.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "funds"
+              ],
+              "query": [
+                {
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "`paper` reads the account's paper book; `live` the broker's (default for portfolio reads).",
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/funds?account=demo-paper"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Portfolio"
+    },
+    {
+      "description": "Paper and live orders with idempotency and safety checks.",
+      "item": [
+        {
+          "name": "Orders (newest first)",
+          "request": {
+            "description": "Orders (newest first)\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/orders/listOrders.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ],
+              "query": [
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "`paper` reads the account's paper book; `live` the broker's (default for portfolio reads).",
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "paper"
+                },
+                {
+                  "disabled": true,
+                  "key": "status",
+                  "value": "pending"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/orders?limit=20"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Place an order (paper unless you ask for live)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"side\": \"BUY\",\n  \"quantity\": 1,\n  \"product\": \"CNC\",\n  \"orderType\": \"MARKET\",\n  \"mode\": \"paper\"\n}"
+            },
+            "description": "Place an order (paper unless you ask for live)\n\n- An API key with the `paper` scope (or `live`).\n- The example is a paper order on the demo paper account. A live order needs every opt-in in docs/guides/safety.md.\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nEvery order passes the safety checks. Live needs a `live` key, an account enabled for live trading in the config\nfile and `\"mode\": \"live\"` in the body; orders from AI assistants also need a `confirmToken` from a human\nconfirmation. `quantity` is in units and must be a multiple of the lot size; or send `lots`. There is no default\nproduct or order type. MARKET and SL-M orders get market protection (or are refused) as configured.\n\nReference: docs/api/orders/placeOrder.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders"
+              ],
+              "raw": "{{baseUrl}}/v1/orders"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check an order without sending it",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"side\": \"BUY\",\n  \"quantity\": 1,\n  \"product\": \"CNC\",\n  \"orderType\": \"MARKET\",\n  \"mode\": \"paper\"\n}"
+            },
+            "description": "Check an order without sending it\n\n- An API key with the `paper` scope (or `live`).\n- The example is a paper order on the demo paper account. A live order needs every opt-in in docs/guides/safety.md.\n\nResolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value. When a human must confirm (orders from AI assistants, or hooks set to require it), it opens a ticket that you confirm in the dashboard (Orders, Pending confirmations); the confirmation yields the `confirmToken` that `POST /v1/orders` needs.\n\nReference: docs/api/orders/previewOrder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "preview"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/preview"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel every open order for an account (or all accounts this key may use)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"mode\": \"paper\"\n}"
+            },
+            "description": "Cancel every open order for an account (or all accounts this key may use)\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/orders/cancelAllOrders.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "cancel-all"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/cancel-all"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Look up an order by your own clientOrderId",
+          "request": {
+            "description": "Look up an order by your own clientOrderId\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/orders/getOrderByClientId.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "by-client-id",
+                ":clientOrderId"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/by-client-id/:clientOrderId",
+              "variable": [
+                {
+                  "key": "clientOrderId",
+                  "value": "<clientOrderId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One order (refreshed from the broker for live orders)",
+          "request": {
+            "description": "One order (refreshed from the broker for live orders)\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/orders/getOrder.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                ":orderId"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/:orderId",
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "<orderId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modify an open order",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"price\": 1450\n}"
+            },
+            "description": "Modify an open order\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nCounts towards the order-rate cap. Brokers limit modifications per order (for example 25); after that, cancel and place again.\n\nReference: docs/api/orders/modifyOrder.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                ":orderId"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/:orderId",
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "<orderId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel an open order",
+          "request": {
+            "description": "Cancel an open order\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/orders/cancelOrder.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              }
+            ],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                ":orderId"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/:orderId",
+              "variable": [
+                {
+                  "key": "orderId",
+                  "value": "<orderId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Executions (trade book)",
+          "request": {
+            "description": "Executions (trade book)\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/orders/listTrades.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "trades"
+              ],
+              "query": [
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "`paper` reads the account's paper book; `live` the broker's (default for portfolio reads).",
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "paper"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/trades"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Orders waiting for a human confirmation",
+          "request": {
+            "description": "Orders waiting for a human confirmation\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe dashboard's \"Pending confirmations\" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only. Only open tickets are listed; `state=rejected` lists the ones a person declined in the last 15 minutes (newest first), which the dashboard shows as \"Declined\".\n\nReference: docs/api/orders/listTickets.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tickets"
+              ],
+              "query": [
+                {
+                  "description": "`open` (default): tickets waiting for a person. `rejected`: tickets a person declined recently.",
+                  "disabled": true,
+                  "key": "state",
+                  "value": "open"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/tickets"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Human confirmation of an order prepared by an AI assistant or webhook",
+          "request": {
+            "description": "Human confirmation of an order prepared by an AI assistant or webhook\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nUsed by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds. A ticket a person already declined answers 409 `STATE_CONFLICT` with `state: rejected` and never yields a token.\n\nReference: docs/api/orders/confirmTicket.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tickets",
+                ":ticketId",
+                "confirm"
+              ],
+              "raw": "{{baseUrl}}/v1/tickets/:ticketId/confirm",
+              "variable": [
+                {
+                  "key": "ticketId",
+                  "value": "<ticketId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "A person declines an order prepared by an AI assistant or webhook",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"Not the order I meant\"\n}"
+            },
+            "description": "A person declines an order prepared by an AI assistant or webhook\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe \"no\" that goes with confirm. Only an open ticket can be declined; it leaves the pending list at once and can never be confirmed afterwards. Declining a ticket that is already declined is a no-op that answers 200 with the same ticket. A ticket that was already confirmed, used to send its order, or has expired answers 409 `STATE_CONFLICT` with `state` (`confirmed`, `consumed` or `expired`); one the Bridge does not know answers 404. The decline is audited (`ticket.rejected`) and announced on the event bus. The assistant that prepared the order sees `status: rejected` and the reason (MCP tool `check_order_ticket`). Admin scope, this computer only, and not from an AI assistant, a webhook or any other automation.\n\nReference: docs/api/orders/rejectTicket.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "tickets",
+                ":ticketId",
+                "reject"
+              ],
+              "raw": "{{baseUrl}}/v1/tickets/:ticketId/reject",
+              "variable": [
+                {
+                  "key": "ticketId",
+                  "value": "<ticketId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Orders"
+    },
+    {
+      "description": "The paper-trading engine.",
+      "item": [
+        {
+          "name": "Paper account summary",
+          "request": {
+            "description": "Paper account summary\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/paper/getPaperAccount.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "paper",
+                "accounts",
+                ":accountId"
+              ],
+              "raw": "{{baseUrl}}/v1/paper/accounts/:accountId",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Clear paper orders and positions and start again",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"startingCapital\": 1000000\n}"
+            },
+            "description": "Clear paper orders and positions and start again\n\n- An API key with the `paper` scope (or `live`).\n\nReference: docs/api/paper/resetPaperAccount.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "paper",
+                "accounts",
+                ":accountId",
+                "reset"
+              ],
+              "raw": "{{baseUrl}}/v1/paper/accounts/:accountId/reset",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Put back the paper book from before the last reset",
+          "request": {
+            "description": "Put back the paper book from before the last reset\n\n- An API key with the `paper` scope (or `live`).\n\nWorks for 2 minutes after a reset and only while no order has been placed since. Orders that were pending at the reset stay cancelled.\n\nReference: docs/api/paper/undoPaperReset.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "paper",
+                "accounts",
+                ":accountId",
+                "reset",
+                "undo"
+              ],
+              "raw": "{{baseUrl}}/v1/paper/accounts/:accountId/reset/undo",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Daily P&L snapshots of a paper account, oldest first",
+          "request": {
+            "description": "Daily P&L snapshots of a paper account, oldest first\n\n- An API key with the `read` scope (any key).\n\nOne row per IST day: equity, realised, unrealised, charges, the day's change in equity (`pnl`), used margin and open positions. Taken at the end of each session (the first maintenance pass after the session end, or the day roll) and on demand.\n\nReference: docs/api/paper/paperDailyPnl.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "paper",
+                "accounts",
+                ":accountId",
+                "daily"
+              ],
+              "raw": "{{baseUrl}}/v1/paper/accounts/:accountId/daily",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Take today's P&L snapshot now",
+          "request": {
+            "description": "Take today's P&L snapshot now\n\n- An API key with the `paper` scope (or `live`).\n\nMarks the book to the latest prices and stores today's row. It never replaces today's end-of-day row, which it returns instead.\n\nReference: docs/api/paper/paperDailySnapshot.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "paper",
+                "accounts",
+                ":accountId",
+                "daily"
+              ],
+              "raw": "{{baseUrl}}/v1/paper/accounts/:accountId/daily",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Margin of a basket against the paper book (approximate, nothing is placed)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"legs\": [\n    {\n      \"symbol\": \"NSE:RELIANCE\",\n      \"side\": \"BUY\",\n      \"quantity\": 1\n    }\n  ]\n}"
+            },
+            "description": "Margin of a basket against the paper book (approximate, nothing is placed)\n\n- An API key with the `read` scope (any key).\n\nPortfolio model (server/bridge/calc/span-margin.js): approximate, not the exchange's SPAN. Per underlying, a 16-scenario price and volatility scan, plus exposure margin, a calendar charge across expiries and expiry-day ELM. Without an underlying price the legs fall back to the simple per-leg model and are listed in `fallback`.\n\nReference: docs/api/paper/paperBasketMargin.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "paper",
+                "accounts",
+                ":accountId",
+                "margin"
+              ],
+              "raw": "{{baseUrl}}/v1/paper/accounts/:accountId/margin",
+              "variable": [
+                {
+                  "key": "accountId",
+                  "value": "demo-paper"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Paper"
+    },
+    {
+      "description": "Broker limits, budgets and usage.",
+      "item": [
+        {
+          "name": "Broker limits, safety limits and current budgets per account",
+          "request": {
+            "description": "Broker limits, safety limits and current budgets per account\n\n- An API key with the `read` scope (any key).\n\nWith `explain=1` the report also says why a request may have been slow or refused, in numbers instead of log lines (`pools`, `consumers`).\n\nReference: docs/api/limits/getLimits.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "limits"
+              ],
+              "query": [
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "`1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer).",
+                  "disabled": true,
+                  "key": "explain",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/limits"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "How much of each budget is used, queued and saved by streaming, caching and coalescing",
+          "request": {
+            "description": "How much of each budget is used, queued and saved by streaming, caching and coalescing\n\n- An API key with the `read` scope (any key).\n\nPer account and endpoint class: the binding window, every window (`windows`: this second, this minute, today) and\ntoday's counters. `series=1` adds each account's calls per second over the last two minutes (`series`).\n`view=budget` answers the dashboard's budget summary instead (the `budget` stream message). Admin keys also get\n`consumers`: today's broker calls and saved calls per dashboard page, API key label, MCP, compat and background job.\n\nReference: docs/api/limits/getUsage.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "usage"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "series",
+                  "value": "false"
+                },
+                {
+                  "disabled": true,
+                  "key": "view",
+                  "value": "budget"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/usage"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Limits"
+    },
+    {
+      "description": "Where market data comes from besides your broker accounts (free providers, plugins), with honest labels, terms, health and a routing trace.",
+      "item": [
+        {
+          "name": "Data sources, what each one is, and whether it is on",
+          "request": {
+            "description": "Data sources, what each one is, and whether it is on\n\n- An API key with the `read` scope (any key).\n\nEvery place the Bridge can read market data from: your broker accounts (`kind: broker`, always first for\nreal-time data), the built-in free providers, and plugins you granted. Each row says how current its data is\n(`class`, `delaySec`), whether it is `official`, what it may be asked (`capabilities`), the vendor's documented\n`limits`, how much of them the Bridge used (`usage`), its `health`, and the terms you accept by turning it on.\nAPI keys of sources that need one are never returned; `configured` only says whether one is stored.\n\nReference: docs/api/sources/listSources.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sources"
+              ],
+              "raw": "{{baseUrl}}/v1/sources"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Why a read would be served by one source and not another (dry run)",
+          "request": {
+            "description": "Why a read would be served by one source and not another (dry run)\n\n- An API key with the `read` scope (any key).\n\nRuns the router's decision for a read and explains it: every candidate (your pooled broker accounts and the\nenabled sources), with the verdict (`chosen`, `fallback` or `skipped`), the reason, the score and the spare\nbudget. Nothing is fetched and no upstream call is made, so it costs no quota. `class` is the data class the\nanswer would carry.\n\nReference: docs/api/sources/traceSources.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sources",
+                "trace"
+              ],
+              "query": [
+                {
+                  "key": "capability",
+                  "value": "quotes"
+                },
+                {
+                  "description": "Comma-separated symbols (for expiries and option chains, the underlying).",
+                  "key": "symbols",
+                  "value": "NSE:RELIANCE,NSE:NIFTY"
+                },
+                {
+                  "description": "What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a\ndelayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled\nsource. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer.\n",
+                  "disabled": true,
+                  "key": "purpose",
+                  "value": "display"
+                },
+                {
+                  "description": "The oldest data the caller would accept, in ms. A delayed or end-of-day source whose delay is longer cannot answer.",
+                  "disabled": true,
+                  "key": "maxAgeMs",
+                  "value": "0"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/sources/trace?capability=quotes&symbols=NSE:RELIANCE,NSE:NIFTY"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Use free sources automatically when your brokers cannot answer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"autoFallback\": false\n}"
+            },
+            "description": "Use free sources automatically when your brokers cannot answer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`autoFallback: true` lets a read that no broker account can answer go to a source you turned on, without the\nread asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills\nand alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the\nBridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited\n(`sources.setting_changed`). Only from this computer.\n\nReference: docs/api/sources/updateSourcesSettings.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sources",
+                "settings"
+              ],
+              "raw": "{{baseUrl}}/v1/sources/settings"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Turn a source on or off",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"enabled\": false\n}"
+            },
+            "description": "Turn a source on or off\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`\nequal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored\nfirst (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`\nturns it off at once. Your broker accounts (`builtin`) cannot be switched off here.\n\nReference: docs/api/sources/updateSource.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sources",
+                ":id"
+              ],
+              "raw": "{{baseUrl}}/v1/sources/:id",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Store the API key of a source that needs one",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apiKey\": \"<source api key>\"\n}"
+            },
+            "description": "Store the API key of a source that needs one\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe key goes into the encrypted secrets store under `source:<id>` and is never returned, logged or put in the\nconfiguration file. Only from this computer.\n\nReference: docs/api/sources/configureSource.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sources",
+                ":id",
+                "config"
+              ],
+              "raw": "{{baseUrl}}/v1/sources/:id/config",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check that a source answers",
+          "request": {
+            "description": "Check that a source answers\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nMakes one small call through the source's own `test` (a status or sample request) and reports the result. It counts against the source's quota.\n\nReference: docs/api/sources/testSource.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sources",
+                ":id",
+                "test"
+              ],
+              "raw": "{{baseUrl}}/v1/sources/:id/test",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Sources"
+    },
+    {
+      "description": "Spreading read-only market data over your own accounts of one holder. Off until you accept a notice; orders never pool.",
+      "item": [
+        {
+          "name": "Whether market-data reads may be spread over your own accounts",
+          "request": {
+            "description": "Whether market-data reads may be spread over your own accounts\n\n- An API key with the `read` scope (any key).\n\nPooling is off until you accept the notice. Accounts are grouped by holder; only accounts of one holder are\never pooled, only read-only market data is pooled, and orders always go through the account they belong to. An\naccount whose broker's policy is `not-allowed` is never pooled.\n\nReference: docs/api/pooling/getPooling.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pooling"
+              ],
+              "raw": "{{baseUrl}}/v1/pooling"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Accept the pooling notice for chosen accounts",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"acknowledge\": \"<notice version from GET /v1/pooling>\",\n  \"accounts\": [\n    \"demo-paper\"\n  ]\n}"
+            },
+            "description": "Accept the pooling notice for chosen accounts\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`acknowledge` must equal the current `notice.version`. Only accounts of one holder with a policy other than\n`not-allowed` are accepted. Only from this computer.\n\nReference: docs/api/pooling/acceptPooling.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pooling",
+                "consent"
+              ],
+              "raw": "{{baseUrl}}/v1/pooling/consent"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Withdraw the pooling consent",
+          "request": {
+            "description": "Withdraw the pooling consent\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nEach account serves only its own reads again.\n\nReference: docs/api/pooling/revokePooling.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "pooling",
+                "consent"
+              ],
+              "raw": "{{baseUrl}}/v1/pooling/consent"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Pooling"
+    },
+    {
+      "description": "Per-key request quotas and fair-queue weights.",
+      "item": [
+        {
+          "name": "Each API key's share of the Bridge",
+          "request": {
+            "description": "Each API key's share of the Bridge\n\n- An API key with the `read` scope (any key).\n\nEvery key has a request quota (a token bucket) and a weight in the fair queue, so one runaway spreadsheet cannot\nstarve an AI assistant. `kinds` are the default weights by client kind (`ui`, `mcp`, `excel`, `script`, `other`);\n`keys[].source` says whether a key's figures are the default, from the configuration, or an override set with\n`PUT /v1/quotas/{keyId}`. `usage` counts requests and how often the key was throttled.\n\nReference: docs/api/quotas/getQuotas.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "quotas"
+              ],
+              "raw": "{{baseUrl}}/v1/quotas"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Override one key's quota or weight",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"perSecond\": 5,\n  \"burst\": 10\n}"
+            },
+            "description": "Override one key's quota or weight\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOnly the fields you send change. `perDay: null` removes the daily cap. The override survives a restart.\n\nReference: docs/api/quotas/setQuota.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "quotas",
+                ":keyId"
+              ],
+              "raw": "{{baseUrl}}/v1/quotas/:keyId",
+              "variable": [
+                {
+                  "key": "keyId",
+                  "value": "<keyId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove a key's override",
+          "request": {
+            "description": "Remove a key's override\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe key goes back to the quota from the configuration, or the default for its client kind.\n\nReference: docs/api/quotas/clearQuota.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "quotas",
+                ":keyId"
+              ],
+              "raw": "{{baseUrl}}/v1/quotas/:keyId",
+              "variable": [
+                {
+                  "key": "keyId",
+                  "value": "<keyId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Quotas"
+    },
+    {
+      "description": "Kill switch, safety counters and the audit log.",
+      "item": [
+        {
+          "name": "Kill switch, live-trading state and today's safety counters",
+          "request": {
+            "description": "Kill switch, live-trading state and today's safety counters\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/safety/getSafety.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "safety"
+              ],
+              "raw": "{{baseUrl}}/v1/safety"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stop all orders now (any key may do this)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"Stopping for the day\"\n}"
+            },
+            "description": "Stop all orders now (any key may do this)\n\n- An API key with the `read` scope (any key).\n\nAny key may stop trading; an empty body works (reason \"manual\"). cancelOpenOrders needs a live key (or admin from this computer) and cancels only orders the Bridge placed on the caller's accounts; includeExternal (admin from this computer) also cancels orders placed outside the Bridge. Without the needed scope the switch is still engaged and the response carries a warning.\n\nReference: docs/api/safety/engageKillSwitch.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "safety",
+                "kill-switch"
+              ],
+              "raw": "{{baseUrl}}/v1/safety/kill-switch"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Release the kill switch (admin, this computer only)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"confirm\": \"RELEASE\"\n}"
+            },
+            "description": "Release the kill switch (admin, this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/safety/releaseKillSwitch.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "safety",
+                "kill-switch"
+              ],
+              "raw": "{{baseUrl}}/v1/safety/kill-switch"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Read the append-only audit log",
+          "request": {
+            "description": "Read the append-only audit log\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/safety/queryAudit.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audit"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "from",
+                  "value": "2026-11-02"
+                },
+                {
+                  "disabled": true,
+                  "key": "to",
+                  "value": "2026-11-06"
+                },
+                {
+                  "disabled": true,
+                  "key": "type",
+                  "value": "<type>"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/audit"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check the audit log's hash chain",
+          "request": {
+            "description": "Check the audit log's hash chain\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/safety/verifyAudit.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "audit",
+                "verify"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "day",
+                  "value": "2026-11-06"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/audit/verify"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Safety"
+    },
+    {
+      "description": "Whether each live account can trade now: session, static IP, order headroom, kill switch.",
+      "item": [
+        {
+          "name": "Trading readiness of each live account (cached; no broker call)",
+          "request": {
+            "description": "Trading readiness of each live account (cached; no broker call)\n\n- An API key with the `read` scope (any key).\n\nOne state per account (ready, warn, cannot_trade, paper_only, unknown) with plain-English reasons and the facts each check used. Cached: no broker call and no lookup. IP addresses (egress.ip, checks.egress.detectedIp, registeredIp, backupIp) and the lookup host (seenBy) are present only for callers on this computer or with the admin scope; others see only whether the address matches.\n\nReference: docs/api/readiness/getReadiness.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "readiness"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "account",
+                  "value": ""
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/readiness"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Re-check now (probe and egress lookup, each with a 30 s cooldown)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"account\": \"demo-paper\"\n}"
+            },
+            "description": "Re-check now (probe and egress lookup, each with a 30 s cooldown)\n\n- An API key with the `read` scope (any key).\n\nRuns the checks at once for one account (or every account this key may see). The broker read call and the egress lookup each have a 30 s cooldown; skipped parts are listed in meta.skipped. Waits at most 12 s, then answers with what it has.\n\nReference: docs/api/readiness/checkReadiness.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "readiness",
+                "check"
+              ],
+              "raw": "{{baseUrl}}/v1/readiness/check"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recent readiness transitions (newest first)",
+          "request": {
+            "description": "Recent readiness transitions (newest first)\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/readiness/getReadinessHistory.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "readiness",
+                "history"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/readiness/history"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"scenario\": \"session-expired\"\n}"
+            },
+            "description": "Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)\n\n- An API key with the `read` scope (any key).\n- Demo mode only: a Bridge with real accounts answers 404.\n\nExists only when the Bridge runs in demo mode. Changes only the simulated view of the demo account (no live trading is possible in demo mode). A scenario is shared by everyone viewing the demo and reverts after 10 minutes.\n\nReference: docs/api/readiness/demoReadinessScenario.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "demo",
+                "readiness"
+              ],
+              "raw": "{{baseUrl}}/v1/demo/readiness"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Readiness"
+    },
+    {
+      "description": "Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.",
+      "item": [
+        {
+          "name": "One number as plain text, for Excel WEBSERVICE and AmiBroker",
+          "request": {
+            "description": "One number as plain text, for Excel WEBSERVICE and AmiBroker\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\n`=WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\")`. Read-only URL keys only; nothing under /xl can place an order.\n\nReference: docs/api/spreadsheets/xlLtp.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "ltp"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/ltp?symbol=NSE:RELIANCE"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One quote field as plain text",
+          "request": {
+            "description": "One quote field as plain text\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nReference: docs/api/spreadsheets/xlQuote.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "quote"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                },
+                {
+                  "key": "field",
+                  "value": "ltp"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/quote?symbol=NSE:RELIANCE&field=ltp"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Flat option chain table (CSV or JSON records) for Power Query and Sheets",
+          "request": {
+            "description": "Flat option chain table (CSV or JSON records) for Power Query and Sheets\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nReference: docs/api/spreadsheets/xlChain.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "chain"
+              ],
+              "query": [
+                {
+                  "key": "underlying",
+                  "value": "NIFTY"
+                },
+                {
+                  "key": "expiry",
+                  "value": "2026-11-24"
+                },
+                {
+                  "key": "format",
+                  "value": "csv"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/chain?underlying=NIFTY&expiry=2026-11-24&format=csv"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)",
+          "request": {
+            "description": "Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nReference: docs/api/spreadsheets/xlHistory.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "history"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                },
+                {
+                  "key": "interval",
+                  "value": "5m"
+                },
+                {
+                  "disabled": true,
+                  "key": "from",
+                  "value": "2026-11-02"
+                },
+                {
+                  "disabled": true,
+                  "key": "to",
+                  "value": "2026-11-06"
+                },
+                {
+                  "key": "layout",
+                  "value": "standard"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=standard"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Spreadsheets"
+    },
+    {
+      "description": "Inbound alerts from ChartInk, GoCharting and signed senders.",
+      "item": [
+        {
+          "name": "Inbound alert (signed generic, ChartInk or GoCharting)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"symbol\": \"NSE:RELIANCE\",\n  \"side\": \"BUY\",\n  \"quantity\": 1,\n  \"orderType\": \"MARKET\",\n  \"id\": \"sig-1\"\n}"
+            },
+            "description": "Inbound alert (signed generic, ChartInk or GoCharting)\n\n- No Bridge key. The hook token in the URL is the credential (generic hooks also need a signature).\n- Served on the public ingress listener when it is enabled.\n\nAnswers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,\nthrough the same preview and safety checks as any order. The hook decides what an alert may do (account,\nsymbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send\n`X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of \"<t>.<raw body>\">`; requests older than 5 minutes or\nreplayed are refused. Served on the public ingress listener when it is enabled.\n\nReference: docs/api/webhooks/receiveHook.md in the repository.",
+            "header": [
+              {
+                "disabled": true,
+                "key": "X-MCB-Signature",
+                "type": "text",
+                "value": "t=<unix seconds>,v1=<hex HMAC-SHA256>"
+              },
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "hooks",
+                ":source",
+                ":token"
+              ],
+              "raw": "{{baseUrl}}/hooks/:source/:token",
+              "variable": [
+                {
+                  "key": "source",
+                  "value": "generic"
+                },
+                {
+                  "key": "token",
+                  "value": "<hook token>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List configured hooks (never the token)",
+          "request": {
+            "description": "List configured hooks (never the token)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nAn admin key limited to some accounts lists only the hooks of those accounts.\n\nReference: docs/api/webhooks/listHooks.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "hooks"
+              ],
+              "raw": "{{baseUrl}}/v1/hooks"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create a hook; the URL with its token is shown once",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"source\": \"generic\",\n  \"label\": \"my alert\",\n  \"account\": \"demo-paper\",\n  \"mode\": \"paper\"\n}"
+            },
+            "description": "Create a hook; the URL with its token is shown once\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/webhooks/createHook.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "hooks"
+              ],
+              "raw": "{{baseUrl}}/v1/hooks"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete a hook (its URL stops working immediately)",
+          "request": {
+            "description": "Delete a hook (its URL stops working immediately)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nAn admin key limited to some accounts can delete only the hooks of those accounts; any other hook answers 404.\n\nReference: docs/api/webhooks/deleteHook.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "hooks",
+                ":hookId"
+              ],
+              "raw": "{{baseUrl}}/v1/hooks/:hookId",
+              "variable": [
+                {
+                  "key": "hookId",
+                  "value": "<hookId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Webhooks"
+    },
+    {
+      "description": "Model Context Protocol endpoint for AI assistants.",
+      "item": [
+        {
+          "name": "MCP Streamable HTTP endpoint for AI assistants",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/list\"\n}"
+            },
+            "description": "MCP Streamable HTTP endpoint for AI assistants\n\n- An API key with the `read` scope (any key).\n\nJSON-RPC 2.0 per the Model Context Protocol. The key's scopes decide which tools exist: market-data and account\ntools for `read`; order tools only when enabled in config, and every order still needs your confirmation in the\nBridge. Desktop assistants should prefer `mc-bridge mcp` over stdio.\n\nReference: docs/api/ai-mcp/mcp.md in the repository.",
+            "header": [
+              {
+                "key": "Accept",
+                "type": "text",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mcp"
+              ],
+              "raw": "{{baseUrl}}/mcp"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "AI (MCP)"
+    },
+    {
+      "description": "Endpoints in the common apikey-in-body style (POST JSON, `apikey` in the body, { status, ... } replies) so SDKs and add-ins written for that style work against the Bridge. Same services, limits and safety as /v1; orders are paper while analyzer mode is on.",
+      "item": [
+        {
+          "name": "Check the key and the account the calls act on",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Check the key and the account the calls act on\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatPing.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ping"
+              ],
+              "raw": "{{baseUrl}}/api/v1/ping"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Analyzer (paper) mode status for this key",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Analyzer (paper) mode status for this key\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatAnalyzer.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analyzer"
+              ],
+              "raw": "{{baseUrl}}/api/v1/analyzer"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Switch analyzer mode for this key (off needs a live key)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"mode\": true\n}"
+            },
+            "description": "Switch analyzer mode for this key (off needs a live key)\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatAnalyzerToggle.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analyzer",
+                "toggle"
+              ],
+              "raw": "{{baseUrl}}/api/v1/analyzer/toggle"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Funds",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Funds\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatFunds.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "funds"
+              ],
+              "raw": "{{baseUrl}}/api/v1/funds"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Order book with statistics",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Order book with statistics\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOrderbook.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orderbook"
+              ],
+              "raw": "{{baseUrl}}/api/v1/orderbook"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Trade book",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Trade book\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatTradebook.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tradebook"
+              ],
+              "raw": "{{baseUrl}}/api/v1/tradebook"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Positions",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Positions\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatPositionbook.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "positionbook"
+              ],
+              "raw": "{{baseUrl}}/api/v1/positionbook"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Holdings with statistics",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Holdings with statistics\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatHoldings.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "holdings"
+              ],
+              "raw": "{{baseUrl}}/api/v1/holdings"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Place an order",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"quantity\": 1,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"CNC\"\n}"
+            },
+            "description": "Place an order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- The example is a paper order on the demo paper account. A live order needs every opt-in in docs/guides/safety.md.\n\nReference: docs/api/compat-rest/compatPlaceorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "placeorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/placeorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Order towards a target position size",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"product\": \"CNC\",\n  \"pricetype\": \"MARKET\",\n  \"position_size\": 1\n}"
+            },
+            "description": "Order towards a target position size\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatPlacesmartorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "placesmartorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/placesmartorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Several orders in one call",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"orders\": [\n    {\n      \"symbol\": \"RELIANCE\",\n      \"exchange\": \"NSE\",\n      \"action\": \"BUY\",\n      \"quantity\": 1,\n      \"pricetype\": \"MARKET\",\n      \"product\": \"CNC\"\n    }\n  ]\n}"
+            },
+            "description": "Several orders in one call\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatBasketorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "basketorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/basketorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One order split into pieces",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"quantity\": 5,\n  \"splitsize\": 2,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"CNC\"\n}"
+            },
+            "description": "One order split into pieces\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatSplitorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "splitorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/splitorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modify an open order",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"orderid\": \"<orderId>\",\n  \"quantity\": 1,\n  \"price\": 1450,\n  \"pricetype\": \"LIMIT\"\n}"
+            },
+            "description": "Modify an open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatModifyorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "modifyorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/modifyorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel an order",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"orderid\": \"<orderId>\"\n}"
+            },
+            "description": "Cancel an order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCancelorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cancelorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/cancelorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel every open order",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Cancel every open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCancelallorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cancelallorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/cancelallorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Square off every open position",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Square off every open position\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCloseposition.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "closeposition"
+              ],
+              "raw": "{{baseUrl}}/api/v1/closeposition"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One order's status",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"orderid\": \"<orderId>\"\n}"
+            },
+            "description": "One order's status\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOrderstatus.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orderstatus"
+              ],
+              "raw": "{{baseUrl}}/api/v1/orderstatus"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Net quantity for one symbol and product",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"product\": \"CNC\"\n}"
+            },
+            "description": "Net quantity for one symbol and product\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOpenposition.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "openposition"
+              ],
+              "raw": "{{baseUrl}}/api/v1/openposition"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Order an option by offset (ATM, ITM2, OTM1 ...)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"underlying\": \"NIFTY\",\n  \"exchange\": \"NSE_INDEX\",\n  \"offset\": \"ATM\",\n  \"option_type\": \"CE\",\n  \"action\": \"BUY\",\n  \"quantity\": 75,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"MIS\"\n}"
+            },
+            "description": "Order an option by offset (ATM, ITM2, OTM1 ...)\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOptionsorder.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "optionsorder"
+              ],
+              "raw": "{{baseUrl}}/api/v1/optionsorder"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Quote for one symbol",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\"\n}"
+            },
+            "description": "Quote for one symbol\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatQuotes.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quotes"
+              ],
+              "raw": "{{baseUrl}}/api/v1/quotes"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Quotes for up to 200 symbols",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbols\": [\n    {\n      \"symbol\": \"RELIANCE\",\n      \"exchange\": \"NSE\"\n    },\n    {\n      \"symbol\": \"NIFTY\",\n      \"exchange\": \"NSE_INDEX\"\n    }\n  ]\n}"
+            },
+            "description": "Quotes for up to 200 symbols\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatMultiquotes.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "multiquotes"
+              ],
+              "raw": "{{baseUrl}}/api/v1/multiquotes"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Market depth",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\"\n}"
+            },
+            "description": "Market depth\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatDepth.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "depth"
+              ],
+              "raw": "{{baseUrl}}/api/v1/depth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Candles",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"interval\": \"5m\",\n  \"start_date\": \"2026-11-02\",\n  \"end_date\": \"2026-11-06\"\n}"
+            },
+            "description": "Candles\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatHistory.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "history"
+              ],
+              "raw": "{{baseUrl}}/api/v1/history"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Supported candle intervals",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Supported candle intervals\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatIntervals.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "intervals"
+              ],
+              "raw": "{{baseUrl}}/api/v1/intervals"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Instrument details",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\"\n}"
+            },
+            "description": "Instrument details\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatSymbol.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "symbol"
+              ],
+              "raw": "{{baseUrl}}/api/v1/symbol"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Instrument search",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"query\": \"RELIANCE\",\n  \"exchange\": \"NSE\"\n}"
+            },
+            "description": "Instrument search\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatSearch.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search"
+              ],
+              "raw": "{{baseUrl}}/api/v1/search"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Expiry dates",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"symbol\": \"NIFTY\",\n  \"exchange\": \"NFO\"\n}"
+            },
+            "description": "Expiry dates\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatExpiry.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "expiry"
+              ],
+              "raw": "{{baseUrl}}/api/v1/expiry"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Option chain",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"underlying\": \"NIFTY\",\n  \"exchange\": \"NSE_INDEX\",\n  \"expiry_date\": \"24NOV26\"\n}"
+            },
+            "description": "Option chain\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOptionchain.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "optionchain"
+              ],
+              "raw": "{{baseUrl}}/api/v1/optionchain"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Option symbol for an offset",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"underlying\": \"NIFTY\",\n  \"exchange\": \"NSE_INDEX\",\n  \"offset\": \"ATM\",\n  \"option_type\": \"CE\"\n}"
+            },
+            "description": "Option symbol for an offset\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOptionsymbol.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "optionsymbol"
+              ],
+              "raw": "{{baseUrl}}/api/v1/optionsymbol"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Margin calculation (not available yet)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
+            },
+            "description": "Margin calculation (not available yet)\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatMargin.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "margin"
+              ],
+              "raw": "{{baseUrl}}/api/v1/margin"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Compat REST"
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "type": "string",
+      "value": "http://127.0.0.1:4300"
+    },
+    {
+      "key": "apiKey",
+      "type": "string",
+      "value": ""
+    }
+  ]
+}

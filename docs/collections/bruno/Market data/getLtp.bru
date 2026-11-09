@@ -1,0 +1,33 @@
+meta {
+  name: Last traded price for up to 200 symbols
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/ltp?symbols=NSE:RELIANCE,NSE:NIFTY
+  body: none
+  auth: bearer
+}
+
+params:query {
+  symbols: NSE:RELIANCE,NSE:NIFTY
+  ~backup: false
+  ~purpose: display
+  ~account: demo-paper
+  ~maxAgeMs: 0
+  ~swr: false
+  ~priority: interactive
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Last traded price for up to 200 symbols
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/market-data/getLtp.md in the repository.
+}

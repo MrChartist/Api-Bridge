@@ -1,0 +1,30 @@
+meta {
+  name: Delete a hook (its URL stops working immediately)
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/v1/hooks/:hookId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  hookId: <hookId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Delete a hook (its URL stops working immediately)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  An admin key limited to some accounts can delete only the hooks of those accounts; any other hook answers 404.
+
+  Reference: docs/api/webhooks/deleteHook.md in the repository.
+}

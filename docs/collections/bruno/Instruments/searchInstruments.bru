@@ -1,0 +1,33 @@
+meta {
+  name: Search instruments across connected brokers' masters
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/instruments/search?q=RELIANCE
+  body: none
+  auth: bearer
+}
+
+params:query {
+  q: RELIANCE
+  ~exchange: NSE
+  ~kind: INDEX
+  ~underlying: NIFTY
+  ~expiry: 2026-11-24
+  ~limit: 100
+  ~cursor: <cursor>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Search instruments across connected brokers' masters
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/instruments/searchInstruments.md in the repository.
+}

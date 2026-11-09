@@ -1,0 +1,34 @@
+meta {
+  name: Convert a position between Intraday (MIS) and carry (NRML)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/positions/convert
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "account": "demo-paper",
+    "symbol": "NSE:RELIANCE",
+    "from": "INTRADAY",
+    "to": "CNC"
+  }
+}
+
+docs {
+  Convert a position between Intraday (MIS) and carry (NRML)
+
+  - An API key with the `paper` scope (or `live`).
+
+  Paper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused into Intraday after the square-off time, while the kill switch is on, when the other product holds the opposite side, or into a product the contract cannot be traded in (shares to MARGIN, futures and options to CNC or MTF: INVALID_ORDER, as for an order). Live: not supported through the Bridge yet (CAPABILITY_UNSUPPORTED); convert in the broker's app.
+
+  Reference: docs/api/portfolio/convertPosition.md in the repository.
+}

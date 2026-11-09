@@ -1,0 +1,27 @@
+meta {
+  name: Instrument search
+  type: http
+  seq: 26
+}
+
+post {
+  url: {{baseUrl}}/api/v1/search
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "query": "RELIANCE",
+    "exchange": "NSE"
+  }
+}
+
+docs {
+  Instrument search
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatSearch.md in the repository.
+}

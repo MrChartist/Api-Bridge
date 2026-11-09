@@ -1,0 +1,28 @@
+meta {
+  name: Check the audit log's hash chain
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/audit/verify
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~day: 2026-11-06
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Check the audit log's hash chain
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/safety/verifyAudit.md in the repository.
+}

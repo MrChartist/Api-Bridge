@@ -1,0 +1,37 @@
+meta {
+  name: Store the API key of a source that needs one
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/v1/sources/:id/config
+  body: json
+  auth: bearer
+}
+
+params:path {
+  id: demo
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "apiKey": "<source api key>"
+  }
+}
+
+docs {
+  Store the API key of a source that needs one
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The key goes into the encrypted secrets store under `source:<id>` and is never returned, logged or put in the
+  configuration file. Only from this computer.
+
+  Reference: docs/api/sources/configureSource.md in the repository.
+}

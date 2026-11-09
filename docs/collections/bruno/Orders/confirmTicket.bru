@@ -1,0 +1,30 @@
+meta {
+  name: Human confirmation of an order prepared by an AI assistant or webhook
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/v1/tickets/:ticketId/confirm
+  body: none
+  auth: bearer
+}
+
+params:path {
+  ticketId: <ticketId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Human confirmation of an order prepared by an AI assistant or webhook
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Used by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds. A ticket a person already declined answers 409 `STATE_CONFLICT` with `state: rejected` and never yields a token.
+
+  Reference: docs/api/orders/confirmTicket.md in the repository.
+}

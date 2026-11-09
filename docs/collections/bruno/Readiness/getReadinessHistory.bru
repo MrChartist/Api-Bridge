@@ -1,0 +1,28 @@
+meta {
+  name: Recent readiness transitions (newest first)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/readiness/history
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~account: demo-paper
+  ~limit: 50
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Recent readiness transitions (newest first)
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/readiness/getReadinessHistory.md in the repository.
+}

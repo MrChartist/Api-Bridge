@@ -1,0 +1,26 @@
+meta {
+  name: Cancel an order
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/v1/cancelorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "orderid": "<orderId>"
+  }
+}
+
+docs {
+  Cancel an order
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatCancelorder.md in the repository.
+}

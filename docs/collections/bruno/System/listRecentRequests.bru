@@ -1,0 +1,30 @@
+meta {
+  name: Recent requests to this Bridge (newest first)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/requests
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~limit: 100
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Recent requests to this Bridge (newest first)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id). Requests the dashboard makes for itself carry client "dashboard". Webhook paths are shown as their pattern, never with their token. A market-data read that returned something also carries `route`, a short record of what answered it.
+
+  Reference: docs/api/system/listRecentRequests.md in the repository.
+}

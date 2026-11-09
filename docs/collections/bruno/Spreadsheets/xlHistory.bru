@@ -1,0 +1,31 @@
+meta {
+  name: Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=standard
+  body: none
+  auth: bearer
+}
+
+params:query {
+  symbol: NSE:RELIANCE
+  interval: 5m
+  ~from: 2026-11-02
+  ~to: 2026-11-06
+  layout: standard
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  Reference: docs/api/spreadsheets/xlHistory.md in the repository.
+}
