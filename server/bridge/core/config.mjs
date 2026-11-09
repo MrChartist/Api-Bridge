@@ -117,6 +117,22 @@ export const coreSchema = z
           })
           .strict()
           .prefault({}),
+        /**
+         * Opt-in third listener for Google Sheets: serves ONLY GET /xl/* for read-only keys, with its own port, its own
+         * Host allow-list and a request cap per minute. Point a tunnel at this port and nothing else is reachable
+         * through it (docs/guides/expose-alerts.md). Off by default.
+         */
+        sheetsIngress: z
+          .object({
+            enabled: z.boolean().default(false),
+            host: z.string().default("127.0.0.1"),
+            port: z.number().int().min(0).max(65535).default(DEFAULT_PORT + 2),
+            allowedHosts: z.array(z.string()).default([]),
+            /** Requests per minute per caller address (behind a local tunnel every caller shares one address). */
+            requestsPerMinute: z.number().int().min(10).max(6000).default(600),
+          })
+          .strict()
+          .prefault({}),
       })
       .strict()
       .prefault({}),
@@ -283,6 +299,20 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
     warnings.push("server.remoteDashboard is on (demo mode): the dashboard pages are served to other computers. API calls still need a key.");
   }
   if (cfg.server.publicIngress.enabled) warnings.push("Public ingress is on: only webhook routes are served on it. Keep the tunnel URL private.");
+  const si = cfg.server.sheetsIngress;
+  if (si.enabled && !isLoopbackHost(si.host)) {
+    if (!cfg.server.allowNonLoopback) {
+      throw new BridgeError("VALIDATION_FAILED", `server.sheetsIngress.host ${si.host} is not a loopback address. Point your tunnel at 127.0.0.1, or set server.allowNonLoopback to true in the config file if you really mean it.`);
+    }
+    warnings.push(`The Sheets listener will listen on ${si.host}, not only on this computer.`);
+  }
+  if (si.enabled) warnings.push("The Sheets listener is on: only GET /xl/* for read-only keys is served on it. Keep the tunnel URL and the key private.");
+  const ports = [["server.port", cfg.server.port, true], ["server.publicIngress.port", pi.port, pi.enabled], ["server.sheetsIngress.port", si.port, si.enabled]].filter(([, p, on]) => on && p !== 0);
+  for (let i = 0; i < ports.length; i++) {
+    for (let j = i + 1; j < ports.length; j++) {
+      if (ports[i][1] === ports[j][1]) throw new BridgeError("VALIDATION_FAILED", `${ports[i][0]} and ${ports[j][0]} are both ${ports[i][1]}: each listener needs its own port.`);
+    }
+  }
   const ids = new Set();
   for (const a of cfg.accounts) {
     if (ids.has(a.id)) throw new BridgeError("VALIDATION_FAILED", `Duplicate account id ${a.id}.`);
