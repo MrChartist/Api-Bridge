@@ -1,7 +1,7 @@
 /**
  * Pooling routes: the consent a person gives before reads are spread over their own accounts.
  *
- *   GET    /v1/pooling          read   the consent, the accounts grouped by holder with each broker's pooling policy, the notice
+ *   GET    /v1/pooling          read   the consent, the accounts grouped by holder (id, label, broker, pooling policy), the notice
  *   PUT    /v1/pooling/consent  admin, this computer only (like key creation)   { acknowledge: "<notice version>", accounts: [ids] }
  *   DELETE /v1/pooling/consent  admin, this computer only                       revoke: pooling ends at once
  *

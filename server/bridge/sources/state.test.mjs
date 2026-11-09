@@ -10,6 +10,41 @@ const warns = () => {
   return { lines, warn: (m, f) => lines.push([m, f]) };
 };
 
+describe("source state settings", () => {
+  it("has no setting until one is saved, then keeps it across a reload next to the sources", () => {
+    const dir = tmp();
+    const a = createSourceState({ dataDir: dir });
+    expect(a.getSetting("autoFallback")).toBeUndefined();
+    a.update("demo-eod", { enabled: true });
+    expect(a.setSetting("autoFallback", false)).toBe(true);
+    const b = createSourceState({ dataDir: dir });
+    expect(b.getSetting("autoFallback")).toBe(false);
+    expect(b.get("demo-eod").enabled).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, "sources", "state.json"), "utf8"))).toMatchObject({ version: 1, settings: { autoFallback: false } });
+  });
+
+  it("refuses unknown settings and non-boolean values, and a hand-edited file cannot smuggle in others", () => {
+    const dir = tmp();
+    const s = createSourceState({ dataDir: dir });
+    expect(() => s.setSetting("other", true)).toThrow();
+    expect(() => s.setSetting("autoFallback", "yes")).toThrow();
+    mkdirSync(join(dir, "sources"), { recursive: true });
+    writeFileSync(join(dir, "sources", "state.json"), JSON.stringify({ version: 1, sources: {}, settings: { autoFallback: "yes", admin: true } }));
+    const t = createSourceState({ dataDir: dir });
+    expect(t.getSetting("autoFallback")).toBeUndefined();
+    expect(t.getSetting("admin")).toBeUndefined();
+  });
+
+  it("reads a file from before settings existed", () => {
+    const dir = tmp();
+    mkdirSync(join(dir, "sources"), { recursive: true });
+    writeFileSync(join(dir, "sources", "state.json"), JSON.stringify({ version: 1, sources: { "demo-eod": { enabled: true } } }));
+    const s = createSourceState({ dataDir: dir });
+    expect(s.loadedFrom).toBe("file");
+    expect(s.getSetting("autoFallback")).toBeUndefined();
+  });
+});
+
 describe("source state", () => {
   it("starts empty, persists changes and reloads them", () => {
     const dir = tmp();

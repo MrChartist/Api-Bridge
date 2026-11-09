@@ -128,8 +128,9 @@ paper, safety and compat code and fails if a market-data call there does not sta
 answer or an error, not a delayed price pretending to be fresh.
 
 **Fallback.** When no broker account can answer (all logged out, all at their limit), the Bridge can answer from an
-enabled source instead, but only if you allow it: `"sources": { "autoFallback": true }` in the config, or `backup=true` on
-one request. It is off by default. The answer carries the labels above, so you can tell.
+enabled source instead, but only if you allow it: the switch "Use free sources automatically when my brokers cannot
+answer" on Sources > Providers (saved by the Bridge; `PATCH /v1/sources/settings`), `"sources": { "autoFallback": true }`
+in the config, or `backup=true` on one request. The switch, once used, wins over the config. It is off by default. The answer carries the labels above, so you can tell.
 
 A source that keeps failing is paused for a while (the Sources page says "Paused" and when it will be tried again),
 and tried again after a cooldown that grows up to five minutes. A rate-limit answer, a bad key or an unknown symbol does

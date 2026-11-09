@@ -448,6 +448,19 @@ describe("facade: status and autoFallback", () => {
     expect(svc.autoFallback()).toBe(true);
     expect(setup().svc.autoFallback()).toBe(false);
   });
+
+  it("a saved runtime choice wins over config, and the source of the value is named", () => {
+    const off = setup();
+    expect(off.svc.autoFallbackSource()).toBe("default");
+    const cfgOn = setup({ config: { autoFallback: true } });
+    expect(cfgOn.svc.autoFallbackSource()).toBe("config");
+    expect(cfgOn.svc.setAutoFallback(false)).toEqual({ autoFallback: false, autoFallbackSource: "setting", persisted: true });
+    expect(cfgOn.svc.autoFallback()).toBe(false);
+    expect(cfgOn.svc.status().autoFallback).toBe(false);
+    expect(off.svc.setAutoFallback(true).autoFallback).toBe(true);
+    expect(off.svc.status().autoFallback).toBe(true);
+    expect(() => off.svc.setAutoFallback("yes")).toThrow(/true or false/);
+  });
 });
 
 describe("usage and health", () => {

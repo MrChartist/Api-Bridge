@@ -79,7 +79,7 @@ beforeAll(async () => {
       server: { port: 0 },
       logging: { level: "silent" },
       accounts: [
-        { id: "dhan-main", broker: "dhan", holder: "self", marketData: OPT },
+        { id: "dhan-main", broker: "dhan", label: "Main Dhan", holder: "self", marketData: OPT },
         { id: "zerodha-main", broker: "zerodha", holder: "self", marketData: OPT },
         { id: "zerodha-spouse", broker: "zerodha", holder: "spouse", marketData: OPT },
         { id: "angel-nohold", broker: "angelone", marketData: OPT },
@@ -138,7 +138,7 @@ describe("GET /v1/pooling", () => {
       [null, ["angel-nohold"]],
     ]);
     const dhan = groups[0].accounts[0];
-    expect(dhan).toMatchObject({ broker: "dhan", poolingPolicy: "unknown", optedIn: true, consented: false, inPool: false, dataEntitlement: { value: "paid-for-live" } });
+    expect(dhan).toMatchObject({ label: "Main Dhan", broker: "dhan", poolingPolicy: "unknown", optedIn: true, consented: false, inPool: false, dataEntitlement: { value: "paid-for-live" } });
     expect(dhan.poolingNote).toMatch(/silent on several accounts/);
     expect(r.json.meta.requestId).toBeTruthy();
     expect(JSON.stringify(r.json)).not.toMatch(/t-123456/);

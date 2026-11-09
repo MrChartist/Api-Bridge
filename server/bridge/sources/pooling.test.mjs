@@ -27,7 +27,7 @@ import {
 
 const OPT = { pooling: true, poolingWhenTermsUnknown: true };
 const ACCOUNTS = [
-  { id: "dhan-main", broker: "stubkey", holder: "self", marketData: OPT },
+  { id: "dhan-main", broker: "stubkey", label: "Main Dhan", holder: "self", marketData: OPT },
   { id: "dhan-two", broker: "stubkey", holder: "self", marketData: OPT },
   { id: "dhan-spouse", broker: "stubkey", holder: "spouse", marketData: OPT },
   { id: "kite-main", broker: "stubblock", holder: "self", marketData: OPT },
@@ -210,6 +210,7 @@ describe("status()", () => {
     const dhan = empty.groups[0].accounts[0];
     expect(dhan).toEqual({
       id: "dhan-main",
+      label: "Main Dhan",
       broker: "stubkey",
       poolingPolicy: "unknown",
       poolingNote: "Silent on several accounts.",
@@ -223,6 +224,17 @@ describe("status()", () => {
     const after = svc.status();
     expect(after.consent).toEqual({ acceptedAt: "2026-11-08T09:30:00.000Z", version: POOLING_NOTICE_VERSION, accounts: ["dhan-main", "dhan-two"], current: true });
     expect(after.groups[0].accounts.map((a) => a.consented)).toEqual([true, true, false]);
+  });
+
+  it("gives every account a label: the one the person set, else the account manager's, else the broker", () => {
+    const { svc } = service();
+    const labels = Object.fromEntries(svc.status().groups.flatMap((g) => g.accounts.map((a) => [a.id, a.label])));
+    expect(labels).toEqual({ "dhan-main": "Main Dhan", "dhan-two": "stubkey", "dhan-spouse": "stubkey", "kite-main": "stubblock", "kite-none": "stubkey" });
+    const config = configFor(tmp());
+    const viaManager = createPoolingService({ config, accounts: { list: () => [{ id: "dhan-two", label: "Second Dhan" }] } }, { policies: POLICIES });
+    expect(viaManager.status().groups[0].accounts.find((a) => a.id === "dhan-two").label).toBe("Second Dhan");
+    const broken = createPoolingService({ config, accounts: { list: () => { throw new Error("down"); } } }, { policies: POLICIES });
+    expect(broken.status().groups[0].accounts[1].label).toBe("stubkey");
   });
 
   it("never lists paper accounts, and says unknown for a broker with no researched plan or note", () => {

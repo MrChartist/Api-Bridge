@@ -155,6 +155,19 @@ export function createPoolingService(deps = {}, options = {}) {
 
   const byId = (id) => accountsOf().find((a) => a.id === id);
 
+  /** The name the person gave the account; else the label the account manager shows; else its broker. Plain text, never empty. */
+  function labelOf(a) {
+    const text = (v) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 80) : null);
+    const own = text(a.label);
+    if (own) return own;
+    try {
+      const listed = deps.accounts?.list?.().find((x) => x.id === a.id);
+      return text(listed?.label) ?? a.broker;
+    } catch {
+      return a.broker;
+    }
+  }
+
   return {
     notice: POOLING_NOTICE,
 
@@ -182,6 +195,7 @@ export function createPoolingService(deps = {}, options = {}) {
         const p = policies[a.broker];
         groups.get(holder).push({
           id: a.id,
+          label: labelOf(a),
           broker: a.broker,
           poolingPolicy: policyPooling(policies, a.broker),
           poolingNote: p?.poolingNote ?? POOLING_NOT_REVIEWED,
