@@ -5128,8 +5128,8 @@ components:
         quantity: { type: integer, minimum: 1, description: "Units; must be a multiple of the lot size. Send this or lots." }
         lots: { type: integer, minimum: 1 }
         lotSizeConfirmed: { type: integer, minimum: 1, description: "The lot size (units per lot) the caller has checked; used only when reference lot data is stale or conflicts with the master (preview check LOT_SIZE_STALE)." }
-        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "No default." }
-        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], description: "No default." }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "No default. `MIS` is read as INTRADAY and `NRML` as MARGIN (case does not matter); the canonical value is in the order and in `meta.normalised`." }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], description: "No default. `MKT`, `SLM` and `SL_M` are read too." }
         price: { type: number, exclusiveMinimum: 0, description: "Required for LIMIT and SL." }
         triggerPrice: { type: number, exclusiveMinimum: 0, description: "Required for SL and SL-M." }
         validity: { type: string, enum: [DAY, IOC], default: DAY }
