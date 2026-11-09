@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DRY_RUN_REUSE_MS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, ago, clockText, dayHeading, groupByDay, orderStatusLook, orderTypeText, qtyText, ticketLife, ticketSource, tradesCsv, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo } from "./orders-core.js";
+import { DECLINE_REASON_MAX, DRY_RUN_REUSE_MS, declineBody, declineOutcome, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, ago, clockText, dayHeading, groupByDay, orderStatusLook, orderTypeText, qtyText, ticketLife, ticketSource, tradesCsv, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -159,6 +159,20 @@ describe("how a row reads on the Orders page", () => {
     expect(ticketLife({}, 0).known).toBe(false);
     expect(clockText(61_000)).toBe("1:01");
     expect(clockText(-5)).toBe("0:00");
+  });
+  it("shapes the decline box into the API body and reads what a decline came to", () => {
+    expect(declineBody("  Wrong \n quantity ")).toEqual({ reason: "Wrong quantity" });
+    expect(declineBody("   ")).toEqual({});
+    expect(declineBody(undefined)).toEqual({});
+    expect(declineBody("x".repeat(500)).reason).toHaveLength(DECLINE_REASON_MAX);
+    expect(declineOutcome(null).kind).toBe("done");
+    expect(declineOutcome({ status: 409, body: { state: "rejected" } }).kind).toBe("done");
+    expect(declineOutcome({ status: 409, body: { state: "confirmed" } }).kind).toBe("confirmed");
+    expect(declineOutcome({ status: 409, body: { state: "consumed" } }).kind).toBe("confirmed");
+    expect(declineOutcome({ status: 409, body: { state: "expired" } }).kind).toBe("gone");
+    expect(declineOutcome({ status: 404 }).kind).toBe("gone");
+    expect(declineOutcome({ network: true, message: "The Bridge did not answer." })).toMatchObject({ kind: "failed", message: expect.stringMatching(/not declined/) });
+    expect(declineOutcome({ status: 500, message: "Internal error." })).toMatchObject({ kind: "failed", message: "Could not decline: Internal error. It is back in the list." });
   });
   it("names who prepared a ticket", () => {
     expect(ticketSource({ source: "mcp", client: "claude-desktop" })).toEqual({ kind: "AI assistant", label: "claude-desktop" });

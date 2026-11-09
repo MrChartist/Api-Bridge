@@ -168,6 +168,91 @@ describe("human confirmation tickets (AI assistants)", () => {
   });
 });
 
+describe("declining a ticket", () => {
+  const mcp = (h) => h.ctx("mcp", { source: "mcp" });
+
+  it("a person declines: audited without secrets, announced, gone from the pending list, never confirmable", async () => {
+    const h = buildHarness();
+    const seen = [];
+    h.bus.on("ticket.rejected", (p) => seen.push(p));
+    const pv = await h.svc.preview(mcp(h), liveOrder());
+    expect(await h.svc.ticketStatus(mcp(h), pv.ticketId)).toMatchObject({ status: "open" });
+
+    const out = await h.svc.rejectTicket(h.ctx("admin"), pv.ticketId, { reason: "Too big for today" });
+    expect(out).toMatchObject({ ticketId: pv.ticketId, status: "rejected", reason: "Too big for today" });
+    expect(await h.svc.tickets(h.ctx("admin"))).toEqual([]);
+    expect(await h.svc.tickets(h.ctx("admin"), { state: "rejected" })).toEqual([expect.objectContaining({ ticketId: pv.ticketId, status: "rejected", reason: "Too big for today" })]);
+
+    const rec = h.audit.records.find((r) => r.type === "ticket.rejected");
+    expect(rec).toMatchObject({ accountId: "zerodha-main", data: { ticketId: pv.ticketId, account: "zerodha-main", symbol: "NSE:RELIANCE", side: "BUY", reason: "Too big for today" } });
+    expect(rec.data.by).toMatch(/^[a-z]+:/);
+    expect(JSON.stringify(rec)).not.toMatch(/mct_|confirmToken/);
+    expect(seen).toEqual([{ ticketId: pv.ticketId, accountId: "zerodha-main", principal: expect.stringMatching(/^key:/) }]);
+
+    // reject then confirm: a 409 with the state, and the order can never be placed
+    expect(await reject(h.svc.confirmTicket(h.ctx("admin"), pv.ticketId))).toMatchObject({ code: "STATE_CONFLICT", status: 409, fields: { state: "rejected" } });
+    expect(await reject(h.svc.place(mcp(h), { ...liveOrder(), confirmToken: "mct_never-issued-never-issued" }))).toMatchObject({ code: "CONFIRMATION_REQUIRED" });
+    expect(await reject(h.svc.place(mcp(h), liveOrder(), { ticketId: pv.ticketId }))).toMatchObject({ code: "CONFIRMATION_REQUIRED" });
+    expect(h.zerodha.placed).toHaveLength(0);
+
+    // The status the assistant polls
+    expect(await h.svc.ticketStatus(mcp(h), pv.ticketId)).toEqual({ ticketId: pv.ticketId, status: "rejected", reason: "Too big for today", expiresAt: null });
+    // another client learns nothing
+    expect(await h.svc.ticketStatus(h.ctx("live", { source: "mcp" }), pv.ticketId)).toMatchObject({ status: "unknown", reason: null });
+  });
+
+  it("declining twice answers the same and audits once", async () => {
+    const h = buildHarness();
+    const pv = await h.svc.preview(mcp(h), liveOrder());
+    const a = await h.svc.rejectTicket(h.ctx("admin"), pv.ticketId, { reason: "no" });
+    const b = await h.svc.rejectTicket(h.ctx("admin"), pv.ticketId);
+    expect(b).toEqual(a);
+    expect(h.audit.types().filter((t) => t === "ticket.rejected")).toHaveLength(1);
+  });
+
+  it("confirm then reject: a 409 naming the state, and the token still works", async () => {
+    const h = buildHarness();
+    const body = liveOrder();
+    const pv = await h.svc.preview(mcp(h), body);
+    const { confirmToken } = await h.svc.confirmTicket(h.ctx("admin"), pv.ticketId);
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin"), pv.ticketId))).toMatchObject({ code: "STATE_CONFLICT", status: 409, retryable: false, fields: { ticketId: pv.ticketId, state: "confirmed" } });
+    expect(await h.svc.ticketStatus(mcp(h), pv.ticketId)).toMatchObject({ status: "confirmed" });
+    await h.svc.place(mcp(h), { ...body, confirmToken });
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin"), pv.ticketId))).toMatchObject({ fields: { state: "consumed" } });
+    expect(h.zerodha.placed).toHaveLength(1);
+  });
+
+  it("a confirm and a decline fired together: exactly one wins", async () => {
+    const h = buildHarness();
+    const pv = await h.svc.preview(mcp(h), liveOrder());
+    const res = await Promise.allSettled([h.svc.rejectTicket(h.ctx("admin"), pv.ticketId), h.svc.confirmTicket(h.ctx("admin"), pv.ticketId)]);
+    expect(res.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(res.find((r) => r.status === "rejected").reason).toMatchObject({ code: "STATE_CONFLICT" });
+  });
+
+  it("an expired ticket answers 409 expired", async () => {
+    const h = buildHarness();
+    const pv = await h.svc.preview(mcp(h), liveOrder());
+    await h.clock.advance(61_000);
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin"), pv.ticketId))).toMatchObject({ code: "STATE_CONFLICT", fields: { state: "expired" } });
+    expect(await h.svc.ticketStatus(mcp(h), pv.ticketId)).toMatchObject({ status: "expired" });
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin"), "tkt_nothing"))).toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("follows the confirm rules: admin, a person, this computer; reason at most 200 characters", async () => {
+    const h = buildHarness();
+    const pv = await h.svc.preview(mcp(h), liveOrder());
+    expect(await reject(h.svc.rejectTicket(h.ctx("live"), pv.ticketId))).toMatchObject({ code: "SCOPE_REQUIRED" });
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin", { source: "mcp" }), pv.ticketId))).toMatchObject({ code: "SCOPE_REQUIRED" });
+    for (const source of ["guard", "alert", "webhook"]) expect(await reject(h.svc.rejectTicket(h.ctx("admin", { source }), pv.ticketId)), source).toMatchObject({ code: "SCOPE_REQUIRED" });
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin", { loopback: false }), pv.ticketId))).toMatchObject({ code: "LOOPBACK_ONLY" });
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin"), pv.ticketId, { reason: "x".repeat(201) }))).toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(await reject(h.svc.rejectTicket(h.ctx("admin"), pv.ticketId, { reason: 5 }))).toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(await h.svc.tickets(h.ctx("admin"))).toHaveLength(1);
+    expect(await h.svc.rejectTicket(h.ctx("admin"), pv.ticketId, { reason: "x".repeat(200) })).toMatchObject({ status: "rejected" });
+  });
+});
+
 describe("paper path", () => {
   it("places, modifies and cancels through the paper engine, with idempotency", async () => {
     const h = buildHarness();

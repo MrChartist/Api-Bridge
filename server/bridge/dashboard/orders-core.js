@@ -210,6 +210,33 @@ export function ticketLife(t, nowMs = Date.now()) {
   return { known: true, left: Math.max(0, left), share: Math.min(1, Math.max(0, left / span)), over: left <= 0, text: left <= 0 ? "Expired" : `${clockText(left)} left`, level: left <= 0 ? "bad" : left <= 20_000 ? "warn" : "ok" };
 }
 
+/** The longest reason a person can give when declining (the API's limit). */
+export const DECLINE_REASON_MAX = 200;
+
+/** What the decline box holds, as the API wants it: trimmed text, or null when empty. */
+export function declineBody(text) {
+  const reason = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, DECLINE_REASON_MAX);
+  return reason ? { reason } : {};
+}
+
+/**
+ * What a decline attempt came to, in words a person reads in a toast. `err` is the ApiError (or null when it worked).
+ * "done": it is declined (also when it already was); "gone": it expired or is unknown, so there is nothing to decline;
+ * "confirmed": someone confirmed or used it first, so it can no longer be declined; "failed": it did not go through,
+ * show the card again. Clients read the 409 `state`, never the sentence.
+ * @returns {{ kind: "done"|"gone"|"confirmed"|"failed", message: string }}
+ */
+export function declineOutcome(err, assistantNamed = "the client that prepared it") {
+  if (!err) return { kind: "done", message: `Declined. Nothing was sent, and ${assistantNamed} is told you said no.` };
+  const state = err.body?.state;
+  if (err.status === 409 && state === "rejected") return { kind: "done", message: "Already declined. Nothing was sent." };
+  if (err.status === 409 && state === "confirmed") return { kind: "confirmed", message: "This was confirmed a moment ago, so it can no longer be declined. The client that prepared it may now send it." };
+  if (err.status === 409 && state === "consumed") return { kind: "confirmed", message: "This was already confirmed and sent, so it can no longer be declined. Find it in Today's orders." };
+  if ((err.status === 409 && state === "expired") || err.status === 404) return { kind: "gone", message: "This request had already expired, so there is nothing to decline. Nothing was sent." };
+  if (err.network) return { kind: "failed", message: "Could not reach the Bridge, so it was not declined. It is back in the list; try again." };
+  return { kind: "failed", message: `Could not decline: ${String(err.message ?? "the Bridge refused").replace(/[.\s]+$/, "")}. It is back in the list.` };
+}
+
 /** Who prepared a ticket, in words: "AI assistant", "Webhook" or "REST client", with the key or hook label. */
 export function ticketSource(t) {
   const kind = { mcp: "AI assistant", webhook: "Webhook", rest: "REST client" }[t?.source] ?? "Client";

@@ -16,7 +16,9 @@
  *    the key (scope "paper" or "live", and access to that account) allow. They never place an order by themselves:
  *    prepare_order opens a ticket that a person confirms in the Bridge on this computer (dashboard, Orders, Pending
  *    confirmations, POST /v1/tickets/{id}/confirm with an admin key from loopback). Only the single-use confirmToken
- *    that confirmation yields lets submit_confirmed_order send exactly the prepared order, once.
+ *    that confirmation yields lets submit_confirmed_order send exactly the prepared order, once. The person can also
+ *    decline (POST /v1/tickets/{id}/reject): check_order_ticket then answers status "rejected" (with their reason),
+ *    and submit_confirmed_order refuses with a STATE_CONFLICT that says status rejected.
  *  - There is no tool for paper/live mode, key scopes, account sessions or kill-switch release.
  *
  * Input schemas are OpenAI-strict compatible: every property is listed; optional ones accept null. MCP clients may
@@ -108,6 +110,16 @@ const readOpts = (a, ctx) => {
     signal: ctx.signal,
   };
 };
+
+/** What an assistant should do next, by ticket status (no free text from the person in here: the reason has its own field). */
+const TICKET_NEXT_STEP = Object.freeze({
+  open: "The person has not decided yet. Ask them to confirm or decline it in the Bridge (dashboard, Orders, Pending confirmations); it expires about a minute after it was prepared. Nothing has been sent.",
+  confirmed: "The person confirmed it. Ask them for the confirmation code, then call submit_confirmed_order. Nothing has been sent yet.",
+  consumed: "Its order was already sent. Do not send it again; use list_orders or get_order to see it.",
+  rejected: "The person declined this order in the Bridge. Nothing was sent and nothing can be sent for this ticket. Do not retry it or prepare the same order again unless they ask; tell them and ask what they want instead.",
+  expired: "The ticket expired before the person confirmed it. Nothing was sent. Prepare the order again only if the person still wants it.",
+  unknown: "The Bridge does not know this ticket for this client (it may be from long ago, or prepared by another client). Nothing can be sent for it. Prepare the order again if the person still wants it.",
+});
 
 /** "account:kind:id" — who prepared a ticket (must match who submits it). */
 const principalKey = (ctx) => `${ctx.principal?.kind ?? "anonymous"}:${ctx.principal?.id ?? "anonymous"}`;
@@ -535,7 +547,7 @@ export const TOOL_DEFS = Object.freeze([
     title: "Prepare an order for confirmation",
     toolset: "orders",
     description:
-      "Prepares an order ticket. Nothing is sent: the Bridge runs every safety check and puts the ticket in Pending confirmations, where the person must confirm it on their computer within about a minute. Tell them the ticketId and what the order does.",
+      "Prepares an order ticket. Nothing is sent: the Bridge runs every safety check and puts the ticket in Pending confirmations, where the person must confirm it on their computer within about a minute, or can decline it. Tell them the ticketId and what the order does. Use check_order_ticket to see whether they confirmed, declined or let it expire.",
     input: (env) =>
       z.strictObject({
         account: z.enum(/** @type {[string, ...string[]]} */ (env.orderAccounts.length ? env.orderAccounts : ["-"])),
@@ -565,7 +577,7 @@ export const TOOL_DEFS = Object.freeze([
       const pv = await svc(rt.deps, "orders").preview(ctx, order);
       if (pv.ticketId) rt.prepared.put(pv.ticketId, order, principalKey(ctx));
       const nextStep = pv.ticketId
-        ? `Ask the person to confirm ticket ${pv.ticketId} in the Bridge on their computer (dashboard, Orders, Pending confirmations) within about a minute. Once they share the confirmation code, call submit_confirmed_order with it. Nothing has been sent.`
+        ? `Ask the person to confirm ticket ${pv.ticketId} in the Bridge on their computer (dashboard, Orders, Pending confirmations) within about a minute; they may also decline it. Once they share the confirmation code, call submit_confirmed_order with it. To find out what happened to the ticket, call check_order_ticket. Nothing has been sent.`
         : "No ticket was opened because a check blocked the order (see checks). Nothing has been sent.";
       return {
         data: { ticketId: pv.ticketId ?? null, ok: Boolean(pv.ok), mode: pv.mode, checks: pv.checks ?? [], quantity: pv.quantity ?? null, estimatedValue: pv.estimatedValue ?? null, ltp: pv.ltp ?? null, requiresHumanConfirmation: Boolean(pv.requiresHumanConfirmation), nextStep },
@@ -574,16 +586,40 @@ export const TOOL_DEFS = Object.freeze([
     },
   },
   {
+    name: "check_order_ticket",
+    title: "Check what happened to a prepared order",
+    toolset: "orders",
+    description:
+      "Says where an order ticket you prepared stands: open (waiting for the person), confirmed (ask them for the code), rejected (the person declined it; the reason, if they gave one, is in `reason`), expired, consumed (its order was already sent) or unknown. A person can decline a ticket in the Bridge at any time. After status rejected or expired nothing was sent and nothing can be sent for that ticket: do not retry it, tell the person and ask what they want instead. Read-only.",
+    input: () => z.strictObject({ ticketId: z.string().min(4).max(64) }),
+    output: z.strictObject({
+      data: z.looseObject({ ticketId: z.string(), status: z.enum(["open", "confirmed", "consumed", "rejected", "expired", "unknown"]), reason: z.string().nullable(), expiresAt: z.string().nullable(), canRetry: z.boolean(), nextStep: z.string() }),
+      meta: metaOut,
+      untrusted: z.literal(true),
+    }),
+    annotations: READ_LOCAL,
+    available: (env) => env.orderAccounts.length > 0,
+    handler: async (a, ctx, rt) => {
+      const st = await svc(rt.deps, "orders").ticketStatus(ctx, a.ticketId);
+      return { data: { ticketId: st.ticketId, status: st.status, reason: st.reason ?? null, expiresAt: st.expiresAt ?? null, canRetry: false, nextStep: TICKET_NEXT_STEP[st.status] ?? TICKET_NEXT_STEP.unknown }, meta: {} };
+    },
+  },
+  {
     name: "submit_confirmed_order",
     title: "Send an order the person confirmed",
     toolset: "orders",
     description:
-      "Sends exactly the order prepared as ticketId, but only with the single-use confirmation code the person got by confirming that ticket in the Bridge. Without a valid code nothing is sent. Sending it twice never creates a second order.",
+      "Sends exactly the order prepared as ticketId, but only with the single-use confirmation code the person got by confirming that ticket in the Bridge. Without a valid code nothing is sent. Sending it twice never creates a second order. If the person declined the ticket it refuses with state rejected: nothing was sent and it must not be retried.",
     input: () => z.strictObject({ ticketId: z.string().min(4).max(64), confirmToken: z.string().min(16).max(256).describe("The confirmation code shown to the person in the Bridge.") }),
     output: z.strictObject({ data: z.looseObject({ order: z.looseObject({ orderId: z.string(), status: z.string(), mode: z.string() }), replayed: z.boolean() }), meta: metaOut, untrusted: z.literal(true) }),
     annotations: Object.freeze({ readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }),
     available: (env) => env.orderAccounts.length > 0,
     handler: async (a, ctx, rt) => {
+      const st = await svc(rt.deps, "orders").ticketStatus(ctx, a.ticketId);
+      if (st.status === "rejected") {
+        // The reason (the person's own words) is not in this text: check_order_ticket returns it as data.
+        throw new BridgeError("STATE_CONFLICT", `The person declined ticket ${a.ticketId} (status: rejected, canRetry: false). Nothing was sent and it cannot be sent. Do not retry it; call check_order_ticket for their reason, tell them and ask what they want instead.`, { retryable: false });
+      }
       const order = rt.prepared.get(a.ticketId, principalKey(ctx));
       if (!order) throw new BridgeError("CONFIRMATION_REQUIRED", "No order was prepared with this ticketId by this client, or it has expired. Prepare it again.");
       ctx.requireAccountAccess(order.account);

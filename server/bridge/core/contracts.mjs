@@ -482,8 +482,10 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  positions(ctx, accountId, { mode? }) -> Promise<{ items: object[], freshness: Freshness }>
    *  holdings(ctx, accountId) -> Promise<{ items: object[], freshness: Freshness }>
    *  funds(ctx, accountId, { mode? }) -> Promise<{ funds: object, freshness: Freshness }>
-   *  tickets(ctx) -> Promise<object[]>                             pending human confirmations (OpenAPI Ticket)
+   *  tickets(ctx, { state? }) -> Promise<object[]>                 pending human confirmations (OpenAPI Ticket); state "rejected": recently declined
    *  confirmTicket(ctx, ticketId) -> Promise<{ confirmToken: string, expiresAt: string }>   human confirmation (loopback admin)
+   *  rejectTicket(ctx, ticketId, { reason? }) -> Promise<object>   human decline of an open ticket (loopback admin); 409 otherwise
+   *  ticketStatus(ctx, ticketId) -> Promise<{ ticketId, status, reason, expiresAt }>   open|confirmed|consumed|rejected|expired|unknown
    */
   /**
    * Readiness. Whether each live-enabled account can trade right now,
@@ -507,7 +509,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
     iface: "OrderService",
     stream: "S7",
     requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference", "readiness"],
-    methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket"],
+    methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket", "rejectTicket", "ticketStatus"],
   },
 });
 

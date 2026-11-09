@@ -293,9 +293,21 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
       return { funds: { availableCash: 1_000_000, usedMargin: 0, totalBalance: 1_000_000, collateral: null, withdrawable: null, realisedPnl: 0, unrealisedPnl: 0 }, freshness: freshness(accountId) };
     },
 
-    async tickets(ctx) {
+    async tickets(ctx, { state = "open" } = {}) {
       if (ctx.principal?.kind !== "local" && !ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
-      return tickets.list();
+      return state === "rejected" ? tickets.listRejected() : tickets.list();
+    },
+
+    async rejectTicket(ctx, ticketId, { reason } = {}) {
+      if (ctx.principal?.kind !== "local" && !ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
+      if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can decline an order.");
+      return tickets.reject(String(ticketId), principal(ctx), reason).ticket;
+    },
+
+    async ticketStatus(ctx, ticketId) {
+      const st = tickets.statusOf(ticketId);
+      if (!st || (st.principalId !== principal(ctx) && !ctx.scopes?.has("admin"))) return { ticketId: String(ticketId), status: "unknown", reason: null, expiresAt: null };
+      return { ticketId: st.ticketId, status: st.status, reason: st.reason, expiresAt: st.expiresAt };
     },
 
     async confirmTicket(ctx, ticketId) {

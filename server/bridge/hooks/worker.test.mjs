@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createEventBus } from "../core/eventBus.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { createFakeOrderService } from "../orders/fake.mjs";
@@ -95,6 +96,20 @@ describe("signal worker: hook mapping and caps", () => {
     expect(rec.ticketId).toMatch(/^tkt_/);
     expect(orders.calls.some((c) => c[0] === "place")).toBe(false);
     expect(orders.all()).toHaveLength(0);
+  });
+
+  it("a ticket the person declined ends its signal as rejected (TICKET_REJECTED); another client's decline does not", async () => {
+    const bus = createEventBus({ logger: createNullLogger() });
+    worker = createSignalWorker({ deps: { orders, symbols: createFakeSymbolService(), audit, bus }, store, logger: createNullLogger(), queueSize: 5, concurrency: 2 });
+    const { hook, rec } = await run({ requireConfirmation: true }, sig());
+    expect(rec.status).toBe("awaiting_confirmation");
+    bus.emit("ticket.rejected", { ticketId: rec.ticketId, accountId: "paper", principal: "key:someone-else" });
+    expect(worker.get(rec.signalId)[0].status).toBe("awaiting_confirmation");
+    bus.emit("ticket.rejected", { ticketId: rec.ticketId, accountId: "paper", principal: `hook:${hook.id}` });
+    expect(worker.get(rec.signalId)[0]).toMatchObject({ status: "rejected", code: "TICKET_REJECTED", reason: expect.stringMatching(/declined/) });
+    expect(orders.all()).toHaveLength(0);
+    await worker.idle();
+    expect(audit.ofType("hook.signal").at(-1).data).toMatchObject({ status: "rejected", code: "TICKET_REJECTED" });
   });
 
   it("live hooks are refused by OrderService unless every opt-in holds (never downgraded)", async () => {

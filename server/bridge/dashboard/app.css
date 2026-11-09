@@ -2003,6 +2003,16 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ob-ticket-acts { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; }
 .ob-ticket-acts .ob-review { min-width: 180px; }
 @media (max-width: 519px) { .ob-ticket-acts { flex-direction: column-reverse; align-items: stretch; } .ob-ticket-acts > button { width: 100%; } }
+/* Recently declined: the last few, one quiet line each under the panel, so a "no" is not a vanishing act. */
+.ob-declined { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; padding: 0 2px; }
+.ob-declined h3 { font: var(--t-label); color: var(--label-2); }
+.ob-declined ul { list-style: none; margin: 0; padding: 0; }
+.ob-declined li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 8px 0; min-width: 0; font: var(--t-subhead); }
+.ob-declined li + li { box-shadow: inset 0 var(--hl) 0 var(--hairline); }
+.ob-declined-what { font-weight: 600; color: var(--label); }
+.ob-declined .ob-sub { display: inline; }
+.ob-declined-why { color: var(--label-2); overflow-wrap: anywhere; }
+.ob-declined > p.ob-sub { margin: 0; }
 
 /* Buy and sell, as a pill; the words carry the meaning, the colour is the gain or loss token. */
 .ob-side { display: inline-flex; align-items: center; justify-content: center; min-width: 46px; min-height: 22px; padding: 0 9px; border-radius: 6px; font: 600 12px/1 var(--font-body); letter-spacing: 0.01em; white-space: nowrap; }

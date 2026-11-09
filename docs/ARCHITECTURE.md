@@ -141,7 +141,7 @@ route (orders, scope paper) ─► validate body (zod) ─► idempotency check 
 
 **Webhook** (`POST /hooks/<source>/<token>`): verify token hash (and HMAC + timestamp for `generic`), parse, dedupe, enqueue, **reply 202 within milliseconds** (alert services abandon slow requests after a few seconds), then a worker builds an `OrderRequest` from the hook's fixed mapping and calls `orders.preview` / `orders.place` with `source: "webhook"`.
 
-**AI** (`POST /mcp` or the stdio relay): MCP tools call the same services with `source: "mcp"`. Order tools only prepare: `orders.preview` opens a ticket, which appears in the dashboard's Pending confirmations panel on the Orders page (`GET /v1/tickets`); the human confirms there (`POST /v1/tickets/{id}/confirm`, admin key, this computer only), which yields the single-use `confirmToken` without which `orders.place` refuses.
+**AI** (`POST /mcp` or the stdio relay): MCP tools call the same services with `source: "mcp"`. Order tools only prepare: `orders.preview` opens a ticket, which appears in the dashboard's Pending confirmations panel on the Orders page (`GET /v1/tickets`); the human confirms there (`POST /v1/tickets/{id}/confirm`, admin key, this computer only), which yields the single-use `confirmToken` without which `orders.place` refuses, or declines (`POST /v1/tickets/{id}/reject`), after which the ticket can never be confirmed.
 
 ## 5. Multi-account model
 

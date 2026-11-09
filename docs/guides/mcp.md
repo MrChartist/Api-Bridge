@@ -55,7 +55,7 @@ environment); clients that speak Streamable HTTP use `http://127.0.0.1:4300/mcp`
 | `market` | `get_ltp`, `get_quotes`, `get_depth`, `get_history`, `get_expiries`, `get_option_chain`, `search_instruments`, `convert_symbol` |
 | `analytics` | `option_chain_summary`, `history_summary` |
 | `account` | `list_accounts`, `get_positions`, `get_holdings`, `get_funds`, `list_orders`, `get_order`, `get_safety_status` |
-| `orders` (off by default) | `prepare_order`, `submit_confirmed_order` |
+| `orders` (off by default) | `prepare_order`, `check_order_ticket`, `submit_confirmed_order` |
 
 Every result is wrapped as untrusted data (instrument names and broker messages are third-party text) and carries
 freshness labels.
@@ -71,8 +71,22 @@ Order tools appear only when all of these hold:
 and the assistant's key has the `paper` scope (or `live`) and may use that account. Even then:
 
 1. `prepare_order` only opens a **ticket**; nothing is sent.
-2. You confirm the ticket on the dashboard (Pending confirmations) on this computer, within about a minute.
+2. You confirm the ticket on the dashboard (Pending confirmations) on this computer, within about a minute, or you
+   **decline** it there (with an optional reason).
 3. The confirmation gives a one-time code; `submit_confirmed_order` sends exactly the prepared order, once.
+
+If you decline, nothing is sent and nothing can be: the ticket can never be confirmed afterwards. An assistant that asks
+`check_order_ticket` with the `ticketId` gets a plain, machine-readable answer instead of silence:
+
+```json
+{ "ticketId": "tkt_...", "status": "rejected", "reason": "Wrong quantity", "canRetry": false, "nextStep": "..." }
+```
+
+`status` is `open` (you have not decided), `confirmed` (it needs your code), `consumed` (its order was already sent),
+`rejected` (you declined; `reason` holds your words, which the assistant can read), `expired`, or `unknown` (the Bridge
+does not know this ticket for this assistant; other assistants' tickets are never shown). Retrying
+`submit_confirmed_order` for a declined ticket is refused with `STATE_CONFLICT` and `status: rejected`. Over plain REST
+the same ticket ends as `CONFIRMATION_REQUIRED` when its confirmation code or `ticketId` is used.
 
 No tool can change paper/live mode, key scopes or account sessions, or release the kill switch. Client-side approval
 prompts never count as confirmation. AI-placed orders are a regulatory gray area; see [compliance.md](compliance.md).

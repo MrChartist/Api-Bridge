@@ -2,10 +2,11 @@
 // (summary, the book by day, CSV). Filters are a per-viewer convenience (localStorage); the books come from GET
 // /v1/orders, /v1/trades, /v1/tickets and /v1/funds. views.js owns the sheets that change an order (modify, cancel,
 // confirm) and hands them in; this file draws.
-import { alertBox, api, card, codeBlock, copyText, emptyState, h, icon, iconTile, istTime, modal, optional, pill, sheetPopover, skeletonCard, store, toast, writeCount } from "./app.js";
+import { alertBox, api, card, codeBlock, copyText, emptyState, h, icon, iconTile, istTime, modal, optional, pill, sheetPopover, skeletonCard, toast, writeCount } from "./app.js";
 import { contractName } from "./flows.js";
 import { DASH, formatFixed, formatInt, formatPercent, formatRupee, formatRupeeGrouped, isFigure, plural } from "./format.js";
 import {
+  DECLINE_REASON_MAX,
   DRY_RUN_REUSE_MS,
   ORDER_FILTERS,
   ago,
@@ -16,6 +17,8 @@ import {
   cancelAllTitle,
   cancelAllReport,
   dayHeading,
+  declineBody,
+  declineOutcome,
   filterOrders,
   filterTrades,
   fundsView,
@@ -36,8 +39,6 @@ import { whatToDo } from "./reasons-core.js";
 import { swipeActions } from "./motion.js";
 
 const KEY = "mcb.orders.filters";
-const DECLINED = "mcb.orders.declined";
-const session = store("session");
 
 /** Shell helpers this page borrows from views.js (set once at start-up: views.js imports this file, not the reverse). */
 let shell = { segmented: null };
@@ -85,9 +86,14 @@ function statusPill(status) {
 
 /** Keep keyboard focus on the same control across a redraw (rows are rebuilt when a poll brings new data). */
 function keepFocusIn(container, fn) {
-  const id = container.contains(document.activeElement) ? document.activeElement?.dataset?.fid : null;
+  const active = container.contains(document.activeElement) ? document.activeElement : null;
+  const id = active?.dataset?.fid;
+  // A ticket card's own buttons are found again by ticket and role.
+  const card = active?.closest?.(".ob-ticket")?.dataset.ticket;
+  const role = active?.classList?.contains("quiet") ? ".quiet" : active?.classList?.contains("ob-review") ? ".ob-review" : null;
   fn();
   if (id) container.querySelector(`[data-fid="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+  else if (card && role) container.querySelector(`.ob-ticket[data-ticket="${CSS.escape(card)}"] ${role}`)?.focus({ preventScroll: true });
 }
 
 /** A segmented control (the shell's) whose buttons can show a count that changes. */
@@ -133,15 +139,6 @@ function timeCell(iso) {
 }
 
 // ── Pending confirmations ──
-
-const declined = () => {
-  try {
-    return new Set(JSON.parse(session.get(DECLINED) ?? "[]"));
-  } catch {
-    return new Set();
-  }
-};
-const decline = (id) => session.set(DECLINED, JSON.stringify([...declined(), id].slice(-50)));
 
 const lotsText = (o) => (o.lots ? plural(o.lots, "lot") : `${formatInt(o.quantity)} qty`);
 
@@ -213,21 +210,122 @@ function ticketCard(t, byId, { review, onDecline }) {
   return el;
 }
 
+/** Newest first by when the person declined. */
+const byDeclinedAt = (a, b) => (Date.parse(b.rejectedAt ?? "") || 0) - (Date.parse(a.rejectedAt ?? "") || 0);
+const DECLINED_SHOWN = 3;
+const declinedAgo = (iso) => ` · declined ${ago(iso) ?? "earlier"}`;
+
+/** The "Recently declined" lines under the panel: what it was, how long ago, and the person's own reason. */
+function declinedBlock(list) {
+  if (!list.length) return null;
+  const shown = list.slice(0, DECLINED_SHOWN);
+  const more = list.length - shown.length;
+  return h(
+    "section",
+    { class: "ob-declined", "aria-label": "Recently declined" },
+    h("h3", {}, "Recently declined"),
+    h(
+      "ul",
+      {},
+      ...shown.map((t) => {
+        const o = t.order ?? {};
+        const side = o.side === "BUY" ? "Buy" : o.side === "SELL" ? "Sell" : "";
+        return h(
+          "li",
+          { "data-ticket": t.ticketId, "data-at": t.rejectedAt ?? "" },
+          h("span", { class: "ob-declined-what" }, sub(side, contractName(o.symbol))),
+          h("span", { class: "ob-sub ob-declined-meta" }, sub(lotsText(o), orderTypeText(o.orderType)), h("span", { class: "ob-declined-ago" }, declinedAgo(t.rejectedAt))),
+          t.reason ? h("span", { class: "ob-declined-why" }, `“${t.reason}”`) : null,
+        );
+      }),
+    ),
+    more > 0 ? h("p", { class: "ob-sub" }, `and ${formatInt(more)} more`) : null,
+  );
+}
+
+/** The sheet that asks before declining: the order in one line, an optional reason, and what declining does. */
+function declineSheet(t, byId) {
+  const o = t.order ?? {};
+  const live = o.mode === "live";
+  const src = ticketSource(t);
+  const told = t.source === "mcp" ? "The assistant that prepared it is told you said no, so it knows not to try again." : "The signal is marked as declined in the hook's log.";
+  const reason = h("input", { id: "decline-reason", type: "text", maxlength: String(DECLINE_REASON_MAX), placeholder: "For example: wrong quantity", autocomplete: "off", enterkeyhint: "done" });
+  const acc = byId?.get?.(o.account);
+  const body = h(
+    "div",
+    { class: "stack ob-decline" },
+    h("div", { class: "ob-brief" }, sidePill(o.side), h("div", {}, h("strong", {}, `${lotsText(o)} ${contractName(o.symbol)}`), h("span", { class: "ob-sub" }, sub(live ? "Live, real money" : "Paper", acc?.label ?? o.account, `prepared by ${src.kind}${src.label ? ` "${src.label}"` : ""}`)))),
+    h("p", { class: "muted" }, `Nothing is sent. ${told}`),
+    h("label", { class: "field", for: "decline-reason" }, h("span", {}, "Reason (optional)"), reason, h("span", { class: "hint" }, t.source === "mcp" ? "The assistant can read this." : "Only you see this.")),
+  );
+  return { body, reason };
+}
+
 /**
  * The Pending confirmations block: a card per ticket (or one calm line when nothing waits), with a countdown that ticks
- * once a second and disables a ticket that ran out. `update(tickets)` redraws only when the list changed.
- * @returns {{ el: HTMLElement, update: (tickets: object[]|null, error?: object|null) => void }}
+ * once a second and disables a ticket that ran out, and under it the last few the person declined. Decline asks first
+ * (an optional reason), then removes the card at once and tells the Bridge (POST /v1/tickets/{id}/reject); if the
+ * Bridge refuses, the card comes back. `update(tickets, err, declined)` redraws only when something changed.
+ * @returns {{ el: HTMLElement, update: (tickets: object[]|null, error?: object|null, declined?: object[]|null) => void }}
  */
-export function pendingSection({ tickets, error, byId, review, setup, retry }) {
-  const el = h("section", { class: "sec", "aria-label": "Pending confirmations", "data-fixed": "" });
+export function pendingSection({ tickets, declined: declinedAtStart = [], error, byId, review, setup, retry, changed = () => {} }) {
+  const el = h("section", { class: "sec", "aria-label": "Pending confirmations", "data-fixed": "", tabindex: "-1" });
   const live = h("p", { class: "sr-only", role: "status", "aria-live": "polite" });
   let signature = null;
+  let latest = [];
   let shown = [];
-  const onDecline = (t) => {
-    decline(t.ticketId);
-    draw(shown);
-    toast("Declined. Nothing was sent; the request expires on its own.", { tone: "info" });
+  /** Declined here a moment ago: hidden at once, before the Bridge has answered (and for as long as this page is open). */
+  const hidden = new Set();
+  /** What the Bridge last listed as declined, and the ones declined in this page that its list does not show yet. */
+  let fromBridge = declinedAtStart ?? [];
+  const mine = new Map();
+  const recent = () => {
+    const seen = new Set(fromBridge.map((t) => t.ticketId));
+    const now = Date.now();
+    for (const [id, v] of mine) if (seen.has(id) || now - v.at > 15_000) mine.delete(id);
+    return [...[...mine.values()].map((v) => v.ticket), ...fromBridge].sort(byDeclinedAt);
   };
+  const focusAfter = (index) => {
+    const next = el.querySelectorAll(".ob-ticket .ob-ticket-acts .quiet")[Math.min(index, shown.length - 1)];
+    (next ?? el).focus({ preventScroll: true });
+  };
+  async function decline(t) {
+    const sheet = declineSheet(t, byId);
+    const ok = await modal({
+      title: "Decline this order?",
+      body: sheet.body,
+      buttons: [
+        { label: "Keep waiting", value: false },
+        { label: "Decline order", cls: "primary", value: true },
+      ],
+    });
+    if (!ok) return;
+    const reasonBody = declineBody(sheet.reason.value);
+    // Optimistic: the card goes now; it comes back if the Bridge says no.
+    const index = shown.findIndex((x) => x.ticketId === t.ticketId);
+    hidden.add(t.ticketId);
+    draw(latest);
+    focusAfter(Math.max(0, index));
+    let err = null;
+    try {
+      await api(`/v1/tickets/${encodeURIComponent(t.ticketId)}/reject`, { method: "POST", body: Object.keys(reasonBody).length ? reasonBody : undefined });
+    } catch (e) {
+      err = e;
+    }
+    changed(); // the count in the menu follows at once
+    const out = declineOutcome(err, t.source === "mcp" ? "the assistant" : "the sender");
+    if (out.kind === "failed") {
+      hidden.delete(t.ticketId);
+      draw(latest);
+      el.querySelector(`.ob-ticket[data-ticket="${CSS.escape(t.ticketId)}"] .quiet`)?.focus({ preventScroll: true });
+      toast(out.message, { tone: "error" });
+      return;
+    }
+    if (out.kind === "done") mine.set(t.ticketId, { at: Date.now(), ticket: { ...t, status: "rejected", rejectedAt: new Date().toISOString(), reason: reasonBody.reason ?? null } });
+    signature = null;
+    draw(latest);
+    toast(out.message, { tone: out.kind === "done" ? "ok" : out.kind === "confirmed" ? "warn" : "info" });
+  }
   const quiet = (err) =>
     h(
       "div",
@@ -237,18 +335,20 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
       err ? h("button", { type: "button", class: "small", onclick: retry }, "Try again") : setup,
     );
   function draw(list) {
-    const gone = declined();
-    shown = list.filter((t) => !gone.has(t.ticketId));
+    latest = list;
+    shown = list.filter((t) => !hidden.has(t.ticketId));
+    const lines = declinedBlock(recent());
     keepFocusIn(el, () => {
       if (!shown.length) {
-        el.replaceChildren(quiet(null), live);
+        el.replaceChildren(quiet(null), lines ?? "", live);
         live.textContent = "";
         return;
       }
       const n = shown.length;
       el.replaceChildren(
         h("header", { class: "sec-head" }, h("div", { class: "sec-titles" }, h("h2", {}, "Waiting for your confirmation"), h("p", {}, "Check every field. Nothing is sent until you confirm, and a request that is not confirmed in time expires on its own.")), h("div", { class: "sec-acts" }, h("span", { class: "pill info" }, `${formatInt(n)} waiting`))),
-        h("div", { class: "ob-tickets" }, ...shown.map((t) => ticketCard(t, byId, { review, onDecline }))),
+        h("div", { class: "ob-tickets" }, ...shown.map((t) => ticketCard(t, byId, { review, onDecline: decline }))),
+        lines ?? "",
         live,
       );
       const said = `${plural(n, "order")} waiting for your confirmation`;
@@ -276,9 +376,14 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
         }
       }
     }
+    for (const li of el.querySelectorAll(".ob-declined li[data-at]")) {
+      const t = li.querySelector(".ob-declined-ago");
+      const text = declinedAgo(li.dataset.at);
+      if (t && t.textContent !== text) t.textContent = text;
+    }
   }
   const timer = setInterval(() => (el.isConnected ? tick() : clearInterval(timer)), 1000);
-  const sign = (list) => JSON.stringify(list.map((t) => [t.ticketId, t.expiresAt, (t.checks ?? []).length])) + [...declined()].join();
+  const sign = (list) => `${JSON.stringify(list.map((t) => [t.ticketId, t.expiresAt, (t.checks ?? []).length]))}|${[...hidden].join()}|${recent().slice(0, DECLINED_SHOWN + 1).map((t) => `${t.ticketId}:${t.reason ?? ""}`).join()}`;
   if (error) el.replaceChildren(quiet(error));
   else {
     signature = sign(tickets ?? []);
@@ -286,8 +391,9 @@ export function pendingSection({ tickets, error, byId, review, setup, retry }) {
   }
   return {
     el,
-    update(next, err = null) {
+    update(next, err = null, declined = null) {
       if (err || next === null) return;
+      if (Array.isArray(declined)) fromBridge = declined;
       const s = sign(next);
       if (s === signature) return;
       signature = s;
