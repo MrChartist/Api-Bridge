@@ -88,6 +88,43 @@ describe("POST /mcp (Streamable HTTP)", () => {
     await client.close();
   });
 
+  it("a ticket the person declined is answered as status rejected, never as a retryable error", async () => {
+    const client = await sdkClient(b.keys.paper);
+    const tools = (await client.listTools()).tools;
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("check_order_ticket");
+    expect(tools.find((t) => t.name === "check_order_ticket").description).toMatch(/decline/i);
+    expect(tools.find((t) => t.name === "prepare_order").description).toMatch(/decline/i);
+    expect(tools.find((t) => t.name === "submit_confirmed_order").description).toMatch(/declined/i);
+    const check = (ticketId) => client.callTool({ name: "check_order_ticket", arguments: { ticketId } });
+
+    const prep = await client.callTool({ name: "prepare_order", arguments: { account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "LIMIT", price: 1401 } });
+    const { ticketId } = prep.structuredContent.data;
+    expect(prep.structuredContent.data.nextStep).toMatch(/decline/i);
+    const open = await check(ticketId);
+    expect(open.isError).toBeFalsy();
+    expect(open.structuredContent.data).toMatchObject({ ticketId, status: "open", reason: null, canRetry: false });
+
+    await b.orders.rejectTicket({ principal: { kind: "local", id: "cli" }, scopes: new Set(["admin"]), source: "rest", loopback: true }, ticketId, { reason: "Wrong quantity" });
+    const gone = await check(ticketId);
+    expect(gone.isError).toBeFalsy();
+    expect(gone.structuredContent.data).toMatchObject({ ticketId, status: "rejected", reason: "Wrong quantity", canRetry: false, nextStep: expect.stringMatching(/declined.*Do not retry/) });
+    expect(gone.content[0].text).toContain('"status":"rejected"');
+
+    // A retry with any code is refused with the same machine-readable outcome; nothing is sent.
+    const retried = await client.callTool({ name: "submit_confirmed_order", arguments: { ticketId, confirmToken: "mct_guessed-token-value-0000" } });
+    expect(retried.isError).toBe(true);
+    expect(retried.content[0].text).toMatch(/declined.*status: rejected/);
+    expect(retried.content[0].text).toMatch(/^STATE_CONFLICT:.*canRetry: false.*Do not retry/);
+    expect(retried.content[0].text).not.toContain("Wrong quantity");
+    expect(b.orders.all()).toHaveLength(0);
+
+    // Unknown tickets and other clients' tickets are the same plain "unknown".
+    const nope = await check("tkt_never-existed");
+    expect(nope.structuredContent.data).toMatchObject({ status: "unknown", reason: null });
+    await client.close();
+  });
+
   it("notifications get 202 with no body; GET /mcp is not offered", async () => {
     const n = await b.request({ method: "POST", path: "/mcp", headers: H(b.keys.read), body: { jsonrpc: "2.0", method: "notifications/initialized" } });
     expect(n.status).toBe(202);

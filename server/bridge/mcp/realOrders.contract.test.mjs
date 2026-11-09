@@ -97,4 +97,26 @@ describe("MCP order tools through the real OrderService", () => {
     expect(again.structuredContent.data).toMatchObject({ replayed: true, order: { orderId: sent.structuredContent.data.order.orderId } });
     expect(h.zerodha.placed).toHaveLength(1);
   });
+
+  it("a person who declines the ticket stops it for good: check_order_ticket says rejected, submitting is refused, nothing reaches the broker", async () => {
+    const reg = registry();
+    const ctx = aiCtx();
+    const prep = await reg.call("prepare_order", order, ctx);
+    const { ticketId } = prep.structuredContent.data;
+    expect((await reg.call("check_order_ticket", { ticketId }, ctx)).structuredContent.data).toMatchObject({ status: "open" });
+
+    await h.svc.rejectTicket(h.ctx("admin"), ticketId, { reason: "Not today" });
+    const checked = await reg.call("check_order_ticket", { ticketId }, ctx);
+    expect(checked.structuredContent.data).toMatchObject({ ticketId, status: "rejected", reason: "Not today", canRetry: false });
+    // the confirmation a person never gave cannot be made up afterwards either
+    await expect(h.svc.confirmTicket(h.ctx("admin"), ticketId)).rejects.toMatchObject({ code: "STATE_CONFLICT", status: 409 });
+    const submit = await reg.call("submit_confirmed_order", { ticketId, confirmToken: "mct_guess-guess-guess-guess" }, ctx);
+    expect(submit.isError).toBe(true);
+    expect(submit.content[0].text).toMatch(/^STATE_CONFLICT:.*status: rejected/);
+    expect(h.zerodha.placed).toHaveLength(0);
+
+    // another AI client sees nothing about it
+    const other = createCallContext({ source: "mcp", key: { id: "mcpkey00002", label: "Other", scopes: ["live"], accounts: "*" }, log: h.logger });
+    expect((await reg.call("check_order_ticket", { ticketId }, other)).structuredContent.data).toMatchObject({ status: "unknown", reason: null });
+  });
 });

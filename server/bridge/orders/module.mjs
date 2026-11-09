@@ -28,6 +28,7 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/funds", { scope: "read" }, "funds"],
   ["GET", "/v1/tickets", { scope: "admin", loopbackOnly: true }, "listTickets"],
   ["POST", "/v1/tickets/:ticketId/confirm", { scope: "admin", loopbackOnly: true, body: "none" }, "confirmTicket"],
+  ["POST", "/v1/tickets/:ticketId/reject", { scope: "admin", loopbackOnly: true }, "rejectTicket"],
 ]);
 
 export default defineModule({

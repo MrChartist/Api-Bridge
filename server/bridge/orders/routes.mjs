@@ -12,7 +12,8 @@
  *   GET    /v1/trades?account=&mode=&limit=&cursor=
  *   GET    /v1/positions?account=&mode=   /v1/holdings?account=   /v1/funds?account=&mode=
  *   POST   /v1/positions/convert    { account, symbol, from, to, quantity | lots, mode? }   Intraday ↔ carry (paper)
- *   GET    /v1/tickets              POST /v1/tickets/{ticketId}/confirm   (admin, this computer only)
+ *   GET    /v1/tickets?state=open|rejected          POST /v1/tickets/{ticketId}/confirm
+ *   POST   /v1/tickets/{ticketId}/reject    { reason? }   a person declines an open ticket   (all admin, this computer only)
  */
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
@@ -169,12 +170,23 @@ export function createOrderRoutes(deps) {
     },
 
     async listTickets(ctx) {
-      const data = await svc().tickets(ctx);
-      return { data, meta: meta(ctx) };
+      const state = opt(ctx.query, "state") ?? "open";
+      if (state !== "open" && state !== "rejected") throw invalid("state", "state must be open or rejected.");
+      const data = await svc().tickets(ctx, { state });
+      return { data, meta: meta(ctx, { state }) };
     },
 
     async confirmTicket(ctx) {
       const data = await svc().confirmTicket(ctx, ctx.params.ticketId);
+      return { data, meta: meta(ctx) };
+    },
+
+    async rejectTicket(ctx) {
+      const body = ctx.body ?? {};
+      if (typeof body !== "object" || Array.isArray(body)) throw invalid("body", 'Send nothing, or a JSON object such as {"reason": "Wrong quantity"}.');
+      const extra = Object.keys(body).filter((k) => k !== "reason");
+      if (extra.length) throw invalid(extra[0], `${extra[0]} is not a field of this request. Only reason is accepted.`);
+      const data = await svc().rejectTicket(ctx, ctx.params.ticketId, { reason: body.reason });
       return { data, meta: meta(ctx) };
     },
   };

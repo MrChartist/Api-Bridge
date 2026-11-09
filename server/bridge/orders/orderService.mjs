@@ -62,7 +62,7 @@ import {
 import { bridgeStatus, mapRows, symbolFor, toFunds, toHolding, toPosition, toTrade, unwrap } from "./portfolio.mjs";
 import { findLegInBook } from "./reconcile.mjs";
 import { createStateFile } from "./stateFile.mjs";
-import { createTicketBook } from "./tickets.mjs";
+import { REJECT_REASON_MAX, createTicketBook } from "./tickets.mjs";
 import { DAY_MS, istDay, istIso } from "./time.mjs";
 
 const TIMEOUT = Symbol("orders.timeout");
@@ -1941,9 +1941,41 @@ export function createOrderService(deps) {
     if (!ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
   }
 
-  async function listTickets(ctx) {
+  async function listTickets(ctx, { state = "open" } = {}) {
     requireAdmin(ctx);
+    if (state === "rejected") return tickets.listRejected();
     return tickets.list();
+  }
+
+  /** Decline a pending ticket (the person's "no"). Same people-only rules as confirming; see TicketBook.reject. */
+  async function rejectTicket(ctx, ticketId, { reason } = {}) {
+    requireAdmin(ctx);
+    if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can decline an order.");
+    if (!ctx.loopback) throw new BridgeError("LOOPBACK_ONLY", "Orders can only be declined from this computer.");
+    if (reason !== undefined && reason !== null && (typeof reason !== "string" || reason.length > REJECT_REASON_MAX)) {
+      throw new BridgeError("VALIDATION_FAILED", `The reason must be text of at most ${REJECT_REASON_MAX} characters.`, { errors: [{ path: "reason", message: `at most ${REJECT_REASON_MAX} characters` }] });
+    }
+    const by = principalKey(ctx);
+    const r = tickets.reject(String(ticketId ?? ""), by, reason);
+    if (!r.alreadyRejected) {
+      const o = r.ticket.order;
+      // No token exists for a declined ticket, so nothing secret is in the record. The reason is the person's own words.
+      await audit(ctx, "ticket.rejected", { accountId: r.accountId, data: { ticketId: r.ticket.ticketId, account: r.accountId, symbol: o.symbol, side: o.side, mode: o.mode ?? "paper", by, reason: r.ticket.reason } });
+      bus.emit("ticket.rejected", { ticketId: r.ticket.ticketId, accountId: r.accountId, principal: r.principalId });
+    }
+    return r.ticket;
+  }
+
+  /**
+   * Where a ticket stands, for the client that prepared it (an admin key may ask about any). A ticket this caller did
+   * not prepare, or one the Bridge no longer remembers, is "unknown": the answer never reveals other clients' tickets.
+   */
+  async function ticketStatus(ctx, ticketId) {
+    const id = String(ticketId ?? "");
+    const st = tickets.statusOf(id);
+    const mine = st && (st.principalId === principalKey(ctx) || ctx.scopes?.has("admin"));
+    if (!mine) return { ticketId: id, status: "unknown", reason: null, expiresAt: null };
+    return { ticketId: id, status: st.status, reason: st.reason, expiresAt: st.expiresAt };
   }
 
   async function confirmTicket(ctx, ticketId) {
@@ -2002,6 +2034,8 @@ export function createOrderService(deps) {
     funds,
     tickets: listTickets,
     confirmTicket,
+    rejectTicket,
+    ticketStatus,
     // ── internal helpers (not part of the contract) ──
     /** Run one reconciliation pass now (tests, `doctor`). */
     reconcileNow,
