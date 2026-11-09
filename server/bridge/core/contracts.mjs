@@ -460,6 +460,26 @@ export const SERVICE_CONTRACTS = Object.freeze({
     requires: ["secrets", "audit", "accounts", "safety", "marketData", "orders", "readiness", "backupData"],
     methods: ["status", "listTargets", "events", "publish", "testTarget"],
   },
+
+  /**
+   * LibraryService. Named, tagged collections of instruments: static lists, and option universes that are worked out when
+   * they are used (rolling expiries, the at-the-money strike from the live price). Downloads, recordings, the Excel and
+   * Sheets routes and the Python library call resolve() when they run. Stored in dataDir/collections.json.
+   *  list({ tag?, kind?, q? }) -> Collection[]                       summaries, no symbol lists
+   *  get(nameOrId) -> Collection                                     throws NOT_FOUND; an earlier name of a renamed collection still finds it
+   *  resolve(nameOrId, { spot?, allowStale?, requireLive?, priority?, signal?, accountId?, allowedAccounts? }) -> Promise<{ id, name, kind,
+   *      resolvedAt, rule, symbols: string[], count, atmSource, underlying, expiries, strikeSource, warnings: string[] }>
+   *      atmSource: "not-needed" | "live" | "last-close" | "supplied" | "stale" | "delayed" | "eod"; a stale, delayed or end-of-day
+   *      price is refused (an error) unless allowStale is true, and then it is labelled. requireLive refuses anything but live.
+   *  estimate(nameOrId, intervals: string[] | string, days: number) -> Promise<{ symbols, rows, bytes, brokerCalls, ... }>
+   *  Extras: create, update, remove, duplicate, exportData, importData, usage, registerUsageProvider(kind, fn), status.
+   *  Emits the bus topic "collection.changed".
+   */
+  library: {
+    iface: "LibraryService",
+    requires: ["symbols", "marketData"],
+    methods: ["list", "get", "resolve", "estimate"],
+  },
 });
 
 /** Core deps every factory receives in addition to its `requires`. */

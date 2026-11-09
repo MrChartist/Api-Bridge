@@ -98,6 +98,25 @@ export function withFreshness(dataColumns, { demo = false } = {}) {
   return cols;
 }
 
+/**
+ * `collection=<name>`: the symbols of a library collection now, with headers that say when and how they were worked out.
+ * The price behind an option universe's at-the-money strike must be live (or the last close with the market shut, which the
+ * header says); a stale, delayed or end-of-day price refuses the request. Null when the request has no `collection`.
+ * @returns {Promise<{ symbols: string[], headers: Record<string, string> } | null>}
+ */
+export async function collectionSymbols(deps, query, opts, max) {
+  const name = opt(query, "collection");
+  if (name === undefined) return null;
+  if (opt(query, "symbols") !== undefined || opt(query, "symbol") !== undefined) throw invalid("collection", "Give symbols or collection, not both.");
+  if (name.length > 64) throw invalid("collection", "collection is a name from GET /v1/collections.");
+  const r = await deps.library.resolve(name, { signal: opts.signal, allowedAccounts: opts.allowedAccounts, accountId: opts.accountId, priority: "interactive" });
+  if (r.count > max) throw invalid("collection", `"${r.name}" resolves to ${r.count} symbols and a sheet request takes at most ${max} (integrations.xl.maxSymbols). Use a smaller collection, or fewer strikes.`);
+  if (!r.count) throw invalid("collection", `"${r.name}" resolves to no symbols right now.`);
+  const headers = { "X-Collection-Resolved-At": r.resolvedAt, "X-Collection-Atm-Source": r.atmSource, "X-Collection-Rule": String(r.rule).replace(/[^\x20-\x7e]/g, "?").slice(0, 400) };
+  if (r.warnings?.length) headers["X-Collection-Warnings"] = String(r.warnings.length);
+  return { symbols: r.symbols, headers };
+}
+
 /** Columns /xl/instrument can show. */
 export const INSTRUMENT_FIELDS = Object.freeze(["lot", "tick", "freeze", "name", "kind"]);
 
@@ -116,10 +135,12 @@ export function createQuoteRoutes(deps, cfg, { demo = false } = {}) {
     async quotes(ctx) {
       const q = ctx.query;
       const format = formatParam(q);
-      const inputs = symbolList(q, cfg.xl.maxSymbols);
+      const opts = readOptions(ctx);
+      // `collection=<name>` instead of `symbols=`: the library's symbols for this moment (an option universe is worked out now).
+      const picked = await collectionSymbols(deps, q, opts, cfg.xl.maxSymbols);
+      const inputs = picked ? picked.symbols : symbolList(q, cfg.xl.maxSymbols);
       const fields = fieldList(q, DEFAULT_QUOTE_FIELDS, QUOTE_FIELD_NAMES);
       const columns = withFreshness(["symbol", ...fields.filter((f) => f !== "symbol")], { demo });
-      const opts = readOptions(ctx);
       const cache = cacheParam(ctx, cfg.xl.cacheSeconds);
 
       // 1. what each typed symbol means (local lookup; a bad one only fails its own row)
@@ -180,7 +201,7 @@ export function createQuoteRoutes(deps, cfg, { demo = false } = {}) {
         Object.assign(rec, freshCells(item.freshness));
         return rec;
       });
-      return tableReply({ format, columns, records, cache });
+      return tableReply({ format, columns, records, cache, headers: picked ? picked.headers : {} });
     },
 
     /** Lot size, tick size and freeze quantity: static facts from the instrument master. */

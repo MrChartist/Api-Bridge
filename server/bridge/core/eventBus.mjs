@@ -38,6 +38,7 @@
  *  hook.rejected       { hookId?, label?, source?, reason, code?, symbol?, side? }   a webhook alert did not become an order (after the 202)
  *  hook.stale          { hookId?, label?, source?, reason?, symbol?, side? }          an alert was too old to trade on
  *  hook.failed         { hookId?, label?, source?, reason, code?, symbol?, side? }    an accepted alert's order could not be made
+ *  collection.changed  { action: "created"|"updated"|"renamed"|"deleted", id, name, kind, tags, from?, imported? }   a collection was written (no symbol lists)
  */
 export const TOPICS = Object.freeze([
   "tick",
@@ -64,6 +65,7 @@ export const TOPICS = Object.freeze([
   "hook.rejected",
   "hook.stale",
   "hook.failed",
+  "collection.changed",
 ]);
 
 /**

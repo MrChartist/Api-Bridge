@@ -29,7 +29,7 @@ const TABLE_ROUTES = new Set(["quotes", "instrument", "positions", "holdings", "
 const formatterFor = (group, name) => (CELL_ROUTES.has(name) ? ERROR_FORMATTERS.xlCell : TABLE_ROUTES.has(name) ? ERROR_FORMATTERS.xlTable : undefined);
 
 /** The contract services the handlers read. Anything else is a bug (see noOrders.test.mjs). */
-export const USED_SERVICES = Object.freeze(["marketData", "symbols", "orders", "accounts", "clock"]);
+export const USED_SERVICES = Object.freeze(["marketData", "symbols", "orders", "accounts", "clock", "library"]);
 
 /** The only methods of the order and account services these routes call, all reads (see noOrders.test.mjs). */
 export const READ_METHODS = Object.freeze({ orders: ["positions", "holdings", "funds", "list"], accounts: ["list"], symbols: ["parse", "resolve"] });
