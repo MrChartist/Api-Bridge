@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runCli } from "../core/cli.mjs";
 import { bootBridge, eventually, stubBroker } from "../e2e/fixtures.mjs";
 
 let bridge;
@@ -18,6 +19,7 @@ beforeAll(async () => {
   bridge = await bootBridge({
     brokers: { zerodha: broker },
     raw: { accounts: [{ id: "zerodha-a", broker: "zerodha", label: "Main" }, { id: "paper", broker: "paper" }], downloads: { maxBudgetShare: 0.5, progressThrottleMs: 100 } },
+    withConfigFile: true,
   });
   const mk = async (label, scopes, accounts = "*") => (await bridge.deps.keyStore.create({ label, scopes, accounts, expiresAt: null, allowQuery: false, clientKind: "other" })).key;
   keys.read = await mk("read", ["read"]);
@@ -177,8 +179,8 @@ describe("datasets", () => {
     // the 19 October bar is the last finished one at 10:00 on the 19th; nothing new, so no further broker call
     expect(broker.calls.filter((c) => c.method === "fetchHistorical").length).toBe(calls);
 
-    const patched = await bridge.http("/v1/datasets/reliance-1d", { method: "PATCH", key: keys.read, body: { tags: ["eq", "daily"], title: "Reliance daily" } });
-    expect(patched.json.data).toMatchObject({ tags: ["eq", "daily"], title: "Reliance daily" });
+    const patched = await bridge.http("/v1/datasets/reliance-1d", { method: "PATCH", key: keys.read, body: { tags: ["daily", "eq"], title: "Reliance daily" } });
+    expect(patched.json.data).toMatchObject({ tags: ["daily", "eq"], title: "Reliance daily" });
     expect((await bridge.http("/v1/datasets/reliance-1d", { method: "DELETE", key: keys.read })).status).toBe(403);
     expect((await bridge.http("/v1/datasets/reliance-1d", { method: "DELETE", key: keys.admin })).status).toBe(204);
     expect((await bridge.http("/v1/datasets", { key: keys.read })).json.data).toEqual([]);
@@ -226,5 +228,62 @@ describe("calls saved", () => {
     const limits = (await bridge.http("/v1/limits?explain=1", { key: keys.read })).json.data.savedCalls;
     expect(limits.byReason["local-dataset"]).toBeGreaterThanOrEqual(1);
     expect(readFileSync(join(bridge.dataDir, "downloads", "jobs", b.json.data.id, "NSE_RELIANCE_1d.csv"), "utf8").split("\r\n").filter(Boolean)).toHaveLength(1 + 10);
+  });
+});
+
+describe("GET /v1/history from a dataset", () => {
+  it("reads a stored range from disk with no broker call, and says so", async () => {
+    const before = broker.calls.filter((c) => c.method === "fetchHistorical").length;
+    const r = await bridge.http("/v1/history?symbol=NSE:RELIANCE&interval=1d&from=2026-09-07&to=2026-09-11&dataset=sept", { key: keys.read });
+    expect(r.status).toBe(200);
+    expect(r.json.meta).toMatchObject({ source: "local", dataset: "sept", brokerCalls: 0, localBars: 5 });
+    expect(r.json.data.candles).toHaveLength(5);
+    expect(r.json.data.freshness).toMatchObject({ provider: "dataset:sept", class: "realtime", flags: ["local"] });
+    expect(r.headers.get("x-mcb-local")).toBe("local");
+    expect(broker.calls.filter((c) => c.method === "fetchHistorical").length).toBe(before);
+    const csv = await bridge.http("/v1/history?symbol=NSE:RELIANCE&interval=1d&from=2026-09-07&to=2026-09-11&dataset=sept&format=csv", { key: keys.read });
+    expect(csv.text.split("\r\n")[0]).toBe("time,open,high,low,close,volume,oi");
+  });
+
+  it("is a 404 for a dataset without that series and a 400 for a bad name, and the plain route is unchanged", async () => {
+    expect((await bridge.http("/v1/history?symbol=NSE:INFY&interval=1d&from=2026-09-07&to=2026-09-11&dataset=sept", { key: keys.read })).status).toBe(404);
+    expect((await bridge.http("/v1/history?symbol=NSE:INFY&interval=1d&from=2026-09-07&dataset=Bad%20Name", { key: keys.read })).status).toBe(400);
+    const plain = await bridge.http("/v1/history?symbol=NSE:RELIANCE&interval=1d&from=2026-09-07&to=2026-09-11", { key: keys.read });
+    expect(plain.status).toBe(200);
+    expect(plain.json.meta.source).toBeUndefined();
+  });
+});
+
+describe("mc-bridge download, on this computer", () => {
+  it("needs no key: the local control token is enough, and the files can be saved with their checksums", async () => {
+    const out = [];
+    const err = [];
+    const io = { out: (x) => out.push(x), err: (x) => err.push(x), env: {}, cwd: bridge.dataDir, sleep: async () => {} };
+    const flags = { config: bridge.configFile, url: bridge.base, interval: "1d", from: "2026-10-01", to: "2026-10-05", watch: true };
+    expect(await runCli(["download", "NSE:TCS"], flags, io)).toBe(0);
+    expect(err).toEqual([]);
+    const text = out.join("\n");
+    expect(text).toMatch(/Started dl_[0-9a-f]{12}/);
+    expect(text).toMatch(/done/);
+    const id = /dl_[0-9a-f]{12}/.exec(text)[0];
+    const dir = join(bridge.dataDir, "saved");
+    out.length = 0;
+    expect(await runCli(["download", "files", id], { ...flags, out: dir, watch: undefined }, io)).toBe(0);
+    expect(out.join("\n")).toMatch(/checksum matches/);
+    expect(existsSync(join(dir, "NSE_TCS_1d.csv"))).toBe(true);
+    expect(existsSync(join(dir, "manifest.json"))).toBe(true);
+    out.length = 0;
+    expect(await runCli(["download", "list"], { ...flags, watch: undefined }, io)).toBe(0);
+    expect(out.join("\n")).toContain(id);
+    // deleting needs this computer's admin; the control token acts as the local administrator
+    expect(await runCli(["download", "delete", id], { ...flags, watch: undefined }, io)).toBe(0);
+    expect(existsSync(join(bridge.dataDir, "downloads", "jobs", id))).toBe(false);
+  });
+
+  it("says so plainly when the Bridge is not running", async () => {
+    const err = [];
+    const io = { out: () => {}, err: (x) => err.push(x), env: {}, cwd: bridge.dataDir, sleep: async () => {} };
+    expect(await runCli(["download", "list"], { config: bridge.configFile, url: "http://127.0.0.1:9" }, io)).toBe(1);
+    expect(err.join("\n")).toMatch(/The Bridge is not running/);
   });
 });

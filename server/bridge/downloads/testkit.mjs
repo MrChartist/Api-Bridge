@@ -2,7 +2,7 @@
  * Test helpers for the downloads module: a manager wired to fakes (no network, no broker), a history generator that
  * builds bars the way a broker would, and small waiting helpers. Imported by tests only.
  */
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeAccountManager } from "../accounts/fake.mjs";
@@ -14,6 +14,7 @@ import { SESSION_OPEN_MIN } from "../market/history.mjs";
 import { istMidnight, istParts } from "../market/time.mjs";
 import { createFakeScheduler } from "../ratelimit/fake.mjs";
 import { parseDownloadsConfig } from "./config.mjs";
+import { EXTENSIONS, encodeBars, headerText } from "./bars.mjs";
 import { createDownloadManager } from "./manager.mjs";
 
 export const at = (iso) => Date.parse(iso);
@@ -97,6 +98,39 @@ export function makeManager(o = {}) {
   };
   const manager = createDownloadManager(deps, { sleep: o.sleep ?? (() => new Promise((r) => setImmediate(r))), getLibrary: () => o.library });
   return { manager, deps, dataDir, bus, events, history, accounts, scheduler, killed, clock };
+}
+
+/**
+ * Write a dataset folder by hand: dataset.json and one file per series, in the format the downloads module writes.
+ * @param {string} dataDir
+ * @param {string} name
+ * @param {{ format?: string, dataClass?: string, source?: string, official?: boolean, delaySec?: number | null, tags?: string[],
+ *   series: Array<{ symbol: string, interval: string, bars: object[], coverage?: { from: number, to: number } | null, holes?: object[] }> }} spec
+ */
+export function writeDatasetFixture(dataDir, name, { format = "csv", dataClass = "realtime", source = "fake", official = true, delaySec = null, tags = [], series }) {
+  const dir = join(dataDir, "downloads", "datasets", name);
+  mkdirSync(dir, { recursive: true });
+  const meta = { name, title: null, tags, format, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-20T00:00:00.000Z", lastJobId: null, request: {}, dataClass, source, official, delaySec, notes: [], series: {} };
+  for (const s of series) {
+    const file = `${s.symbol.replace(/[^A-Za-z0-9]+/g, "_")}_${s.interval}.${EXTENSIONS[format]}`;
+    writeFileSync(join(dir, file), headerText({ format, layout: "per-symbol", interval: s.interval }) + encodeBars(s.bars, { symbol: s.symbol, interval: s.interval, format, layout: "per-symbol" }));
+    meta.series[`${s.symbol}|${s.interval}`] = {
+      symbol: s.symbol,
+      interval: s.interval,
+      file,
+      rows: s.bars.length,
+      bytes: 0,
+      firstBar: s.bars[0]?.time ?? null,
+      lastBar: s.bars.at(-1)?.time ?? null,
+      coverage: s.coverage === undefined ? (s.bars.length ? { from: s.bars[0].time, to: s.bars.at(-1).time } : null) : s.coverage,
+      holes: s.holes ?? [],
+      holesTotal: (s.holes ?? []).length,
+      sha256: null,
+      updatedAt: "2026-10-20T04:00:00.000Z",
+    };
+  }
+  writeFileSync(join(dir, "dataset.json"), JSON.stringify(meta, null, 2));
+  return dir;
 }
 
 /** Poll until `fn()` is truthy. */

@@ -52,6 +52,14 @@ export function createDownloadsModule(opts = {}) {
     register(app, deps) {
       // Collections (the library module) are optional: looked up when a job asks for one.
       deps.downloads.attachLibrary?.(() => deps.library);
+      // The collection's usage view lists the jobs and datasets made from it (the library may not be there).
+      for (const [kind, pick] of [["downloads", "jobs"], ["datasets", "datasets"]]) {
+        try {
+          deps.library?.registerUsageProvider?.(kind, (c) => deps.downloads.usageOfCollection(c)[pick]);
+        } catch (err) {
+          app.logger?.warn?.("could not register a downloads usage provider", { kind, err });
+        }
+      }
       const handlers = createDownloadRoutes(deps, { downloads: deps.downloads });
       for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
     },

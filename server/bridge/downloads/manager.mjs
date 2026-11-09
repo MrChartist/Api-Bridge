@@ -34,6 +34,7 @@ import { checkDatasetName, cleanTags, createDatasets, toPublicDataset } from "./
 import { estimateDownload, planWindows, timeAtShare } from "./estimate.mjs";
 import { JOB_ID_RE, folderBytes, removeQuiet, safeFileName, sha256File, sizeOf, uniqueName, writeJsonAtomic } from "./files.mjs";
 import { createPacer } from "./pacer.mjs";
+import { filterByTags } from "./tagsCompat.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
@@ -1069,8 +1070,7 @@ export function createDownloadManager(deps, opts = {}) {
   }
 
   function list({ status, tag, items = false } = {}) {
-    return [...jobs.values()]
-      .filter((j) => (!status || j.status === status) && (!tag || (j.tags ?? []).some((t) => t.toLowerCase() === String(tag).toLowerCase())))
+    return filterByTags([...jobs.values()].filter((j) => !status || j.status === status), tag)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((j) => publicJob(j, { withItems: items }));
   }
@@ -1150,6 +1150,19 @@ export function createDownloadManager(deps, opts = {}) {
     if (activeJobOf(name)) throw new BridgeError("STATE_CONFLICT", `Dataset ${name} has a job that is not finished. Wait for it or cancel it, then delete.`);
     await datasets.remove(name);
     diskBytes = await folderBytes(join(dataDir, "downloads"));
+  }
+
+  /** What was made from a collection (for the library's usage view): jobs, and datasets that update from it. */
+  function usageOfCollection({ name, names } = {}) {
+    const wanted = new Set([name, ...(names ?? [])].filter(Boolean));
+    const jobsUsing = [...jobs.values()]
+      .filter((j) => j.request?.collection && wanted.has(j.request.collection))
+      .map((j) => ({ id: j.id, label: j.name, status: j.status, active: j.status === "queued" || j.status === "running" }));
+    const dsUsing = datasets
+      .list()
+      .filter((m) => m.request?.collection && wanted.has(m.request.collection))
+      .map((m) => ({ id: m.name, label: m.title ?? m.name, status: "dataset", active: false }));
+    return { jobs: jobsUsing, datasets: dsUsing };
   }
 
   // ───────────────────────── automatic pause and resume ─────────────────────────
@@ -1276,6 +1289,7 @@ export function createDownloadManager(deps, opts = {}) {
     removeDataset,
     tick,
     sweepRetention,
+    usageOfCollection,
     /** The library lookup collections use (set by the module once every service exists). */
     attachLibrary(fn) {
       getLibrary = fn;

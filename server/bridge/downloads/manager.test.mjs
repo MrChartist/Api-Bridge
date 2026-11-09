@@ -167,6 +167,39 @@ describe("validation and options", () => {
     await expect(none.manager.create({ collection: "x", intervals: ["1d"], from: "2026-10-01" })).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
   });
 
+  it("fails with the library's own reason when a collection cannot be resolved (a stale or delayed ATM), never a guess", async () => {
+    const { BridgeError } = await import("../core/errors.mjs");
+    const lib = { resolve: async () => { throw new BridgeError("BROKER_UNAVAILABLE", "The NIFTY price is delayed, so the ATM strike is not known. Try again when it is live."); } };
+    const m = await boot({ library: lib });
+    await expect(m.manager.create({ collection: "atm", intervals: ["5m"], from: "2026-10-01" })).rejects.toMatchObject({ code: "BROKER_UNAVAILABLE", detail: expect.stringMatching(/ATM strike is not known/) });
+    await expect(m.manager.estimate({ collection: "atm", intervals: ["5m"], from: "2026-10-01" })).rejects.toMatchObject({ code: "BROKER_UNAVAILABLE" });
+    expect(m.manager.list()).toEqual([]);
+  });
+
+  it("shows its jobs and datasets in a collection's usage view", async () => {
+    const lib = { resolve: async () => ({ symbols: ["NSE:RELIANCE"] }) };
+    const m = await boot({ library: lib });
+    const { job } = await m.manager.create({ name: "from list", collection: "my-stocks", intervals: ["1d"], from: "2026-10-01", to: "2026-10-05" });
+    const ds = (await m.manager.create({ collection: "my-stocks", intervals: ["1d"], from: "2026-10-01", to: "2026-10-05", dataset: "mine" })).job;
+    await waitStatus(m.manager, job.id);
+    await waitStatus(m.manager, ds.id);
+    const u = m.manager.usageOfCollection({ name: "my-stocks", names: ["old-name"] });
+    expect(u.jobs.map((x) => x.id).sort()).toEqual([job.id, ds.id].sort());
+    expect(u.jobs.every((x) => x.active === false)).toBe(true);
+    expect(u.datasets).toEqual([{ id: "mine", label: "mine", status: "dataset", active: false }]);
+    expect(m.manager.usageOfCollection({ name: "other" })).toEqual({ jobs: [], datasets: [] });
+  });
+
+  it("keeps tags in the library's form (lower case, sorted) and filters with a list", async () => {
+    const m = await boot();
+    const a = (await m.manager.create({ symbols: ["NSE:A"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-05", tags: ["Daily", "EQ", "daily"] })).job;
+    const b = (await m.manager.create({ symbols: ["NSE:B"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-05", tags: ["eq"] })).job;
+    expect(a.tags).toEqual(["daily", "eq"]);
+    expect(m.manager.list({ tag: "eq" }).map((j) => j.id).sort()).toEqual([a.id, b.id].sort());
+    expect(m.manager.list({ tag: "eq,daily" }).map((j) => j.id)).toEqual([a.id]);
+    await expect(m.manager.estimate({ symbols: ["NSE:A"], intervals: ["1d"], from: "2026-10-01", tags: ["bad tag!"] })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
   it("keeps a key to its accounts", async () => {
     const m = await boot({ accounts: [{ id: "acc1", broker: "fake" }, { id: "acc2", broker: "fake" }] });
     await expect(m.manager.create({ symbols: ["NSE:A"], intervals: ["1d"], from: "2026-10-01", account: "acc2" }, { allowedAccounts: ["acc1"] })).rejects.toMatchObject({ code: "ACCOUNT_FORBIDDEN" });

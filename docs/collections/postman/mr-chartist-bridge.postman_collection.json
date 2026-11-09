@@ -1017,6 +1017,12 @@
                   "value": "json"
                 },
                 {
+                  "description": "Read from this dataset on this computer (needs `from`). Only the part it does not cover is fetched from the broker. `meta.source` says `local`, `mixed` or absent. The config `market.history.localFirst` does the same for any dataset that covers the range.",
+                  "disabled": true,
+                  "key": "dataset",
+                  "value": "<dataset>"
+                },
+                {
                   "description": "Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source \"backup\", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources).",
                   "disabled": true,
                   "key": "backup",
@@ -2270,7 +2276,7 @@
                   "value": "demo-paper"
                 },
                 {
-                  "description": "`1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer).",
+                  "description": "`1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer) and `savedCalls` (broker calls not made today).",
                   "disabled": true,
                   "key": "explain",
                   "value": "false"
@@ -3366,6 +3372,511 @@
         }
       ],
       "name": "Readiness"
+    },
+    {
+      "description": "History downloads that run in the background and save files on this computer, datasets that grow by incremental updates, and the instrument master as a file. Every file says its data class, source and delay.",
+      "item": [
+        {
+          "name": "The instrument master as a CSV or JSONL file",
+          "request": {
+            "description": "The instrument master as a CSV or JSONL file\n\n- An API key with the `read` scope (any key).\n\nStreams every instrument the connected brokers' masters hold (symbol, exchange, kind, underlying, name, expiry, strike, right, lot size, tick size, freeze quantity, ISIN), optionally for one exchange or kind. It reads the master the Bridge already loaded; it makes no broker call.\n\nReference: docs/api/data-downloads/exportInstruments.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instruments",
+                "export"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NSE"
+                },
+                {
+                  "disabled": true,
+                  "key": "kind",
+                  "value": "INDEX"
+                },
+                {
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/instruments/export"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download jobs, newest first",
+          "request": {
+            "description": "Download jobs, newest first\n\n- An API key with the `read` scope (any key).\n\nThe list leaves out each job's `items` unless `include=items`.\n\nReference: docs/api/data-downloads/listDownloads.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "status",
+                  "value": "queued"
+                },
+                {
+                  "disabled": true,
+                  "key": "tag",
+                  "value": "<tag>"
+                },
+                {
+                  "disabled": true,
+                  "key": "include",
+                  "value": "items"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "100"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/downloads"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Start a history download, or only estimate it with dryRun=1",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"intervals\": [\n    \"1m\"\n  ],\n  \"from\": \"2026-11-02\"\n}"
+            },
+            "description": "Start a history download, or only estimate it with dryRun=1\n\n- An API key with the `read` scope (any key).\n\nSaves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.\n\nReference: docs/api/data-downloads/createDownload.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads"
+              ],
+              "query": [
+                {
+                  "description": "`1` or `true` returns the estimate and starts nothing.",
+                  "disabled": true,
+                  "key": "dryRun",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/downloads"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One download job with its progress and items",
+          "request": {
+            "description": "One download job with its progress and items\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/data-downloads/getDownload.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Rename a job or change its tags",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Rename a job or change its tags\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/data-downloads/updateDownload.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete a job and its files",
+          "request": {
+            "description": "Delete a job and its files\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThis computer only, admin key. Stops the job if it runs and removes its folder with the files and the manifest. The files of a dataset are never removed by this call; delete the dataset instead.\n\nReference: docs/api/data-downloads/deleteDownload.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pause a queued or running job",
+          "request": {
+            "description": "Pause a queued or running job\n\n- An API key with the `read` scope (any key).\n\nThe job keeps what it has written and continues from there when resumed.\n\nReference: docs/api/data-downloads/pauseDownload.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id",
+                "pause"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id/pause",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resume a paused job, or retry the failed items of a failed job",
+          "request": {
+            "description": "Resume a paused job, or retry the failed items of a failed job\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/data-downloads/resumeDownload.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id",
+                "resume"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id/resume",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel a job",
+          "request": {
+            "description": "Cancel a job\n\n- An API key with the `read` scope (any key).\n\nFiles of items that were already whole are kept; half-written parts are dropped. A cancelled job cannot be resumed.\n\nReference: docs/api/data-downloads/cancelDownload.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id",
+                "cancel"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id/cancel",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The files of a job, as listed in its manifest",
+          "request": {
+            "description": "The files of a job, as listed in its manifest\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/data-downloads/listDownloadFiles.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id",
+                "files"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id/files",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stream one file of a job (or manifest.json)",
+          "request": {
+            "description": "Stream one file of a job (or manifest.json)\n\n- An API key with the `read` scope (any key).\n\nThe file as the Bridge wrote it. The response headers say what the data is: X-Data-Class (realtime, delayed or eod), X-Data-Source, X-Data-Official and X-Data-Delay-Sec. Data that is delayed or end-of-day must never feed orders, risk checks, paper fills or alerts.\n\nReference: docs/api/data-downloads/getDownloadFile.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                ":id",
+                "files",
+                ":name"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/:id/files/:name",
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "demo"
+                },
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Datasets stored on this computer",
+          "request": {
+            "description": "Datasets stored on this computer\n\n- An API key with the `read` scope (any key).\n\nA dataset is a named set of files (one per symbol and interval) that grows by incremental updates.\n\nReference: docs/api/data-downloads/listDatasets.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "datasets"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "tag",
+                  "value": "<tag>"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/datasets"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One dataset with its files, coverage and gaps",
+          "request": {
+            "description": "One dataset with its files, coverage and gaps\n\n- An API key with the `read` scope (any key).\n\nEach file lists its `coverage` (the stretch already fetched and stored) and its `gaps` (places inside it where bars are missing; a thin stock has no bar for a minute with no trade, so a gap is reported and never filled with a made-up bar).\n\nReference: docs/api/data-downloads/getDataset.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "datasets",
+                ":name"
+              ],
+              "raw": "{{baseUrl}}/v1/datasets/:name",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Rename a dataset or change its tags and title",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Rename a dataset or change its tags and title\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/data-downloads/updateDatasetInfo.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "datasets",
+                ":name"
+              ],
+              "raw": "{{baseUrl}}/v1/datasets/:name",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete a dataset and its files",
+          "request": {
+            "description": "Delete a dataset and its files\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThis computer only, admin key.\n\nReference: docs/api/data-downloads/deleteDataset.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "datasets",
+                ":name"
+              ],
+              "raw": "{{baseUrl}}/v1/datasets/:name",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Fetch what is new since the last stored bar",
+          "request": {
+            "description": "Fetch what is new since the last stored bar\n\n- An API key with the `read` scope (any key).\n\nStarts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is already running, that job is returned and `meta.existing` is true.\n\nReference: docs/api/data-downloads/updateDataset.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "datasets",
+                ":name",
+                "update"
+              ],
+              "raw": "{{baseUrl}}/v1/datasets/:name/update",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Data downloads"
     },
     {
       "description": "Copies of your data folder (keys store, accounts, state, paper books, audit log), made on this computer only. The archive is never served over HTTP.",

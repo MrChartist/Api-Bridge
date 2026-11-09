@@ -60,6 +60,11 @@ Usage:
   mc-bridge notify telegram setup   connect a Telegram bot: the token is read from a hidden prompt, never from the command line
   mc-bridge notify telegram remove <id>
   mc-bridge notify status | test [<id>]
+  mc-bridge download <symbols...> --interval 5m --from 2024-01-01 [--to <date>] [--format csv|jsonl|amibroker] [--dataset <name>]
+                   [--layout combined] [--collection <name>] [--dry-run] [--watch]
+                                   save history to files on this computer (a background job; never slows live reads)
+  mc-bridge download list | show <id> | pause <id> | resume <id> | cancel <id> | files <id> [--out <folder>]
+  mc-bridge download datasets | update <dataset>   datasets grow from their last stored bar
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -584,6 +589,8 @@ export async function runCli(positionals, flags, io) {
         warnKeyOnArgv(flags, io);
         return await notifyCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), prompt: terminalPrompt, cli: cliCommand(io.env), usage: USAGE });
       }
+      case "download":
+        return await downloadsCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
       case "backup":
@@ -963,6 +970,44 @@ async function pluginsCommand(action, folder, flags, io) {
   return report.ok ? 0 : 1;
 }
 // === end sources ===============================================================================================
+
+// === downloads =================================================================================================
+/**
+ * `mc-bridge download ...` (server/bridge/downloads/cli.mjs). A separate block: it only finds the running Bridge and the
+ * credential (--key, MCB_API_KEY, or this computer's control token) and hands a small client to the command.
+ */
+async function downloadsCommand(args, flags, io) {
+  const { downloadCommand } = await import("../downloads/cli.mjs");
+  warnKeyOnArgv(flags, io);
+  const connect = async () => {
+    const { config } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd });
+    const baseUrl = bridgeUrl(flags, io, config);
+    const alive = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok, () => false);
+    if (!alive) throw new BridgeError("UPSTREAM_ERROR", `The Bridge is not running at ${baseUrl}. Start it first (${cliCommand(io.env)} start), then run this again.`);
+    const key = (typeof flags.key === "string" ? flags.key : (io.env.MCB_API_KEY ?? io.env.MCB_ADMIN_KEY)) ?? readControlToken(config.dataDir);
+    if (!key) throw new BridgeError("UNAUTHENTICATED", `Pass --key (or set MCB_API_KEY). On this computer the running Bridge's local token is used when it exists, and it does not here.`);
+    const headers = { authorization: `Bearer ${key}` };
+    const fail = async (res) => {
+      const json = await res.json().catch(() => ({}));
+      const code = typeof json.code === "string" && json.code in ERROR_CODES_FOR_CLI ? json.code : "UPSTREAM_ERROR";
+      throw new BridgeError(code, json.detail ?? `the Bridge answered HTTP ${res.status}`);
+    };
+    const call = async (method, path, body) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: { ...headers, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60_000) });
+      if (res.status === 204) return {};
+      if (!res.ok) await fail(res);
+      return await res.json();
+    };
+    const raw = async (path) => {
+      const res = await fetch(`${baseUrl}${path}`, { headers, signal: AbortSignal.timeout(600_000) });
+      if (!res.ok) await fail(res);
+      return Buffer.from(await res.arrayBuffer());
+    };
+    return { baseUrl, call, raw };
+  };
+  return await downloadCommand(args, flags, io, { connect, cli: cliCommand(io.env) });
+}
+// === end downloads =============================================================================================
 
 /**
  * `mc-bridge backup` and `mc-bridge restore` (server/bridge/backup/cli.mjs). A separate block: it only gathers what the

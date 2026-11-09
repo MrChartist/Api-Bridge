@@ -131,6 +131,7 @@
         "Notifications",
         "Safety",
         "Readiness",
+        "Data downloads",
         "Backup",
         "Spreadsheets",
         "Webhooks",
@@ -139,7 +140,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "150 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "166 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -510,6 +511,150 @@
       "path": "docs/api/compat-rest/compatTradebook.md",
       "text": "POST /api/v1/tradebook.",
       "title": "Trade book"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{id}/cancel"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/cancelDownload.md",
+      "text": "POST /v1/downloads/{id}/cancel. Files of items that were already whole are kept; half-written parts are dropped.",
+      "title": "Cancel a job"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/createDownload.md",
+      "text": "POST /v1/downloads. Saves candles to files on this computer as a background job.",
+      "title": "Start a history download, or only estimate it with dryRun=1"
+    },
+    {
+      "headings": [
+        "DELETE /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/deleteDataset.md",
+      "text": "DELETE /v1/datasets/{name}. This computer only, admin key.",
+      "title": "Delete a dataset and its files"
+    },
+    {
+      "headings": [
+        "DELETE /v1/downloads/{id}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/deleteDownload.md",
+      "text": "DELETE /v1/downloads/{id}. This computer only, admin key.",
+      "title": "Delete a job and its files"
+    },
+    {
+      "headings": [
+        "GET /v1/instruments/export"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/exportInstruments.md",
+      "text": "GET /v1/instruments/export. Streams every instrument the connected brokers' masters hold (symbol, exchange, kind, underlying, name, expiry, strike, right, lot size, tick size, freeze quantity, ISIN), optionally for one exchange or kind.",
+      "title": "The instrument master as a CSV or JSONL file"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDataset.md",
+      "text": "GET /v1/datasets/{name}. Each file lists its coverage (the stretch already fetched and stored) and its gaps (places inside it where bars are missing; a thin stock has no bar for a minute with no trade, so a gap is reported and never filled with a made-up bar).",
+      "title": "One dataset with its files, coverage and gaps"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{id}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDownload.md",
+      "text": "GET /v1/downloads/{id}.",
+      "title": "One download job with its progress and items"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{id}/files/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDownloadFile.md",
+      "text": "GET /v1/downloads/{id}/files/{name}. The file as the Bridge wrote it.",
+      "title": "Stream one file of a job (or manifest.json)"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDatasets.md",
+      "text": "GET /v1/datasets. A dataset is a named set of files (one per symbol and interval) that grows by incremental updates.",
+      "title": "Datasets stored on this computer"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{id}/files"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDownloadFiles.md",
+      "text": "GET /v1/downloads/{id}/files.",
+      "title": "The files of a job, as listed in its manifest"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDownloads.md",
+      "text": "GET /v1/downloads. The list leaves out each job's items unless include=items.",
+      "title": "Download jobs, newest first"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{id}/pause"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/pauseDownload.md",
+      "text": "POST /v1/downloads/{id}/pause. The job keeps what it has written and continues from there when resumed.",
+      "title": "Pause a queued or running job"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{id}/resume"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/resumeDownload.md",
+      "text": "POST /v1/downloads/{id}/resume.",
+      "title": "Resume a paused job, or retry the failed items of a failed job"
+    },
+    {
+      "headings": [
+        "POST /v1/datasets/{name}/update"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDataset.md",
+      "text": "POST /v1/datasets/{name}/update. Starts a job that continues every series of the dataset from its last stored bar.",
+      "title": "Fetch what is new since the last stored bar"
+    },
+    {
+      "headings": [
+        "PATCH /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDatasetInfo.md",
+      "text": "PATCH /v1/datasets/{name}.",
+      "title": "Rename a dataset or change its tags and title"
+    },
+    {
+      "headings": [
+        "PATCH /v1/downloads/{id}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDownload.md",
+      "text": "PATCH /v1/downloads/{id}.",
+      "title": "Rename a job or change its tags"
     },
     {
       "headings": [],
@@ -1539,7 +1684,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 146 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 162 requests in 22 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1675,6 +1820,25 @@
       "path": "docs/guides/deployment.md",
       "text": "Paper trading works from any computer and any connection. Live API orders do not. This guide explains why, the ways to give the Bridge a fixed internet address, and how the Bridge's trading-readiness check tells you, before an order fails, that something is wrong. Every rule...",
       "title": "Deployment: static IP, daily login and the readiness check"
+    },
+    {
+      "headings": [
+        "Start one",
+        "Know the cost first",
+        "Your API budget",
+        "Jobs",
+        "Files and the manifest",
+        "Datasets: update, do not download again",
+        "Stored ranges (local first)",
+        "Collections",
+        "Instrument master as a file",
+        "Limits and settings",
+        "Command line"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/downloads.md",
+      "text": "The Bridge can save history to files on this computer: candles for many symbols and intervals, as CSV, JSONL or an AmiBroker import file. A download is a background job. It runs through the same rate-limit scheduler as everything else, at the lowest priority, so it never slows a...",
+      "title": "Data downloads"
     },
     {
       "headings": [

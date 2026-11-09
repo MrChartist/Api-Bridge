@@ -20,9 +20,9 @@ Facts that help when writing code against it:
 
 ## API reference
 
-- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 150 operations with schemas, scopes and error codes
+- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 166 operations with schemas, scopes and error codes
 - [AsyncAPI description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/asyncapi.yaml): WebSocket and SSE message formats
-- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (150), grouped by area, each with curl and Python examples
+- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (166), grouped by area, each with curl and Python examples
 - [Error codes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/errors.md): every stable error code with its HTTP status and whether a retry is safe
 - [Postman and Bruno collections](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/collections/README.md): import every request, with paper-mode examples and no real keys
 
@@ -31,6 +31,7 @@ Facts that help when writing code against it:
 - [Quickstart: five minutes to a first answer](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/quickstart.md): Clone, start in demo mode, make a key, get a price, place a paper order, read a stream; and what to do when it does not work
 - [FAQ](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/faq.md): Is it free, is my broker supported, why pooling is off, why Yahoo is not real-time, where the data lives, how to reset
 - [Installing the Bridge](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/install.md): Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling
+- [Data downloads](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/downloads.md): Saving history to files (CSV, JSONL, AmiBroker), datasets that update from their last bar, the API budget share, and the estimate before you start
 - [Backup and restore](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/backup.md): Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer)
 - [Brokers and multiple accounts](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/accounts.md): Adding brokers and several accounts, logging in, sessions, family accounts
 - [How the Bridge handles broker rate limits](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/rate-limits.md): How the Bridge stays inside every broker's limits, spreading reads over your own accounts

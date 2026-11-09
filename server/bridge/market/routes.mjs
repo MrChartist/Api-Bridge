@@ -23,6 +23,8 @@ import { csv } from "../core/http.mjs";
 import { IV_MODELS } from "./chain.mjs";
 import { parseMarketConfig } from "./config.mjs";
 import { historyCsvRows } from "./history.mjs";
+import { readHistoryLocalFirst } from "./historyLocal.mjs";
+import { createLocalStore } from "./localStore.mjs";
 import { PURPOSES } from "../sources/contract.mjs";
 import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
 import { noteRoute } from "./routeInfo.mjs";
@@ -160,6 +162,13 @@ export function createMarketRoutes(deps) {
     return ivDefault;
   };
   const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
+  /** Stored bars (datasets) for local-first history; created on first use. */
+  let localStore;
+  const historyLocal = (params, opts, dataset) => {
+    localStore ??= createLocalStore({ dataDir: deps.paths?.dataDir });
+    const enabled = parseMarketConfig(deps.config?.market).history.localFirst;
+    return readHistoryLocalFirst({ store: localStore, history: (p, o) => md().history(p, o), now: () => deps.clock.now() }, { params, opts, dataset, enabled });
+  };
   /** The name of a data source to show in the request log (its descriptor's name), if the sources service knows it. */
   const nameOf = (id) => {
     try {
@@ -213,14 +222,17 @@ export function createMarketRoutes(deps) {
       const countback = intParam(q, "countback", 1, 5000);
       if (countback !== undefined) params.countback = countback;
       const opts = readOptions(ctx, { maxAge: false });
-      const data = await md().history(params, opts);
+      // Stored bars first (?dataset=, or market.history.localFirst); the broker answers only for what is not on disk.
+      const local = await historyLocal(params, opts, opt(q, "dataset"));
+      const data = local ? local.data : await md().history(params, opts);
       route(ctx, [data.freshness]);
+      if (local) ctx.setHeader("X-MCB-Local", local.meta.source);
       if (format === "csv") {
         const name = `${data.symbol.replace(/[^A-Za-z0-9-]+/g, "_")}_${data.interval}.csv`;
         const headers = { "X-MCB-Partial": String(Boolean(data.partial)), "X-MCB-Freshness-Source": data.freshness.source };
         return csv(historyCsvRows(data), { filename: name, headers });
       }
-      return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
+      return { data, meta: { ...meta(ctx, opts), freshness: data.freshness, ...(local ? local.meta : {}) } };
     },
 
     async expiries(ctx) {

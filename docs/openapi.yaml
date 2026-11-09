@@ -1575,6 +1575,10 @@ paths:
         - name: format
           in: query
           schema: { type: string, enum: [json, csv], default: json }
+        - name: dataset
+          in: query
+          description: "Read from this dataset on this computer (needs `from`). Only the part it does not cover is fetched from the broker. `meta.source` says `local`, `mixed` or absent. The config `market.history.localFirst` does the same for any dataset that covers the range."
+          schema: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$" }
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"

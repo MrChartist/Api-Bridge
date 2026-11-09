@@ -1,0 +1,31 @@
+meta {
+  name: The instrument master as a CSV or JSONL file
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/instruments/export
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~exchange: NSE
+  ~kind: INDEX
+  ~format: csv
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The instrument master as a CSV or JSONL file
+
+  - An API key with the `read` scope (any key).
+
+  Streams every instrument the connected brokers' masters hold (symbol, exchange, kind, underlying, name, expiry, strike, right, lot size, tick size, freeze quantity, ISIN), optionally for one exchange or kind. It reads the master the Bridge already loaded; it makes no broker call.
+
+  Reference: docs/api/data-downloads/exportInstruments.md in the repository.
+}

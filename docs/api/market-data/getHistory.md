@@ -24,6 +24,7 @@ Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in o
 | `to` | query | string | no |  |
 | `countback` | query | integer, min 1, max 5000 | no |  |
 | `format` | query | one of `json`, `csv` | no | Default `"json"`. |
+| `dataset` | query | string | no | Read from this dataset on this computer (needs `from`). Only the part it does not cover is fetched from the broker. `meta.source` says `local`, `mixed` or absent. The config `market.history.localFirst` does the same for any dataset that covers the range. |
 | `backup` | query | boolean | no | Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source "backup", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources). |
 | `purpose` | query | `Purpose` | no | What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a delayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled source. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer. |
 | `account` | query | `AccountId` | no | Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling. |

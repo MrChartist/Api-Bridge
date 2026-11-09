@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Data downloads ([docs/guides/downloads.md](docs/guides/downloads.md)): `POST /v1/downloads` (with `?dryRun=1` for the
+  estimate), jobs you can pause, resume and cancel that survive a restart, files with a manifest that names the data class,
+  datasets that continue from their last stored bar and report gaps, `GET /v1/instruments/export`, and
+  `mc-bridge download ...`. Calls run at the lowest priority within `downloads.maxBudgetShare` of the budget; stored ranges
+  are read from disk (`?dataset=` on `/v1/history`, `market.history.localFirst`), and `GET /v1/limits?explain=1` shows `savedCalls`.
+
 - Developer files generated from `docs/openapi.yaml`: Postman and Bruno collections (`docs/collections/`), one Markdown page
   per endpoint and the error codes (`docs/api/`), `docs/llms.txt`, `docs/llms-full.txt` and a search index. The curl
   examples in them and in the quickstart run in the tests; `npm run docs:generate` rewrites everything and `npm run

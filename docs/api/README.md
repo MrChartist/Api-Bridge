@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-150 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+166 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -217,6 +217,29 @@ Whether each live account can trade now: session, static IP, order headroom, kil
 | [POST /v1/readiness/check](readiness/checkReadiness.md) | Re-check now (probe and egress lookup, each with a 30 s cooldown) | `read` |
 | [GET /v1/readiness/history](readiness/getReadinessHistory.md) | Recent readiness transitions (newest first) | `read` |
 | [POST /v1/demo/readiness](readiness/demoReadinessScenario.md) | Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes) | `read` |
+
+## Data downloads
+
+History downloads that run in the background and save files on this computer, datasets that grow by incremental updates, and the instrument master as a file. Every file says its data class, source and delay.
+
+| Call | What it does | Needs |
+|---|---|---|
+| [GET /v1/instruments/export](data-downloads/exportInstruments.md) | The instrument master as a CSV or JSONL file | `read` |
+| [GET /v1/downloads](data-downloads/listDownloads.md) | Download jobs, newest first | `read` |
+| [POST /v1/downloads](data-downloads/createDownload.md) | Start a history download, or only estimate it with dryRun=1 | `read` |
+| [GET /v1/downloads/{id}](data-downloads/getDownload.md) | One download job with its progress and items | `read` |
+| [PATCH /v1/downloads/{id}](data-downloads/updateDownload.md) | Rename a job or change its tags | `read` |
+| [DELETE /v1/downloads/{id}](data-downloads/deleteDownload.md) | Delete a job and its files | `admin`, this computer only |
+| [POST /v1/downloads/{id}/pause](data-downloads/pauseDownload.md) | Pause a queued or running job | `read` |
+| [POST /v1/downloads/{id}/resume](data-downloads/resumeDownload.md) | Resume a paused job, or retry the failed items of a failed job | `read` |
+| [POST /v1/downloads/{id}/cancel](data-downloads/cancelDownload.md) | Cancel a job | `read` |
+| [GET /v1/downloads/{id}/files](data-downloads/listDownloadFiles.md) | The files of a job, as listed in its manifest | `read` |
+| [GET /v1/downloads/{id}/files/{name}](data-downloads/getDownloadFile.md) | Stream one file of a job (or manifest.json) | `read` |
+| [GET /v1/datasets](data-downloads/listDatasets.md) | Datasets stored on this computer | `read` |
+| [GET /v1/datasets/{name}](data-downloads/getDataset.md) | One dataset with its files, coverage and gaps | `read` |
+| [PATCH /v1/datasets/{name}](data-downloads/updateDatasetInfo.md) | Rename a dataset or change its tags and title | `read` |
+| [DELETE /v1/datasets/{name}](data-downloads/deleteDataset.md) | Delete a dataset and its files | `admin`, this computer only |
+| [POST /v1/datasets/{name}/update](data-downloads/updateDataset.md) | Fetch what is new since the last stored bar | `read` |
 
 ## Backup
 

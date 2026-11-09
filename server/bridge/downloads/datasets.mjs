@@ -16,9 +16,9 @@ import { BridgeError } from "../core/errors.mjs";
 import { DATASET_META_FILE, DATASET_NAME_RE, createLocalStore, datasetsRoot, readDatasetMeta, seriesKey } from "../market/localStore.mjs";
 import { toIstIso } from "../market/time.mjs";
 import { EXTENSIONS } from "./bars.mjs";
+import { filterByTags, normaliseTags } from "./tagsCompat.mjs";
 import { removeQuiet, safeFileName, uniqueName, writeJsonAtomic } from "./files.mjs";
 
-const TAG_RE = /^[A-Za-z0-9][A-Za-z0-9 _.:-]{0,31}$/;
 /** Holes kept per series in dataset.json (the count is always exact). */
 const MAX_HOLES = 200;
 
@@ -30,18 +30,8 @@ export function checkDatasetName(name) {
   return name;
 }
 
-/** Clean a tag list: trimmed, de-duplicated, at most 20, each a short plain label. */
-export function cleanTags(tags) {
-  if (tags === undefined) return undefined;
-  if (!Array.isArray(tags) || tags.length > 20) throw new BridgeError("VALIDATION_FAILED", "tags must be a list of at most 20 short labels.", { errors: [{ path: "tags", message: "too many or not a list" }] });
-  const out = [];
-  for (const t of tags) {
-    const s = String(t ?? "").trim();
-    if (!TAG_RE.test(s)) throw new BridgeError("VALIDATION_FAILED", `"${s.slice(0, 40)}" is not a valid tag: use up to 32 letters, digits, spaces, dots, dashes or colons.`, { errors: [{ path: "tags", message: "bad tag" }] });
-    if (!out.some((x) => x.toLowerCase() === s.toLowerCase())) out.push(s);
-  }
-  return out;
-}
+/** Clean a tag list (the library module's rules: lower case, unique, sorted, at most 20). */
+export const cleanTags = (tags) => normaliseTags(tags);
 
 const iso = (sec) => (Number.isFinite(sec) ? toIstIso(sec * 1000) : null);
 
@@ -132,11 +122,9 @@ export function createDatasets({ dataDir, now }) {
       const out = [];
       for (const name of store.names()) {
         const m = readDatasetMeta(dataDir, name);
-        if (!m) continue;
-        if (tag && !(m.tags ?? []).some((t) => t.toLowerCase() === String(tag).toLowerCase())) continue;
-        out.push(m);
+        if (m) out.push(m);
       }
-      return out;
+      return filterByTags(out, tag);
     },
     /** Folder of a series file. */
     filePath: (meta, s) => join(dirOf(meta.name), s.file),

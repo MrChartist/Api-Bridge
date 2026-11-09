@@ -19,7 +19,7 @@ With `explain=1` the report also says why a request may have been slow or refuse
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
 | `account` | query | `AccountId` | no | Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling. |
-| `explain` | query | boolean | no | `1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer). Default `false`. |
+| `explain` | query | boolean | no | `1` or `true` adds `pools` (the shared bucket groups: spare budget, ceiling and back-off) and `consumers` (queued, in-flight and fair share per consumer) and `savedCalls` (broker calls not made today). Default `false`. |
 
 ## Responses
 
@@ -45,6 +45,7 @@ With `explain=1` the report also says why a request may have been slow or refuse
 | `client` | object | no | This key's own request budget. |
 | `pools` | array of `LimitsPool` | no | Only with `explain=1`. The shared bucket groups behind the broker accounts. |
 | `consumers` | array of `LimitsConsumer` | no | Only with `explain=1`. Who is waiting in the fair queue and each one's share. |
+| `savedCalls` | object | no | Only with `explain=1`. Broker calls not made today because the data was already on this computer, in the stream or in the cache. |
 
 ## Errors
 
