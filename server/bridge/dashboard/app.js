@@ -8,8 +8,11 @@ import { bannerIn, bannerOut, fadeOut, installAutoAnimations, pulse, reducedMoti
 import { DASH, formatRupee } from "./format.js";
 import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
 import { watch as liveWatch } from "./live.js";
+import { connection, onSignedOut } from "./connection.js";
 
 const KEY_SLOT = "mcb.dashboard.key";
+/** Set (in this tab) when the Bridge refused the key mid-session, so the sign-in screen can say why. */
+const ENDED_SLOT = "mcb.dashboard.signedOut";
 
 // ── One-time sign-in link ──
 
@@ -172,8 +175,11 @@ export class ApiError extends Error {
 export const apiHealth = { seq: 0, failure: null };
 const noteFailure = (status, retryAfterMs = 0) => {
   apiHealth.failure = { seq: ++apiHealth.seq, status: status ?? null, retryAfterMs };
+  if (status == null) connection.networkFailed(); // the Bridge did not answer: show "Reconnecting..." and keep trying
 };
 const noteStatus = (res) => {
+  if (res.status === 401) connection.unauthorized(); // the Bridge refused this page's key: sign out with a reason
+  else connection.answered();
   if (res.status === 429 || res.status >= 500) {
     const ra = Number(res.headers.get("retry-after"));
     noteFailure(res.status, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
@@ -1477,6 +1483,10 @@ async function signIn() {
   if (!memoryKey) {
     login.hidden = false;
     shell.hidden = true;
+    if (session.get(ENDED_SLOT)) {
+      session.set(ENDED_SLOT, null);
+      showLoginError(alertBox({ title: "You were signed out", detail: "The key this page was using was revoked or has expired. Sign in with another key, or run mc-bridge open for a new sign-in link." }, "warn"));
+    }
     document.getElementById("key-input")?.focus();
     return;
   }
@@ -1501,6 +1511,8 @@ async function signIn() {
   const { startRouter } = await import("./views.js");
   // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
   await startRouter();
+  // From here on a request the Bridge cannot answer means "reconnecting", and a refused key means signed out.
+  connection.arm();
   // The trading-readiness badge in the toolbar (every page).
   import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
 }
@@ -1512,6 +1524,17 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
   if (typeof matchMedia === "function") matchMedia("(pointer: fine)").addEventListener?.("change", relayout);
   // Motion: page / sidebar entrances on navigation (a button press is CSS: app.css 8a).
   installAutoAnimations();
+  // The key was refused mid-session (revoked or expired): back to the sign-in screen with the reason, not a broken page.
+  onSignedOut(() => {
+    session.set(ENDED_SLOT, "1");
+    setKey(null);
+    try {
+      history.replaceState(null, "", location.pathname + location.search);
+    } catch {
+      /* the page reloads next anyway */
+    }
+    location.reload();
+  });
   // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
   document.addEventListener("click", (e) => {
     const t = /** @type {Element} */ (e.target);

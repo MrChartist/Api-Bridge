@@ -564,7 +564,9 @@ export async function renderOverview() {
     const sources = withSwitches(got.sources?.data?.data ?? null);
     const usage = got.usage?.data?.data ?? null;
     const labels = Object.fromEntries((got.accounts?.data?.data ?? []).map((a) => [a.id, a.label]));
-    const rows = buildRows({ sources, usage, time: istTime, labels });
+    // An account that is not logged in is not "backing off": it needs a login (the Bridge reports it unhealthy either way).
+    const needsLogin = new Set((got.accounts?.data?.data ?? []).filter((a) => a.broker !== "paper" && a.broker !== "demo" && a.session?.state !== "connected").map((a) => a.id));
+    const rows = buildRows({ sources, usage, time: istTime, labels, needsLogin });
     annotateRows(rows, { ...trackers, at });
     const keep = new Set(rows.map((r) => r.key));
     trackers.rates.prune(new Set([...keep, ...rows.flatMap((r) => r.classes.map((c) => `${r.key}:${c.cls}`))]));
@@ -589,8 +591,9 @@ export async function renderOverview() {
     const { rows, pool, tone } = model;
     const t = heroText({ pool, tone, rows });
     hero.hidden = rows.length === 0;
-    setData(hero, "tone", tone);
-    setToneGlyph(glyph, tone);
+    // Nothing that is on can answer yet: the headline is a heads-up, not "plenty of room".
+    setData(hero, "tone", t.waiting ? "headsup" : tone);
+    setToneGlyph(glyph, t.waiting ? "headsup" : tone);
     setText(sentence, t.sentence);
     if (prefix.data !== t.prefix) prefix.data = t.prefix;
     if (suffix.data !== t.suffix) suffix.data = t.suffix;

@@ -11,6 +11,15 @@
 - Sources page in the dashboard (Overview, Providers, Quotas) replaces API > Rate limits. Recent requests show what
   answered each market read: `GET /v1/requests` entries carry `route` (`from`, `source`, `sourceName`, `class`,
   `delaySec`).
+- First run: a "Get started" checklist on the Accounts page (five steps from the demo or your broker to a first
+  `curl` call, a paper order and the Sources page; each step ticks itself from what the Bridge sees; hide it any time).
+- Automatic fallback is a switch on Sources > Providers instead of a config edit: `PATCH /v1/sources/settings`
+  `{ "autoFallback": true|false }` is saved in `sources/state.json`, wins over `sources.autoFallback`, is audited
+  (`sources.setting_changed`), and `GET /v1/sources` meta says where the value comes from (`autoFallbackSource`).
+- `GET /v1/pooling` accounts carry a `label`, and the Providers page shows it instead of the id.
+- The dashboard says "Reconnecting to the Bridge..." when the Bridge restarts and redraws by itself when it is back; a
+  revoked or expired key returns to the sign-in screen with a message. An account that is not logged in shows "Log in
+  needed" on Sources instead of "Backing off".
 - Quote batches are per consumer, so a light reader no longer waits in a heavy reader's place in the queue. Two keys
   asking for different symbols in the same moment make two broker calls instead of one.
 - Fixes in the sources wiring: the built-in providers now register in a normal start, plugins named in

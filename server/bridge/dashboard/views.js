@@ -6,6 +6,9 @@ import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, is
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
 import "./sources-ui.js";
+import { onReconnected } from "./connection.js";
+import { createGetStarted } from "./getstarted.js";
+import { keyStepLink } from "./getstarted-core.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
@@ -942,6 +945,8 @@ export async function startRouter() {
     onDone: () => announce("Updated"),
   });
   window.addEventListener("hashchange", show);
+  // The Bridge came back after a restart or a dropped connection: redraw this page with fresh data, no reload needed.
+  onReconnected(() => show({ refresh: true }));
   show();
 }
 
@@ -1770,7 +1775,10 @@ async function renderAccounts() {
   );
 
   setTimeout(() => fillToday(accs).catch(() => {}), 0);
-  return [mine, catalog];
+  // The Get started checklist draws with the page when its answers are quick (so nothing jumps), else when they arrive.
+  const gs = createGetStarted({ accounts: accs, keyLink: keyStepLink(resolveRoute), addBroker: () => addAccountFlow(list, { accounts: accs }), every: (fn) => every(5000, fn) });
+  await Promise.race([gs.ready, new Promise((r) => setTimeout(r, 800))]);
+  return [gs.el, mine, catalog];
 }
 
 // ── Test console ──
