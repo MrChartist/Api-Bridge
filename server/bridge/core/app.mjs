@@ -78,6 +78,7 @@ export function safeLogPath(pathname, isPublic = false) {
 export const DASHBOARD_FILES = Object.freeze({
   "index.html": "text/html; charset=utf-8",
   "app.js": "text/javascript; charset=utf-8",
+  "boot.js": "text/javascript; charset=utf-8",
   "views.js": "text/javascript; charset=utf-8",
   "orders-core.js": "text/javascript; charset=utf-8",
   "reasons-core.js": "text/javascript; charset=utf-8",

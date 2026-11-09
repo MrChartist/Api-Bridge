@@ -10,7 +10,35 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B0D10">
   <link rel="stylesheet" href="/dashboard/app.css">
   <link rel="stylesheet" href="/dashboard/palette.css">
-  <script type="module" src="/dashboard/app.js"></script>
+  <!-- Flat module loading: every module the app needs is fetched in parallel instead of one import level at a time.
+       The links below are what app.js imports (the sign-in screen needs them). What it loads once the key is checked
+       (views.js and everything views.js imports) waits in the template: boot.js adds those links at once when this tab
+       is already signed in (or opened with a sign-in link) and after the sign-in screen has been drawn otherwise, at low
+       priority, so they never delay the first paint. A test (modulepreload.test.mjs) fails when these lists and the
+       real import graph disagree. -->
+  <link rel="modulepreload" href="/dashboard/motion.js">
+  <link rel="modulepreload" href="/dashboard/format.js">
+  <link rel="modulepreload" href="/dashboard/layout-prefs.js">
+  <link rel="modulepreload" href="/dashboard/live.js">
+  <template id="views-preload">
+    <link rel="modulepreload" href="/dashboard/views.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/readiness.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/budget.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/sources-core.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/sources-ui.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/snippets.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/flows.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/palette.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/orders-book.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/charges.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/reference.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/reasons-core.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/orders-core.js" fetchpriority="low">
+    <link rel="modulepreload" href="/dashboard/today-core.js" fetchpriority="low">
+  </template>
+  <!-- Before the first paint: the chosen theme and the sign-in screen (see boot.js). -->
+  <script src="/dashboard/boot.js"></script>
+  <script type="module" src="/dashboard/app.js" fetchpriority="high"></script>
 </head>
 <body>
   <!-- The bridge mark, defined once: sign-in and the sidebar use it (outline, currentColor, 24px grid). -->

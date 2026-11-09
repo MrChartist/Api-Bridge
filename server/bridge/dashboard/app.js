@@ -180,6 +180,17 @@ const noteStatus = (res) => {
   }
 };
 
+/**
+ * Run `fn` once the browser is idle, never sooner than the next frame (requestIdleCallback with a timer fallback for
+ * browsers without it). For work the first screen does not need: the live connection, the budget chip.
+ * @param {() => void} fn @param {number} [timeout]  the latest it may wait, ms
+ * @returns {void}
+ */
+export function whenIdle(fn, timeout = 1500) {
+  if (typeof requestIdleCallback === "function") requestIdleCallback(() => fn(), { timeout });
+  else setTimeout(fn, 120);
+}
+
 // ── The shared fetch layer ──
 //
 // Every page reads through api(). For GET it adds three things, so pages that ask for the same data share it:
@@ -187,7 +198,8 @@ const noteStatus = (res) => {
 //  2. a short memory of answers (SHARE_MS): parts of a page and other pages asking within a moment get the same one;
 //  3. paint from memory on a page switch: during the first moments after a switch (beginNavigation), an answer up to
 //     PAINT_FROM_CACHE_MS old is used at once and a fresh one is fetched behind it; pages that show market data label
-//     it with its own data time, and onRevalidated() lets the router redraw the other pages when the fresh one differs.
+//     it with its own data time, and onRevalidated() lets the router redraw the other pages when the fresh one differs;
+//     reads that hardly change (the broker directory, stableRead) get a longer memory with the same refresh behind it.
 // Never from memory: one-time and audit reads, and states a person acts on (safety, tickets, order preview). Any
 // write (POST, PUT, PATCH, DELETE) forgets every remembered answer, so what follows an order is always fresh.
 
@@ -195,6 +207,16 @@ const noteStatus = (res) => {
 export const SHARE_MS = 1000;
 /** On a page switch, an answer up to this old paints at once while a fresh one is fetched. */
 export const PAINT_FROM_CACHE_MS = 30_000;
+/**
+ * Reads that hardly ever change while the Bridge runs (the broker directory: 41 brokers, 24 KB). Younger than
+ * STABLE_FRESH_MS they are answered from memory; up to STABLE_PAINT_MS old they paint from memory at once and are
+ * fetched again behind it (the page is redrawn only if the fresh answer differs), so a visit never waits for them.
+ */
+export const STABLE_FRESH_MS = 60_000;
+export const STABLE_PAINT_MS = 30 * 60_000;
+const STABLE_RE = /^\/v1\/brokers(\?|$)/;
+/** Whether a GET path is one of the slow-changing reads (pure). */
+export const stableRead = (path) => typeof path === "string" && STABLE_RE.test(path);
 /** How long after a page switch its first reads may paint from memory. */
 export const NAV_WINDOW_MS = 2500;
 /** A prefetched answer serves the next ask for this long. */
@@ -223,9 +245,10 @@ export const cacheable = (path) => typeof path === "string" && path.startsWith("
  * May a remembered answer of this age be used now (pure)? Shared answers are always fine; older ones only while a page
  * is switching in. @returns {"fresh"|"paint"|null}
  */
-export function cacheUse(ageMs, navigating) {
+export function cacheUse(ageMs, navigating, stable = false) {
   if (!(ageMs >= 0)) return null;
   if (ageMs <= SHARE_MS) return "fresh";
+  if (stable) return ageMs <= STABLE_FRESH_MS ? "fresh" : ageMs <= STABLE_PAINT_MS ? "paint" : null;
   if (navigating && ageMs <= PAINT_FROM_CACHE_MS) return "paint";
   return null;
 }
@@ -354,7 +377,7 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
     const hit = answers.get(path);
     const age = hit ? Date.now() - hit.at : NaN;
     // A prefetched answer (a menu item under the pointer) serves the click that follows it for a few seconds.
-    const use = hit ? cacheUse(age, navigating || paintOld) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
+    const use = hit ? cacheUse(age, navigating || paintOld, stableRead(path)) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
     if (use) {
       hit.prefetched = false; // a prefetch serves one ask; the page's own refreshes go to the Bridge
       if (use === "paint") revalidate(path, hit);
@@ -1463,28 +1486,40 @@ export function forgetKey() {
 
 export const app = { state: { demo: false, health: null, meta: null }, local };
 
+/** The last "this Bridge is in demo mode" answer: boot.js uses it to reserve the notice's room at the sign-in screen's first paint. */
+const DEMO_HINT_SLOT = "mcb.dashboard.demo";
+
 async function signIn() {
   const login = document.getElementById("login");
   const shell = document.getElementById("app");
-  // /v1/health needs no key, so the sign-in screen can say "demo" before anyone signs in.
-  fetch("/v1/health")
-    .then((r) => r.json())
-    .then((hl) => {
-      const el = document.getElementById("login-demo");
-      if (el) el.hidden = !hl?.demo;
-    })
-    .catch(() => {});
+  // boot.js may have shown the sign-in screen before this script loaded; from here on the screen's own hidden flag rules.
+  delete document.documentElement.dataset.early;
+  delete document.documentElement.dataset.demoHint;
   if (!memoryKey) {
     login.hidden = false;
     shell.hidden = true;
+    // /v1/health needs no key, so the sign-in screen can say "demo" before anyone signs in.
+    const demoNotice = document.getElementById("login-demo");
+    if (demoNotice) demoNotice.hidden = local.get(DEMO_HINT_SLOT) !== "1"; // the last answer, until this one arrives
+    fetch("/v1/health")
+      .then((r) => r.json())
+      .then((hl) => {
+        if (demoNotice) demoNotice.hidden = !hl?.demo;
+        local.set(DEMO_HINT_SLOT, hl?.demo ? "1" : null);
+      })
+      .catch(() => {});
     document.getElementById("key-input")?.focus();
     return;
   }
+  // The pages' code loads while the key is being checked, not after it.
+  const pages = import("./views.js");
+  pages.catch(() => {});
   try {
     const [health, meta] = await Promise.all([api("/v1/health"), api("/v1/meta")]);
     app.state.health = health.data;
     app.state.meta = meta.data;
     app.state.demo = Boolean(health.data?.demo);
+    local.set(DEMO_HINT_SLOT, app.state.demo ? "1" : null);
   } catch (err) {
     if (err.status === 401 || err.status === 403) setKey(null);
     login.hidden = false;
@@ -1498,7 +1533,7 @@ async function signIn() {
   if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
   app.state.who = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
   document.getElementById("who").textContent = app.state.who;
-  const { startRouter } = await import("./views.js");
+  const { startRouter } = await pages;
   // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
   await startRouter();
   // The trading-readiness badge in the toolbar (every page).
@@ -1546,6 +1581,9 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     signIn();
   });
   boot();
+  // boot.js painted the sign-in screen before this script loaded: a key submitted in that gap was held, not lost.
+  globalThis.__abReady = true;
+  if (globalThis.__abHeldSubmit && document.getElementById("key-input")?.value) document.getElementById("login-form").requestSubmit();
 }
 
 /**

@@ -1,8 +1,8 @@
 // The dashboard's fetch layer, live connection and budget indicator: pure parts.
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DASHBOARD_FILES } from "../core/app.mjs";
-import { NAV_WINDOW_MS, PAINT_FROM_CACHE_MS, SHARE_MS, cacheUse, cacheable, forgetsAnswers, pollTarget, positionSymbols } from "./app.js";
+import { NAV_WINDOW_MS, PAINT_FROM_CACHE_MS, SHARE_MS, STABLE_FRESH_MS, STABLE_PAINT_MS, cacheUse, cacheable, forgetsAnswers, pollTarget, positionSymbols, stableRead, whenIdle } from "./app.js";
 import { budgetView, savedParts, shareTone, windowText } from "./budget.js";
 import { mergeTick, subscriptionDiff } from "./live.js";
 
@@ -36,6 +36,60 @@ describe("fetch layer memory", () => {
     expect(forgetsAnswers("POST", "/v1/orders/cancel-all", { dryRun: false })).toBe(true);
     expect(forgetsAnswers("POST", "/v1/orders/cancel-all", {})).toBe(true);
     expect(forgetsAnswers("DELETE", "/v1/orders/abc", { dryRun: true })).toBe(true);
+  });
+});
+
+describe("slow-changing reads", () => {
+  it("only the broker directory counts as slow-changing, and it is still a remembered read", () => {
+    expect(stableRead("/v1/brokers")).toBe(true);
+    expect(stableRead("/v1/brokers?x=1")).toBe(true);
+    for (const p of ["/v1/brokers/dhan", "/v1/brokersX", "/v1/accounts", "/v1/quotes?symbols=NSE:NIFTY", "/v1/orders", null, undefined]) expect(stableRead(p), String(p)).toBe(false);
+    expect(cacheable("/v1/brokers")).toBe(true);
+  });
+
+  it("answers from memory for a minute, paints from memory (and refreshes behind it) for half an hour, then asks again", () => {
+    expect(cacheUse(0, false, true)).toBe("fresh");
+    expect(cacheUse(STABLE_FRESH_MS, false, true)).toBe("fresh");
+    expect(cacheUse(STABLE_FRESH_MS + 1, false, true)).toBe("paint");
+    expect(cacheUse(STABLE_PAINT_MS, false, true)).toBe("paint");
+    expect(cacheUse(STABLE_PAINT_MS + 1, false, true)).toBeNull();
+    expect(cacheUse(Number.NaN, false, true)).toBeNull();
+    expect(cacheUse(-1, false, true)).toBeNull();
+  });
+
+  it("other reads are unchanged: the short share window, and older answers only while a page switches in", () => {
+    expect(cacheUse(STABLE_FRESH_MS, false)).toBeNull();
+    expect(cacheUse(SHARE_MS + 1, false, false)).toBeNull();
+    expect(cacheUse(SHARE_MS + 1, true, false)).toBe("paint");
+  });
+});
+
+describe("whenIdle", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("uses requestIdleCallback with a deadline when the browser has it, and never runs the work at once", () => {
+    const calls = [];
+    vi.stubGlobal("requestIdleCallback", (cb, opts) => calls.push({ cb, opts }));
+    let ran = 0;
+    whenIdle(() => ran++, 900);
+    expect(ran).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts).toEqual({ timeout: 900 });
+    calls[0].cb();
+    expect(ran).toBe(1);
+  });
+
+  it("falls back to a short timer without it", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestIdleCallback", undefined);
+    let ran = 0;
+    whenIdle(() => ran++);
+    expect(ran).toBe(0);
+    vi.advanceTimersByTime(500);
+    expect(ran).toBe(1);
   });
 });
 

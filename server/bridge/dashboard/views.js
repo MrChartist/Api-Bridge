@@ -1,6 +1,6 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
 // except small conveniences in localStorage (theme, density, the last tab of each page).
-import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage } from "./app.js";
+import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage, whenIdle } from "./app.js";
 import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
@@ -683,6 +683,27 @@ async function show(opts) {
   if (changed) window.scrollTo({ top: 0 });
   animatePage(root);
   refreshTicketCount();
+  flushFirstPage();
+}
+
+// ── Work that waits for the first page ──
+// The live connection (and with it the budget chip) is not part of the first screen. It starts when the first page is
+// drawn and the browser is idle, or after FIRST_PAGE_MAX_MS whatever happens (a page that never finishes must not
+// leave the chip out for good).
+const FIRST_PAGE_MAX_MS = 6000;
+let firstPageDrawn = false;
+const afterFirst = [];
+/** Run `fn` once the first page is drawn and the browser is idle (at once, when it already is). */
+function afterFirstPage(fn) {
+  if (firstPageDrawn) whenIdle(fn);
+  else {
+    if (!afterFirst.length) setTimeout(flushFirstPage, FIRST_PAGE_MAX_MS);
+    afterFirst.push(fn);
+  }
+}
+function flushFirstPage() {
+  firstPageDrawn = true;
+  for (const fn of afterFirst.splice(0)) whenIdle(fn);
 }
 
 /**
@@ -825,7 +846,8 @@ function setupChrome() {
   const budgetSlot = $("toolbar-budget");
   if (budgetSlot && !budgetSlot.dataset.ready) {
     budgetSlot.dataset.ready = "1";
-    mountBudget(budgetSlot, live);
+    // Not needed for the first screen: it opens the live connection, so it waits until the first page is drawn.
+    afterFirstPage(() => mountBudget(budgetSlot, live));
   }
   // Hover or focus a menu item: warm that page's data, so the click paints at once.
   const warmed = new Map();
