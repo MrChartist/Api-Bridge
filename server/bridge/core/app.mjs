@@ -30,6 +30,7 @@ import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
+import { MIN_COMPRESS_BYTES, createCompressionCache, etagFor, ifNoneMatches, isCompressible, negotiateEncoding } from "./staticCompress.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
 import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
@@ -232,7 +233,15 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
     })(),
   );
-  const dashboardFile = (name) => {
+  /** Each dashboard file compressed once per content change (br or gzip), bounded in memory (staticCompress.mjs). */
+  const dashboardCompressed = createCompressionCache();
+  /**
+   * One dashboard file as a reply. Text files are compressed when the request accepts br or gzip (the best the client
+   * prefers); every representation has its own strong ETag, and Vary: Accept-Encoding tells caches why. The 304 needs
+   * no compression: the ETag of a coding comes from the content hash.
+   * @returns {Reply | Promise<Reply>}
+   */
+  const dashboardFile = (name, requestHeaders = {}) => {
     const logo = /^broker-([a-z0-9]{2,32})\.png$/.exec(name);
     if (logo && BROKER_LOGOS.has(logo[1])) {
       return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard/brokers", `${logo[1]}.png`)), { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400", "Content-Security-Policy": DASHBOARD_CSP });
@@ -243,9 +252,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     const file = dashboardSource(name);
     // ETag + no-cache: the browser keeps every file and asks "still this one?" (a 304 with no body) instead of
     // downloading the whole dashboard on each load. A file edited on disk gets a new ETag at once.
-    const cacheHeaders = { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-cache", ETag: file.etag };
-    if (ifNoneMatch(ifNoneMatchHeader, file.etag)) return new Reply(304, "", cacheHeaders);
-    return new Reply(200, file.body, cacheHeaders);
+    const squeezable = isCompressible(type) && file.size >= MIN_COMPRESS_BYTES;
+    const coding = squeezable ? negotiateEncoding(requestHeaders["accept-encoding"]) : null;
+    const etag = etagFor(file.etag, coding);
+    const headers = { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-cache", ETag: etag, ...(squeezable ? { Vary: "Accept-Encoding" } : {}) };
+    if (ifNoneMatches(requestHeaders["if-none-match"], etag)) return new Reply(304, "", headers);
+    if (!coding) return new Reply(200, file.body, headers);
+    return dashboardCompressed.get(name, file.etag, coding, () => Buffer.from(file.body, "utf8")).then((body) => new Reply(200, body, { ...headers, "Content-Encoding": coding }));
   };
   /** name -> { mtimeMs, size, body, etag }: each dashboard file read once and re-read when it changes on disk. */
   const dashboardMemo = new Map();
@@ -255,21 +268,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     const hit = dashboardMemo.get(name);
     if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
     const body = readFileSync(path, "utf8");
-    const entry = { mtimeMs: st.mtimeMs, size: st.size, body, etag: `"${createHash("sha1").update(body).digest("base64url").slice(0, 22)}"` };
+    const entry = { mtimeMs: st.mtimeMs, size: st.size, etag: `"${createHash("sha1").update(body).digest("base64url").slice(0, 22)}"`, body };
     dashboardMemo.set(name, entry);
     return entry;
   }
-  /** The If-None-Match of the request being answered (set per dashboard request below). */
-  let ifNoneMatchHeader = null;
-  const ifNoneMatch = (header, etag) => typeof header === "string" && header.split(",").some((t) => t.trim().replace(/^W\//, "") === etag);
-  const dashboardReply = (ctx, name) => {
-    ifNoneMatchHeader = ctx.req?.headers?.["if-none-match"] ?? null;
-    try {
-      return dashboardFile(name);
-    } finally {
-      ifNoneMatchHeader = null;
-    }
-  };
+  const dashboardReply = (ctx, name) => dashboardFile(name, ctx.req?.headers ?? {});
   // server.remoteDashboard (demo mode only, enforced by config.mjs) serves the pages to other computers as well.
   const dashboardLocalOnly = !(config.demo && config.server.remoteDashboard);
   core.get("/", () => new Reply(302, "", { Location: "/dashboard" }), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Redirect to the local dashboard" });
