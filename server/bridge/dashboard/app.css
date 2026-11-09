@@ -1935,6 +1935,21 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .sf-verify:empty { display: none; }
 .sf-verify { min-width: 0; }
 
+/* Backups card (backup-card.js): a status row with its button, a second row, the plain explanation, the restore command. */
+.bk-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.bk-row { flex-wrap: wrap; min-height: 56px; }
+.bk-row .names { flex: 1 1 180px; }
+.bk-row .names .sub, .bk-row .sub.bk-wrap { white-space: normal; overflow: visible; }
+.bk-done:empty { display: none; }
+.bk-done { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bk-note { margin: 0; font: var(--t-footnote); color: var(--label-3); text-wrap: pretty; }
+.bk-what { display: flex; flex-direction: column; gap: 6px; }
+.bk-what h3, .bk-restore h3 { margin: 0; font: var(--t-headline); letter-spacing: -0.01em; }
+.bk-what p { margin: 0 0 8px; font: var(--t-callout); color: var(--label-2); text-wrap: pretty; }
+.bk-what p:last-child { margin-bottom: 0; }
+.bk-restore { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+@media (max-width: 560px) { .bk-row > button { width: 100%; } }
+
 /* The kill-switch sheets (modal() bodies): what stops, what keeps working. */
 .ks-lead { margin: 0; font: var(--t-headline); letter-spacing: -0.01em; }
 .ks-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }

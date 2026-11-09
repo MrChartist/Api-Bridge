@@ -5,6 +5,7 @@ import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveC
 import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
+import { backupSection } from "./backup-card.js";
 import "./sources-ui.js";
 import { onReconnected } from "./connection.js";
 import { createGetStarted } from "./getstarted.js";
@@ -2410,7 +2411,7 @@ async function renderSafety() {
     verifyOut,
   );
 
-  return [hero, readiness.main, limits, h("div", { class: "sf-pair" }, liveGroup, audit), readiness.demo].filter(Boolean);
+  return [hero, readiness.main, limits, h("div", { class: "sf-pair" }, liveGroup, audit), backupSection(), readiness.demo].filter(Boolean);
 }
 
 // ── API page: shared pieces (Keys, Integrations, Test console, Rate limits, Activity) ──
