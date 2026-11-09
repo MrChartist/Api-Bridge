@@ -1932,7 +1932,7 @@ paths:
         The decline is audited (`ticket.rejected`) and announced on the event bus. The assistant that prepared the
         order sees `status: rejected` and the reason (MCP tool `check_order_ticket`). Admin scope, this computer only,
         and not from an AI assistant, a webhook or any other automation.
-      x-stream: S7
+      x-module: orders
       x-scope: admin
       x-loopback-only: true
       requestBody:
@@ -3939,7 +3939,8 @@ components:
         state:
           type: string
           enum: [rejected, confirmed, consumed, expired]
-          description: "STATE_CONFLICT on a ticket route only: why it cannot be confirmed or declined. Read this, not `detail`."    ErrorCode:
+          description: "STATE_CONFLICT on a ticket route only: why it cannot be confirmed or declined. Read this, not `detail`."
+    ErrorCode:
       type: string
       description: Stable codes; new ones may be added. Source of truth server/bridge/core/errors.mjs.
       enum:
