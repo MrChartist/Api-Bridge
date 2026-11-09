@@ -43,16 +43,18 @@ export const TRADINGVIEW_HELP_URL = "https://www.tradingview.com/support/solutio
 
 /**
  * The provider recipes. `clientIpHeader` is what the Bridge should trust for the caller's address when the tunnel or
- * proxy runs on this computer (the Bridge honours it only when the TCP peer is loopback). `verified` says whether the
- * header behaviour was confirmed from the provider's own documentation; an unverified one is a setting you can change
- * and the guide says how to test it.
+ * proxy runs on this computer (the Bridge honours it only when the TCP peer is loopback). `headerVerified` says whether
+ * the header behaviour was confirmed from the provider's own documentation on 2026-11-09: ngrok (X-Forwarded-For,
+ * appended) and Caddy (sets or augments X-Forwarded-For and ignores incoming values) yes; Cloudflare's page says
+ * CF-Connecting-IP is sent from its edge to the origin but does not mention Tunnel, so it is unverified. An unverified
+ * one is a setting you can change, and the guide says how to test it.
  */
 export const PROVIDERS = Object.freeze({
   "cloudflare": {
     label: "Cloudflare Tunnel (named, stable address)",
     needsHost: true,
     clientIpHeader: "cf-connecting-ip",
-    headerVerified: true,
+    headerVerified: false,
     tls: true,
     note: "Needs a free Cloudflare account and a domain on it. The address stays the same, so you set it up once.",
   },
@@ -60,7 +62,7 @@ export const PROVIDERS = Object.freeze({
     label: "Cloudflare quick tunnel (for a first test only)",
     needsHost: true,
     clientIpHeader: "cf-connecting-ip",
-    headerVerified: true,
+    headerVerified: false,
     tls: true,
     replaceHosts: true,
     note: "No account needed, but the address changes every time the tunnel starts, and then the Bridge must be told the new address and restarted. Use it to try the setup, not for real alerts.",
@@ -69,9 +71,9 @@ export const PROVIDERS = Object.freeze({
     label: "ngrok (reserved domain)",
     needsHost: true,
     clientIpHeader: "x-forwarded-for",
-    headerVerified: false,
+    headerVerified: true,
     tls: true,
-    note: "Needs an ngrok account and a reserved domain so the address stays the same. That ngrok sets X-Forwarded-For is not confirmed from ngrok's documentation: send a test alert and check the Bridge log (see the guide).",
+    note: "Needs an ngrok account and a reserved domain so the address stays the same. ngrok's documentation says it adds the caller's address to X-Forwarded-For (appending to any value the caller sent, which is why the Bridge reads the last entry).",
   },
   "caddy": {
     label: "Caddy reverse proxy on a VPS",

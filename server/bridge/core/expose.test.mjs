@@ -74,7 +74,8 @@ describe("planExpose", () => {
       expect(providerSteps(plan).length, id).toBeGreaterThan(0);
       expect(PROVIDERS[id].label).toBeTruthy();
     }
-    expect(PROVIDERS.ngrok.headerVerified).toBe(false);
+    expect(PROVIDERS.ngrok.headerVerified).toBe(true);
+    expect(PROVIDERS.cloudflare.headerVerified).toBe(false);
     expect(providerSteps(planExpose({ integration: "alerts", provider: "ngrok", host: "a.ngrok.dev" }))).toEqual(["ngrok http 4301 --url https://a.ngrok.dev"]);
   });
   it("tells the person what to paste", () => {

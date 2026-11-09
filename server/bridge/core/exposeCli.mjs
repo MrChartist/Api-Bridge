@@ -223,7 +223,7 @@ async function wizard(sub, flags, io) {
     say(`   mc-bridge expose check --public-url ${sheet.base} --allow-outbound`);
     for (const w of plan.warnings) say(`\nNote: ${w}`);
     if (integration === "alerts") say(`\nTradingView facts (from ${TRADINGVIEW_HELP_URL}): ports 80 and 443 only, 3 seconds to answer, no IPv6, 2-factor sign-in required. If TradingView's address list changes, set it yourself with --allow-ips.`);
-    if (PROVIDERS[provider].headerVerified === false) say(`\nNote: that ${provider} sends the header "${plan.clientIpHeader}" is not confirmed from its documentation. After your first test alert, look in the Bridge log for "source address not allowed"; if you see it, run this command again with --allow-ips none, or change hooks.clientIpHeader.`);
+    if (PROVIDERS[provider].headerVerified === false) say(`\nNote: the documentation of ${PROVIDERS[provider].label} does not confirm that it adds the header "${plan.clientIpHeader}" for this kind of traffic. After your first test alert, look in the Bridge log for "source address not allowed"; if you see it, the header is not arriving: run this command again with --allow-ips none, or change hooks.clientIpHeader.`);
     printChecks(io, checks);
   }
   if (flags.check) {
