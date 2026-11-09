@@ -1717,14 +1717,19 @@
     },
     {
       "headings": [
-        "Market data",
-        "Paper orders",
-        "Live stream",
-        "pandas"
+        "Connect",
+        "Market data and freshness",
+        "Orders",
+        "Streams",
+        "asyncio",
+        "pandas, CSV and spreadsheets",
+        "Rate limits and many symbols",
+        "Alerts",
+        "The original client and strategies"
       ],
       "kind": "guide",
       "path": "docs/guides/python.md",
-      "text": "The Python client uses the standard library only (Python 3.9+), including its own small WebSocket client. Full method list: sdk/python/README.md. Every order write sends an Idempotency-Key (a fresh UUID unless you pass idempotencykey=), so resending after a network error never...",
+      "text": "The Python library uses the standard library only (Python 3.9+): HTTP, a small WebSocket client and an asyncio client are built in. It is typed (py.typed), pleasant in notebooks, and safe by default: orders are paper unless you say live=True, and delayed data cannot feed an...",
       "title": "Python"
     },
     {
