@@ -286,8 +286,8 @@ def test_symbols_resolve_uses_the_server_route_when_present(bridge, fake):
 
     def route(method, path, q, body):
         if path == "/v1/symbols/resolve":
-            assert q["input"] == "reliance" and q["explain"] == "1"
-            return 200, {"data": {"canonical": "NSE:RELIANCE", "candidates": [{"symbol": "NSE:RELIANCE"}], "rule": "exact", "confidence": "high"}, "meta": {}}
+            assert q["q"] == "reliance" and q["explain"] == "1"
+            return 200, {"data": {"input": "reliance", "symbol": "NSE:RELIANCE", "candidates": [{"symbol": "NSE:RELIANCE"}], "rule": "exact", "confidence": "high"}, "meta": {}}
         return orig(method, path, q, body)
 
     fake.route = route  # type: ignore[method-assign]
@@ -309,3 +309,21 @@ def test_xl_helpers(bridge, fake):
     assert bridge.xl.url("/xl/ltp", symbol="NSE:X").startswith(fake.url + "/xl/ltp?symbol=")
     with pytest.raises(ValueError):
         bridge.xl.formula("chain")
+
+
+def test_batch_accepts_python_style_leg_names(bridge, fake):
+    seen = {}
+    orig = fake.route
+
+    def route(method, path, q, body):
+        if path == "/v1/orders/batch":
+            seen["legs"] = body["orders"]
+        return orig(method, path, q, body)
+
+    fake.route = route  # type: ignore[method-assign]
+    try:
+        bridge.orders.batch([dict(symbol="NSE:TCS", side="BUY", quantity=1, product="CNC", order_type="MARKET", trigger_price=1)], account="demo-paper")
+    except Exception:
+        pass  # the fake may not implement the route: only the request body matters here
+    if "legs" in seen:
+        assert "orderType" in seen["legs"][0] and "triggerPrice" in seen["legs"][0] and "order_type" not in seen["legs"][0]

@@ -61,6 +61,12 @@ def _price(v: PriceLike, what: str) -> Optional[float]:
     return float(v)
 
 
+def _camel(name: str) -> str:
+    """``order_type`` -> ``orderType``; a name that is already camel case is returned unchanged."""
+    head, *rest = str(name).split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
+
+
 @dataclass(frozen=True)
 class TargetResult:
     """Outcome of ``to_target``: where the position was, where it should be, and the order that gets it there."""
@@ -470,7 +476,8 @@ class Orders:
         key = idempotency_key or new_idempotency_key()
         prepared: List[Dict[str, Any]] = []
         for i, o in enumerate(orders):
-            d = dict(o)
+            # Accept Python-style names (order_type, trigger_price, client_order_id ...) as well as the Bridge's own.
+            d = {_camel(k): v for k, v in dict(o).items()}
             self._check_live(d, live)
             d.pop("account", None)
             d["mode"] = "live" if live else "paper"

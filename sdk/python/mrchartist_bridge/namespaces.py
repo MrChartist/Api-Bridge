@@ -13,7 +13,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
 
-from .errors import NotFound, ValidationFailed
+from .errors import BridgeApiError, NotFound, ValidationFailed
 from .records import Instrument, Result, problems_from
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -68,9 +68,17 @@ class Symbols:
         ``candidates`` lists them).
         """
         if self._b.supports("GET", "/v1/symbols/resolve"):
-            d = self._b.client._get("/v1/symbols/resolve", {"input": text, "explain": 1}).get("data") or {}
+            try:
+                d = self._b.client._get("/v1/symbols/resolve", {"q": text, "explain": 1}).get("data") or {}
+            except BridgeApiError as err:
+                # An ambiguous text is a 409 with the candidates: report them instead of guessing.
+                if err.code != "AMBIGUOUS_SYMBOL":
+                    raise
+                body = err.problem.get("candidates") or (err.problem.get("data") or {}).get("candidates") or []
+                cands = tuple(str(c.get("symbol") if isinstance(c, Mapping) else c) for c in body)
+                return Resolved(text, None, cands, "ambiguous", "low", "server")
             cands = tuple(str(c.get("symbol") if isinstance(c, Mapping) else c) for c in (d.get("candidates") or []))
-            return Resolved(text, d.get("canonical"), cands, d.get("rule"), d.get("confidence"), "server")
+            return Resolved(text, d.get("symbol") or d.get("canonical"), cands, d.get("rule"), d.get("confidence"), "server")
         try:
             d = self.convert(text)
             if d.get("canonical"):
