@@ -28,7 +28,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "paper",
-  stream: "S8",
   configKey: "paper",
   configSchema: PAPER_CONFIG_SCHEMA,
   services: { paper: (deps) => createPaperEngine(deps) },

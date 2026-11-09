@@ -2,27 +2,26 @@
  * Module registration. Each area ships ONE module file (server/bridge/<area>/module.mjs):
  *
  *   export default defineModule({
- *     name: "market", stream: "S5",
+ *     name: "market",
  *     configKey: "market", configSchema: z.object({...}).strict(),   // optional: owns config.market
  *     services: { marketData: (deps) => createMarketDataService(deps) },   // contract services only
  *     register(app, deps) { app.get("/v1/quotes", handler, { scope: "read" }); },   // routes, WS upgrades
  *     async start(deps) {}, async stop(deps) {},                        // optional lifecycle
  *   });
  *
- * `stream` is a short ownership tag ("S5", "core") that groups modules with the contract services they provide
- * (SERVICE_CONTRACTS[name].stream) and with their routes (`x-stream` in docs/openapi.yaml). defineModule() refuses a
- * module that provides a service owned by another tag.
+ * A module names the contract services it provides (SERVICE_CONTRACTS) and registers its routes; each route is
+ * labelled with the module that registers it (`x-module` in docs/openapi.yaml).
  *
  * Service factories run in dependency order (SERVICE_CONTRACTS[name].requires) and receive a deps object that
  * contains ONLY the core deps plus the services they declared they need; touching anything else throws, so hidden
  * coupling between modules fails in tests, not in production. register() receives every service.
  */
 import { CORE_DEPS, SERVICE_CONTRACTS, assertService, notImplementedService } from "./contracts.mjs";
-import { CORE_SECTIONS, deepFreeze } from "./config.mjs";
+import { CORE_SECTIONS, deepFreeze, findRemovedSettings } from "./config.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 
 /**
- * @typedef {{ name: string, stream: string, configKey?: string, configSchema?: import("zod").ZodType,
+ * @typedef {{ name: string, configKey?: string, configSchema?: import("zod").ZodType,
  *   services?: Record<string, (deps: object) => object>, register?: (app: object, deps: object) => void | Promise<void>,
  *   start?: (deps: object) => void | Promise<void>, stop?: (deps: object) => void | Promise<void> }} BridgeModule
  */
@@ -31,10 +30,8 @@ import { BridgeError, NotImplementedError } from "./errors.mjs";
 export function defineModule(mod) {
   if (!mod || typeof mod !== "object") throw new Error("defineModule needs an object");
   if (typeof mod.name !== "string" || !/^[a-z][a-z0-9-]{1,30}$/.test(mod.name)) throw new Error(`Bad module name ${mod?.name}`);
-  if (typeof mod.stream !== "string" || !/^S\d{1,2}$|^core$/.test(mod.stream)) throw new Error(`Module ${mod.name}: stream must be like "S5" or "core"`);
   for (const key of Object.keys(mod.services ?? {})) {
     if (!SERVICE_CONTRACTS[key]) throw new Error(`Module ${mod.name}: "${key}" is not a contract service (core/contracts.mjs)`);
-    if (SERVICE_CONTRACTS[key].stream !== mod.stream) throw new Error(`Module ${mod.name}: service ${key} belongs to stream ${SERVICE_CONTRACTS[key].stream}`);
     if (typeof mod.services[key] !== "function") throw new Error(`Module ${mod.name}: services.${key} must be a factory function`);
   }
   if (mod.configKey !== undefined) {
@@ -72,6 +69,12 @@ export function validateModules(modules) {
  * Unknown top-level sections are errors.
  */
 export function applyModuleConfig(config, modules) {
+  const removed = findRemovedSettings(config);
+  if (removed.length) {
+    throw new BridgeError("VALIDATION_FAILED", `Your config file has settings that v2 no longer has. Delete them and start again: ${removed.join("; ")}.`, {
+      errors: removed.map((m) => ({ path: m.split(":")[0], message: m.slice(m.indexOf(":") + 2) })),
+    });
+  }
   const out = structuredClone(config);
   const claimed = new Set();
   for (const m of modules) {
@@ -151,7 +154,7 @@ export async function buildServices(coreDeps, modules, overrides = {}) {
 /**
  * Placeholder handler for a route whose module has not landed yet: answers 501 NOT_IMPLEMENTED. Modules replace
  * these with real handlers; the route itself (method, path, auth, scope) is part of the contract (docs/openapi.yaml).
- * @param {string} what  e.g. "GET /v1/quotes (stream S5)"
+ * @param {string} what  e.g. "GET /v1/quotes"
  */
 export function notBuilt(what) {
   return () => {

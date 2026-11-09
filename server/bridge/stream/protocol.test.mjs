@@ -313,12 +313,12 @@ describe("docs/asyncapi.yaml stays in step with the code", async () => {
 
   it("documents every client op", () => {
     const ops = clientOpSchema.options.map((o) => o.shape.op.value);
-    expect(ops).toEqual(["subscribe", "unsubscribe", "subscribe_orders", "unsubscribe_orders", "subscribe_scans", "unsubscribe_scans", "subscribe_events", "unsubscribe_events", "subscribe_budget", "unsubscribe_budget", "ping"]);
+    expect(ops).toEqual(["subscribe", "unsubscribe", "subscribe_orders", "unsubscribe_orders", "subscribe_budget", "unsubscribe_budget", "ping"]);
     for (const op of ops) expect(spec).toContain(`op: { const: ${op} }`);
   });
 
   it("documents every server message type and go_away reason", () => {
-    for (const type of ["heartbeat", "snapshot", "tick", "order", "scan", "market_event", "budget", "status", "error", "go_away"]) expect(spec).toContain(`type: { const: ${type} }`);
+    for (const type of ["heartbeat", "snapshot", "tick", "order", "budget", "status", "error", "go_away"]) expect(spec).toContain(`type: { const: ${type} }`);
     expect(spec).toContain("enum: [shutdown, slow_consumer, key_revoked]");
     expect(spec).toMatch(/^asyncapi: 3\.0\.0$/m);
   });

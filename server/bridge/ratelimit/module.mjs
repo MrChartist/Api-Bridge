@@ -22,7 +22,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "ratelimit",
-  stream: "S3",
   configKey: "ratelimit",
   configSchema: ratelimitConfigSchema,
     // Demo mode adds the demo broker's sample limits; the real table stays one entry per real adapter.

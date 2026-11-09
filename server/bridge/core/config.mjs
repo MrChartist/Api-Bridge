@@ -306,6 +306,48 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
   return { config: deepFreeze(cfg), warnings, source };
 }
 
+/**
+ * Settings that older, fuller releases accepted and v2 does not have. A config file that still holds one gets a
+ * friendly message naming it (see findRemovedSettings), not a bare "unknown key" and never a crash. Add an entry when
+ * a setting is removed; keys are dotted paths, and a top-level section removes everything under it.
+ */
+export const REMOVED_SETTINGS = Object.freeze({
+  alerts: "position alerts are not part of v2",
+  triggers: "GTT, trailing stops and position stops are not part of v2",
+  watchlists: "watchlists are not part of v2",
+  journal: "the trade journal is not part of v2",
+  strategies: "the Bridge does not run strategies in v2 (run a script yourself with the Python SDK)",
+  scanner: "the scanner is not part of v2",
+  analytics: "analytics are not part of v2",
+  studies: "studies are not part of v2",
+  vol: "volatility data is not part of v2",
+  recorder: "the options recorder is not part of v2",
+  reference: "the reference-data store is not part of v2",
+  participants: "participant open interest is not part of v2",
+  notify: "notification targets are not part of v2",
+  backup: "backup data is now the sources section (see docs/guides/sources.md)",
+  "stream.candles": "live candles are not served by the stream",
+});
+
+/**
+ * Removed settings present in a raw config object, as readable lines ("alerts: this setting was removed in v2 (...)").
+ * Also catches the MCP toolset "options", which no longer exists.
+ * @param {any} raw
+ * @returns {string[]}
+ */
+export function findRemovedSettings(raw) {
+  const out = [];
+  if (!raw || typeof raw !== "object") return out;
+  for (const [path, why] of Object.entries(REMOVED_SETTINGS)) {
+    const [head, ...rest] = path.split(".");
+    let v = raw[head];
+    for (const k of rest) v = v && typeof v === "object" ? v[k] : undefined;
+    if (v !== undefined) out.push(`${path}: this setting was removed in v2 (${why})`);
+  }
+  if (Array.isArray(raw.mcp?.toolsets) && raw.mcp.toolsets.includes("options")) out.push('mcp.toolsets "options": this setting was removed in v2 (there are no options tools)');
+  return out;
+}
+
 /** Sections in `config` that core does not own (each must be claimed by a module). */
 export function moduleSections(config) {
   return Object.keys(config).filter((k) => !CORE_SECTIONS.includes(k));

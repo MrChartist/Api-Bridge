@@ -113,7 +113,6 @@ export function hooksRuntimeFor(deps) {
 
 export default defineModule({
   name: "hooks",
-  stream: "S11",
   configKey: "hooks",
   configSchema: HOOKS_CONFIG_SCHEMA,
   register(app, deps) {

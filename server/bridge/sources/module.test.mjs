@@ -74,7 +74,7 @@ describe("sources module in demo mode", () => {
   });
 
   it("is a built-in module and provides the backupData service instead of a stub", () => {
-    expect(BUILTIN_MODULES.some((m) => m.name === "sources" && m.stream === "S12")).toBe(true);
+    expect(BUILTIN_MODULES.some((m) => m.name === "sources")).toBe(true);
     expect(sourcesModule.services.backupData).toBeTypeOf("function");
     expect(sourcesModule.configKey).toBe("sources");
     expect(env.app.deps.backupData.quotes).toBeTypeOf("function");

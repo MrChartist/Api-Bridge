@@ -16,13 +16,10 @@
  *     "backoff": { "initialMs": 1000, "maxMs": 30000 },
  *     "maxQueuedMessages": 256,             // non-tick messages waiting for one slow client before it is dropped
  *     "highWaterMarkBytes": 1048576,        // stop writing to a client while this much is still unsent
- *     "maxOpsPerSecond": 20,                // client -> server ops per connection
- *     "candles": { "intervals": ["1m","5m","15m"], "maxBars": 500 }
+ *     "maxOpsPerSecond": 20                 // client -> server ops per connection
  *   }
  */
 import { z } from "zod";
-
-export const CANDLE_INTERVALS = Object.freeze(["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d"]);
 
 export const streamConfigSchema = z
   .object({
@@ -46,13 +43,6 @@ export const streamConfigSchema = z
     maxQueuedMessages: z.number().int().min(16).max(100_000).default(256),
     highWaterMarkBytes: z.number().int().min(16_384).max(64 * 1_048_576).default(1_048_576),
     maxOpsPerSecond: z.number().int().min(1).max(1000).default(20),
-    candles: z
-      .object({
-        intervals: z.array(z.enum(CANDLE_INTERVALS)).min(1).default(["1m", "5m", "15m"]),
-        maxBars: z.number().int().min(10).max(10_000).default(500),
-      })
-      .strict()
-      .prefault({}),
   })
   .strict();
 

@@ -5,8 +5,6 @@
  * GET /v1/usage?view=budget.
  */
 
-import { listJobs } from "./jobs.mjs";
-
 const SECOND = new Set(["1s"]);
 const MINUTE = new Set(["1m", "60s"]);
 
@@ -64,7 +62,5 @@ export function budgetSummary(usage, visible = "*", stream = {}) {
     savedToday: saved,
     savings: { servedFromStream: s.servedFromStream ?? 0, servedFromCache: s.servedFromCache ?? 0, coalesced: s.coalesced ?? 0, batched: s.batched ?? 0 },
     stream: { feeds: feeds.length, up, subscriptions: feeds.reduce((n, f) => n + (f.subscriptions ?? 0), 0) },
-    // Background jobs spending budget right now (ratelimit/jobs.mjs), e.g. the scanner's pre-warm.
-    jobs: stream.jobs ?? listJobs(),
   };
 }

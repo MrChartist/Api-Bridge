@@ -54,12 +54,12 @@ describe("createFakeStreamHub", () => {
 
 describe("stream config", () => {
   it("defaults every key", () => {
-    expect(resolveStreamConfig(undefined)).toMatchObject({ heartbeatMs: 15000, maxClients: 50, maxSymbolsPerClient: 500, maxSubscriptionsPerUpstream: null, backoff: { initialMs: 1000, maxMs: 30000 }, candles: { intervals: ["1m", "5m", "15m"] } });
+    expect(resolveStreamConfig(undefined)).toMatchObject({ heartbeatMs: 15000, maxClients: 50, maxSymbolsPerClient: 500, maxSubscriptionsPerUpstream: null, backoff: { initialMs: 1000, maxMs: 30000 } });
   });
 
   it("refuses unknown keys and unsafe values", () => {
     expect(streamConfigSchema.safeParse({ heartbeat: 1 }).success).toBe(false);
     expect(streamConfigSchema.safeParse({ heartbeatMs: 10 }).success).toBe(false);
-    expect(streamConfigSchema.safeParse({ candles: { intervals: ["2m"] } }).success).toBe(false);
+    expect(streamConfigSchema.safeParse({ candles: { intervals: ["1m"] } }).success).toBe(false);
   });
 });

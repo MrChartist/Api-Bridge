@@ -56,29 +56,29 @@ data/
 
 ## 3. Module map
 
-`server/bridge/core/` is the shared core. Every other directory belongs to exactly one module group. The **tag** column is the module's `stream` ownership tag: it ties a module to the contract services it provides (`SERVICE_CONTRACTS[*].stream`) and to its routes (`x-stream` in `openapi.yaml`).
+`server/bridge/core/` is the shared core. Every other directory belongs to exactly one module group. Each route in `openapi.yaml` names the module that registers it (`x-module`).
 
-| Path | Tag | Provides (deps key) | HTTP surface |
+| Path | Module | Provides (deps key) | HTTP surface |
 |---|---|---|---|
 | `core/` | core | config, logger, bus, clock, paths, brokers; router, pipeline, errors, contracts, symbol codec, CLI | `/v1/health`, `/v1/meta`, `/openapi.yaml` |
-| `accounts/` | S1 | `accounts` (AccountManager) | `/v1/brokers`, `/v1/accounts*` |
-| `auth/` | S2 | `secrets` (SecretStore), `keyStore` (KeyStore) | `/v1/keys*`, `/v1/stream/token` |
-| `ratelimit/` | S3 | `scheduler` (Scheduler) | `/v1/limits` (`?explain=1`), `/v1/usage`, `/v1/quotas*` |
-| `symbols/` | S4 | `symbols` (SymbolService) | `/v1/instruments/*`, `/v1/symbols/convert` |
-| `market/` | S5 | `marketData` (MarketDataService) | `/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain` (all take `purpose`) |
-| `stream/` | S6 | `streamHub` (StreamHub) | WS `/v1/stream`, `/v1/stream/sse`, `/v1/stream/stats` |
-| `orders/` | S7 | `orders` (OrderService) | `/v1/orders*`, `/v1/trades`, `/v1/positions`, `/v1/holdings`, `/v1/funds`, `/v1/tickets/*` |
-| `paper/` | S8 | `paper` (PaperEngine) | `/v1/paper/*` |
-| `safety/` | S9 | `safety` (SafetyGuard), `audit` (AuditLog) | `/v1/safety*`, `/v1/audit*` |
-| `integrations/` | S10 | (routes only) | `/xl/*` |
-| `hooks/`, `mcp/` | S11 | (routes only) | `/hooks/{source}/{token}`, `/v1/hooks*`, `/mcp`, `mc-bridge mcp` |
-| `sources/` | S12 | `backupData` (BackupDataService: the sources service, with its router, health and failure memory) | `/v1/sources*` (list, switch on or off, key, test, trace), `/v1/pooling*` (consent) |
-| `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
-| `readiness/` | S20 | `readiness` | `/v1/readiness*`: session, static IP, headroom, kill switch per live account; automated-send gate |
+| `accounts/` | accounts | `accounts` (AccountManager) | `/v1/brokers`, `/v1/accounts*` |
+| `auth/` | auth | `secrets` (SecretStore), `keyStore` (KeyStore) | `/v1/keys*`, `/v1/stream/token` |
+| `ratelimit/` | ratelimit | `scheduler` (Scheduler) | `/v1/limits` (`?explain=1`), `/v1/usage`, `/v1/quotas*` |
+| `symbols/` | symbols | `symbols` (SymbolService) | `/v1/instruments/*`, `/v1/symbols/convert` |
+| `market/` | market | `marketData` (MarketDataService) | `/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain` (all take `purpose`) |
+| `stream/` | stream | `streamHub` (StreamHub) | WS `/v1/stream`, `/v1/stream/sse`, `/v1/stream/stats` |
+| `orders/` | orders | `orders` (OrderService) | `/v1/orders*`, `/v1/trades`, `/v1/positions`, `/v1/holdings`, `/v1/funds`, `/v1/tickets/*` |
+| `paper/` | paper | `paper` (PaperEngine) | `/v1/paper/*` |
+| `safety/` | safety | `safety` (SafetyGuard), `audit` (AuditLog) | `/v1/safety*`, `/v1/audit*` |
+| `integrations/` | integrations | (routes only) | `/xl/*` |
+| `hooks/`, `mcp/` | hooks, mcp | (routes only) | `/hooks/{source}/{token}`, `/v1/hooks*`, `/mcp`, `mc-bridge mcp` |
+| `sources/` | sources | `backupData` (BackupDataService: the sources service, with its router, health and failure memory) | `/v1/sources*` (list, switch on or off, key, test, trace), `/v1/pooling*` (consent) |
+| `compat/` | compat | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
+| `readiness/` | readiness | `readiness` | `/v1/readiness*`: session, static IP, headroom, kill switch per live account; automated-send gate |
 | `demo/` | core | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
 | `server/brokers/`, `server/lib/` | | broker adapters and helpers; `server/lib/jsonl.mjs` is the shared append-only store helper | none directly |
 
-**How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, stream, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.
+**How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.
 
 - Service factories run in dependency order taken from `SERVICE_CONTRACTS[*].requires` (`core/contracts.mjs`). A factory receives only the core deps plus the services it declared; touching anything else throws.
 - `app.mjs` checks every service against its contract (`assertService`). An area that has not landed yet is a stub: it boots, and every method throws `NotImplementedError` (HTTP 501).

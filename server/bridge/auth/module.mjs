@@ -128,7 +128,6 @@ const HANDLER_FOR = Object.freeze({
 
 export default defineModule({
   name: "auth",
-  stream: "S2",
   services: { secrets: (deps) => (deps.config.demo ? createDemoSecretStore() : createSecretStore(deps)), keyStore: (deps) => createKeyStore(deps) },
   register(app, deps) {
     const handlers = createHandlers(deps);

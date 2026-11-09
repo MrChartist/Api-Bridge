@@ -42,9 +42,9 @@ describe("error taxonomy", () => {
   });
 
   it("NotImplementedError is a 501", () => {
-    const e = new NotImplementedError("KeyStore.list() (stream S2)");
+    const e = new NotImplementedError("KeyStore.list()");
     expect(e.status).toBe(501);
-    expect(e.detail).toContain("stream S2");
+    expect(e.detail).toContain("KeyStore.list()");
   });
 
   it("maps broker contract errors and keeps the broker code", () => {

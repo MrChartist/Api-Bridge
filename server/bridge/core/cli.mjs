@@ -15,7 +15,6 @@ import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
-import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 import { poolingDoctorChecks } from "../sources/pooling.mjs";
 import { PLUGIN_TRUST_NOTICE } from "../sources/plugin/notice.mjs";
 
@@ -172,9 +171,8 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
 }
 
 /**
- * The two trading-readiness checks. Pure.
- *  (a) a live-enabled account without live.registeredIp: the readiness monitor cannot compare the static IP;
- *  (b) notify targets exist but none listens to trading.readiness, so a failing 09:00 check reaches nobody.
+ * The trading-readiness check: a live-enabled account without live.registeredIp, so the readiness monitor cannot
+ * compare the static IP. Pure.
  * @returns {Array<{ level: "ok"|"warn", check: string, message: string }>}
  */
 export function readinessDoctorChecks(config) {
@@ -186,15 +184,6 @@ export function readinessDoctorChecks(config) {
       missing.length
         ? { level: "warn", check: "static-ip", message: `No live.registeredIp for ${missing.map((a) => a.id).join(", ")}: the readiness check cannot compare this computer's IP with the one registered at the broker. Add it to the account in bridge.config.json (see docs/guides/deployment.md).` }
         : { level: "ok", check: "static-ip", message: `Registered static IP set for every live account (${live.map((a) => a.id).join(", ")})` },
-    );
-  }
-  const targets = (config.notify?.targets ?? []).filter((t) => t && t.enabled !== false);
-  if (targets.length) {
-    const listening = targets.filter((t) => (Array.isArray(t.events) && t.events.length ? t.events : DEFAULT_NOTIFY_EVENTS).includes("trading.readiness"));
-    out.push(
-      listening.length
-        ? { level: "ok", check: "readiness-notify", message: `Readiness alerts go to: ${listening.map((t) => t.id).join(", ")}` }
-        : { level: "warn", check: "readiness-notify", message: `No notify target listens to trading.readiness, so a failing 09:00 readiness check reaches nobody. Add "trading.readiness" to notify.targets[].events (docs/guides/notifications.md).` },
     );
   }
   return out;

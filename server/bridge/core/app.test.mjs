@@ -30,7 +30,6 @@ const fakeScheduler = {
 
 const testModule = defineModule({
   name: "testmod",
-  stream: "S10",
   register(app) {
     app.get("/t/read", (ctx) => ({ key: ctx.key.id, scopes: [...ctx.scopes].sort(), q: ctx.query.get("x") }), { scope: "read" });
     app.get("/t/xl", () => text("123.45"), { scope: "read", allowQueryKey: true });
@@ -298,10 +297,10 @@ describe("errors", () => {
     expect(r.raw).not.toContain("/secret/thing");
   });
 
-  it("stub services answer 501 naming the stream", async () => {
+  it("stub services answer 501 naming the service", async () => {
     const r = await get("/t/stub", auth(READ));
     expect(r.status).toBe(501);
-    expect(r.json.detail).toContain("OrderService.list() (stream S7)");
+    expect(r.json.detail).toContain("OrderService.list()");
   });
 
   it("echoes a sane X-Request-Id and replaces a bad one", async () => {

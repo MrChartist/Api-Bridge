@@ -53,7 +53,7 @@ const READ_LOCAL = Object.freeze({ readOnlyHint: true, destructiveHint: false, i
  * @typedef {{ cfg: ReturnType<typeof mcpConfig>, orderAccounts: string[], canLive: boolean }} ToolEnv
  *   orderAccounts: accounts this caller may prepare orders for (config ∩ key); canLive: key has the "live" scope.
  * @typedef {{
- *   name: string, title: string, toolset: "market"|"analytics"|"account"|"orders"|"options", description: string,
+ *   name: string, title: string, toolset: "market"|"analytics"|"account"|"orders", description: string,
  *   input: (env: ToolEnv) => import("zod").ZodObject<any>, output: import("zod").ZodType, annotations: Annotations,
  *   requiredScope?: "paper"|"live"|"admin",
  *   available?: (env: ToolEnv, ctx: any) => boolean,
@@ -600,8 +600,8 @@ export const TOOL_DEFS = Object.freeze([
 export const DEFAULT_TOOL_NAMES = Object.freeze(TOOL_DEFS.filter((t) => DEFAULT_TOOLSETS.includes(t.toolset)).map((t) => t.name));
 
 /**
- * Whether one tool is visible to this caller: its toolset is configured, the key has its required scope (write
- * tools in "options" need "paper") and its own availability check passes.
+ * Whether one tool is visible to this caller: its toolset is configured, the key has its required scope and
+ * its own availability check passes.
  * @param {ToolDef} def @param {ReturnType<typeof mcpConfig>} cfg @param {ToolEnv} env @param {any} ctx
  */
 export function toolVisible(def, cfg, env, ctx) {

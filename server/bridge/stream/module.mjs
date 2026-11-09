@@ -59,7 +59,6 @@ export function createStreamEndpoints(deps, { cors } = {}) {
 
 export default defineModule({
   name: "stream",
-  stream: "S6",
   configKey: "stream",
   configSchema: streamConfigSchema,
   services: { streamHub: (deps) => createStreamHub(deps) },

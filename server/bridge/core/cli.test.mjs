@@ -218,19 +218,6 @@ describe("doctor: trading readiness checks", () => {
     // No live account: nothing to say.
     expect(readinessDoctorChecks(cfg({ accounts: [{ id: "a3", broker: "upstox" }] })).find((x) => x.check === "static-ip")).toBeUndefined();
   });
-  it("warns when notify targets exist but none listens to trading.readiness", () => {
-    const deaf = cfg({ notify: { targets: [{ id: "phone", kind: "webhook", url: "https://n8n.example.com/a", events: ["scan.alert"] }, { id: "off", kind: "webhook", url: "https://n8n.example.com/b", enabled: false }] } });
-    const c = readinessDoctorChecks(deaf).find((x) => x.check === "readiness-notify");
-    expect(c.level).toBe("warn");
-    expect(c.message).toMatch(/trading\.readiness/);
-    // A target without an events list gets the default list, which includes trading.readiness.
-    const dflt = cfg({ notify: { targets: [{ id: "phone", kind: "webhook", url: "https://n8n.example.com/a" }] } });
-    expect(readinessDoctorChecks(dflt).find((x) => x.check === "readiness-notify")).toMatchObject({ level: "ok", message: expect.stringMatching(/phone/) });
-    const explicit = cfg({ notify: { targets: [{ id: "tg", kind: "webhook", url: "https://n8n.example.com/a", events: ["trading.readiness"] }] } });
-    expect(readinessDoctorChecks(explicit).find((x) => x.check === "readiness-notify").level).toBe("ok");
-    // No targets at all: the check stays quiet (notifications are optional).
-    expect(readinessDoctorChecks(cfg({})).find((x) => x.check === "readiness-notify")).toBeUndefined();
-  });
 });
 
 describe("accounts connect (regression: no credentials on the command line)", () => {
