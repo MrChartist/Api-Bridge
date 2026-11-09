@@ -629,6 +629,122 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Resolve a name to one instrument, with the reason",
+          "request": {
+            "description": "Resolve a name to one instrument, with the reason\n\n- An API key with the `read` scope (any key).\n\nReads what chart tools, spreadsheets and alerts write (`NSE:M_M`, `NSE_INDEX:NIFTY 50`, `NSE:RELIANCE-EQ`, `Reliance`)\nand answers the one instrument it means, how it got there (`rule`, `rules`) and the ranked candidates. It never\nguesses: a bare name carried by two instruments (RELIANCE on NSE and on BSE) is `AMBIGUOUS_SYMBOL` (409) with the\ncandidates in `candidates`; send `exchange` or the full symbol. A name that matches nothing exactly is\n`SYMBOL_NOT_FOUND` (404) with the closest names in `candidates`. A bare name resolves to the cash or index\ninstrument; a future or option needs its full symbol.\n\nReference: docs/api/instruments/resolveSymbol.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "symbols",
+                "resolve"
+              ],
+              "query": [
+                {
+                  "description": "The symbol or name. `input` is accepted as the same parameter.",
+                  "key": "q",
+                  "value": "RELIANCE"
+                },
+                {
+                  "description": "Narrows a bare name to one exchange.",
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NSE"
+                },
+                {
+                  "disabled": true,
+                  "key": "kind",
+                  "value": "INDEX"
+                },
+                {
+                  "description": "`1` or `true` adds `steps`, the reading in plain sentences.",
+                  "disabled": true,
+                  "key": "explain",
+                  "value": "0"
+                },
+                {
+                  "description": "Candidates to return (default 10).",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/symbols/resolve?q=RELIANCE"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check one symbol (canonical form, lot size, tradable)",
+          "request": {
+            "description": "Check one symbol (canonical form, lot size, tradable)\n\n- An API key with the `read` scope (any key).\n\nFor a spreadsheet or an alert author: type a symbol, see the exact canonical form the Bridge will use and its lot\nsize. A symbol the Bridge cannot use is `valid: false` with the reason in `code` and `message`, not an error\nresponse. Only a malformed request is a 4XX.\n\nReference: docs/api/instruments/validateSymbolGet.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "symbols",
+                "validate"
+              ],
+              "query": [
+                {
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                },
+                {
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NSE"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/symbols/validate?symbol=NSE:RELIANCE"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check up to 200 symbols in one call",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"items\": [\n    {\n      \"symbol\": \"NSE:RELIANCE\"\n    }\n  ]\n}"
+            },
+            "description": "Check up to 200 symbols in one call\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/instruments/validateSymbols.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "symbols",
+                "validate"
+              ],
+              "raw": "{{baseUrl}}/v1/symbols/validate"
+            }
+          },
+          "response": []
         }
       ],
       "name": "Instruments"
@@ -999,6 +1115,100 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Trading holidays of a year for an exchange",
+          "request": {
+            "description": "Trading holidays of a year for an exchange\n\n- An API key with the `read` scope (any key).\n\nFrom the holiday list shipped with the Bridge (the NSE and BSE circulars; the list's date and source are in\n`calendar`). Every row keeps its own `verified` flag. A year the list does not cover gives an empty list with\n`calendar.covered: false`: that is \"no data\", not \"no holidays\". Weekends are not listed. NFO follows NSE and BFO\nfollows BSE. MCX and CDS have their own hours that this list does not hold (422).\n\nReference: docs/api/market-data/getCalendarHolidays.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "calendar",
+                "holidays"
+              ],
+              "query": [
+                {
+                  "description": "NSE (default), BSE, NFO or BFO.",
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NSE"
+                },
+                {
+                  "description": "Four-digit year (default this year, IST).",
+                  "disabled": true,
+                  "key": "year",
+                  "value": "2000"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/calendar/holidays"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The session of one date (trading day or not, and the times)",
+          "request": {
+            "description": "The session of one date (trading day or not, and the times)\n\n- An API key with the `read` scope (any key).\n\nWhether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close\ntimes (IST), a special session such as Muhurat trading, and the neighbouring trading days. The standard hours are\nmarked `sessionTimes.verified: false`: the Bridge has not confirmed them against a current circular.\n\nReference: docs/api/market-data/getCalendarSessions.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "calendar",
+                "sessions"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NSE"
+                },
+                {
+                  "description": "A real date, YYYY-MM-DD (default today, IST).",
+                  "disabled": true,
+                  "key": "date",
+                  "value": "2026-10-27"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/calendar/sessions"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Is the exchange open now, and when does it next open",
+          "request": {
+            "description": "Is the exchange open now, and when does it next open\n\n- An API key with the `read` scope (any key).\n\n`open`, `pre-open` or `closed`, by the Bridge's clock in IST, with the reason (a holiday is named), when it closes\nor opens and the next regular or special open. This is the calendar's answer, not the exchange's live state: a\nhalt or an unlisted closure is not in it. Read `calendar.verified` and `calendar.note`.\n\nReference: docs/api/market-data/getCalendarStatus.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "calendar",
+                "status"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "exchange",
+                  "value": "NSE"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/calendar/status"
+            }
+          },
+          "response": []
         }
       ],
       "name": "Market data"
@@ -1219,6 +1429,41 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Margin for up to 50 prospective positions (read only)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"positions\": [\n    {\n      \"symbol\": \"NSE:RELIANCE\",\n      \"side\": \"BUY\"\n    }\n  ]\n}"
+            },
+            "description": "Margin for up to 50 prospective positions (read only)\n\n- An API key with the `read` scope (any key).\n\nWhat the positions would need together, before anything is placed. `source` says where the figure came from:\n`broker` (the broker's own calculator, for an adapter that has one; no shipped adapter does yet) or\n`paper-model` (the paper engine's approximate portfolio model: not the exchange's SPAN, and hedges between the\nlegs are counted). All figures are JSON numbers in rupees. Nothing is stored and no order is created. The same\ncalculation answers the compat-style `margin` call.\n\nReference: docs/api/portfolio/marginBasket.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "margin",
+                "basket"
+              ],
+              "raw": "{{baseUrl}}/v1/margin/basket"
+            }
+          },
+          "response": []
         }
       ],
       "name": "Portfolio"
@@ -1344,6 +1589,86 @@
                 "preview"
               ],
               "raw": "{{baseUrl}}/v1/orders/preview"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Place only the order that gets a position to a target size",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"targetQuantity\": -100000000,\n  \"product\": \"CNC\",\n  \"orderType\": \"MARKET\"\n}"
+            },
+            "description": "Place only the order that gets a position to a target size\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\n\"Be long 3 lots\", \"be flat\", \"be short 50 shares\", the way a strategy alert says it. The Bridge reads the current\nposition (this symbol, this product), works out the difference and places only that, through the same order\nservice as `POST /v1/orders`: the same safety gates, price checks, mode rules, confirmation rules and\nidempotency. Paper unless you send `\"mode\": \"live\"`.\n\nA position that cannot be read, or cannot be matched with certainty, is `POSITION_UNKNOWN` (503, safe to retry)\nand nothing is placed: unknown is never treated as flat. Live delivery (CNC, MTF) that shows in both today's\npositions and the holdings is also `POSITION_UNKNOWN`. An open order of the Bridge in the same symbol and product that\ncan change the position is `STATE_CONFLICT` unless you send `\"openOrders\": \"ignore\"` (a resting stop does not\ncount). `action` `NONE` places nothing and answers 200. With `dryRun` everything is worked out and checked\n(the `preview` is the same result as `POST /v1/orders/preview`) and nothing is placed.\n\nThe `Idempotency-Key` (or `clientOrderId`) covers the whole request: a retry with the same body gets the first\nanswer back, including \"nothing to do\". Two requests for one symbol and product are handled one at a time.\n\nReference: docs/api/orders/placeOrderToTarget.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "to-target"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/to-target"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Place up to 20 independent orders in one call",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"orders\": [\n    {}\n  ]\n}"
+            },
+            "description": "Place up to 20 independent orders in one call\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nA convenience for alerts that need two legs (a hedge and a main order), not a strategy engine: the legs do not\nknow about each other and nothing is rolled back. Every leg goes through the same order service as\n`POST /v1/orders` (same checks, safety gates, mode and confirmation rules), one after another, and each gets its\nown entry in `results`, always in the order sent.\n\nNothing is hidden. The HTTP status is 201 only when every leg was placed; 207 when at least one leg went out (or\nmay have, `outcome_unknown`) and at least one did not; 422 when no leg went out. `data.ok`, `data.summary` and\neach leg's `status` say the same. Leg `i` uses the request's `Idempotency-Key` plus `:i` as its own key, so a\nretry cannot place a leg twice; a retry of the whole request with the same body gets the first answer back. A\nbatch where nothing went out may be retried with the same key. A live leg needs the key (or its own\n`clientOrderId`). With `stopOnError`, legs after the first that did not go out are `skipped`.\n\nReference: docs/api/orders/placeOrderBatch.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "batch"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/batch"
             }
           },
           "response": []

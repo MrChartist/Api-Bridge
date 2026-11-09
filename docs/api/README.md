@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-120 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+129 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -56,6 +56,9 @@ Instrument search, resolution and symbol conversion.
 | [GET /v1/instruments/{symbol}](instruments/getInstrument.md) | Resolve one instrument (lot size, tick size, freeze quantity) | `read` |
 | [GET /v1/symbols/convert](instruments/convertSymbolGet.md) | Convert one symbol between formats | `read` |
 | [POST /v1/symbols/convert](instruments/convertSymbols.md) | Convert up to 200 symbols in one call | `read` |
+| [GET /v1/symbols/resolve](instruments/resolveSymbol.md) | Resolve a name to one instrument, with the reason | `read` |
+| [GET /v1/symbols/validate](instruments/validateSymbolGet.md) | Check one symbol (canonical form, lot size, tradable) | `read` |
+| [POST /v1/symbols/validate](instruments/validateSymbols.md) | Check up to 200 symbols in one call | `read` |
 
 ## Market data
 
@@ -69,6 +72,9 @@ Quotes, LTP, depth, history, expiries and option chains, served streaming-first 
 | [GET /v1/history](market-data/getHistory.md) | Historical candles, automatically split across broker limits | `read` |
 | [GET /v1/expiries](market-data/getExpiries.md) | Expiry dates for an underlying | `read` |
 | [GET /v1/optionchain](market-data/getOptionChain.md) | Option chain with IV and Greeks | `read` |
+| [GET /v1/calendar/holidays](market-data/getCalendarHolidays.md) | Trading holidays of a year for an exchange | `read` |
+| [GET /v1/calendar/sessions](market-data/getCalendarSessions.md) | The session of one date (trading day or not, and the times) | `read` |
+| [GET /v1/calendar/status](market-data/getCalendarStatus.md) | Is the exchange open now, and when does it next open | `read` |
 
 ## Streaming
 
@@ -91,6 +97,7 @@ Positions, holdings and funds per account.
 | [POST /v1/positions/convert](portfolio/convertPosition.md) | Convert a position between Intraday (MIS) and carry (NRML) | `paper` |
 | [GET /v1/holdings](portfolio/getHoldings.md) | Demat holdings for one account | `read` |
 | [GET /v1/funds](portfolio/getFunds.md) | Funds and margin for one account | `read` |
+| [POST /v1/margin/basket](portfolio/marginBasket.md) | Margin for up to 50 prospective positions (read only) | `read` |
 
 ## Orders
 
@@ -101,6 +108,8 @@ Paper and live orders with idempotency and safety checks.
 | [GET /v1/orders](orders/listOrders.md) | Orders (newest first) | `read` |
 | [POST /v1/orders](orders/placeOrder.md) | Place an order (paper unless you ask for live) | `paper` |
 | [POST /v1/orders/preview](orders/previewOrder.md) | Check an order without sending it | `paper` |
+| [POST /v1/orders/to-target](orders/placeOrderToTarget.md) | Place only the order that gets a position to a target size | `paper` |
+| [POST /v1/orders/batch](orders/placeOrderBatch.md) | Place up to 20 independent orders in one call | `paper` |
 | [POST /v1/orders/cancel-all](orders/cancelAllOrders.md) | Cancel every open order for an account (or all accounts this key may use) | `paper` |
 | [GET /v1/orders/by-client-id/{clientOrderId}](orders/getOrderByClientId.md) | Look up an order by your own clientOrderId | `read` |
 | [GET /v1/orders/{orderId}](orders/getOrder.md) | One order (refreshed from the broker for live orders) | `read` |

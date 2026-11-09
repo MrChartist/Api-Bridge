@@ -15,6 +15,14 @@
   `POST /v1/hooks/{hookId}/test`, `GET /v1/hooks/presets`, the `hook.rejected` bus event, a TradingView panel in the
   dashboard, and a verified TradingView section in [docs/guides/webhooks.md](docs/guides/webhooks.md). Generic hooks no
   longer swallow a later alert that reuses an `id` with a new `time`.
+- Orders for alerts and sheets ([docs/guides/alert-orders.md](docs/guides/alert-orders.md)): `POST /v1/orders/to-target`
+  (be long 3 lots: places only the difference, `POSITION_UNKNOWN` and nothing placed when the position cannot be read,
+  same gates and idempotency as `POST /v1/orders`), `POST /v1/orders/batch` (up to 20 legs, a result per leg, a key per
+  leg), `POST /v1/margin/basket` (broker figure when the adapter has one, else the labelled paper model; the compat
+  `margin` call works now) and `GET /v1/calendar/holidays|sessions|status` with the verified flags kept.
+- Symbols: `GET /v1/symbols/resolve` (the reason and ranked candidates; `AMBIGUOUS_SYMBOL` instead of a guess),
+  `GET`/`POST /v1/symbols/validate`, and automatic resolution now reads `NSE:M_M`, `NSE:BAJAJ_AUTO`, `NSE_INDEX:NIFTY 50`
+  and `RELIANCE-EQ`. Native order inputs accept `MIS`, `NRML` and similar words; the canonical value is in `meta.normalised`.
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the

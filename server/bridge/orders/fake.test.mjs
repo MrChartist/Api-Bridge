@@ -77,6 +77,18 @@ describe("fake OrderService", () => {
     expect(await reject(svc.get(ctx(), "nope"))).toMatchObject({ code: "ORDER_NOT_FOUND" });
   });
 
+  it("placeToTarget and placeBatch run the real implementations over the fake", async () => {
+    const svc = createFakeOrderService({ lotSizes: { "NFO:NIFTY-2026-10-27-FUT": 65 } });
+    const t = { account: "paper", symbol: "NFO:NIFTY-2026-10-27-FUT", targetLots: 2, product: "MARGIN", orderType: "LIMIT", price: 25000 };
+    const first = await svc.placeToTarget(ctx(), t, { idempotencyKey: "tt-fake-0001" });
+    expect(first).toMatchObject({ status: 201, result: { currentQuantity: 0, targetQuantity: 130, delta: 130, action: "BUY", placed: true } });
+    svc.fill(first.result.order.orderId, 25000);
+    const again = await svc.placeToTarget(ctx(), t, { idempotencyKey: "tt-fake-0002" });
+    expect(again).toMatchObject({ status: 200, result: { currentQuantity: 130, action: "NONE", order: null } });
+    const batch = await svc.placeBatch(ctx(), { account: "paper", orders: [order({ account: undefined }), order({ account: undefined, product: "BAD" })] }, { idempotencyKey: "batch-fake-0001" });
+    expect(batch).toMatchObject({ status: 207, result: { ok: false, summary: { placed: 1, rejected: 1 } } });
+  });
+
   it("failNext makes the next place throw (and releases its idempotency key)", async () => {
     const svc = createFakeOrderService();
     svc.failNext(new BridgeError("KILL_SWITCH_ACTIVE", "on"));

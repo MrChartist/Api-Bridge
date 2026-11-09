@@ -135,7 +135,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "120 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "129 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -525,12 +525,39 @@
     },
     {
       "headings": [
+        "GET /v1/symbols/resolve"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/resolveSymbol.md",
+      "text": "GET /v1/symbols/resolve. Reads what chart tools, spreadsheets and alerts write (NSE:MM, NSEINDEX:NIFTY 50, NSE:RELIANCE-EQ, Reliance) and answers the one instrument it means, how it got there (rule, rules) and the ranked candidates.",
+      "title": "Resolve a name to one instrument, with the reason"
+    },
+    {
+      "headings": [
         "GET /v1/instruments/search"
       ],
       "kind": "endpoint",
       "path": "docs/api/instruments/searchInstruments.md",
       "text": "GET /v1/instruments/search.",
       "title": "Search instruments across connected brokers' masters"
+    },
+    {
+      "headings": [
+        "GET /v1/symbols/validate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/validateSymbolGet.md",
+      "text": "GET /v1/symbols/validate. For a spreadsheet or an alert author: type a symbol, see the exact canonical form the Bridge will use and its lot size.",
+      "title": "Check one symbol (canonical form, lot size, tradable)"
+    },
+    {
+      "headings": [
+        "POST /v1/symbols/validate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/validateSymbols.md",
+      "text": "POST /v1/symbols/validate.",
+      "title": "Check up to 200 symbols in one call"
     },
     {
       "headings": [
@@ -585,6 +612,33 @@
       "path": "docs/api/limits/getUsage.md",
       "text": "GET /v1/usage. Per account and endpoint class: the binding window, every window (windows: this second, this minute, today) and today's counters.",
       "title": "How much of each budget is used, queued and saved by streaming, caching and coalescing"
+    },
+    {
+      "headings": [
+        "GET /v1/calendar/holidays"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getCalendarHolidays.md",
+      "text": "GET /v1/calendar/holidays. From the holiday list shipped with the Bridge (the NSE and BSE circulars; the list's date and source are in calendar).",
+      "title": "Trading holidays of a year for an exchange"
+    },
+    {
+      "headings": [
+        "GET /v1/calendar/sessions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getCalendarSessions.md",
+      "text": "GET /v1/calendar/sessions. Whether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close times (IST), a special session such as Muhurat trading, and the neighbouring trading days.",
+      "title": "The session of one date (trading day or not, and the times)"
+    },
+    {
+      "headings": [
+        "GET /v1/calendar/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getCalendarStatus.md",
+      "text": "GET /v1/calendar/status. open, pre-open or closed, by the Bridge's clock in IST, with the reason (a holiday is named), when it closes or opens and the next regular or special open.",
+      "title": "Is the exchange open now, and when does it next open"
     },
     {
       "headings": [
@@ -732,6 +786,24 @@
     },
     {
       "headings": [
+        "POST /v1/orders/batch"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/placeOrderBatch.md",
+      "text": "POST /v1/orders/batch. A convenience for alerts that need two legs (a hedge and a main order), not a strategy engine: the legs do not know about each other and nothing is rolled back.",
+      "title": "Place up to 20 independent orders in one call"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/to-target"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/placeOrderToTarget.md",
+      "text": "POST /v1/orders/to-target. \"Be long 3 lots\", \"be flat\", \"be short 50 shares\", the way a strategy alert says it.",
+      "title": "Place only the order that gets a position to a target size"
+    },
+    {
+      "headings": [
         "POST /v1/orders/preview"
       ],
       "kind": "endpoint",
@@ -864,6 +936,15 @@
       "path": "docs/api/portfolio/getPositions.md",
       "text": "GET /v1/positions.",
       "title": "Positions for one account (live from the broker, or paper)"
+    },
+    {
+      "headings": [
+        "POST /v1/margin/basket"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/marginBasket.md",
+      "text": "POST /v1/margin/basket. What the positions would need together, before anything is placed.",
+      "title": "Margin for up to 50 prospective positions (read only)"
     },
     {
       "headings": [
@@ -1252,7 +1333,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 116 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 125 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1276,6 +1357,21 @@
       "path": "docs/guides/accounts.md",
       "text": "The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its own rate-limit budget and its own credentials; one account's credentials are never used for another account's calls. The easiest way: on the dashboard, open...",
       "title": "Brokers and multiple accounts"
+    },
+    {
+      "headings": [
+        "Words the order routes understand",
+        "Check a symbol: /v1/symbols/validate and /v1/symbols/resolve",
+        "Be at a target size: POST /v1/orders/to-target",
+        "Several orders at once: POST /v1/orders/batch",
+        "What will it cost: POST /v1/margin/basket",
+        "Is the market open: /v1/calendar/*",
+        "For spreadsheet authors"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/alert-orders.md",
+      "text": "Strategy alerts, spreadsheets and Telegram bots do not say \"buy 1 share\". They say \"be long 3 lots\", \"send these two orders together\", \"is the market open?\" and \"can I afford this?\". This guide covers the routes that answer those, and the small conveniences that let people type...",
+      "title": "Orders for alerts, sheets and scripts"
     },
     {
       "headings": [

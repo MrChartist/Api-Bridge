@@ -1,0 +1,38 @@
+meta {
+  name: Resolve a name to one instrument, with the reason
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/symbols/resolve?q=RELIANCE
+  body: none
+  auth: bearer
+}
+
+params:query {
+  q: RELIANCE
+  ~exchange: NSE
+  ~kind: INDEX
+  ~explain: 0
+  ~limit: 1
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Resolve a name to one instrument, with the reason
+
+  - An API key with the `read` scope (any key).
+
+  Reads what chart tools, spreadsheets and alerts write (`NSE:M_M`, `NSE_INDEX:NIFTY 50`, `NSE:RELIANCE-EQ`, `Reliance`)
+  and answers the one instrument it means, how it got there (`rule`, `rules`) and the ranked candidates. It never
+  guesses: a bare name carried by two instruments (RELIANCE on NSE and on BSE) is `AMBIGUOUS_SYMBOL` (409) with the
+  candidates in `candidates`; send `exchange` or the full symbol. A name that matches nothing exactly is
+  `SYMBOL_NOT_FOUND` (404) with the closest names in `candidates`. A bare name resolves to the cash or index
+  instrument; a future or option needs its full symbol.
+
+  Reference: docs/api/instruments/resolveSymbol.md in the repository.
+}

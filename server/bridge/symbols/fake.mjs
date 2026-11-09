@@ -131,6 +131,7 @@ export function createFakeSymbolService({ instruments, masters, today, clock } =
     fromBroker: wrap("fromBroker", real.fromBroker),
     search: wrap("search", real.search),
     convert: wrap("convert", real.convert),
+    resolveInput: wrap("resolveInput", real.resolveInput),
     refresh: wrap("refresh", async () => ({ brokers: store.brokers(), instruments: store.size(), errors: [] })),
     status: wrap("status", () => real.status()),
     /** Test helper: replace one broker's contract rows. */

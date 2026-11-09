@@ -1,0 +1,32 @@
+meta {
+  name: The session of one date (trading day or not, and the times)
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/v1/calendar/sessions
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~exchange: NSE
+  ~date: 2026-10-27
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The session of one date (trading day or not, and the times)
+
+  - An API key with the `read` scope (any key).
+
+  Whether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close
+  times (IST), a special session such as Muhurat trading, and the neighbouring trading days. The standard hours are
+  marked `sessionTimes.verified: false`: the Bridge has not confirmed them against a current circular.
+
+  Reference: docs/api/market-data/getCalendarSessions.md in the repository.
+}

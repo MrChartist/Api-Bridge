@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { fromValidation } from "../core/errors.mjs";
+import { canonicaliseOrderInput } from "./aliases.mjs";
 
 export const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 export const CLIENT_ORDER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -108,9 +109,9 @@ export function parseWith(schema, input, detail) {
 }
 
 /** @param {unknown} input */
-export const parseOrderRequest = (input) => parseWith(orderRequestSchema, input, "The order is missing fields or has fields that are not valid.");
+export const parseOrderRequest = (input) => parseWith(orderRequestSchema, canonicaliseOrderInput(input).input, "The order is missing fields or has fields that are not valid.");
 /** @param {unknown} input */
-export const parseOrderChanges = (input) => parseWith(orderChangesSchema, input, "The change request is not valid.");
+export const parseOrderChanges = (input) => parseWith(orderChangesSchema, canonicaliseOrderInput(input).input, "The change request is not valid.");
 
 // ───────────────────────────── Fingerprints ─────────────────────────────
 

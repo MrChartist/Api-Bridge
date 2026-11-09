@@ -25,8 +25,10 @@ import { assertService } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { isAutomatedContext } from "../core/context.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
+import { createBatchOrders } from "./batchOrders.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
 import { IDEMPOTENCY_KEY_RE, TERMINAL_STATUSES, fingerprint, orderBody, parseOrderChanges, parseOrderRequest } from "./orderValidation.mjs";
+import { createTargetOrders } from "./targetOrders.mjs";
 import { createTicketBook } from "./tickets.mjs";
 import { istDay, istIso } from "./time.mjs";
 
@@ -334,6 +336,18 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
     /** Every order, newest last. */
     all: () => [...orders.values()].map((o) => structuredClone(o)),
   };
+  // placeToTarget and placeBatch: the real implementations over this fake (extras.mjs does the same over the real service).
+  const extraDeps = {
+    accounts: { get: (id) => (known(id), { id, broker: liveAccounts.includes(id) ? "fake" : "paper" }) },
+    symbols: {
+      async resolve(symbol) {
+        const p = parseSymbol(symbol);
+        return { canonical: p.canonical, underlying: p.underlying, kind: p.kind, lotSize: lotSizes[p.canonical] ?? 1 };
+      },
+    },
+  };
+  svc.placeToTarget = createTargetOrders({ deps: extraDeps, svc, now }).toTarget;
+  svc.placeBatch = createBatchOrders({ deps: extraDeps, svc, now }).batch;
   assertService("orders", svc);
   return svc;
 }

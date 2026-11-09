@@ -18,6 +18,9 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/instruments/:symbol", { scope: "read", summary: "Resolve one instrument (lot size, tick size, freeze quantity)" }, "instrument"],
   ["GET", "/v1/symbols/convert", { scope: "read", summary: "Convert one symbol between formats" }, "convertOne"],
   ["POST", "/v1/symbols/convert", { scope: "read", summary: "Convert up to 200 symbols in one call" }, "convertMany"],
+  ["GET", "/v1/symbols/resolve", { scope: "read", summary: "Resolve a name to one instrument with the reason; ambiguous names return candidates" }, "resolve"],
+  ["GET", "/v1/symbols/validate", { scope: "read", summary: "Check one symbol: canonical form, lot size, tradable" }, "validateOne"],
+  ["POST", "/v1/symbols/validate", { scope: "read", summary: "Check up to 200 symbols in one call" }, "validateMany"],
 ]);
 
 export default defineModule({

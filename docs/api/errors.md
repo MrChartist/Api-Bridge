@@ -26,6 +26,7 @@ Generated from `server/bridge/core/errors.mjs`.
 | `ORDER_NOT_FOUND` | 404 | no | No order with this id |
 | `SYMBOL_NOT_FOUND` | 404 | no | The symbol could not be resolved |
 | `METHOD_NOT_ALLOWED` | 405 | no | Method not allowed |
+| `AMBIGUOUS_SYMBOL` | 409 | no | The symbol matches more than one instrument. Choose one of the candidates |
 | `DUPLICATE_CLIENT_ORDER_ID` | 409 | no | This clientOrderId was already used |
 | `IDEMPOTENCY_IN_PROGRESS` | 409 | yes | A request with this idempotency key is still running |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | no | This idempotency key was already used with different parameters |
@@ -45,5 +46,6 @@ Generated from `server/bridge/core/errors.mjs`.
 | `NOT_IMPLEMENTED` | 501 | no | This part of the Bridge is not built yet |
 | `UPSTREAM_ERROR` | 502 | no | The broker returned an error |
 | `BROKER_UNAVAILABLE` | 503 | yes | The broker is not reachable right now |
+| `POSITION_UNKNOWN` | 503 | yes | The current position could not be read, so nothing was placed |
 | `OUTCOME_UNKNOWN` | 504 | no | The order outcome is unknown. Check the order book before sending it again |
 | `UPSTREAM_TIMEOUT` | 504 | yes | The broker did not respond in time |

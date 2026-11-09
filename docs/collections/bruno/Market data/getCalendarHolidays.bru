@@ -1,0 +1,33 @@
+meta {
+  name: Trading holidays of a year for an exchange
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/v1/calendar/holidays
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~exchange: NSE
+  ~year: 2000
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Trading holidays of a year for an exchange
+
+  - An API key with the `read` scope (any key).
+
+  From the holiday list shipped with the Bridge (the NSE and BSE circulars; the list's date and source are in
+  `calendar`). Every row keeps its own `verified` flag. A year the list does not cover gives an empty list with
+  `calendar.covered: false`: that is "no data", not "no holidays". Weekends are not listed. NFO follows NSE and BFO
+  follows BSE. MCX and CDS have their own hours that this list does not hold (422).
+
+  Reference: docs/api/market-data/getCalendarHolidays.md in the repository.
+}

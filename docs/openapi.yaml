@@ -1200,6 +1200,127 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/symbols/resolve:
+    get:
+      tags: [Instruments]
+      operationId: resolveSymbol
+      summary: Resolve a name to one instrument, with the reason
+      description: |
+        Reads what chart tools, spreadsheets and alerts write (`NSE:M_M`, `NSE_INDEX:NIFTY 50`, `NSE:RELIANCE-EQ`, `Reliance`)
+        and answers the one instrument it means, how it got there (`rule`, `rules`) and the ranked candidates. It never
+        guesses: a bare name carried by two instruments (RELIANCE on NSE and on BSE) is `AMBIGUOUS_SYMBOL` (409) with the
+        candidates in `candidates`; send `exchange` or the full symbol. A name that matches nothing exactly is
+        `SYMBOL_NOT_FOUND` (404) with the closest names in `candidates`. A bare name resolves to the cash or index
+        instrument; a future or option needs its full symbol.
+      x-module: symbols
+      x-scope: read
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: The symbol or name. `input` is accepted as the same parameter.
+          schema: { type: string, maxLength: 64 }
+        - name: exchange
+          in: query
+          description: Narrows a bare name to one exchange.
+          schema: { $ref: "#/components/schemas/Exchange" }
+        - name: kind
+          in: query
+          schema: { $ref: "#/components/schemas/InstrumentKind" }
+        - name: explain
+          in: query
+          description: "`1` or `true` adds `steps`, the reading in plain sentences."
+          schema: { type: string, enum: ["0", "1", "true", "false"] }
+        - name: limit
+          in: query
+          description: Candidates to return (default 10).
+          schema: { type: integer, minimum: 1, maximum: 50 }
+      responses:
+        "200":
+          description: One instrument.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SymbolResolution" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/symbols/validate:
+    get:
+      tags: [Instruments]
+      operationId: validateSymbolGet
+      summary: Check one symbol (canonical form, lot size, tradable)
+      description: |
+        For a spreadsheet or an alert author: type a symbol, see the exact canonical form the Bridge will use and its lot
+        size. A symbol the Bridge cannot use is `valid: false` with the reason in `code` and `message`, not an error
+        response. Only a malformed request is a 4XX.
+      x-module: symbols
+      x-scope: read
+      parameters:
+        - name: symbol
+          in: query
+          required: true
+          schema: { type: string, maxLength: 64 }
+        - name: exchange
+          in: query
+          schema: { $ref: "#/components/schemas/Exchange" }
+      responses:
+        "200":
+          description: The check.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SymbolValidation" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Instruments]
+      operationId: validateSymbols
+      summary: Check up to 200 symbols in one call
+      x-module: symbols
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              additionalProperties: false
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [symbol]
+                    additionalProperties: false
+                    properties:
+                      symbol: { type: string, maxLength: 64 }
+                      exchange: { $ref: "#/components/schemas/Exchange" }
+      responses:
+        "200":
+          description: One check per item, in order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/SymbolValidation" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/ltp:
     get:
       tags: [Market data]
@@ -1425,6 +1546,103 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/calendar/holidays:
+    get:
+      tags: [Market data]
+      operationId: getCalendarHolidays
+      summary: Trading holidays of a year for an exchange
+      description: |
+        From the holiday list shipped with the Bridge (the NSE and BSE circulars; the list's date and source are in
+        `calendar`). Every row keeps its own `verified` flag. A year the list does not cover gives an empty list with
+        `calendar.covered: false`: that is "no data", not "no holidays". Weekends are not listed. NFO follows NSE and BFO
+        follows BSE. MCX and CDS have their own hours that this list does not hold (422).
+      x-module: market
+      x-scope: read
+      parameters:
+        - name: exchange
+          in: query
+          description: NSE (default), BSE, NFO or BFO.
+          schema: { type: string, enum: [NSE, BSE, NFO, BFO], default: NSE }
+        - name: year
+          in: query
+          description: Four-digit year (default this year, IST).
+          schema: { type: integer, minimum: 2000, maximum: 2100 }
+      responses:
+        "200":
+          description: The holidays.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CalendarHolidays" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/calendar/sessions:
+    get:
+      tags: [Market data]
+      operationId: getCalendarSessions
+      summary: The session of one date (trading day or not, and the times)
+      description: |
+        Whether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close
+        times (IST), a special session such as Muhurat trading, and the neighbouring trading days. The standard hours are
+        marked `sessionTimes.verified: false`: the Bridge has not confirmed them against a current circular.
+      x-module: market
+      x-scope: read
+      parameters:
+        - name: exchange
+          in: query
+          schema: { type: string, enum: [NSE, BSE, NFO, BFO], default: NSE }
+        - name: date
+          in: query
+          description: A real date, YYYY-MM-DD (default today, IST).
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CalendarSession" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/calendar/status:
+    get:
+      tags: [Market data]
+      operationId: getCalendarStatus
+      summary: Is the exchange open now, and when does it next open
+      description: |
+        `open`, `pre-open` or `closed`, by the Bridge's clock in IST, with the reason (a holiday is named), when it closes
+        or opens and the next regular or special open. This is the calendar's answer, not the exchange's live state: a
+        halt or an unlisted closure is not in it. Read `calendar.verified` and `calendar.note`.
+      x-module: market
+      x-scope: read
+      parameters:
+        - name: exchange
+          in: query
+          schema: { type: string, enum: [NSE, BSE, NFO, BFO], default: NSE }
+      responses:
+        "200":
+          description: The status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CalendarStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/stream:
     get:
       tags: [Streaming]
@@ -1611,6 +1829,38 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/margin/basket:
+    post:
+      tags: [Portfolio]
+      operationId: marginBasket
+      summary: Margin for up to 50 prospective positions (read only)
+      description: |
+        What the positions would need together, before anything is placed. `source` says where the figure came from:
+        `broker` (the broker's own calculator, for an adapter that has one; no shipped adapter does yet) or
+        `paper-model` (the paper engine's approximate portfolio model: not the exchange's SPAN, and hedges between the
+        legs are counted). All figures are JSON numbers in rupees. Nothing is stored and no order is created. The same
+        calculation answers the compat-style `margin` call.
+      x-module: orders
+      x-scope: read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarginBasketRequest" }
+      responses:
+        "200":
+          description: The basket's margin.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/MarginBasket" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/orders:
     get:
       tags: [Orders]
@@ -1696,6 +1946,123 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/PreviewResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/orders/to-target:
+    post:
+      tags: [Orders]
+      operationId: placeOrderToTarget
+      summary: Place only the order that gets a position to a target size
+      description: |
+        "Be long 3 lots", "be flat", "be short 50 shares", the way a strategy alert says it. The Bridge reads the current
+        position (this symbol, this product), works out the difference and places only that, through the same order
+        service as `POST /v1/orders`: the same safety gates, price checks, mode rules, confirmation rules and
+        idempotency. Paper unless you send `"mode": "live"`.
+
+        A position that cannot be read, or cannot be matched with certainty, is `POSITION_UNKNOWN` (503, safe to retry)
+        and nothing is placed: unknown is never treated as flat. Live delivery (CNC, MTF) that shows in both today's
+        positions and the holdings is also `POSITION_UNKNOWN`. An open order of the Bridge in the same symbol and product that
+        can change the position is `STATE_CONFLICT` unless you send `"openOrders": "ignore"` (a resting stop does not
+        count). `action` `NONE` places nothing and answers 200. With `dryRun` everything is worked out and checked
+        (the `preview` is the same result as `POST /v1/orders/preview`) and nothing is placed.
+
+        The `Idempotency-Key` (or `clientOrderId`) covers the whole request: a retry with the same body gets the first
+        answer back, including "nothing to do". Two requests for one symbol and product are handled one at a time.
+      x-module: orders
+      x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetOrderRequest" }
+      responses:
+        "200":
+          description: Nothing to place (`action` NONE), or a dry run.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/TargetOrderResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "201":
+          description: The difference was placed.
+          headers:
+            Idempotency-Replayed: { $ref: "#/components/headers/IdempotencyReplayed" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/TargetOrderResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/orders/batch:
+    post:
+      tags: [Orders]
+      operationId: placeOrderBatch
+      summary: Place up to 20 independent orders in one call
+      description: |
+        A convenience for alerts that need two legs (a hedge and a main order), not a strategy engine: the legs do not
+        know about each other and nothing is rolled back. Every leg goes through the same order service as
+        `POST /v1/orders` (same checks, safety gates, mode and confirmation rules), one after another, and each gets its
+        own entry in `results`, always in the order sent.
+
+        Nothing is hidden. The HTTP status is 201 only when every leg was placed; 207 when at least one leg went out (or
+        may have, `outcome_unknown`) and at least one did not; 422 when no leg went out. `data.ok`, `data.summary` and
+        each leg's `status` say the same. Leg `i` uses the request's `Idempotency-Key` plus `:i` as its own key, so a
+        retry cannot place a leg twice; a retry of the whole request with the same body gets the first answer back. A
+        batch where nothing went out may be retried with the same key. A live leg needs the key (or its own
+        `clientOrderId`). With `stopOnError`, legs after the first that did not go out are `skipped`.
+      x-module: orders
+      x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderBatchRequest" }
+      responses:
+        "201":
+          description: Every leg was placed.
+          headers:
+            Idempotency-Replayed: { $ref: "#/components/headers/IdempotencyReplayed" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderBatchResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "207":
+          description: Some legs were placed (or may have been) and some were not. Read `results`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderBatchResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "422":
+          description: No leg went out. The body is the same envelope (`data.ok` false), or a problem for a malformed request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderBatchResult" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -4087,6 +4454,11 @@ components:
             properties:
               path: { type: string }
               message: { type: string }
+        candidates:
+          type: array
+          description: "AMBIGUOUS_SYMBOL (the instruments the name could mean) and SYMBOL_NOT_FOUND on /v1/symbols/resolve (the closest names)."
+          items: { $ref: "#/components/schemas/SymbolCandidate" }
+        rule: { type: string, description: "With candidates: why nothing was picked." }
         ticketId: { type: string, description: "STATE_CONFLICT on a ticket route only: the ticket." }
         state:
           type: string
@@ -4107,6 +4479,7 @@ components:
         - NOT_FOUND
         - ACCOUNT_NOT_FOUND
         - SYMBOL_NOT_FOUND
+        - AMBIGUOUS_SYMBOL
         - ORDER_NOT_FOUND
         - METHOD_NOT_ALLOWED
         - IDEMPOTENCY_KEY_REUSED
@@ -4117,6 +4490,7 @@ components:
         - CAPABILITY_UNSUPPORTED
         - INVALID_ORDER
         - SESSION_EXPIRED
+        - POSITION_UNKNOWN
         - CONFIRMATION_REQUIRED
         - STATE_CONFLICT
         - PAPER_ONLY
@@ -4144,6 +4518,16 @@ components:
         accountId: { type: [string, "null"] }
         mode: { type: string, enum: [paper, live] }
         freshness: { $ref: "#/components/schemas/Freshness" }
+        normalised:
+          type: array
+          description: "Orders and margin: each word of the request that was read in its canonical form (MIS as INTRADAY). Absent when nothing was changed."
+          items:
+            type: object
+            required: [field, from, to]
+            properties:
+              field: { type: string }
+              from: { type: string }
+              to: { type: string }
         demo: { type: boolean, description: "Demo mode only: true. The data is generated sample data, not live market data (every response also carries the header X-MCB-Data: demo)." }
         dataNotice: { type: string, description: "Demo mode only: a plain sentence saying so." }
     ItemError:
@@ -4224,6 +4608,120 @@ components:
     Exchange:
       type: string
       enum: [NSE, BSE, NFO, BFO, MCX, CDS]
+    CalendarInfo:
+      type: object
+      required: [asOf, source, coveredYears, covered, verified]
+      description: What the answer rests on. `verified` is false when the date is outside the covered years or a row used is not verified.
+      properties:
+        asOf: { type: [string, "null"], format: date, description: The date of the shipped holiday list. }
+        source: { type: [string, "null"] }
+        coveredYears: { type: array, items: { type: integer } }
+        covered: { type: boolean, description: "False: the date is outside the list, so a weekday is assumed to trade and the answer is not verified." }
+        verified: { type: boolean }
+        note: { type: [string, "null"], description: Said plainly whenever the answer is not fully verified. }
+    CalendarSessionTimes:
+      type: object
+      required: [preOpen, open, close, verified]
+      properties:
+        preOpen: { type: string, description: "IST, HH:MM." }
+        open: { type: string }
+        close: { type: string }
+        timezone: { type: string, enum: [IST] }
+        verified: { type: boolean, description: "False: the standard hours, not confirmed against a current circular." }
+        source: { type: string }
+    CalendarHolidays:
+      type: object
+      required: [exchange, year, holidays, specialSessions, calendar]
+      properties:
+        exchange: { type: string, enum: [NSE, BSE, NFO, BFO] }
+        year: { type: integer }
+        holidays:
+          type: array
+          items:
+            type: object
+            required: [date, weekday, label, exchanges, verified]
+            properties:
+              date: { type: string, format: date }
+              weekday: { type: string }
+              label: { type: string }
+              exchanges: { type: array, items: { type: string } }
+              verified: { type: boolean }
+        specialSessions:
+          type: array
+          description: Sessions on a day that is otherwise closed or has its own hours (Muhurat trading).
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              weekday: { type: string }
+              label: { type: string }
+              open: { type: [string, "null"] }
+              close: { type: [string, "null"] }
+              verified: { type: boolean }
+        calendar: { $ref: "#/components/schemas/CalendarInfo" }
+    CalendarSession:
+      type: object
+      required: [exchange, date, weekday, isTradingDay, reason, sessionTimes, calendar]
+      properties:
+        exchange: { type: string, enum: [NSE, BSE, NFO, BFO] }
+        date: { type: string, format: date }
+        weekday: { type: string }
+        isTradingDay: { type: boolean }
+        reason: { type: string }
+        preOpen:
+          oneOf:
+            - type: object
+              properties:
+                start: { type: string }
+                end: { type: string }
+            - type: "null"
+        open: { type: [string, "null"], description: "IST HH:MM; null on a day that does not trade." }
+        close: { type: [string, "null"] }
+        holiday:
+          oneOf:
+            - type: object
+              properties:
+                label: { type: string }
+                verified: { type: boolean }
+            - type: "null"
+        specialSession:
+          oneOf:
+            - type: object
+              properties:
+                label: { type: string }
+                open: { type: [string, "null"] }
+                close: { type: [string, "null"] }
+                verified: { type: boolean }
+            - type: "null"
+        sessionTimes: { $ref: "#/components/schemas/CalendarSessionTimes" }
+        previousTradingDay: { type: string, format: date }
+        nextTradingDay: { type: string, format: date }
+        calendar: { $ref: "#/components/schemas/CalendarInfo" }
+    CalendarStatus:
+      type: object
+      required: [exchange, status, reason, asOf, date, time, sessionTimes, calendar]
+      properties:
+        exchange: { type: string, enum: [NSE, BSE, NFO, BFO] }
+        status: { type: string, enum: [open, pre-open, closed] }
+        reason: { type: string }
+        closedBecause: { type: [string, "null"], enum: [weekend, holiday, before-open, after-close, null] }
+        asOf: { type: string, format: date-time, description: "The Bridge's clock, IST." }
+        date: { type: string, format: date }
+        time: { type: string, description: "IST HH:MM." }
+        opensAt: { type: [string, "null"], format: date-time, description: Pre-open only. Today's open. }
+        closesAt: { type: [string, "null"], format: date-time, description: "Open and pre-open only." }
+        nextOpen:
+          oneOf:
+            - type: object
+              properties:
+                date: { type: string, format: date }
+                time: { type: string }
+                at: { type: string, format: date-time }
+                kind: { type: string, enum: [regular, special] }
+                label: { type: [string, "null"] }
+            - type: "null"
+        sessionTimes: { $ref: "#/components/schemas/CalendarSessionTimes" }
+        calendar: { $ref: "#/components/schemas/CalendarInfo" }
     InstrumentKind:
       type: string
       enum: [INDEX, EQ, FUT, OPT]
@@ -4471,6 +4969,62 @@ components:
           description: "chart (chart ticker such as NSE:NIFTY1!), compact (symbol and exchange) and, when a broker is given or connected, broker:<id>."
           additionalProperties: { type: [string, "null"] }
 
+    SymbolCandidate:
+      type: object
+      required: [symbol, exchange, kind, reason]
+      properties:
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        exchange: { $ref: "#/components/schemas/Exchange" }
+        kind: { $ref: "#/components/schemas/InstrumentKind" }
+        name: { type: [string, "null"] }
+        expiry: { type: [string, "null"], format: date }
+        strike: { type: [number, "null"] }
+        right: { type: [string, "null"], enum: [CE, PE, null] }
+        lotSize: { type: [integer, "null"] }
+        tickSize: { type: [number, "null"] }
+        reason: { type: string, description: "Why this instrument matched, in words." }
+    SymbolResolution:
+      type: object
+      required: [input, symbol, instrument, confidence, rule, rules, candidates]
+      properties:
+        input: { type: string }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        instrument: { $ref: "#/components/schemas/Instrument" }
+        confidence:
+          type: string
+          enum: [exact, unique-name]
+          description: "`exact`: a symbol form the Bridge reads. `unique-name`: exactly one instrument carries the name."
+        rule: { type: string, description: How the answer was reached, in a sentence. }
+        rules: { type: array, items: { type: string }, description: "Each spelling that was rewritten (an exchange word, a chart name, a series suffix)." }
+        candidates: { type: array, items: { $ref: "#/components/schemas/SymbolCandidate" } }
+        steps: { type: array, items: { type: string }, description: "With explain=1: the reading, step by step." }
+    SymbolValidation:
+      type: object
+      required: [input, valid]
+      properties:
+        input: { type: string }
+        valid: { type: boolean }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        exchange: { $ref: "#/components/schemas/Exchange" }
+        kind: { $ref: "#/components/schemas/InstrumentKind" }
+        underlying: { type: string }
+        expiry: { type: [string, "null"], format: date }
+        strike: { type: [number, "null"] }
+        right: { type: [string, "null"], enum: [CE, PE, null] }
+        name: { type: [string, "null"] }
+        lotSize: { type: integer, minimum: 1 }
+        tickSize: { type: number }
+        freezeQty: { type: [integer, "null"] }
+        tradable: { type: boolean, description: "False for an index: it can be read but not traded." }
+        tradableNote: { type: [string, "null"] }
+        normalised: { type: boolean, description: "True when the input was written in an alternative spelling that was rewritten." }
+        rule: { type: string }
+        rules: { type: array, items: { type: string } }
+        confidence: { type: string, enum: [exact, unique-name] }
+        code: { type: string, enum: [SYMBOL_NOT_FOUND, AMBIGUOUS_SYMBOL, VALIDATION_FAILED], description: "Only when valid is false." }
+        message: { type: string, description: "Only when valid is false." }
+        candidates: { type: array, items: { $ref: "#/components/schemas/SymbolCandidate" }, description: "Only when valid is false: the closest or the ambiguous matches." }
+
     LtpItem:
       type: object
       required: [symbol, ltp, freshness]
@@ -4692,8 +5246,8 @@ components:
         quantity: { type: integer, minimum: 1, description: "Units; must be a multiple of the lot size. Send this or lots." }
         lots: { type: integer, minimum: 1 }
         lotSizeConfirmed: { type: integer, minimum: 1, description: "The lot size (units per lot) the caller has checked; used only when reference lot data is stale or conflicts with the master (preview check LOT_SIZE_STALE)." }
-        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "No default." }
-        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], description: "No default." }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "No default. `MIS` is read as INTRADAY and `NRML` as MARGIN (case does not matter); the canonical value is in the order and in `meta.normalised`." }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], description: "No default. `MKT`, `SLM` and `SL_M` are read too." }
         price: { type: number, exclusiveMinimum: 0, description: "Required for LIMIT and SL." }
         triggerPrice: { type: number, exclusiveMinimum: 0, description: "Required for SL and SL-M." }
         validity: { type: string, enum: [DAY, IOC], default: DAY }
@@ -4804,6 +5358,172 @@ components:
         confirmExpiresAt: { type: [string, "null"], format: date-time }
         requiresHumanConfirmation: { type: boolean }
         ticketId: { type: [string, "null"], description: "Set when a human must confirm; the ticket appears in GET /v1/tickets (the dashboard's Pending confirmations panel)." }
+    TargetOrderRequest:
+      type: object
+      required: [account, symbol, product, orderType]
+      additionalProperties: false
+      properties:
+        account: { $ref: "#/components/schemas/AccountId" }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        targetQuantity: { type: integer, minimum: -100000000, maximum: 100000000, description: "Signed units: 100 long, 0 flat, -50 short. Send this or targetLots." }
+        targetLots: { type: integer, minimum: -100000, maximum: 100000, description: Signed lots. }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "MIS and NRML are read as INTRADAY and MARGIN. The position is read for this product." }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M] }
+        price: { type: number, exclusiveMinimum: 0 }
+        triggerPrice: { type: number, exclusiveMinimum: 0 }
+        validity: { type: string, enum: [DAY, IOC] }
+        marketProtectionPct: { type: number, exclusiveMinimum: 0, maximum: 10 }
+        mode: { type: string, enum: [paper, live], default: paper }
+        clientOrderId: { $ref: "#/components/schemas/ClientOrderId" }
+        tag: { type: string, pattern: "^[A-Za-z0-9_-]{1,20}$" }
+        algoId: { type: string, maxLength: 32 }
+        confirmToken: { type: string }
+        dryRun: { type: boolean, default: false, description: Work everything out and run the checks; place nothing. }
+        openOrders:
+          type: string
+          enum: [refuse, ignore]
+          default: refuse
+          description: "refuse: an open order of the Bridge in this symbol and product that can change the position is STATE_CONFLICT (a resting SL or SL-M order does not count). ignore: size against the position only."
+      oneOf:
+        - required: [targetQuantity]
+          not: { required: [targetLots] }
+        - required: [targetLots]
+          not: { required: [targetQuantity] }
+    TargetOrderResult:
+      type: object
+      required: [account, symbol, product, mode, currentQuantity, targetQuantity, delta, action, dryRun, placed, order]
+      properties:
+        account: { $ref: "#/components/schemas/AccountId" }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF] }
+        mode: { type: string, enum: [paper, live] }
+        lotSize: { type: integer }
+        currentQuantity: { type: integer, description: "Signed units held now in this symbol and product." }
+        targetQuantity: { type: integer }
+        delta: { type: integer, description: "targetQuantity minus currentQuantity." }
+        action: { type: string, enum: [BUY, SELL, NONE] }
+        dryRun: { type: boolean }
+        placed: { type: boolean }
+        order: { oneOf: [{ $ref: "#/components/schemas/OrderResult" }, { type: "null" }] }
+        preview: { oneOf: [{ $ref: "#/components/schemas/PreviewResult" }, { type: "null" }], description: "With dryRun when an order would be needed." }
+        otherProducts:
+          type: array
+          description: Positions in this symbol in other products. Reported, never added to currentQuantity.
+          items:
+            type: object
+            properties:
+              product: { type: string }
+              netQty: { type: number }
+        openOrders:
+          type: array
+          description: Open orders of the Bridge in this symbol and product.
+          items:
+            type: object
+            properties:
+              orderId: { type: string }
+              side: { type: string }
+              quantity: { type: integer }
+              filledQuantity: { type: integer }
+              orderType: { type: string }
+              status: { type: string }
+        positionFreshness: { oneOf: [{ $ref: "#/components/schemas/Freshness" }, { type: "null" }] }
+        replayed: { type: boolean, description: True when this is the first answer returned again for the same idempotency key. }
+    OrderBatchRequest:
+      type: object
+      required: [account, orders]
+      additionalProperties: false
+      properties:
+        account: { $ref: "#/components/schemas/AccountId" }
+        orders:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: "Orders as for POST /v1/orders, without `account` (a leg may repeat the batch account, no other)."
+          items: { type: object }
+        stopOnError: { type: boolean, default: false }
+        legOrder: { type: string, enum: [as-sent, buys-first], default: as-sent, description: "Order of sending. Results stay in the order sent." }
+        mode: { type: string, enum: [paper, live], description: "Applies to every leg that does not set its own." }
+    OrderBatchLeg:
+      type: object
+      required: [index, ok, status]
+      properties:
+        index: { type: integer }
+        ok: { type: boolean }
+        status: { type: string, enum: [placed, rejected, outcome_unknown, skipped] }
+        orderId: { type: string }
+        order: { $ref: "#/components/schemas/OrderResult" }
+        replayed: { type: boolean }
+        idempotencyKey: { type: string, description: The request key plus the leg index. }
+        error:
+          type: object
+          required: [code, message, status, retryable]
+          properties:
+            code: { $ref: "#/components/schemas/ErrorCode" }
+            message: { type: string }
+            status: { type: integer }
+            retryable: { type: boolean }
+            errors: { type: array, items: { type: object } }
+            retryAfterMs: { type: integer }
+        reason: { type: string, description: "Skipped legs only." }
+    OrderBatchResult:
+      type: object
+      required: [account, ok, summary, results]
+      properties:
+        account: { $ref: "#/components/schemas/AccountId" }
+        ok: { type: boolean, description: True only when every leg was placed. }
+        summary:
+          type: object
+          required: [total, placed, rejected, outcomeUnknown, skipped]
+          properties:
+            total: { type: integer }
+            placed: { type: integer }
+            rejected: { type: integer }
+            outcomeUnknown: { type: integer, description: "Legs whose outcome is not known: check the order book before sending again." }
+            skipped: { type: integer }
+        stopOnError: { type: boolean }
+        legOrder: { type: string }
+        results: { type: array, items: { $ref: "#/components/schemas/OrderBatchLeg" } }
+        replayed: { type: boolean }
+    MarginBasketRequest:
+      type: object
+      required: [positions]
+      additionalProperties: false
+      properties:
+        account: { $ref: "#/components/schemas/AccountId" }
+        positions:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            required: [symbol, side]
+            additionalProperties: false
+            properties:
+              symbol: { $ref: "#/components/schemas/Symbol" }
+              side: { type: string, enum: [BUY, SELL] }
+              quantity: { type: integer, minimum: 1 }
+              lots: { type: integer, minimum: 1 }
+              product: { type: string, enum: [CNC, INTRADAY, MARGIN, MTF], description: "MIS and NRML are read. Default: INTRADAY for shares, MARGIN for futures and options." }
+              orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M] }
+              price: { type: number, exclusiveMinimum: 0, description: "Default: the last price." }
+      description: "`account` is optional: the account whose broker should answer; without it a paper account the key may use is taken."
+    MarginBasket:
+      type: object
+      required: [total, source, account, legs, asOf]
+      properties:
+        total: { type: number, description: "Rupees, for the basket on its own with hedges between its legs counted." }
+        span: { type: [number, "null"] }
+        exposure: { type: [number, "null"] }
+        hedgeBenefit: { type: [number, "null"], description: "What the legs would need alone, minus total." }
+        source: { type: string, enum: [broker, paper-model] }
+        account: { $ref: "#/components/schemas/AccountId" }
+        legs: { type: integer }
+        asOf: { type: string, format: date-time }
+        note: { type: [string, "null"], description: "Says plainly when the figure is the approximate paper model, and why." }
+        model: { type: [string, "null"] }
+        method: { type: [string, "null"] }
+        breakdown: { type: [object, "null"], description: "paper-model only: premium, span, exposure, calendar, elm." }
+        fallback: { type: array, items: { type: string }, description: "paper-model only: underlyings margined by the simple per-leg rule because no price was available." }
     Ticket:
       type: object
       required: [ticketId, order, source, checks, createdAt, expiresAt]

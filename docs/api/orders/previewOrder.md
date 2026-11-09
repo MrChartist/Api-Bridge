@@ -27,8 +27,8 @@ Required, `application/json`, schema `OrderRequest`. Send exactly one of: `quant
 | `quantity` | integer, min 1 | no | Units; must be a multiple of the lot size. Send this or lots. |
 | `lots` | integer, min 1 | no |  |
 | `lotSizeConfirmed` | integer, min 1 | no | The lot size (units per lot) the caller has checked; used only when reference lot data is stale or conflicts with the master (preview check LOT_SIZE_STALE). |
-| `product` | one of `CNC`, `INTRADAY`, `MARGIN`, `MTF` | yes | No default. |
-| `orderType` | one of `LIMIT`, `MARKET`, `SL`, `SL-M` | yes | No default. |
+| `product` | one of `CNC`, `INTRADAY`, `MARGIN`, `MTF` | yes | No default. `MIS` is read as INTRADAY and `NRML` as MARGIN (case does not matter); the canonical value is in the order and in `meta.normalised`. |
+| `orderType` | one of `LIMIT`, `MARKET`, `SL`, `SL-M` | yes | No default. `MKT`, `SLM` and `SL_M` are read too. |
 | `price` | number, over 0 | no | Required for LIMIT and SL. |
 | `triggerPrice` | number, over 0 | no | Required for SL and SL-M. |
 | `validity` | one of `DAY`, `IOC` | no | Default `"DAY"`. |

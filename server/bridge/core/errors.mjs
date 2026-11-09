@@ -37,6 +37,7 @@ export const ERROR_CODES = Object.freeze({
   NOT_FOUND: { status: 404, title: "Not found", retryable: false },
   ACCOUNT_NOT_FOUND: { status: 404, title: "No account with this id", retryable: false },
   SYMBOL_NOT_FOUND: { status: 404, title: "The symbol could not be resolved", retryable: false },
+  AMBIGUOUS_SYMBOL: { status: 409, title: "The symbol matches more than one instrument. Choose one of the candidates", retryable: false },
   ORDER_NOT_FOUND: { status: 404, title: "No order with this id", retryable: false },
   METHOD_NOT_ALLOWED: { status: 405, title: "Method not allowed", retryable: false },
   IDEMPOTENCY_KEY_REUSED: { status: 409, title: "This idempotency key was already used with different parameters", retryable: false },
@@ -47,6 +48,7 @@ export const ERROR_CODES = Object.freeze({
   CAPABILITY_UNSUPPORTED: { status: 422, title: "This broker does not support this request", retryable: false },
   INVALID_ORDER: { status: 422, title: "The order failed a pre-trade check", retryable: false },
   SESSION_EXPIRED: { status: 422, title: "The broker session has expired. Log in again", retryable: false },
+  POSITION_UNKNOWN: { status: 503, title: "The current position could not be read, so nothing was placed", retryable: true },
   CONFIRMATION_REQUIRED: { status: 422, title: "This order needs a human confirmation first", retryable: false },
   STATE_CONFLICT: { status: 409, title: "The item changed or is busy; read it again", retryable: true },
   // Safety refusals

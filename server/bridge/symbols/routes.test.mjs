@@ -84,12 +84,15 @@ afterAll(async () => {
 });
 
 describe("route table", () => {
-  it("matches the contract: four read-scoped routes", () => {
+  it("matches the contract: seven read-scoped routes", () => {
     expect(ROUTES.map(([m, p, o]) => [m, p, o.scope])).toEqual([
       ["GET", "/v1/instruments/search", "read"],
       ["GET", "/v1/instruments/:symbol", "read"],
       ["GET", "/v1/symbols/convert", "read"],
       ["POST", "/v1/symbols/convert", "read"],
+      ["GET", "/v1/symbols/resolve", "read"],
+      ["GET", "/v1/symbols/validate", "read"],
+      ["POST", "/v1/symbols/validate", "read"],
     ]);
   });
 

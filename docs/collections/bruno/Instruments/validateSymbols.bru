@@ -1,0 +1,33 @@
+meta {
+  name: Check up to 200 symbols in one call
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/symbols/validate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "items": [
+      {
+        "symbol": "NSE:RELIANCE"
+      }
+    ]
+  }
+}
+
+docs {
+  Check up to 200 symbols in one call
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/instruments/validateSymbols.md in the repository.
+}

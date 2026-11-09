@@ -81,3 +81,41 @@ describe("compat quotes and staleness", () => {
   });
 });
 
+describe("compat margin", () => {
+  const answer = { total: 12345.5, span: 9000, exposure: 3345.5, hedgeBenefit: 1000, source: "paper-model", account: "paper", note: "Paper model: approximate." };
+  const withMargin = () => {
+    const calls = [];
+    const d = { ...deps("broker"), orders: { basketMargin: async (c, body) => (calls.push(body), answer) } };
+    return { calls, h: createCompatHandlers(d, { analyzer: true }) };
+  };
+
+  it("answers from the native basket margin, with the source named, instead of an error", async () => {
+    const { calls, h } = withMargin();
+    const r = await h.margin(ctx, { positions: [{ symbol: "NIFTY30DEC25FUT", exchange: "NFO", action: "BUY", product: "NRML", pricetype: "LIMIT", quantity: "75", price: "25000" }] });
+    expect(r).toMatchObject({ status: "success", data: { total_margin_required: 12345.5, span_margin: 9000, exposure_margin: 3345.5, hedge_benefit: 1000, source: "paper-model" } });
+    expect(typeof r.data.total_margin_required).toBe("number");
+    expect(calls[0]).toEqual({ positions: [{ symbol: "NFO:NIFTY-2025-12-30-FUT", side: "BUY", quantity: 75, product: "MARGIN", orderType: "LIMIT", price: 25000 }] });
+  });
+
+  it("MIS with no price is a MARKET leg and an account in the call is passed on", async () => {
+    const { calls, h } = withMargin();
+    await h.margin(ctx, { account: "paper", positions: [{ symbol: "RELIANCE", exchange: "NSE", action: "SELL", quantity: 5 }] });
+    expect(calls[0]).toEqual({ account: "paper", positions: [{ symbol: "NSE:RELIANCE", side: "SELL", quantity: 5, product: "INTRADAY", orderType: "MARKET" }] });
+  });
+
+  it.each([
+    ["no positions", {}],
+    ["an empty list", { positions: [] }],
+    ["a string list", { positions: "x" }],
+    ["more than 50", { positions: Array.from({ length: 51 }, () => ({ symbol: "RELIANCE", exchange: "NSE", action: "BUY", quantity: 1 })) }],
+    ["an entry that is not an object", { positions: [5] }],
+    ["a bad product", { positions: [{ symbol: "RELIANCE", exchange: "NSE", action: "BUY", quantity: 1, product: "COVER" }] }],
+    ["a bad price type", { positions: [{ symbol: "RELIANCE", exchange: "NSE", action: "BUY", quantity: 1, pricetype: "WHATEVER" }] }],
+    ["an overflow quantity as text", { positions: [{ symbol: "RELIANCE", exchange: "NSE", action: "BUY", quantity: "NaN" }] }],
+  ])("%s is refused before anything is calculated", async (_n, body) => {
+    const { calls, h } = withMargin();
+    await expect(h.margin(ctx, body)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(calls).toHaveLength(0);
+  });
+});
+
