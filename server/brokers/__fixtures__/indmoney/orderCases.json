@@ -1,0 +1,32 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error envelope",
+      "source": "https://api-docs.indstocks.com/getting-started/",
+      "reply": {
+        "status": 400,
+        "json": {
+          "status": "error",
+          "message": "Order rejected",
+          "error_type": "OrderException"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://api-docs.indstocks.com/getting-started/",
+    "reply": {
+      "status": 403,
+      "json": {
+        "status": "error",
+        "message": "Token is invalid or expired",
+        "error_type": "TokenException"
+      }
+    }
+  },
+  "stopLoss": {
+    "offered": false,
+    "note": "stop-loss orders exist only as Smart Orders (GTT), which are out of scope, so SL types are refused"
+  }
+}

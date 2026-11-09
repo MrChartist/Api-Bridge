@@ -5535,7 +5535,17 @@ components:
         name: { type: string }
         authKind: { type: string, enum: [apiKeyToken, oauthRedirect, requestTokenExchange, sessionLogin] }
         capabilities: { type: array, items: { type: string } }
-        verified: { type: boolean, description: "Checked end to end against a live account." }
+        verified: { type: boolean, description: "Checked end to end against a live account (verification.level is live-verified)." }
+        verification:
+          type: object
+          description: "Where the broker sits on the verification ladder (server/brokers/verification.json): beta (recorded samples only), contract (every contract case passes), sandbox, live-verified."
+          required: [level, label]
+          properties:
+            level: { type: string, enum: [beta, contract, sandbox, live-verified] }
+            label: { type: string }
+            verifiedOn: { type: [string, "null"], description: "Date of the real-account check (YYYY-MM-DD), or null when it was not recorded. Only for sandbox and live-verified." }
+            verifiedBy: { type: string, description: "Who did the check. Only for sandbox and live-verified." }
+        singleSession: { type: boolean, description: "Present and true when a second login for the same app ends the first session (the dashboard warns before login)." }
         credentialFields: { type: array, items: { type: string }, description: "Keys to send in SessionConnectRequest.values." }
         loginFields:
           type: array
@@ -5930,6 +5940,7 @@ components:
               reason: { type: [string, "null"] }
               modes: { type: object, additionalProperties: { type: integer } }
               reconnects: { type: integer }
+              rebuilds: { type: integer, description: "Times the Bridge itself rebuilt this feed because it was silent during market hours (a half-open connection) or never connected." }
               ticks: { type: integer }
               lastTickAt: { type: [string, "null"], format: date-time }
         downstream:

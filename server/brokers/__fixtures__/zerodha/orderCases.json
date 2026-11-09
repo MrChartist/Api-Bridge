@@ -1,0 +1,76 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "OrderException",
+      "source": "https://kite.trade/docs/connect/v3/user/",
+      "reply": {
+        "status": 400,
+        "json": {
+          "status": "error",
+          "message": "Order rejected",
+          "data": null,
+          "error_type": "OrderException"
+        }
+      }
+    },
+    {
+      "name": "MarginException",
+      "source": "https://kite.trade/docs/connect/v3/user/",
+      "reply": {
+        "status": 400,
+        "json": {
+          "status": "error",
+          "message": "Insufficient funds",
+          "data": null,
+          "error_type": "MarginException"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://kite.trade/docs/connect/v3/user/",
+    "reply": {
+      "status": 403,
+      "json": {
+        "status": "error",
+        "message": "Incorrect `api_key` or `access_token`.",
+        "data": null,
+        "error_type": "TokenException"
+      }
+    }
+  },
+  "cancelVariety": {
+    "source": "https://kite.trade/docs/connect/v3/user/",
+    "note": "A resting stop-loss order is cancelled with its own variety.",
+    "args": [
+      "151220000000000"
+    ],
+    "responses": [
+      {
+        "method": "DELETE",
+        "url": "https://api.kite.trade/orders/regular/151220000000000",
+        "status": 200,
+        "json": {
+          "status": "success",
+          "data": {
+            "order_id": "151220000000000"
+          }
+        }
+      }
+    ],
+    "expectUrl": "/orders/regular/"
+  },
+  "stopLoss": {
+    "source": "https://kite.trade/docs/connect/v3/user/",
+    "expectBody": {
+      "order_type": "SL",
+      "price": "247.35",
+      "trigger_price": "241.8"
+    },
+    "slmExpectBody": {
+      "order_type": "SL-M",
+      "trigger_price": "241.8"
+    }
+  }
+}

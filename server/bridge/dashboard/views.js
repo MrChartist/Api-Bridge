@@ -12,6 +12,8 @@ import { onReconnected } from "./connection.js";
 import { createGetStarted } from "./getstarted.js";
 import { createTelegramCard } from "./telegram-card.js";
 import { keyStepLink } from "./getstarted-core.js";
+import { morningLoginButton } from "./morning.js";
+import { ladderSummary, levelCounts, levelOf, levelRank, levelText, levelTone } from "./morning-core.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, countsLine, finalHookUrl, outcomeView, silentHint, snippets } from "./snippets.js";
 import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
@@ -1224,7 +1226,7 @@ function searchBox(placeholder, label, onInput) {
 function brokerPickRow(b, checked, onPick) {
   const radio = h("input", { type: "radio", name: "add-broker", value: b.id, checked });
   radio.addEventListener("change", () => onPick(b.id));
-  const sub = b.paper ? "Practice with simulated orders, no broker" : `${AUTH_KIND_LABEL[b.authKind] ?? b.authKind} · ${b.verified ? "Verified" : "Beta"}`;
+  const sub = b.paper ? "Practice with simulated orders, no broker" : `${AUTH_KIND_LABEL[b.authKind] ?? b.authKind} · ${levelText(b)}`;
   return h("label", { class: "acct-pick-row" }, radio, b.paper ? iconTile("wallet", "teal") : brokerAvatar(b), h("span", { class: "acct-names" }, h("span", { class: "acct-nm" }, b.name), h("span", { class: "acct-sub" }, sub)), icon("check"));
 }
 
@@ -1293,7 +1295,7 @@ function addBrokerSheet(list, { preselect, accounts = [] } = {}) {
       "div",
       { class: "acct-chosen" },
       b.paper ? iconTile("wallet", "teal") : brokerAvatar(b),
-      h("span", { class: "acct-names" }, h("span", { class: "acct-nm" }, b.name), h("span", { class: "acct-sub" }, b.paper ? "Practice with simulated orders" : `${AUTH_KIND_LABEL[b.authKind] ?? b.authKind} · ${b.verified ? "Verified" : "Beta"}`)),
+      h("span", { class: "acct-names" }, h("span", { class: "acct-nm" }, b.name), h("span", { class: "acct-sub" }, b.paper ? "Practice with simulated orders" : `${AUTH_KIND_LABEL[b.authKind] ?? b.authKind} · ${levelText(b)}`)),
       h("button", { type: "button", class: "small plain", "aria-label": `Change broker, now ${b.name}`, onclick: () => go1() }, "Change"),
     );
   const need = (b) => {
@@ -1591,8 +1593,9 @@ function loginSheet(a, broker) {
     body: h(
       "div",
       { class: "stack" },
-      h("div", { class: "acct-chosen" }, brokerAvatar(broker), h("span", { class: "acct-names" }, h("span", { class: "acct-nm" }, broker.name), h("span", { class: "acct-sub" }, `${AUTH_KIND_LABEL[broker.authKind] ?? broker.authKind} · ${broker.verified ? "Verified" : "Beta"}`)), pill(st.text, st.tone)),
+      h("div", { class: "acct-chosen" }, brokerAvatar(broker), h("span", { class: "acct-names" }, h("span", { class: "acct-nm" }, broker.name), h("span", { class: "acct-sub" }, `${AUTH_KIND_LABEL[broker.authKind] ?? broker.authKind} · ${levelText(broker)}`)), pill(st.text, st.tone)),
       h("ol", { class: "acct-help" }, spec.help.map((t) => h("li", {}, t))),
+      broker.singleSession ? alertBox({ title: "This login ends your other session", detail: "This broker allows one session per app. Logging in here ends any session you already have open for it, for example in another tool." }, "warn") : null,
       spec.fields.length ? form : alertBox({ title: "Nothing to type", detail: "This broker needs no fields." }, "info"),
       result,
       h("details", { class: "acct-more" }, h("summary", {}, "Prefer the terminal?"), h("div", { class: "stack" }, h("p", { class: "muted small" }, "With the Bridge running, this asks for the same fields with hidden input:"), codeBlock(`${cliHint()} accounts connect ${a.id} --key <your admin key>`))),
@@ -1701,8 +1704,7 @@ const CATALOG_FIRST = 9;
  * It shows the first few and "Show all"; any search or filter shows every match.
  */
 function brokerCatalog(list, ctx) {
-  const real = realBrokers(list).sort((a, b) => Number(b.verified) - Number(a.verified));
-  const verified = real.filter((b) => b.verified).length;
+  const real = realBrokers(list).sort((a, b) => levelRank(b) - levelRank(a));
   const state = { status: "all", kind: null, all: false };
   const grid = h("div", { class: "acct-cat", role: "list", "aria-label": "Supported brokers" });
   const count = h("p", { class: "acct-count", role: "status", "aria-live": "polite" });
@@ -1713,7 +1715,7 @@ function brokerCatalog(list, ctx) {
 
   // The chips are built once; picking one only moves aria-pressed, so keyboard focus stays where it is.
   const chipBtn = (text, n, pick) => h("button", { type: "button", class: "chip-btn", "aria-pressed": "false", onclick: pick }, text, h("span", { class: "acct-chip-n" }, formatInt(n)));
-  const statusChips = [["all", "All", real.length], ["verified", "Verified", verified], ["beta", "Beta", real.length - verified]].map(([v, t, n]) => [v, chipBtn(t, n, () => ((state.status = v), draw()))]);
+  const statusChips = [["all", "All", real.length], ...levelCounts(real).map((l) => [l.level, l.text, l.n])].map(([v, t, n]) => [v, chipBtn(t, n, () => ((state.status = v), draw()))]);
   const kindChips = LOGIN_KINDS.filter(kindCount).map((k) => [k, chipBtn(AUTH_KIND_LABEL[k], kindCount(k), () => ((state.kind = state.kind === k ? null : k), draw()))]);
   chips.append(
     h("div", { class: "acct-filter-group", role: "group", "aria-label": "Show" }, statusChips.map(([, b]) => b)),
@@ -1736,11 +1738,11 @@ function brokerCatalog(list, ctx) {
       "div",
       { class: "acct-tile", role: "listitem" },
       brokerAvatar(b),
-      h("div", { class: "acct-names" }, h("span", { class: "acct-nm" }, b.name, b.verified ? pill("Verified", "ok") : null), h("span", { class: "acct-sub", title: brokerLine(b) }, brokerLine(b))),
+      h("div", { class: "acct-names" }, h("span", { class: "acct-nm" }, b.name, levelOf(b) === "beta" ? null : pill(levelText(b), levelTone(b))), h("span", { class: "acct-sub", title: brokerLine(b) }, brokerLine(b))),
       h("button", { type: "button", class: "small tinted", "aria-label": `${app.state.demo ? "Set up" : "Add"} a ${b.name} account`, onclick: () => ctx.add(b.id) }, app.state.demo ? "Set up" : "Add"),
     );
   function draw() {
-    const rows = real.filter((b) => brokerMatches(b, search.input.value) && (state.status === "all" || (state.status === "verified") === Boolean(b.verified)) && (!state.kind || b.authKind === state.kind));
+    const rows = real.filter((b) => brokerMatches(b, search.input.value) && (state.status === "all" || levelOf(b) === state.status) && (!state.kind || b.authKind === state.kind));
     const filtered = activeFilter();
     const shown = filtered || state.all ? rows : rows.slice(0, CATALOG_FIRST);
     syncChips();
@@ -1815,7 +1817,7 @@ async function renderAccounts() {
     "acct-h-accounts",
     "Your accounts",
     null,
-    h("div", { class: "row nowrap" }, h("a", { class: "btn small tinted acct-connect", href: "#/connect" }, icon("plug"), "Connect a tool"), excel, addBtn(accs.length ? "primary small" : "tinted small")),
+    h("div", { class: "row nowrap" }, h("a", { class: "btn small tinted acct-connect", href: "#/connect" }, icon("plug"), "Connect a tool"), morningLoginButton({ accounts: accs, brokers: list, loginSheet }), excel, addBtn(accs.length ? "primary small" : "tinted small")),
     accs.length
       ? h("div", { class: "list acct-list", role: "list", "aria-labelledby": "acct-h-accounts" }, rows)
       : h("div", { class: "card" }, emptyState("accounts", "No accounts yet", "Add your broker to get started: choose it, then log in with its API details. It takes a minute.", addBtn("primary"))),
@@ -1825,7 +1827,7 @@ async function renderAccounts() {
   const catalog = acctSection(
     "acct-h-brokers",
     "Supported brokers",
-    `Dhan is verified with a live account. The others are in beta: tested against recorded broker responses.${demo ? " In demo mode, Set up saves a broker for your next normal start." : ""}`,
+    `${ladderSummary(list.filter((b) => b.id !== "demo"))}${demo ? " In demo mode, Set up saves a broker for your next normal start." : ""}`,
     null,
     list.length ? brokerCatalog(list, ctx) : h("div", { class: "card" }, h("div", { class: "acct-retry" }, retryBox({ title: "The list of brokers did not load", detail: brokers.error?.message ?? "Try again in a moment." }, "the broker list"))),
   );

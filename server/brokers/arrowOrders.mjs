@@ -14,7 +14,7 @@
  * Every real-money call is wrapped with withOrderGate(); no route mints Arrow gates today.
  */
 
-import { BrokerInputError, ORDER_BOOK_HINT, withOrderGate } from "./contract.mjs";
+import { BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { arrowFetch } from "./arrowAuth.mjs";
 import { fromArrowExchange, toArrowExchange, isDerivativeExchange } from "./arrowInstruments.mjs";
 
@@ -107,7 +107,7 @@ export function buildModifyBody(orderId, changes) {
 async function placeOrderImpl(creds, order, resolvedLotSize) {
   const json = await arrowFetch(creds, "/order/regular", { method: "POST", body: buildOrderBody(order, resolvedLotSize), what: "place order" });
   const orderId = String(json?.data?.orderNo ?? "");
-  if (!orderId) throw new BrokerInputError(`Arrow accepted the request but returned no order number. ${ORDER_BOOK_HINT}`);
+  if (!orderId) throw new OrderIdMissingError("Arrow accepted the request but returned no order number.");
   // Placement returns only the order number; the state is unknown until the order book is read.
   return { orderId, orderStatus: "UNKNOWN" };
 }

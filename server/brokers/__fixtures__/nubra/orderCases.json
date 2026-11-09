@@ -1,0 +1,30 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error body",
+      "source": "https://nubra.io/products/api/docs/rest-api-v3/authentication.html",
+      "reply": {
+        "status": 400,
+        "json": {
+          "error": "Order rejected",
+          "nubra_error_code": "ORDER_REJECTED"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://nubra.io/products/api/docs/rest-api-v3/authentication.html",
+    "reply": {
+      "status": 440,
+      "json": {
+        "error": "Session expired, invalid or no longer usable",
+        "nubra_error_code": "SESSION_EXPIRED"
+      }
+    }
+  },
+  "stopLoss": {
+    "offered": false,
+    "note": "the adapter sends LIMIT orders only"
+  }
+}

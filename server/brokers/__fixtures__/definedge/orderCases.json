@@ -1,0 +1,26 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "status ERROR",
+      "source": "https://github.com/Definedge-Securities/pyintegrate (official Definedge client, MIT): integrate/connect.py, data.py, orders.py",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "ERROR",
+          "message": "Order rejected by RMS"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://github.com/Definedge-Securities/pyintegrate (official Definedge client, MIT): integrate/connect.py, data.py, orders.py",
+    "reply": {
+      "status": 200,
+      "json": {
+        "status": "ERROR",
+        "message": "Session Expired"
+      }
+    }
+  }
+}

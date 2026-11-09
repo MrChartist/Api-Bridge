@@ -2,9 +2,9 @@
 
 The Bridge can read option chains, quotes, history and your portfolio from **41 Indian brokers**, and can hold several accounts per broker. Broker keys are saved encrypted on your own machine (`data/secrets.enc`, sealed with the master key) and go only from the Bridge to the broker over HTTPS. Passwords, PINs, MPINs and TOTP codes are never stored: a session login uses them once and keeps only the session token the broker returns.
 
-**Verification status.** Only **Dhan** has been verified end to end with a live account. Every other broker is **beta: not yet verified with a live account**. Each adapter was written from the broker's official API documentation and is tested against recorded sample responses (`server/brokers/__fixtures__/`), with no network calls in tests. Please check figures against your broker before relying on them, and report what you find.
+**Verification status.** Every broker sits on a four-step ladder: beta (recorded samples only), contract-tested (every contract case passes), sandbox-verified and live-verified (checked with a real account, with the date and who did it). The level of each broker is recorded in `server/brokers/verification.json`; the counts and tables in [Verification ladder](#verification-ladder) below are generated from that file and from the tests, so they cannot drift from the code. Only a broker marked Live-verified has been checked end to end with a real account. Each adapter was written from the broker's official API documentation and is tested against recorded sample responses (`server/brokers/__fixtures__/`), with no network calls in tests. Please check figures against your broker before relying on them, and report what you find; [broker-verification.md](broker-verification.md) explains how to help verify a broker.
 
-**Orders.** Every adapter except Axis Direct (read-only) has order methods, and each is wrapped in an order gate that refuses without a valid, single-use, broker-bound gate. In the Bridge, orders are **paper by default**. A live order needs every opt-in described in the README's safety model (live mode on in the config, the account marked live, an `orders:live` key, and the safety guard passing), and live order mapping is wired only for **Dhan** (verified), **Zerodha** and **Upstox** (beta, a warning on every live order). For every other broker the Bridge answers live orders with a clear "use paper mode" error. The "Orders" column below describes the adapter itself.
+**Orders.** Every adapter except Axis Direct (read-only) has order methods, and each is wrapped in an order gate that refuses without a valid, single-use, broker-bound gate. In the Bridge, orders are **paper by default**. A live order needs every opt-in described in the README's safety model (live mode on in the config, the account marked live, an `orders:live` key, and the safety guard passing), and live order mapping is wired only for **Dhan** (verified), **Zerodha** and **Upstox** (not yet verified with a live account, so a warning on every live order). For every other broker the Bridge answers live orders with a clear "use paper mode" error. The "Orders" column below describes the adapter itself.
 
 **Rate limits.** Each broker's documented limits are in `server/bridge/ratelimit/brokerPolicies.mjs`, with a source link and a `verified` flag per number (summary in [Limits, live feed and data plans](#limits-live-feed-and-data-plans) below). Where a broker publishes no limit (Goodwill, Bigul, Profitmart, Axis Direct and several older adapters), the Bridge uses conservative defaults: 1 request a second for quotes, depth, history and chains, 2 a second for portfolio calls, 5 a second for orders. `GET /v1/limits` shows the table the running Bridge uses.
 
@@ -15,46 +15,46 @@ The capability columns are generated from each adapter's declared `capabilities`
 | Broker | id | Sign-in (auth kind) | Option chain | Quotes | Live feed | Portfolio | Orders | Official docs | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | Dhan | `dhan` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | Live | Full | Live (armed) | [docs](https://dhanhq.co/docs/v2/) | Verified with a live account |
-| 5paisa | `fivepaisa` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://xstream.5paisa.com/dev-docs/) | Beta: not yet verified with a live account |
-| 5paisa (XTS) | `fivepaisaxts` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api/) | Beta: not yet verified with a live account |
+| 5paisa | `fivepaisa` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://xstream.5paisa.com/dev-docs/) | Contract-tested: not yet verified with a live account |
+| 5paisa (XTS) | `fivepaisaxts` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api/) | Contract-tested: not yet verified with a live account |
 | Alice Blue | `aliceblue` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://ant.aliceblueonline.com/productdocumentation/) | Beta: not yet verified with a live account |
-| Anand Rathi (Algozy, XTS) | `anandrathi` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://algozy.rathi.com/doc/interactive/) | Beta: not yet verified with a live account |
-| Angel One (SmartAPI) | `angelone` | Session login (`sessionLogin`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://smartapi.angelone.in/docs) | Beta: not yet verified with a live account |
-| Arrow | `arrow` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://docs.arrow.trade/) | Beta: not yet verified with a live account |
-| Axis Direct (RAPID APIs) | `axisdirect` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | — | Partial | No | [docs](https://documenter.getpostman.com/view/33771924/2sA3BkasEf) | Beta: not yet verified with a live account |
-| Bigul (Bigul Connect) | `bigul` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://connect.bigul.co/docs) | Beta: not yet verified with a live account |
-| Composite Edge (XTS) | `compositedge` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api/) | Beta: not yet verified with a live account |
-| Definedge Securities (INTEGRATE) | `definedge` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://www.definedgesecurities.com/api-documentation/) | Beta: not yet verified with a live account |
-| Firstock | `firstock` | Session login (`sessionLogin`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://firstock.in/api/docs/) | Beta: not yet verified with a live account |
-| Flattrade (Pi) | `flattrade` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://pi.flattrade.in/docs) | Beta: not yet verified with a live account |
-| Fyers | `fyers` | OAuth login (`oauthRedirect`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://fyers.in/api-docs/v3/) | Beta: not yet verified with a live account |
-| Goodwill (GWC) | `goodwill` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | Live | Full | Blocked | [docs](https://developer.gwcindia.in/api/) | Beta: not yet verified with a live account |
+| Anand Rathi (Algozy, XTS) | `anandrathi` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://algozy.rathi.com/doc/interactive/) | Contract-tested: not yet verified with a live account |
+| Angel One (SmartAPI) | `angelone` | Session login (`sessionLogin`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://smartapi.angelone.in/docs) | Contract-tested: not yet verified with a live account |
+| Arrow | `arrow` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://docs.arrow.trade/) | Contract-tested: not yet verified with a live account |
+| Axis Direct (RAPID APIs) | `axisdirect` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | — | Partial | No | [docs](https://documenter.getpostman.com/view/33771924/2sA3BkasEf) | Contract-tested: not yet verified with a live account |
+| Bigul (Bigul Connect) | `bigul` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://connect.bigul.co/docs) | Contract-tested: not yet verified with a live account |
+| Composite Edge (XTS) | `compositedge` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api/) | Contract-tested: not yet verified with a live account |
+| Definedge Securities (INTEGRATE) | `definedge` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://www.definedgesecurities.com/api-documentation/) | Contract-tested: not yet verified with a live account |
+| Firstock | `firstock` | Session login (`sessionLogin`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://firstock.in/api/docs/) | Contract-tested: not yet verified with a live account |
+| Flattrade (Pi) | `flattrade` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://pi.flattrade.in/docs) | Contract-tested: not yet verified with a live account |
+| Fyers | `fyers` | OAuth login (`oauthRedirect`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://fyers.in/api-docs/v3/) | Contract-tested: not yet verified with a live account |
+| Goodwill (GWC) | `goodwill` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | Live | Full | Blocked | [docs](https://developer.gwcindia.in/api/) | Contract-tested: not yet verified with a live account |
 | Groww | `groww` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://groww.in/trade-api/docs/curl) | Beta: not yet verified with a live account |
 | HDFC Securities (InvestRight) | `hdfcsecurities` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://developer.hdfcsec.com) | Beta: not yet verified with a live account |
-| HDFC Sky (HDFC Securities) | `hdfcsky` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://developer.hdfcsky.com/sky-docs/docs/intro) | Beta: not yet verified with a live account |
-| ICICI Direct (Breeze) | `icicidirect` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://api.icicidirect.com/breezeapi/documents/index.html) | Beta: not yet verified with a live account |
-| IIFL Capital | `iiflcapital` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://developers.iiflcapital.com/apidocs/introduction) | Beta: not yet verified with a live account |
-| IIFL Securities (XTS) | `iifl` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://ttblaze.iifl.com/doc/interactive/) | Beta: not yet verified with a live account |
-| IndiaBulls Securities (XTS) | `ibulls` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api/) | Beta: not yet verified with a live account |
-| IndMoney (INDstocks) | `indmoney` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://api-docs.indstocks.com/getting-started/) | Beta: not yet verified with a live account |
-| Jainam (XTS) | `jainamxts` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-market-data-front-end-api/) | Beta: not yet verified with a live account |
+| HDFC Sky (HDFC Securities) | `hdfcsky` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://developer.hdfcsky.com/sky-docs/docs/intro) | Contract-tested: not yet verified with a live account |
+| ICICI Direct (Breeze) | `icicidirect` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://api.icicidirect.com/breezeapi/documents/index.html) | Contract-tested: not yet verified with a live account |
+| IIFL Capital | `iiflcapital` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://developers.iiflcapital.com/apidocs/introduction) | Contract-tested: not yet verified with a live account |
+| IIFL Securities (XTS) | `iifl` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://ttblaze.iifl.com/doc/interactive/) | Contract-tested: not yet verified with a live account |
+| IndiaBulls Securities (XTS) | `ibulls` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api/) | Contract-tested: not yet verified with a live account |
+| IndMoney (INDstocks) | `indmoney` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://api-docs.indstocks.com/getting-started/) | Contract-tested: not yet verified with a live account |
+| Jainam (XTS) | `jainamxts` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-market-data-front-end-api/) | Contract-tested: not yet verified with a live account |
 | Kotak Securities (Neo) | `kotak` | Session login (`sessionLogin`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://github.com/Kotak-Neo/Kotak-neo-api-v2) | Beta: not yet verified with a live account |
-| Motilal Oswal | `motilal` | Session login (`sessionLogin`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://invest.motilaloswal.com/moAPI/APIDocumentation/Introduction) | Beta: not yet verified with a live account |
-| mStock (Mirae Asset) | `mstock` | Session login (`sessionLogin`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://tradingapi.mstock.com/docs/v1/typeB/User/) | Beta: not yet verified with a live account |
-| Nuvama Nubra | `nubra` | Session login (`sessionLogin`) | Broker Greeks | Quotes + depth | — | Partial | Blocked | [docs](https://nubra.io/products/api/docs/rest-api-v3/index.html) | Beta: not yet verified with a live account |
-| Paytm Money | `paytm` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://developer.paytmmoney.com/) | Beta: not yet verified with a live account |
-| Pocketful | `pocketful` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes | Live | Full | Blocked | [docs](https://api.pocketful.in/docs/curl) | Beta: not yet verified with a live account |
-| Profitmart (ProfitMax API) | `profitmart` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://profitmax.profitmart.in/ApiDocs/docs/intro) | Beta: not yet verified with a live account |
-| RMoney (XTS) | `rmoney` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api-v2/) | Beta: not yet verified with a live account |
-| Rupeezy (Vortex) | `rupeezy` | One-time code (`requestTokenExchange`) | Broker Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://vortex.rupeezy.in/docs/latest/) | Beta: not yet verified with a live account |
-| SAMCO Securities (StockNote) | `samco` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://docs-tradeapi.samco.in/) | Beta: not yet verified with a live account |
-| Shoonya (Finvasia) | `shoonya` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://shoonya.com/api-documentation) | Beta: not yet verified with a live account |
-| Tradejini (CubePlus) | `tradejini` | Session login (`sessionLogin`) | Broker Greeks | Quotes | Live | Full | Blocked | [docs](https://developer.tradejini.com/docs) | Beta: not yet verified with a live account |
-| TradeSmart (Noren v2) | `tradesmart` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://apidocs.tradesmartonline.in/v2/) | Beta: not yet verified with a live account |
-| Upstox | `upstox` | OAuth login (`oauthRedirect`) | Broker Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://upstox.com/developer/api-documentation/) | Beta: not yet verified with a live account |
-| Wisdom Capital (XTS) | `wisdom` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api-v2/) | Beta: not yet verified with a live account |
-| Zebu (Mynt) | `zebu` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://zebumyntapi.web.app/OAuth/Authentication/) | Beta: not yet verified with a live account |
-| Zerodha (Kite) | `zerodha` | OAuth login (`oauthRedirect`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://kite.trade/docs/connect/v3/) | Beta: not yet verified with a live account |
+| Motilal Oswal | `motilal` | Session login (`sessionLogin`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://invest.motilaloswal.com/moAPI/APIDocumentation/Introduction) | Contract-tested: not yet verified with a live account |
+| mStock (Mirae Asset) | `mstock` | Session login (`sessionLogin`) | Computed Greeks | Quotes | — | Full | Blocked | [docs](https://tradingapi.mstock.com/docs/v1/typeB/User/) | Contract-tested: not yet verified with a live account |
+| Nuvama Nubra | `nubra` | Session login (`sessionLogin`) | Broker Greeks | Quotes + depth | — | Partial | Blocked | [docs](https://nubra.io/products/api/docs/rest-api-v3/index.html) | Contract-tested: not yet verified with a live account |
+| Paytm Money | `paytm` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://developer.paytmmoney.com/) | Contract-tested: not yet verified with a live account |
+| Pocketful | `pocketful` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes | Live | Full | Blocked | [docs](https://api.pocketful.in/docs/curl) | Contract-tested: not yet verified with a live account |
+| Profitmart (ProfitMax API) | `profitmart` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://profitmax.profitmart.in/ApiDocs/docs/intro) | Contract-tested: not yet verified with a live account |
+| RMoney (XTS) | `rmoney` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api-v2/) | Contract-tested: not yet verified with a live account |
+| Rupeezy (Vortex) | `rupeezy` | One-time code (`requestTokenExchange`) | Broker Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://vortex.rupeezy.in/docs/latest/) | Contract-tested: not yet verified with a live account |
+| SAMCO Securities (StockNote) | `samco` | API key / token (`apiKeyToken`) | Broker Greeks | Quotes + depth | — | Full | Blocked | [docs](https://docs-tradeapi.samco.in/) | Contract-tested: not yet verified with a live account |
+| Shoonya (Finvasia) | `shoonya` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://shoonya.com/api-documentation) | Contract-tested: not yet verified with a live account |
+| Tradejini (CubePlus) | `tradejini` | Session login (`sessionLogin`) | Broker Greeks | Quotes | Live | Full | Blocked | [docs](https://developer.tradejini.com/docs) | Contract-tested: not yet verified with a live account |
+| TradeSmart (Noren v2) | `tradesmart` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://apidocs.tradesmartonline.in/v2/) | Contract-tested: not yet verified with a live account |
+| Upstox | `upstox` | OAuth login (`oauthRedirect`) | Broker Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://upstox.com/developer/api-documentation/) | Contract-tested: not yet verified with a live account |
+| Wisdom Capital (XTS) | `wisdom` | API key / token (`apiKeyToken`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://symphonyfintech.com/xts-trading-front-end-api-v2/) | Contract-tested: not yet verified with a live account |
+| Zebu (Mynt) | `zebu` | One-time code (`requestTokenExchange`) | Computed Greeks | Quotes + depth | — | Full | Blocked | [docs](https://zebumyntapi.web.app/OAuth/Authentication/) | Contract-tested: not yet verified with a live account |
+| Zerodha (Kite) | `zerodha` | OAuth login (`oauthRedirect`) | Computed Greeks | Quotes + depth | Live | Full | Blocked | [docs](https://kite.trade/docs/connect/v3/) | Contract-tested: not yet verified with a live account |
 
 ### Legend
 
@@ -63,6 +63,113 @@ The capability columns are generated from each adapter's declared `capabilities`
 - **Live feed**: *Live* means a streaming WebSocket feed is wired; *—* means data is polled over REST.
 - **Portfolio**: *Full* is positions, holdings, funds, order book and trade book; *Partial* lacks at least one of them (Nubra has no trade-book endpoint in its REST V3 docs; Axis Direct's published collection has no usable order-book or trade-book rows).
 - **Orders**: *Blocked* means the order code is built and gated, and in the Bridge only paper orders are available for it; *Armed* (Dhan) means live orders are verified (in the Bridge, behind the live opt-ins); *No* means the adapter has no order methods. Zerodha and Upstox show *Blocked* here but have beta live mapping in the Bridge (see Orders above).
+
+<!-- verification:start (generated by scripts/generate-broker-verification.mjs, do not edit) -->
+### Verification ladder
+
+41 brokers: 4 beta, 36 contract-tested, 0 sandbox-verified, 1 live-verified. The levels, from `server/brokers/verification.json`:
+
+- **Beta** (`beta`): Recorded samples only. The adapter was written from the broker's documentation and tested against recorded sample replies; it has not touched a real broker, and at least one contract case is still missing.
+- **Contract-tested** (`contract`): Every contract case passes with none missing: the shared adapter harness and the order-safety cases (refusals, lost replies, stop-loss mapping, session-ended replies) on recorded replies. Still no real broker.
+- **Sandbox-verified** (`sandbox`): Checked against the broker's own sandbox or paper environment, with the evidence recorded. Needs a complete contract level first.
+- **Live-verified** (`live-verified`): Checked end to end with a real account, with the date and who did it recorded. Needs a complete contract level first.
+
+To move a broker up the ladder, follow [broker-verification.md](broker-verification.md).
+
+| Broker | id | Level | Verified on | By | Order cases missing |
+|---|---|---|---|---|---|
+| Alice Blue | `aliceblue` | Beta | n/a | n/a | Refusal |
+| Anand Rathi (Algozy, XTS) | `anandrathi` | Contract-tested | n/a | n/a | none |
+| Angel One (SmartAPI) | `angelone` | Contract-tested | n/a | n/a | none |
+| Arrow | `arrow` | Contract-tested | n/a | n/a | none |
+| Axis Direct (RAPID APIs) | `axisdirect` | Contract-tested | n/a | n/a | no order methods |
+| Bigul (Bigul Connect) | `bigul` | Contract-tested | n/a | n/a | none |
+| Composite Edge (XTS) | `compositedge` | Contract-tested | n/a | n/a | none |
+| Definedge Securities (INTEGRATE) | `definedge` | Contract-tested | n/a | n/a | none |
+| Dhan | `dhan` | Live-verified | not recorded | project maintainer | none |
+| Firstock | `firstock` | Contract-tested | n/a | n/a | none |
+| 5paisa | `fivepaisa` | Contract-tested | n/a | n/a | none |
+| 5paisa (XTS) | `fivepaisaxts` | Contract-tested | n/a | n/a | none |
+| Flattrade (Pi) | `flattrade` | Contract-tested | n/a | n/a | none |
+| Fyers | `fyers` | Contract-tested | n/a | n/a | none |
+| Goodwill (GWC) | `goodwill` | Contract-tested | n/a | n/a | none |
+| Groww | `groww` | Beta | n/a | n/a | Session ended |
+| HDFC Securities (InvestRight) | `hdfcsecurities` | Beta | n/a | n/a | Refusal, Session ended |
+| HDFC Sky (HDFC Securities) | `hdfcsky` | Contract-tested | n/a | n/a | none |
+| IndiaBulls Securities (XTS) | `ibulls` | Contract-tested | n/a | n/a | none |
+| ICICI Direct (Breeze) | `icicidirect` | Contract-tested | n/a | n/a | none |
+| IIFL Securities (XTS) | `iifl` | Contract-tested | n/a | n/a | none |
+| IIFL Capital | `iiflcapital` | Contract-tested | n/a | n/a | none |
+| IndMoney (INDstocks) | `indmoney` | Contract-tested | n/a | n/a | none |
+| Jainam (XTS) | `jainamxts` | Contract-tested | n/a | n/a | none |
+| Kotak Securities (Neo) | `kotak` | Beta | n/a | n/a | Refusal, Session ended |
+| Motilal Oswal | `motilal` | Contract-tested | n/a | n/a | none |
+| mStock (Mirae Asset) | `mstock` | Contract-tested | n/a | n/a | none |
+| Nuvama Nubra | `nubra` | Contract-tested | n/a | n/a | none |
+| Paytm Money | `paytm` | Contract-tested | n/a | n/a | none |
+| Pocketful | `pocketful` | Contract-tested | n/a | n/a | none |
+| Profitmart (ProfitMax API) | `profitmart` | Contract-tested | n/a | n/a | none |
+| RMoney (XTS) | `rmoney` | Contract-tested | n/a | n/a | none |
+| Rupeezy (Vortex) | `rupeezy` | Contract-tested | n/a | n/a | none |
+| SAMCO Securities (StockNote) | `samco` | Contract-tested | n/a | n/a | none |
+| Shoonya (Finvasia) | `shoonya` | Contract-tested | n/a | n/a | none |
+| Tradejini (CubePlus) | `tradejini` | Contract-tested | n/a | n/a | none |
+| TradeSmart (Noren v2) | `tradesmart` | Contract-tested | n/a | n/a | none |
+| Upstox | `upstox` | Contract-tested | n/a | n/a | none |
+| Wisdom Capital (XTS) | `wisdom` | Contract-tested | n/a | n/a | none |
+| Zebu (Mynt) | `zebu` | Contract-tested | n/a | n/a | none |
+| Zerodha (Kite) | `zerodha` | Contract-tested | n/a | n/a | none |
+
+### Order-safety contract cases
+
+Every adapter with order methods is run against these cases on recorded replies (no network). A refused or id-less reply must never come back as a placed order, a lost reply must be sent once and read as an unknown outcome, a stop-loss must carry its trigger price, and the broker's own "session ended" reply must log the account out.
+
+`needs fixture` means the broker's documented payload for that case has not been recorded yet. It is a gap, shown on purpose, and the broker stays at Beta until it is filled. `n/a` means the broker has no such call or the adapter does not offer it.
+
+| Broker | No order id | Garbled reply | Lost reply | Refusal | Stop-loss | Cancel variety | Session ended |
+|---|---|---|---|---|---|---|---|
+| Alice Blue | pass | pass | pass | needs fixture | pass | n/a | pass |
+| Anand Rathi (Algozy, XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| Angel One (SmartAPI) | pass | pass | pass | pass | pass | pass | pass |
+| Arrow | pass | pass | pass | pass | pass | n/a | pass |
+| Axis Direct (RAPID APIs) | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| Bigul (Bigul Connect) | pass | pass | pass | pass | pass | n/a | pass |
+| Composite Edge (XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| Definedge Securities (INTEGRATE) | pass | pass | pass | pass | pass | n/a | pass |
+| Dhan | pass | pass | pass | pass | pass | n/a | pass |
+| Firstock | pass | pass | pass | pass | pass | n/a | pass |
+| 5paisa | pass | pass | pass | pass | pass | n/a | pass |
+| 5paisa (XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| Flattrade (Pi) | pass | pass | pass | pass | pass | n/a | pass |
+| Fyers | pass | pass | pass | pass | pass | n/a | pass |
+| Goodwill (GWC) | pass | pass | pass | pass | pass | n/a | pass |
+| Groww | pass | pass | pass | pass | pass | n/a | needs fixture |
+| HDFC Securities (InvestRight) | pass | pass | pass | needs fixture | pass | n/a | needs fixture |
+| HDFC Sky (HDFC Securities) | pass | pass | pass | pass | pass | n/a | pass |
+| IndiaBulls Securities (XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| ICICI Direct (Breeze) | pass | pass | pass | pass | pass | n/a | pass |
+| IIFL Securities (XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| IIFL Capital | pass | pass | pass | pass | pass | n/a | pass |
+| IndMoney (INDstocks) | pass | pass | pass | pass | n/a | n/a | pass |
+| Jainam (XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| Kotak Securities (Neo) | pass | pass | pass | needs fixture | pass | n/a | needs fixture |
+| Motilal Oswal | pass | pass | pass | pass | pass | n/a | pass |
+| mStock (Mirae Asset) | pass | pass | pass | pass | pass | pass | pass |
+| Nuvama Nubra | pass | pass | pass | pass | n/a | n/a | pass |
+| Paytm Money | pass | pass | pass | pass | pass | n/a | pass |
+| Pocketful | pass | pass | pass | pass | pass | n/a | pass |
+| Profitmart (ProfitMax API) | pass | pass | pass | pass | pass | n/a | pass |
+| RMoney (XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| Rupeezy (Vortex) | pass | pass | pass | pass | pass | n/a | pass |
+| SAMCO Securities (StockNote) | pass | pass | pass | pass | pass | n/a | pass |
+| Shoonya (Finvasia) | pass | pass | pass | pass | pass | n/a | pass |
+| Tradejini (CubePlus) | pass | pass | pass | pass | pass | n/a | pass |
+| TradeSmart (Noren v2) | pass | pass | pass | pass | pass | n/a | pass |
+| Upstox | pass | pass | pass | pass | pass | n/a | pass |
+| Wisdom Capital (XTS) | pass | pass | pass | pass | pass | n/a | pass |
+| Zebu (Mynt) | pass | pass | pass | pass | pass | n/a | pass |
+| Zerodha (Kite) | pass | pass | pass | pass | pass | pass | pass |
+<!-- verification:end -->
 
 ## Limits, live feed and data plans
 

@@ -15,7 +15,7 @@
  *  (converting market orders to protected limits is the alternative). Flagged for live verification.
  */
 
-import { BrokerInputError, withOrderGate } from "./contract.mjs";
+import { BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { requireClientId, skyRequest } from "./hdfcskyClient.mjs";
 import { fetchRawOrders, orderStatusOf } from "./hdfcskyPortfolio.mjs";
 
@@ -116,7 +116,7 @@ async function placeOrderImpl(creds, order, resolvedLotSize) {
   const clientId = requireClientId(creds);
   const json = await skyRequest(creds, "POST", "/oapi/v1/orders", { params: { client_id: clientId }, body: buildOrderBody(clientId, order, resolvedLotSize) });
   const orderId = String(json?.data?.oms_order_id ?? "");
-  if (!orderId) throw new BrokerInputError("HDFC Sky did not return an order id.");
+  if (!orderId) throw new OrderIdMissingError("HDFC Sky did not return an order id.");
   return { orderId, orderStatus: "OPEN" };
 }
 

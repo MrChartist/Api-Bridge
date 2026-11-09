@@ -1,0 +1,28 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "status Failure",
+      "source": "https://docs-tradeapi.samco.in/session/generate-token.html",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "Failure",
+          "statusMessage": "Order rejected",
+          "errorCode": "ORD001"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://docs-tradeapi.samco.in/session/generate-token.html",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "Failure",
+        "statusMessage": "Invalid or expired session token",
+        "errorCode": "EOAUTH001"
+      }
+    }
+  }
+}

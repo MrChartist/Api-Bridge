@@ -1,0 +1,26 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "status false on HTTP 200",
+      "source": "https://connect.bigul.co/docs#url_source_mapping (client base URL https://capi.bigul.co/api/v1, source CLIENT)",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": false,
+          "message": "Order rejected by RMS"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://connect.bigul.co/docs#url_source_mapping (client base URL https://capi.bigul.co/api/v1, source CLIENT)",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": false,
+        "message": "Invalid or expired token"
+      }
+    }
+  }
+}

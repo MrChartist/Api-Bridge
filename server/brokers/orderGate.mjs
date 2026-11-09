@@ -18,7 +18,7 @@
  * guard, not an authority boundary: the authority is the server-side arm session that decides `liveArmed`.
  */
 
-import { OrderGateError } from "./contract.mjs";
+import { OrderGateError, OrderIdMissingError } from "./contract.mjs";
 
 export const ORDER_GATE_TTL_MS = 5000;
 export const ORDER_GATED = Symbol.for("mrc.broker.orderGated");
@@ -56,7 +56,11 @@ export function withOrderGate(action, fn, { brokerId } = {}) {
   const gated = async function gatedOrderCall(...args) {
     const gate = args.length > 0 ? args[args.length - 1] : undefined;
     consumeOrderGate(gate, { action, brokerId });
-    return fn(...args.slice(0, -1));
+    const ack = await fn(...args.slice(0, -1));
+    // A new order is only "placed" when the broker named it. Every adapter goes through here, so an empty reply, an
+    // HTML page or `{}` can never come back as a placed order (it becomes OUTCOME_UNKNOWN in the Bridge).
+    if (action === "placeOrder" && !(typeof ack?.orderId === "string" && ack.orderId.trim() !== "")) throw new OrderIdMissingError();
+    return ack;
   };
   Object.defineProperty(gated, ORDER_GATED, { value: action });
   return gated;

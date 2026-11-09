@@ -78,6 +78,8 @@
       "headings": [
         "Capability table",
         "Legend",
+        "Verification ladder",
+        "Order-safety contract cases",
         "Limits, live feed and data plans",
         "What the brokers' terms say about pooling",
         "Sign-in methods",
@@ -1509,12 +1511,25 @@
         "5. Session login (password/PIN + current TOTP)",
         "6. Fixtures and the harness",
         "7. Current status",
-        "8. Per-broker checklist (copy into your PR description)"
+        "8. Per-broker checklist (copy into your PR description)",
+        "Order-safety rules every adapter is held to"
       ],
       "kind": "doc",
       "path": "docs/broker-contract.md",
       "text": "How every one of the 41 broker adapters in server/brokers/ should look, how to prove it, and what each broker engineer fills in. The code is the source of truth: server/brokers/contract.mjs (with orderGate.mjs), contractShapes.mjs, contractHarness.mjs and sessionLogin.mjs. Dhan...",
       "title": "Broker adapter contract (v1)"
+    },
+    {
+      "headings": [
+        "A. Close the gaps (no account needed)",
+        "B. Check against a sandbox or a real account",
+        "What to redact before you share results",
+        "Record it"
+      ],
+      "kind": "doc",
+      "path": "docs/broker-verification.md",
+      "text": "Every broker adapter sits on a four-step ladder. The level of each one is recorded in server/brokers/verification.json and shown in the dashboard, in GET /v1/brokers (verification.level) and in the generated tables of BROKERS.md. beta and contract are rewritten by node...",
+      "title": "Verify a broker"
     },
     {
       "headings": [

@@ -16,6 +16,9 @@ How every one of the 41 broker adapters in `server/brokers/` should look, how to
 | `server/brokers/orderGate.mjs` | `withOrderGate`, `issueOrderGate`, `consumeOrderGate`, `isOrderGated`. |
 | `server/brokers/contractShapes.mjs` | `check*` shape validators (one per capability) and `toOptionData` (converts an option-chain result into rows sorted by strike). |
 | `server/brokers/contractHarness.mjs` | `loadFixtures`, `createFetchStub`, `runContractHarness`, `runLoginContract`, `harnessFailures`. |
+| `server/brokers/contractOrderCases.mjs` | Order-safety cases run for every adapter on its recorded sample: a reply with no order id, a garbled reply, a lost reply (sent once, read as an unknown outcome), the broker's documented refusal, stop-loss and cancel-variety mapping, and the documented session-ended reply. Fixtures: `__fixtures__/<id>/orderCases.json`. Missing ones show as `needs fixture` in BROKERS.md. |
+| `server/brokers/errorGuard.mjs` | Tags an adapter's own "session ended" wording (via its `normaliseError`) with a session code before the Bridge sees it, so the account shows "login needed" and reads fail fast. |
+| `server/brokers/verification.json` | The verification ladder (beta, contract, sandbox, live-verified) per broker. See [broker-verification.md](broker-verification.md). |
 | `server/brokers/sessionLogin.mjs` | Helpers for session-login adapters (`readTotpCode`, `requireFields`, `sessionFromCreds`, `nextIstMidnightMs`) and the session-login handler and rate limiter. |
 | `server/brokers/__fixtures__/<id>/` | `manifest.json` + one `<capability>.json` per declared capability (+ `login.json` for session login). |
 | `server/brokers/contract.test.mjs` | The harness proven on Dhan, plus gate and `validateAdapter` rules. Also checks that **all 41** adapters pass the lenient contract. |
@@ -196,3 +199,12 @@ Tests and fixtures
 Sources (required before merge; see section 0)
 - [ ] Every fact is cited to the broker's official docs, SDK or Postman collection, or flagged for live verification
 ```
+
+## Order-safety rules every adapter is held to
+
+- `placeOrder` never returns an order without an order id. `withOrderGate` checks this for every adapter; an empty reply, an HTML page or `{}` becomes `OrderIdMissingError` (code `ORDER_ID_MISSING`), which the Bridge reads as an unknown outcome and reconciles from the order book. Throw it (not `BrokerInputError`) when a reply carries no id.
+- A refusal in the reply body (including HTTP 200 with an error body) must throw a `BrokerError`.
+- A lost reply or a timeout must throw after exactly one send. No adapter retries an order call.
+- A stop-loss order must carry its trigger price (and, for stop-loss limit, its limit price). A cancel of a stop-loss order must carry that order's own variety where the broker takes one.
+- The broker's documented "session ended" reply must end up as `SESSION_LOGIN_REQUIRED` or `UPSTREAM_AUTH`, either on the thrown error or through the adapter's `normaliseError`.
+- An adapter whose login ends the first session when a second login happens (the XTS family) sets `capabilities.auth.singleSession: true`; the dashboard warns before login.

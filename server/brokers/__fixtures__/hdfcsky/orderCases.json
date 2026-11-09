@@ -1,0 +1,30 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error body",
+      "source": "https://developer.hdfcsky.com/sky-docs/docs/intro",
+      "reply": {
+        "status": 400,
+        "json": {
+          "status": "error",
+          "message": "Order rejected",
+          "error_code": 44000,
+          "data": {}
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://developer.hdfcsky.com/sky-docs/docs/intro",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "error",
+        "message": "Request Unauthorised",
+        "error_code": 40000,
+        "data": {}
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "Not_Ok reply on HTTP 200",
+      "source": "https://profitmax.profitmart.in/ApiDocs/docs/Login%20And%20User%20Details/OAuth%20Flow",
+      "reply": {
+        "status": 200,
+        "json": {
+          "stat": "Not_Ok",
+          "request_time": "10:48:03 20-05-2020",
+          "emsg": "Error Occurred : 2 \"invalid input\" "
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://profitmax.profitmart.in/ApiDocs/docs/Login%20And%20User%20Details/OAuth%20Flow",
+    "reply": {
+      "status": 200,
+      "json": {
+        "stat": "Not_Ok",
+        "emsg": "Session Expired : Invalid Session Key"
+      }
+    }
+  },
+  "stopLoss": {
+    "source": "https://profitmax.profitmart.in/ApiDocs/docs/Login%20And%20User%20Details/OAuth%20Flow",
+    "expectBody": {
+      "prctyp": "SL-LMT",
+      "prc": "247.35",
+      "trgprc": "241.8"
+    },
+    "slmExpectBody": {
+      "prctyp": "SL-MKT",
+      "trgprc": "241.8"
+    }
+  }
+}

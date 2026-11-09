@@ -1,0 +1,28 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error body",
+      "source": "https://vortex.rupeezy.in/docs/latest/authentication/",
+      "reply": {
+        "status": 400,
+        "json": {
+          "status": "error",
+          "code": "e-103",
+          "message": "Order rejected"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://vortex.rupeezy.in/docs/latest/authentication/",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "error",
+        "code": "e-101",
+        "message": "Unauthorized"
+      }
+    }
+  }
+}

@@ -16,7 +16,7 @@
  *    order book, so both read the order book first (authoritative state, never client input).
  */
 
-import { BrokerInputError, withOrderGate } from "./contract.mjs";
+import { BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { paytmRequest } from "./paytmClient.mjs";
 import { fetchRawOrders, orderStatusOf } from "./paytmPortfolio.mjs";
 
@@ -141,7 +141,7 @@ async function findOrder(creds, orderId) {
 async function placeOrderImpl(creds, order, resolvedLotSize) {
   const json = await paytmRequest(creds, "POST", "/orders/v1/place/regular", buildOrderBody(order, resolvedLotSize));
   const orderId = firstOrderNo(json);
-  if (!orderId) throw new BrokerInputError("Paytm Money did not return an order number.");
+  if (!orderId) throw new OrderIdMissingError("Paytm Money did not return an order number.");
   return { orderId, orderStatus: "OPEN" };
 }
 

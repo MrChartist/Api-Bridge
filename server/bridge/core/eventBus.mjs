@@ -12,6 +12,8 @@
  *  stream.status       { accountId, broker, connected, state: "up"|"stale"|"down", detail?, reason?, subscriptions }
  *  account.status      { accountId, broker, session: "connected"|"expired"|"missing"|"error", expiresAt?, message? }
  *  account.session_rejected { accountId, broker, code }   scheduler saw a session error; AccountManager marks it expired
+ *  account.login_needed { accountId, label, broker, method, reason, kind, endsAt? }   morning reminder (accounts/morningLogin.mjs):
+ *                        reason missing|expired|error|ends_before_close, kind preopen|ending_soon; no secrets, label only
  *  order.updated       { orderId, clientOrderId?, accountId, mode, status, brokerStatus?, filledQuantity, avgPrice?, source,
  *                        realisedPnl? }   realisedPnl: P&L realised by this fill (paper), for daily-loss tracking
  *  order.outcome_unknown { orderId, accountId, clientOrderId?, since }
@@ -42,6 +44,7 @@ export const TOPICS = Object.freeze([
   "stream.status",
   "account.status",
   "account.session_rejected",
+  "account.login_needed",
   "order.updated",
   "order.outcome_unknown",
   "safety.kill_switch",

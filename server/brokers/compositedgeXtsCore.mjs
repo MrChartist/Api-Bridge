@@ -988,7 +988,7 @@ export function createXtsBroker(cfg) {
 /** The capability descriptor shared by the three XTS adapters (auth kind differs per broker). */
 export function xtsCapabilities(authKind) {
   return Object.freeze({
-    auth: { kind: authKind },
+    auth: { kind: authKind, singleSession: true }, // XTS allows one session per app key pair: a second login ends the first (header)
     testConnection: true,
     instruments: true,
     expiries: true,

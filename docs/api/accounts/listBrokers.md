@@ -37,7 +37,9 @@ Capabilities come from each adapter's declared contract; limits from the Bridge'
 | `name` | string | yes |  |
 | `authKind` | one of `apiKeyToken`, `oauthRedirect`, `requestTokenExchange`, `sessionLogin` | yes |  |
 | `capabilities` | array of string | yes |  |
-| `verified` | boolean | yes | Checked end to end against a live account. |
+| `verified` | boolean | yes | Checked end to end against a live account (verification.level is live-verified). |
+| `verification` | object | no | Where the broker sits on the verification ladder (server/brokers/verification.json): beta (recorded samples only), contract (every contract case passes), sandbox, live-verified. |
+| `singleSession` | boolean | no | Present and true when a second login for the same app ends the first session (the dashboard warns before login). |
 | `credentialFields` | array of string | no | Keys to send in SessionConnectRequest.values. |
 | `loginFields` | array of object | no | sessionLogin brokers only: keys to send in SessionConnectRequest.secrets (used once, never stored). |
 | `tokenExpiry` | string or null | no | When the broker's session usually ends, as the broker documents it. |

@@ -1565,7 +1565,7 @@ html[data-early="login"][data-demo-hint] #login-demo[hidden] { display: flex; }
 .acct-caps-box > .group-label { padding: 0; }
 .acct-sheet .kv dd { font-family: var(--font-body); font-size: 14px; }
 .acct-actions .list-row { min-height: 56px; }
-.acct-actions .list-row .sub { white-space: normal; overflow: visible; }
+.acct-actions .list-row .sub, .mn-sheet .list-row .sub { white-space: normal; overflow: visible; }
 .acct-actions .list-row .icon-tile { width: 30px; height: 30px; }
 
 /* Step-by-step guides (Add a broker in demo mode, after a save). */
