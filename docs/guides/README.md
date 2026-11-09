@@ -20,6 +20,8 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [excel-sheets.md](excel-sheets.md) | Excel `WEBSERVICE`, Power Query, Google Sheets |
 | [mcp.md](mcp.md) | Claude Desktop, Claude Code, Cursor (MCP) |
 | [chatgpt-openai.md](chatgpt-openai.md) | ChatGPT and OpenAI function calling |
+| [expose-alerts.md](expose-alerts.md) | Letting TradingView alerts and a Google Sheet reach the Bridge through a tunnel or proxy without exposing the dashboard: `mc-bridge expose`, the safe layout, provider recipes, tests |
+| [vps.md](vps.md) | A hardened VPS recipe: firewall, systemd or Docker, reaching the dashboard, static IP registration and change planning, updating, backups |
 | [deployment.md](deployment.md) | Static IP for live orders (ISP, VPS, VPN), the daily login and the trading-readiness badge |
 | [safety.md](safety.md) | Paper and live modes, keys, limits, kill switch, audit |
 | [compliance.md](compliance.md) | SEBI, exchange and broker rules that shape the design (with needs-verification flags) |

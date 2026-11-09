@@ -29,8 +29,10 @@ broker's current rules before you rely on it. See also [compliance.md](complianc
 | (c) A VPN or exit node with a dedicated IP | Route the Bridge's traffic through a VPN that gives you your own fixed exit address | The broker sees the **exit** address, so register that one. Split tunnels can send broker traffic another way: check |
 
 **Never put a public tunnel (ngrok, Cloudflare Tunnel and similar) in front of a Bridge that holds `live` keys.** A
-tunnel does not give the broker a fixed address, and it exposes your API to the internet. Webhooks have their own
-token-protected public ingress for that ([webhooks.md](webhooks.md)).
+tunnel does not give the broker a fixed address (it is inbound only: orders still leave from the computer the Bridge runs
+on), and a tunnel to the main port exposes your API to the internet. TradingView alerts and Google Sheets have their own
+narrow public listeners for that, with a wizard and a check: [expose-alerts.md](expose-alerts.md). A hardened server
+recipe is in [vps.md](vps.md).
 
 ## 3. Register the address with your broker, then tell the Bridge
 

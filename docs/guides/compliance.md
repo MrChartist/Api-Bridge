@@ -65,10 +65,13 @@ Bridge limits what it can reach, but you decide whether to trust it ([sources.md
 
 The Bridge itself never opens a public data endpoint, but **you can**. The Google Sheets route
 ([integrations/google-sheets/README.md](../../integrations/google-sheets/README.md), [excel-sheets.md](excel-sheets.md))
-asks you to put a tunnel in front of the main API so Google's servers can fetch prices. Be clear about what that means:
+needs a tunnel so Google's servers can fetch prices. Point it at the optional **Sheets listener**
+(`server.sheetsIngress`, set up by `mc-bridge expose sheets`, [expose-alerts.md](expose-alerts.md)), which serves only
+`GET /xl/*` for read-only keys; never at the main API. Be clear about what that means:
 
-- A tunnel to the main API **is a public endpoint**. Anyone who learns its URL and a key can read your market data,
-  positions and orders list. A read key can also engage the kill switch (it cannot cancel orders).
+- A tunnel **is a public endpoint**. Anyone who learns its URL and a read key can read what `/xl` serves (market data and
+  read-only account views). On the main port a read key would reach far more, and can also engage the kill switch (it cannot
+  cancel orders): that is why the separate listener exists.
 - Your broker's market data then passes through a third party's servers (Google, and the tunnel provider). Broker data
   terms, such as Kite Connect's personal-use clause, may not allow redistribution to, or storage on, third-party
   servers, even for your own sheet (**needs verification per broker**). You carry that risk; if your broker's terms

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `mc-bridge expose` lets TradingView alerts or a Google Sheet reach the Bridge through a tunnel or proxy in one step
+  (alerts or sheets; Cloudflare, ngrok, Caddy or a plain port forward): it writes the listener, its own host list, the
+  caller-address header and an optional TradingView sender allowlist, prints the provider commands and what to paste,
+  and `expose check` proves that only the intended routes answer (the optional call to your public address needs
+  `--allow-outbound`). Restart the Bridge afterwards. New optional Sheets listener `server.sheetsIngress` (GET `/xl/*`,
+  read-only keys, own hosts, request cap). `mc-bridge doctor` gains exposure checks with a fix each and `--strict`;
+  `GET /v1/expose` and `POST /v1/expose/check` feed an Expose card in Integrations. Guides: expose-alerts.md, vps.md;
+  recipes in `deploy/expose/`.
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the
