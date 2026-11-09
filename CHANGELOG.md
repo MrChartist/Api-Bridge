@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Backup and restore: `mc-bridge backup [--out FILE] [--include-secrets]`, `backup list`, `backup verify FILE` and
+  `mc-bridge restore FILE [--dry-run]` (checks every checksum first, refuses while a Bridge runs, keeps a safety copy,
+  swaps atomically). The master key is never in an archive. A copy of the data is made before a new version first
+  starts (`backup.keep`, default 5); an optional daily backup (`backup.schedule`, off by default) reports failures in
+  `/v1/health`, doctor and the bus events `backup.completed` and `backup.failed`. `GET` and `POST /v1/backup`
+  (admin, this computer only), a Backups card on the Safety page, [docs/guides/backup.md](docs/guides/backup.md).
+  The old `backup` config key (data sources, removed in v2) now means this section.
+- The one-line installers download a tagged release and check its SHA-256 against the release's `SHA256SUMS.txt`
+  before installing; they accept `--version` and `--sha256` (`MCB_VERSION`, `MCB_SHA256` on Windows), and the release
+  publishes the source archives, `install.sh`, `install.ps1` and the list. `MCB_REF` is gone.
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the
