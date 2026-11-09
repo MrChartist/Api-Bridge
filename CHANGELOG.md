@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Broker safety and verification: every adapter now runs order-safety cases on recorded replies (no order id, garbled reply,
+  lost reply, documented refusal, stop-loss and cancel-variety mapping, session-ended reply); gaps show as `needs fixture`
+  in the generated tables of docs/BROKERS.md. Fixes found: an order reply without an id can no longer come back as placed
+  (and is an unknown outcome, not a validation failure, for Arrow, Definedge, Nubra, Paytm and both HDFC adapters); mStock
+  cancels a stop-loss order with its own variety; session-ended wording is tagged so the account shows login needed.
+- Broker verification ladder (`beta`, `contract`, `sandbox`, `live-verified`) in `server/brokers/verification.json`;
+  `GET /v1/brokers` carries `verification` and `singleSession`; the broker catalogue badge and counts come from it. How to
+  verify a broker: docs/broker-verification.md.
+- Streams: a feed silent during market hours is rebuilt (`stream.staleRebuildAfterMs`), and one that never connects
+  (`stream.connectTimeoutMs`); `rebuilds` in the stream stats.
+- Morning login: a guided sheet on the Accounts page for every account that needs a login, and the event
+  `account.login_needed` at `morningLogin.remindAt` (default 08:45 IST on trading days).
+
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the

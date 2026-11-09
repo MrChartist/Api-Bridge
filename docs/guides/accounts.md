@@ -89,6 +89,24 @@ requires a daily logout). When a broker rejects a session, the Bridge marks the 
 reads that need it answer `SESSION_EXPIRED` with a plain message. Log in again; nothing else changes. The Bridge never
 stores TOTP secrets and never automates 2FA.
 
+**Morning login.** On the Accounts page, "Morning login" opens one sheet that lists every account that needs a login
+today (and any whose session the broker ends before the 15:30 close), says how each one logs in (session login, one-time
+code, OAuth link or access token), and takes you through them one at a time with a progress count. You type each login as
+usual; the Bridge still never logs in for you or keeps a code. Skip an account to leave it for later.
+
+**Reminder.** On trading days at `morningLogin.remindAt` (default `08:45` IST) the Bridge emits one `account.login_needed`
+event per account that needs a login, and again `warnBeforeEndMinutes` (default 30) before a session that ends before the
+close. The event names the account by its label and how it logs in; it never carries a key or code. Notification
+channels subscribe to it by name.
+
+```json
+"morningLogin": { "enabled": true, "remindAt": "08:45", "warnBeforeEndMinutes": 30 }
+```
+
+**One session per app.** For brokers whose documentation allows only one session per app key (the XTS family), logging in
+again ends the first session, for example one open in another tool. The login sheet warns about it first, and
+`GET /v1/brokers` marks these with `singleSession: true`.
+
 If you change credentials with another tool while the Bridge runs, it notices the change to `data/secrets.enc` and
 reloads.
 
