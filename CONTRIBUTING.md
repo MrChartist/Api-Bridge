@@ -2,7 +2,7 @@
 
 Thanks for helping. The most useful contributions right now are:
 
-- **Broker reports.** Only Dhan is verified with a live account; the other 40 brokers are beta. Trying one in paper mode and telling us what worked is a real help. Use the "New broker / broker report" issue form.
+- **Broker reports.** Only Dhan is verified with a live account; the other 40 brokers are beta. Trying one in paper mode and telling us what worked is a real help. Use the bug report form (it has a field for the broker id) for what you found, or the "New broker request" form for a broker that is missing.
 - **Bug fixes** with a test that fails before the fix.
 - **Docs fixes** wherever something was unclear when you set the Bridge up.
 
@@ -16,7 +16,7 @@ You need Node.js 22.12 or newer (CI runs 22 and 24; the test tools need 22.12) a
 git clone https://github.com/MrChartist/api-bridge-v2.git
 cd api-bridge-v2
 npm ci
-npm start -- --demo --open   # dashboard with demo data, no broker account needed
+npm run dev                  # demo mode: sample data, no broker account needed, opens the dashboard
 ```
 
 Before you open a pull request, run what CI runs:
@@ -26,15 +26,21 @@ npm test                     # vitest, all server tests (no network)
 npm run typecheck
 npm run check:mjs            # node --check on every .mjs file
 npm audit --omit=dev         # runtime dependencies must have no known vulnerabilities
-node --test sdk/node/test/client.test.mjs
-python -m pip install ./sdk/python pytest && python -m pytest sdk/python/tests -q
+node --test sdk/node/test/client.test.mjs                        # Node SDK
+python -m pip install ./sdk/python pytest && python -m pytest sdk/python/tests -q   # Python SDK (pytest, not unittest)
 ```
 
-Tests never touch the network or a real broker: the test run replaces the global `fetch` with a guard (`test/noRealNetwork.mjs`) that allows only requests to this computer and fails any test that tries another host, so inject a fake `fetch` where code takes one. Broker adapters are tested against recorded sample responses in `server/brokers/__fixtures__/`.
+While you work, run one file at a time: `npx vitest run server/bridge/sources/router.test.mjs`.
+
+**Tests never touch the network or a real broker.** The test run replaces the global `fetch` with a guard (`test/noRealNetwork.mjs`) that allows only requests to this computer and fails any test that tries another host, so inject a fake `fetch` where code takes one. Broker adapters are tested against recorded sample responses in `server/brokers/__fixtures__/`, and data sources against fixtures under `server/bridge/sources/providers/__fixtures__/`.
+
+**A test keeps certain names out of the repository.** `server/bridge/core/sources.test.mjs` scans every text file (code, comments, docs, fixtures) and fails if it finds the name of a third-party broker-integration project; facts come from official documentation only, so do not copy from or name such projects. If it fails on your change, remove the name.
+
+To run a Bridge by hand without touching your own data, give it a throwaway folder and a port of your choice: `MCB_HOME=$(mktemp -d) MCB_PORT=4401 node bin/mc-bridge.mjs start --demo`.
 
 ## Ground rules
 
-- **Paper by default.** Nothing may switch live trading on, or bypass a safety check, without every opt-in described in the README's safety model.
+- **Paper by default.** Nothing may switch live trading on, or bypass a safety check, without every opt-in described in the [safety guide](docs/guides/safety.md).
 - **No real data.** No real credentials, tokens, account IDs, client codes, names, PANs or phone numbers anywhere: code, fixtures, logs or screenshots.
 - **Official sources only.** Broker behaviour comes from the broker's official API docs, SDKs or Postman collections, cited in the adapter header and fixture manifest. Anything the docs leave out is marked "needs live verification".
 - **Exact dependency versions.** Runtime dependencies are pinned (`"zod": "4.6.7"`, not `^4.6.7`); CI checks this.
@@ -53,6 +59,16 @@ Read [docs/broker-contract.md](docs/broker-contract.md) first. In short:
 6. Paste the per-broker checklist from section 8 of the contract into your pull request.
 
 Live order mapping for a new broker is only accepted once the broker has been verified with a live account.
+
+## Adding a data source or a plugin
+
+A data source answers read-only market-data questions (quotes, history, expiries, option chains) and labels every answer with its class (`realtime`, `delayed` or `eod`), its delay and whether it is official. It never places orders and never sees broker credentials. Anything that logs in, holds tokens or sends orders is a broker adapter and stays in this repository.
+
+Read [docs/source-contract.md](docs/source-contract.md) first. It covers the descriptor, the provider methods, errors, limits, the plugin protocol, conformance, and (section 9) how to write a built-in provider. Then:
+
+1. For a built-in provider, add `server/bridge/sources/providers/<id>.mjs` (add it to `createBuiltinProviders` in `providers/index.mjs`) with fixtures in `providers/__fixtures__/` and a test that runs `runProviderConformance`. Take `fetch` and the clock as arguments so tests inject fakes, use the vendor's documented limits, and link its terms. Use the vendor's official documentation only.
+2. For a plugin, copy `examples/source-plugin/` (it runs offline) and check yours with `npm run bridge -- sources plugins check <folder>`. Note that this runs the plugin's code.
+3. Update [docs/guides/sources.md](docs/guides/sources.md) (the user-facing guide), the OpenAPI file if a route changes, and `CHANGELOG.md`.
 
 ## Pull requests
 

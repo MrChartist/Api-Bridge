@@ -128,7 +128,7 @@ Wi-Fi cannot reach it unless you deliberately allow that in `bridge.config.json`
 - **Lost the dashboard tab?** Start the Bridge again from its shortcut (or double-click the start file). If it is
   already running, that simply opens the dashboard again, signed in.
 - **Connect your broker:** on the dashboard, open **Accounts**.
-- **Try everything with sample prices:** see [demo mode](../../README.md#try-demo-mode).
+- **Try everything with sample prices:** see [demo mode](quickstart.md).
 - **Update to a new version:** run the same one line again (your settings and data are kept), or download the new ZIP
   and copy your `bridge.config.json` and `data` folder into the new folder.
 
@@ -152,5 +152,5 @@ Wi-Fi cannot reach it unless you deliberately allow that in `bridge.config.json`
 | "This sign-in link has expired or was already used" | Start the Bridge again from its shortcut; it opens a fresh link. |
 | Anything else | Run `mc-bridge doctor` (or, in the download folder, the start file again) and [open an issue](https://github.com/MrChartist/api-bridge-v2/issues) with what it prints. Never paste your keys. |
 
-For developers: `git clone`, `npm ci`, `npm start -- --demo --open`; see the [README](../../README.md#developers).
+For developers: `git clone`, `npm ci`, `npm run dev`; see the [quickstart](quickstart.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md).
 Docker: see the [README](../../README.md#docker).
