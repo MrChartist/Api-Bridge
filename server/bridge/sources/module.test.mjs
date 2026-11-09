@@ -43,12 +43,12 @@ const requestOn = (port) => (path, { method = "GET", headers = {}, body } = {}) 
   });
 };
 
-async function boot({ demo, sources = {} }) {
-  const dataDir = mkdtempSync(join(tmpdir(), "mcb-sources-mod-"));
+async function boot({ demo, sources = {}, audit = fakeAudit, dataDir: givenDir }) {
+  const dataDir = givenDir ?? mkdtempSync(join(tmpdir(), "mcb-sources-mod-"));
   const { config } = loadConfig({ raw: { server: { port: 0 }, dataDir, sources }, env: {}, demo });
   const logLines = [];
   const logger = createLogger({ level: "debug", write: (l) => logLines.push(l) });
-  const app = await createApp({ config, modules: [authModule, sourcesModule], overrides: { audit: fakeAudit }, logger });
+  const app = await createApp({ config, modules: [authModule, sourcesModule], overrides: { audit }, logger });
   const { port } = await app.listen();
   const { key: admin } = await app.deps.keyStore.create({ label: "cli admin", scopes: ["admin"] });
   const { key: read } = await app.deps.keyStore.create({ label: "reader", scopes: ["read"] });
@@ -255,5 +255,84 @@ describe("sources module outside demo mode", () => {
   it("rejects a bad sources config section at boot", async () => {
     const { config } = loadConfig({ raw: { server: { port: 0 }, dataDir: mkdtempSync(join(tmpdir(), "mcb-sources-bad-")), sources: { timeoutMs: 99_999 } }, env: {} });
     await expect(createApp({ config, modules: [authModule, sourcesModule], overrides: { audit: fakeAudit }, logger: createLogger({ level: "error", write: () => {} }) })).rejects.toThrow(/sources\.timeoutMs/);
+  });
+});
+
+describe("PATCH /v1/sources/settings: the automatic fallback switch", () => {
+  const audits = [];
+  const capture = { ...notImplementedService("audit"), append: async (i) => (audits.push(i), { ...i, seq: audits.length }) };
+  const dataDir = mkdtempSync(join(tmpdir(), "mcb-sources-settings-"));
+  let env;
+  beforeAll(async () => {
+    env = await boot({ demo: true, audit: capture, dataDir });
+  });
+  afterAll(async () => {
+    await env?.close();
+  });
+
+  it("is documented as admin and this computer only", () => {
+    const route = env.app.router.list().find((r) => r.method === "PATCH" && r.pattern === "/v1/sources/settings");
+    expect(route.options).toMatchObject({ scope: "admin", loopbackOnly: true });
+  });
+
+  it("starts from the default and says so", async () => {
+    const r = await env.call("/v1/sources");
+    expect(r.json.meta).toMatchObject({ autoFallback: false, autoFallbackSource: "default" });
+  });
+
+  it("needs an admin key and a body of exactly { autoFallback: boolean }", async () => {
+    expect((await env.request("/v1/sources/settings", { method: "PATCH", body: { autoFallback: true } })).status).toBe(401);
+    expect((await env.call("/v1/sources/settings", { method: "PATCH", body: { autoFallback: true }, key: env.read })).status).toBe(403);
+    for (const body of [{}, { autoFallback: "yes" }, { autoFallback: 1 }, { autoFallback: true, extra: 1 }, [true], "x"]) {
+      const r = await env.call("/v1/sources/settings", { method: "PATCH", body });
+      expect(r.status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await env.call("/v1/sources")).json.meta.autoFallbackSource).toBe("default");
+  });
+
+  it("switches it on, shows it in the list, the live service and the audit log, and keeps it across a restart", async () => {
+    const r = await env.call("/v1/sources/settings", { method: "PATCH", body: { autoFallback: true } });
+    expect(r.status).toBe(200);
+    expect(r.json.data).toEqual({ autoFallback: true, autoFallbackSource: "setting", persisted: true });
+    expect(r.json.autoFallback).toBe(true);
+    expect(env.app.deps.backupData.autoFallback()).toBe(true);
+    const list = await env.call("/v1/sources");
+    expect(list.json.meta).toMatchObject({ autoFallback: true, autoFallbackSource: "setting" });
+    expect(audits.at(-1)).toMatchObject({ type: "sources.setting_changed", data: { setting: "autoFallback", from: false, to: true } });
+    expect(JSON.parse(readFileSync(join(dataDir, "sources", "state.json"), "utf8")).settings).toEqual({ autoFallback: true });
+    const second = await boot({ demo: true, dataDir });
+    try {
+      expect((await second.call("/v1/sources")).json.meta).toMatchObject({ autoFallback: true, autoFallbackSource: "setting" });
+      expect(second.app.deps.backupData.autoFallback()).toBe(true);
+    } finally {
+      await second.close();
+    }
+  });
+
+  it("can be switched off again, and the saved choice beats the config file either way", async () => {
+    const off = await env.call("/v1/sources/settings", { method: "PATCH", body: { autoFallback: false } });
+    expect(off.json.data).toMatchObject({ autoFallback: false, autoFallbackSource: "setting" });
+    expect(audits.at(-1).data).toEqual({ setting: "autoFallback", from: true, to: false });
+    const withConfigOn = await boot({ demo: true, dataDir, sources: { autoFallback: true } });
+    try {
+      expect((await withConfigOn.call("/v1/sources")).json.meta).toMatchObject({ autoFallback: false, autoFallbackSource: "setting" });
+    } finally {
+      await withConfigOn.close();
+    }
+  });
+
+  it("without a saved choice the config file decides and the list says so", async () => {
+    const fresh = await boot({ demo: true, sources: { autoFallback: true } });
+    try {
+      expect((await fresh.call("/v1/sources")).json.meta).toMatchObject({ autoFallback: true, autoFallbackSource: "config" });
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  it("is not mistaken for a source id: /v1/sources/settings never reaches the per-source handler", async () => {
+    const r = await env.call("/v1/sources/settings", { method: "PATCH", body: { enabled: true } });
+    expect(r.status).toBe(400);
+    expect(r.raw).toMatch(/autoFallback|Unknown field/);
   });
 });

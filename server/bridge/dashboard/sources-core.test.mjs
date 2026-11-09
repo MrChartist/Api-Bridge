@@ -243,6 +243,27 @@ describe("rows from the Bridge's answers", () => {
     expect(r.map((x) => x.key)).toEqual(["acct:dhan-main", "acct:zerodha-main", "src:demo", "src:demo-delayed"]);
   });
 
+  it("an account that is not logged in says it needs a login, not that it is backing off; a real back-off still wins", () => {
+    const usage = F.usage([F.usageAccount({ id: "dhan-main", healthy: false })]);
+    const [row] = C.buildRows({ usage, labels: { "dhan-main": "Dhan (main)" }, needsLogin: new Set(["dhan-main"]) });
+    expect(row.health).toMatchObject({ state: "setup", word: "Log in needed" });
+    expect(row.health.detail).toMatch(/Log in to Dhan \(main\) on the Accounts page/);
+    const [unknown] = C.buildRows({ usage });
+    expect(unknown.health.state).toBe("backoff");
+    const waiting = C.buildRows({ usage: F.usage([F.usageAccount({ id: "dhan-main", healthy: false, backoffMs: 5000 })]), needsLogin: new Set(["dhan-main"]) });
+    expect(waiting[0].health.state).toBe("backoff");
+    expect(C.pooledRoom([{ ...row, enabled: true }]).notCounted[0].reason).toBe("it needs a login");
+  });
+
+  it("the Overview headline says what is missing when nothing that is on can answer yet", () => {
+    const usage = F.usage([F.usageAccount({ id: "dhan-main", healthy: false })]);
+    const rows = C.buildRows({ usage, labels: { "dhan-main": "Dhan (main)" }, needsLogin: new Set(["dhan-main"]) });
+    const hero = C.heroText({ pool: C.pooledRoom(rows), tone: "calm", rows });
+    expect(hero.sentence).toBe("No source is ready yet");
+    expect(hero.waiting).toBe(true);
+    expect(hero.detail).toMatch(/Dhan \(main\) needs a login before it can answer\. Open Accounts and log in/);
+  });
+
   it("names an account by its label, and takes its data class from the descriptor when the Bridge lists one", () => {
     const r = C.buildRows({ sources: F.sources(), usage: F.usage(), labels: { "dhan-main": "Dhan (main)" } });
     expect(r[0].name).toBe("Dhan (main)");
@@ -579,6 +600,21 @@ describe("pooling", () => {
     const on = C.poolingModel(F.pooling({ on: true }));
     expect(on).toMatchObject({ on: true, inPoolCount: 2 });
     expect(C.poolingModel(null)).toMatchObject({ on: false, groups: [], canPool: false });
+  });
+
+  it("shows the label the person gave each account, and the id when there is none", () => {
+    const m = C.poolingModel(F.pooling());
+    expect(m.groups[0].accounts.map((a) => a.label)).toEqual(["Dhan (main)", "Zerodha (family)", "angel-main"]);
+    const blank = C.poolingModel({ groups: [{ holder: "A", accounts: [{ id: "a-1", label: "   ", broker: "dhan" }, { id: "a-2", broker: "dhan" }] }] });
+    expect(blank.groups[0].accounts.map((a) => a.label)).toEqual(["a-1", "a-2"]);
+  });
+
+  it("says what the automatic fallback switch means in each state, never pointing at a config file to edit", () => {
+    expect(C.fallbackHintText({ on: false, source: "default", anySourceOn: false })).toMatch(/^Off\./);
+    expect(C.fallbackHintText({ on: true, source: "setting", anySourceOn: false })).toMatch(/no free source is turned on/);
+    expect(C.fallbackHintText({ on: true, source: "setting", anySourceOn: true })).toMatch(/sources you turned on/);
+    expect(C.fallbackHintText({ on: true, source: "config", anySourceOn: true })).toMatch(/replaces that setting/);
+    for (const on of [true, false]) expect(C.fallbackHintText({ on, source: "default", anySourceOn: true })).not.toMatch(/set sources\.autoFallback/);
   });
 
   it("a single account or a group with only one choosable account cannot be pooled", () => {

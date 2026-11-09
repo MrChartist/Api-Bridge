@@ -186,9 +186,11 @@ export async function renderQuotas() {
   const intro = h("section", { class: "card" }, h("div", { class: "card-body stack" }, h("p", { class: "sx-q-lead" }, "Every API key has its own quota, so one busy tool cannot use up everyone's room. The numbers below are what each key may ask for, and how much it used."), h("p", { class: "sx-q-default" })));
   const defaultLine = intro.querySelector(".sx-q-default");
   const emptyBox = h("div", { class: "list", hidden: true }, emptyState("keys", "No API keys yet", "Make a key for a tool and its quota appears here.", h("button", { type: "button", class: "primary", onclick: () => (location.hash = "#/api/keys") }, "Create a key")));
+  // Only this dashboard's own key so far: say what will appear and the one thing to do.
+  const toolHint = h("p", { class: "group-foot sx-q-tools", hidden: true }, "Keys you make for tools, such as Excel, a script or an AI assistant, will appear here with their own quota. ", h("a", { href: "#/api/keys" }, "Create a key"), ".");
   const errBox = h("div", { hidden: true });
   const foot = h("p", { class: "group-foot" }, "Select a key to change its quota. Usage updates by itself; a key that is held back often may need a bigger quota or a gentler tool. The key this browser uses also counts this dashboard's own refreshes.");
-  const group = h("section", { class: "group sx-group", "aria-labelledby": "sx-q-h" }, h("h2", { class: "group-title", id: "sx-q-h" }, "Keys and tools"), rowsBox, emptyBox, errBox, foot);
+  const group = h("section", { class: "group sx-group", "aria-labelledby": "sx-q-h" }, h("h2", { class: "group-title", id: "sx-q-h" }, "Keys and tools"), rowsBox, toolHint, emptyBox, errBox, foot);
 
   function createRow(k) {
     const [glyph, tint] = KIND_ICON[k.clientKind] ?? KIND_ICON.other;
@@ -252,6 +254,7 @@ export async function renderQuotas() {
     emptyBox.hidden = keys.length > 0;
     rowsBox.hidden = keys.length === 0;
     foot.hidden = keys.length === 0;
+    toolHint.hidden = !(keys.length > 0 && keys.every((k) => k.keyId === ownKeyId || k.clientKind === "ui"));
     const busy = rowsBox.matches(":hover") || rowsBox.contains(document.activeElement);
     list.sync(keys, { reorder: !busy });
   }

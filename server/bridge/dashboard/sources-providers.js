@@ -4,11 +4,14 @@
 // and test (key-based sources). Keys are sent once and never shown again.
 
 import { alertBox, api, emptyState, h, icon, iconTile, istTime, modal, optional, toast } from "./app.js";
-import { capabilityText, classAdvice, consentProblem, enableSteps, forgetSwitch, poolingModel, providerState, rememberSwitch, shortWait, tierChipText, withSwitches, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
+import { capabilityText, classAdvice, consentProblem, enableSteps, fallbackHintText, forgetSwitch, poolingModel, providerState, rememberSwitch, shortWait, tierChipText, withSwitches, POLICY_NOTE, POLICY_TONE, POLICY_WORD, classLabel } from "./sources-core.js";
 import { brokerTile, classPill, createKeyedList, createPoller, healthTag, labelsHelp, officialBadge, setAttr, setData, setText, updateClassPill } from "./sources-ui.js";
 import { formatInt, plural } from "./format.js";
 
 const isMissing = (err) => err && (err.status === 404 || err.status === 405 || err.status === 501);
+
+const FALLBACK_TITLE = "Use free sources automatically when my brokers cannot answer";
+const FALLBACK_WHY = "Only for display and analysis reads, never for orders, risk checks, paper fills or alerts. Every answer says where it came from and how current it is.";
 
 /** Run `fn`, putting a failure in `slot` as an alert (and returning false). */
 /** Run `fn`; `asked("on")` is called first (the page can show the switch on at once) and `asked("failed")` if it did not work. */
@@ -192,7 +195,7 @@ export function openPoolingSheet(model) {
             "label",
             { class: "list-row sx-pick-row", for: `pool-${a.id}` },
             brokerTile(a.broker, a.broker),
-            h("span", { class: "names" }, h("span", { class: "nm" }, a.id), h("span", { class: "sub sx-wrap" }, POLICY_NOTE[a.policy] ?? "")),
+            h("span", { class: "names" }, h("span", { class: "nm" }, a.label), h("span", { class: "sub sx-wrap" }, POLICY_NOTE[a.policy] ?? "")),
             h("span", { class: `pill ${POLICY_TONE[a.policy]}` }, h("span", { class: "pdot", "aria-hidden": "true" }), POLICY_WORD[a.policy] ?? "Not stated"),
             box,
           );
@@ -362,7 +365,7 @@ export async function renderProviders() {
                 "div",
                 { class: "list-row static sx-acct" },
                 brokerTile(a.broker, a.broker),
-                h("span", { class: "names" }, h("span", { class: "nm" }, a.id), h("span", { class: "sub sx-wrap" }, a.inPool ? "In the pool" : POLICY_NOTE[a.policy] ?? "")),
+                h("span", { class: "names" }, h("span", { class: "nm" }, a.label), h("span", { class: "sub sx-wrap" }, a.inPool ? "In the pool" : POLICY_NOTE[a.policy] ?? "")),
                 h("span", { class: `pill ${POLICY_TONE[a.policy]}` }, h("span", { class: "pdot", "aria-hidden": "true" }), POLICY_WORD[a.policy] ?? "Not stated"),
               ),
             ),
@@ -378,7 +381,43 @@ export async function renderProviders() {
   const list = createKeyedList(grid, { key: (s) => s.id, create: createCard, update: updateCard });
   const gridEmpty = h("div", { class: "list", hidden: true });
   const provFoot = h("p", { class: "group-foot sx-prov-foot" });
-  const fallbackRow = h("p", { class: "sx-fallback", hidden: true });
+  // The one switch for "use free sources automatically": saved by the Bridge (PATCH /v1/sources/settings), so no file is edited.
+  let autoFallbackSource = "default";
+  let fallbackBusy = false;
+  const fallbackInput = h("input", { type: "checkbox", role: "switch", id: "sx-fallback-switch", "aria-labelledby": "sx-fallback-t", "aria-describedby": "sx-fallback-d sx-fallback-h" });
+  const fallbackHint = h("p", { class: "hint sx-fallback-hint", id: "sx-fallback-h", role: "status" });
+  const fallbackErr = h("div", { class: "sx-fallback-err", "aria-live": "polite" });
+  const fallbackRow = h(
+    "div",
+    { class: "sx-fallback", hidden: true },
+    h(
+      "label",
+      { class: "sx-fallback-row", for: "sx-fallback-switch" },
+      h("span", { class: "names" }, h("span", { class: "nm", id: "sx-fallback-t" }, FALLBACK_TITLE), h("span", { class: "sub sx-wrap", id: "sx-fallback-d" }, FALLBACK_WHY)),
+      h("span", { class: "switch" }, fallbackInput, h("i")),
+    ),
+    fallbackHint,
+    fallbackErr,
+  );
+  fallbackInput.addEventListener("change", async () => {
+    const want = fallbackInput.checked;
+    fallbackBusy = true;
+    fallbackInput.disabled = true;
+    fallbackErr.replaceChildren();
+    try {
+      const r = await api("/v1/sources/settings", { method: "PATCH", body: { autoFallback: want } });
+      autoFallback = r.data?.data?.autoFallback ?? want;
+      autoFallbackSource = "setting";
+      toast(autoFallback ? "Automatic fallback is on" : "Automatic fallback is off");
+    } catch (err) {
+      fallbackInput.checked = !want;
+      fallbackErr.replaceChildren(isMissing(err) ? alertBox({ title: "This Bridge cannot change this here", detail: "It is older than this switch. Update the Bridge, or set sources.autoFallback in bridge.config.json and restart it." }, "info") : alertBox(err));
+    } finally {
+      fallbackBusy = false;
+      fallbackInput.disabled = false;
+      paintSources();
+    }
+  });
   const provGroup = h(
     "section",
     { class: "group sx-group", "aria-labelledby": "sx-free-h" },
@@ -556,7 +595,8 @@ export async function renderProviders() {
     list.sync(withSwitches(free), { reorder: false });
     if (typeof autoFallback === "boolean") {
       fallbackRow.hidden = false;
-      setText(fallbackRow, autoFallback ? "Automatic fallback is on: when your brokers cannot answer, the Bridge tries the sources you turned on and labels each answer." : "Automatic fallback is off, so a source you turn on is asked only when a request allows backup data. To use it whenever your brokers cannot answer, set sources.autoFallback to true in bridge.config.json.");
+      if (!fallbackBusy) fallbackInput.checked = autoFallback;
+      setText(fallbackHint, fallbackHintText({ on: autoFallback, source: autoFallbackSource, anySourceOn: free.some((s) => s.enabled) }));
     } else fallbackRow.hidden = true;
     setText(provFoot, free.length ? "The Bridge does not redistribute this data. Use it for yourself only, and follow each vendor's terms." : "");
   }
@@ -579,6 +619,7 @@ export async function renderProviders() {
     if (s.data) {
       sources = s.data.data ?? [];
       autoFallback = s.data.meta?.autoFallback;
+      autoFallbackSource = s.data.meta?.autoFallbackSource ?? "default";
     }
     poolErr = p.error ?? null;
     if (p.data) pool = poolingModel(p.data.data ?? p.data);

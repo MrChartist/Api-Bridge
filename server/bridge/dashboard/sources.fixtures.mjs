@@ -113,8 +113,8 @@ export function pooling({ on = false } = {}) {
       {
         holder: "Your accounts",
         accounts: [
-          { id: "dhan-main", broker: "dhan", poolingPolicy: "unknown", inPool: on },
-          { id: "zerodha-main", broker: "zerodha", poolingPolicy: "unknown", inPool: on },
+          { id: "dhan-main", label: "Dhan (main)", broker: "dhan", poolingPolicy: "unknown", inPool: on },
+          { id: "zerodha-main", label: "Zerodha (family)", broker: "zerodha", poolingPolicy: "unknown", inPool: on },
           { id: "angel-main", broker: "angelone", poolingPolicy: "not-allowed", inPool: false },
         ],
       },

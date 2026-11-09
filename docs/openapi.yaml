@@ -724,7 +724,8 @@ paths:
                       - type: object
                         properties:
                           notice: { type: string, description: "What the Bridge says about sources other than your own broker accounts." }
-                          autoFallback: { type: boolean, description: "True when a read no broker account can answer may go to an enabled source without being asked (config `sources.autoFallback`). When false, a source is used only for a read that asks for `backup=true`." }
+                          autoFallback: { type: boolean, description: "True when a read no broker account can answer may go to an enabled source without being asked (the saved switch, else config `sources.autoFallback`). When false, a source is used only for a read that asks for `backup=true`." }
+                          autoFallbackSource: { type: string, enum: [setting, config, default], description: "Where `autoFallback` comes from: `setting` (the switch in the dashboard or `PATCH /v1/sources/settings`), `config` (`sources.autoFallback` in the configuration file) or `default` (off)." }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -765,6 +766,39 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/RoutingTrace" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sources/settings:
+    patch:
+      tags: [Sources]
+      operationId: updateSourcesSettings
+      summary: Use free sources automatically when your brokers cannot answer
+      description: |
+        `autoFallback: true` lets a read that no broker account can answer go to a source you turned on, without the
+        read asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills
+        and alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the
+        Bridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited
+        (`sources.setting_changed`). Only from this computer.
+      x-stream: S12
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourcesSettingsUpdate" }
+      responses:
+        "200":
+          description: The setting as it is now.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SourcesSettings" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -4855,6 +4889,19 @@ components:
       properties:
         enabled: { type: boolean }
         acknowledge: { type: string, maxLength: 64, description: "The source's `noticeVersion`, to turn on an opt-in source." }
+    SourcesSettingsUpdate:
+      type: object
+      additionalProperties: false
+      required: [autoFallback]
+      properties:
+        autoFallback: { type: boolean, description: "Use free sources automatically when your brokers cannot answer a display or analysis read." }
+    SourcesSettings:
+      type: object
+      required: [autoFallback, autoFallbackSource]
+      properties:
+        autoFallback: { type: boolean }
+        autoFallbackSource: { type: string, enum: [setting, config, default] }
+        persisted: { type: boolean, description: "False when the choice holds for this run but could not be written to the data folder." }
     SourceConfigRequest:
       type: object
       additionalProperties: false
@@ -4925,9 +4972,10 @@ components:
                 type: array
                 items:
                   type: object
-                  required: [id, broker, poolingPolicy, inPool]
+                  required: [id, label, broker, poolingPolicy, inPool]
                   properties:
                     id: { $ref: "#/components/schemas/AccountId" }
+                    label: { type: string, description: "The name you gave the account (its broker's name when you gave none), so a screen need not show the id." }
                     broker: { type: string }
                     poolingPolicy: { type: string, enum: [allowed, not-allowed, unknown], description: "What the broker's published terms say. `not-allowed` is never pooled." }
                     inPool: { type: boolean }

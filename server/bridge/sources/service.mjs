@@ -245,6 +245,25 @@ export function createSourcesService(deps) {
     }
   }
 
+  // ── Runtime settings ──
+  /** The owner's saved choice wins; else the config file's; else the default (off). */
+  function autoFallbackValue() {
+    const saved = state.getSetting?.("autoFallback");
+    return typeof saved === "boolean" ? saved : cfg.autoFallback;
+  }
+  /** Where autoFallback() comes from: "setting" (saved in the dashboard), "config" (bridge.config.json) or "default". */
+  function autoFallbackSource() {
+    if (typeof state.getSetting?.("autoFallback") === "boolean") return "setting";
+    // The config section arrives with its defaults filled in, so only a true can be told apart from "never set".
+    return cfg.autoFallback ? "config" : "default";
+  }
+  /** Save the owner's choice. Returns { autoFallback, autoFallbackSource, persisted }. */
+  function setAutoFallback(value) {
+    if (typeof value !== "boolean") throw new BridgeError("VALIDATION_FAILED", "autoFallback must be true or false.", { errors: [{ path: "autoFallback", message: "must be true or false" }] });
+    const persisted = state.setSetting("autoFallback", value);
+    return { autoFallback: autoFallbackValue(), autoFallbackSource: autoFallbackSource(), persisted };
+  }
+
   // ── Management API ──
   function describe(id) {
     const d = providerOf(id).descriptor;
@@ -552,7 +571,7 @@ export function createSourcesService(deps) {
       const order = eligibleOrderAll();
       return {
         enabled: usable.some((p) => enabledOf(p.descriptor)),
-        autoFallback: cfg.autoFallback,
+        autoFallback: autoFallbackValue(),
         providers: usable.map((p) => {
           const d = p.descriptor;
           return { id: d.id, name: d.name, enabled: enabledOf(d), configured: configuredOf(d), class: d.class, delaySec: d.class === "realtime" ? 0 : (d.delaySec ?? null), official: d.official };
@@ -562,9 +581,9 @@ export function createSourcesService(deps) {
       };
     },
 
-    /** Whether a read no broker could answer may go to a source without being asked (config sources.autoFallback). */
+    /** Whether a read no broker could answer may go to a source without being asked: the owner's saved choice, else config sources.autoFallback. */
     autoFallback() {
-      return cfg.autoFallback;
+      return autoFallbackValue();
     },
   };
 
@@ -583,6 +602,8 @@ export function createSourcesService(deps) {
     // management API
     list: () => registry.list().map((p) => describe(p.descriptor.id)),
     describe,
+    autoFallbackSource,
+    setAutoFallback,
     setEnabled,
     setConfig,
     test,

@@ -3,7 +3,11 @@
  *
  *   { "version": 1, "sources": { "<id>": { "enabled": boolean, "configured": boolean,
  *       "consent": { "acceptedAt": "<ISO>", "noticeVersion": "<string>" } | null,
- *       "disabledAt": "<ISO>" | null } } }
+ *       "disabledAt": "<ISO>" | null } },
+ *     "settings": { "autoFallback"?: boolean } }
+ *
+ * `settings` holds choices that belong to no single source. `autoFallback`, when present, is the owner's runtime choice
+ * for "use free sources when my brokers cannot answer" and wins over the config file (service.mjs); absent means unset.
  *
  * `disabledAt` is when the owner last switched the source off; a source switched off for more than 24 hours needs its
  * notice acknowledged again (service.mjs). This file is TRUSTED LOCAL STATE, not tamper-proof: anyone who can write to the
@@ -42,6 +46,13 @@ function sanitise(raw) {
   return out;
 }
 
+/** Only the known settings with the right type survive a load. */
+function sanitiseSettings(raw) {
+  const out = {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.autoFallback === "boolean") out.autoFallback = raw.autoFallback;
+  return out;
+}
+
 /**
  * @param {{ dataDir: string, logger?: object, clock?: { now(): number } }} opts
  */
@@ -49,6 +60,8 @@ export function createSourceState({ dataDir, logger, clock }) {
   const file = join(dataDir, "sources", "state.json");
   /** @type {Record<string, SourceState>} */
   let sources = {};
+  /** @type {{ autoFallback?: boolean }} */
+  let settings = {};
   let loadedFrom = "new";
 
   function load() {
@@ -57,6 +70,7 @@ export function createSourceState({ dataDir, logger, clock }) {
       const parsed = JSON.parse(readFileSync(file, "utf8"));
       if (!parsed || typeof parsed !== "object" || parsed.version !== STATE_VERSION || !parsed.sources || typeof parsed.sources !== "object") throw new Error("unknown format");
       loadedFrom = "file";
+      settings = sanitiseSettings(parsed.settings);
       return sanitise(parsed.sources);
     } catch (err) {
       loadedFrom = "corrupt";
@@ -73,7 +87,7 @@ export function createSourceState({ dataDir, logger, clock }) {
 
   function save() {
     try {
-      writeFileAtomic(file, `${JSON.stringify({ version: STATE_VERSION, sources }, null, 1)}\n`);
+      writeFileAtomic(file, `${JSON.stringify({ version: STATE_VERSION, sources, settings }, null, 1)}\n`);
       return true;
     } catch (err) {
       logger?.warn?.("sources state could not be saved", { err: err?.message });
@@ -105,6 +119,16 @@ export function createSourceState({ dataDir, logger, clock }) {
       sources[id] = { enabled: next.enabled === true, configured: next.configured === true, consent: cleanConsent(next.consent), disabledAt: cleanTime(next.disabledAt) };
       save();
       return copy(sources[id]);
+    },
+    /** A saved setting, or undefined when the owner never set it. @param {"autoFallback"} name */
+    getSetting(name) {
+      return Object.hasOwn(settings, name) ? settings[name] : undefined;
+    },
+    /** Save a setting. Returns false when the file could not be written (the value still holds for this run). @param {"autoFallback"} name @param {boolean} value */
+    setSetting(name, value) {
+      if (name !== "autoFallback" || typeof value !== "boolean") throw new Error("unknown setting");
+      settings = { ...settings, [name]: value };
+      return save();
     },
     /** @returns {Record<string, SourceState>} a copy of everything saved */
     all() {

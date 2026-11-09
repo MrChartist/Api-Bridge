@@ -328,8 +328,10 @@ export function withSwitches(list, now = Date.now()) {
 }
 
 /** Health of a broker account from a /v1/usage row. */
-export function accountHealth(acct) {
+export function accountHealth(acct, { needsLogin = false, name = "" } = {}) {
   const back = Math.max(0, ...Object.values(acct?.classes ?? {}).map((c) => c.backoffMs ?? 0), acct?.backoffMs ?? 0);
+  // No session yet: the broker is not misbehaving, the account just needs its login (Accounts page).
+  if (needsLogin && back === 0) return { state: "setup", tone: "warn", word: "Log in needed", detail: `Log in to ${name || titleCase(acct?.broker)} on the Accounts page so the Bridge can read prices.`, retryMs: null };
   if (acct?.healthy === false || back > 0) {
     return { state: "backoff", tone: "warn", word: "Backing off", detail: back > 0 ? `${titleCase(acct.broker)} asked us to wait. Trying again in ${shortWait(back)}.` : `${titleCase(acct.broker)} is not answering well. The Bridge is waiting before it asks again.`, retryMs: back || null };
   }
@@ -396,7 +398,7 @@ export function sourceBudgets(src) {
  * /v1/sources, brokers of that list that are already an account are not repeated).
  * @param {{ sources?: object[] | null, usage?: { accounts?: object[] } | null, time?: (iso: string) => string, onlyEnabled?: boolean, labels?: Record<string, string> }} input
  */
-export function buildRows({ sources = null, usage = null, time, onlyEnabled = true, labels = {} } = {}) {
+export function buildRows({ sources = null, usage = null, time, onlyEnabled = true, labels = {}, needsLogin = new Set() } = {}) {
   const rows = [];
   const accounts = usage?.accounts ?? [];
   const accountKeys = new Set();
@@ -404,7 +406,7 @@ export function buildRows({ sources = null, usage = null, time, onlyEnabled = tr
     const b = accountBudgets(a);
     accountKeys.add(a.accountId);
     accountKeys.add(a.broker);
-    const health = accountHealth(a);
+    const health = accountHealth(a, { needsLogin: needsLogin.has(a.accountId), name: labels?.[a.accountId] || a.accountId });
     // What the account's data is comes from its descriptor when the Bridge lists one; a broker account is otherwise real-time.
     const desc = (sources ?? []).find((s) => s.kind === "broker" && (s.id === a.accountId || s.id === a.broker));
     rows.push({
@@ -531,7 +533,7 @@ export function pooledRoom(rows) {
   for (const r of rows) {
     if (!r.enabled) continue;
     if (!contributes(r)) {
-      notCounted.push({ key: r.key, name: r.name, reason: r.health.state === "paused" ? "it is paused" : r.health.state === "backoff" ? "it is backing off" : r.health.state === "setup" ? "it has no key" : r.health.state === "rejected" ? "its key was rejected" : "it is not available" });
+      notCounted.push({ key: r.key, name: r.name, reason: r.health.state === "paused" ? "it is paused" : r.health.state === "backoff" ? "it is backing off" : r.health.state === "setup" ? (r.kind === "account" ? "it needs a login" : "it has no key") : r.health.state === "rejected" ? "its key was rejected" : "it is not available" });
       continue;
     }
     counted.push(r);
@@ -589,6 +591,12 @@ export function heroText({ pool, tone, rows }) {
   const sentence = TONE_SENTENCE[tone] ?? TONE_SENTENCE.calm;
   const counted = pool.counted.length;
   if (!rows.length) return { sentence: "Nothing to measure yet", prefix: "Connect a broker account or turn on a free source and its room shows here.", figure: null, suffix: "", detail: "Connect a broker account or turn on a free source and its room shows here." };
+  // Everything that is on is waiting for something: say what, not "plenty of room".
+  if (!counted && pool.notCounted?.length) {
+    const login = pool.notCounted.every((n) => n.reason === "it needs a login");
+    const text = login ? `${pool.notCounted.map((n) => n.name).join(" and ")} ${pool.notCounted.length === 1 ? "needs" : "need"} a login before ${pool.notCounted.length === 1 ? "it" : "they"} can answer. Open Accounts and log in, or turn on a free source in Providers.` : "No source can answer right now. The list below says why.";
+    return { sentence: "No source is ready yet", prefix: text, figure: null, suffix: "", detail: text, waiting: true };
+  }
   if (!pool.window) return { sentence, prefix: "None of your sources states a call budget, so there is nothing to run out of.", figure: null, suffix: "", detail: "None of your sources states a call budget, so there is nothing to run out of." };
   const unit = pool.window === "minute" ? "this minute" : "today";
   const across = plural(counted, "source");
@@ -885,7 +893,7 @@ export function poolingModel(data) {
   const consent = data?.consent ?? null;
   const groups = (data?.groups ?? []).map((g, i) => ({
     holder: g.holder ?? `Holder ${i + 1}`,
-    accounts: (g.accounts ?? []).map((a) => ({ id: a.id, broker: a.broker, policy: a.poolingPolicy ?? "unknown", inPool: Boolean(a.inPool), choosable: (a.poolingPolicy ?? "unknown") !== "not-allowed" })),
+    accounts: (g.accounts ?? []).map((a) => ({ id: a.id, label: typeof a.label === "string" && a.label.trim() ? a.label.trim() : a.id, broker: a.broker, policy: a.poolingPolicy ?? "unknown", inPool: Boolean(a.inPool), choosable: (a.poolingPolicy ?? "unknown") !== "not-allowed" })),
   }));
   const all = groups.flatMap((g) => g.accounts);
   return {
@@ -897,6 +905,16 @@ export function poolingModel(data) {
     inPoolCount: all.filter((a) => a.inPool).length,
     canPool: groups.some((g) => g.accounts.filter((a) => a.choosable).length >= 2),
   };
+}
+
+/**
+ * The line under the "use free sources automatically" switch: what the state means, and what is still missing.
+ * `source` is where the value comes from (meta.autoFallbackSource of GET /v1/sources).
+ */
+export function fallbackHintText({ on, source, anySourceOn }) {
+  if (on && !anySourceOn) return "On, but no free source is turned on yet, so there is nothing to fall back to. Turn one on below.";
+  if (on) return source === "config" ? "On, set in bridge.config.json. Using this switch replaces that setting." : "On. When your brokers cannot answer, the Bridge tries the sources you turned on.";
+  return "Off. A source you turn on is asked only when a request allows backup data.";
 }
 
 /** Can the consent sheet submit? A tick and at least two chosen accounts, all of one holder. */
