@@ -1,0 +1,25 @@
+meta {
+  name: Order towards a target position size
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/v1/placesmartorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "<apikey>"
+  }
+}
+
+docs {
+  Order towards a target position size
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatPlacesmartorder.md in the repository.
+}

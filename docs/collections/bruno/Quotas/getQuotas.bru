@@ -1,0 +1,28 @@
+meta {
+  name: Each API key's share of the Bridge
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/quotas
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Each API key's share of the Bridge
+
+  - An API key with the `read` scope (any key).
+
+  Every key has a request quota (a token bucket) and a weight in the fair queue, so one runaway spreadsheet cannot
+  starve an AI assistant. `kinds` are the default weights by client kind (`ui`, `mcp`, `excel`, `script`, `other`);
+  `keys[].source` says whether a key's figures are the default, from the configuration, or an override set with
+  `PUT /v1/quotas/{keyId}`. `usage` counts requests and how often the key was throttled.
+
+  Reference: docs/api/quotas/getQuotas.md in the repository.
+}

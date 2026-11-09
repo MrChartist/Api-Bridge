@@ -1,0 +1,27 @@
+meta {
+  name: Quote for one symbol
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/api/v1/quotes
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "symbol": "RELIANCE",
+    "exchange": "NSE"
+  }
+}
+
+docs {
+  Quote for one symbol
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatQuotes.md in the repository.
+}

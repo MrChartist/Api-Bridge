@@ -1,0 +1,32 @@
+meta {
+  name: Cancel an open order
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/v1/orders/:orderId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  orderId: <orderId>
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Cancel an open order
+
+  - An API key with the `paper` scope (or `live`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Reference: docs/api/orders/cancelOrder.md in the repository.
+}

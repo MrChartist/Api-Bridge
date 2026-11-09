@@ -1,0 +1,36 @@
+meta {
+  name: Accept the pooling notice for chosen accounts
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/v1/pooling/consent
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "acknowledge": "<notice version from GET /v1/pooling>",
+    "accounts": [
+      "demo-paper"
+    ]
+  }
+}
+
+docs {
+  Accept the pooling notice for chosen accounts
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  `acknowledge` must equal the current `notice.version`. Only accounts of one holder with a policy other than
+  `not-allowed` are accepted. Only from this computer.
+
+  Reference: docs/api/pooling/acceptPooling.md in the repository.
+}

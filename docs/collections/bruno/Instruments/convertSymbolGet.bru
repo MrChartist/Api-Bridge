@@ -1,0 +1,30 @@
+meta {
+  name: Convert one symbol between formats
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/symbols/convert?input=NSE:RELIANCE
+  body: none
+  auth: bearer
+}
+
+params:query {
+  input: NSE:RELIANCE
+  ~from: auto
+  ~exchange: <exchange>
+  ~broker: <broker>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Convert one symbol between formats
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/instruments/convertSymbolGet.md in the repository.
+}

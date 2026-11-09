@@ -1,0 +1,25 @@
+meta {
+  name: Holdings with statistics
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/v1/holdings
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}"
+  }
+}
+
+docs {
+  Holdings with statistics
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatHoldings.md in the repository.
+}

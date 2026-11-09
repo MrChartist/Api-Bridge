@@ -1,0 +1,30 @@
+meta {
+  name: Remove a key's override
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/v1/quotas/:keyId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  keyId: <keyId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Remove a key's override
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The key goes back to the quota from the configuration, or the default for its client kind.
+
+  Reference: docs/api/quotas/clearQuota.md in the repository.
+}

@@ -1,0 +1,1560 @@
+{
+  "generatedBy": "scripts/gen-docs-index.mjs",
+  "pages": [
+    {
+      "headings": [
+        "Development setup",
+        "Ground rules",
+        "Adding or improving a broker",
+        "Adding a data source or a plugin",
+        "Pull requests"
+      ],
+      "kind": "doc",
+      "path": "CONTRIBUTING.md",
+      "text": "Thanks for helping. The most useful contributions right now are: Broker reports. Only Dhan is verified with a live account; the other 40 brokers are beta. Trying one in paper mode and telling us what worked is a real help. Use the bug report form (it has a field for the broker...",
+      "title": "Contributing"
+    },
+    {
+      "headings": [
+        "What you get",
+        "Five minutes to a first answer",
+        "Docker",
+        "Safety stance",
+        "What it does not do",
+        "Guides",
+        "Contributing and security",
+        "License"
+      ],
+      "kind": "doc",
+      "path": "README.md",
+      "text": "One local API in front of your Indian broker accounts, so every tool you run shares the same connections and stays inside each broker's rate limits. It is for developers, traders and anyone building their own tools (a script, a spreadsheet, an AI assistant, a dashboard) who...",
+      "title": "API Bridge v2"
+    },
+    {
+      "headings": [
+        "Open for contribution"
+      ],
+      "kind": "doc",
+      "path": "ROADMAP.md",
+      "text": "API Bridge v2 is a local connection layer for Indian broker APIs. This file lists the directions the project is open to; day-to-day work is tracked in GitHub issues. Broker verification. Only Dhan is verified with a live account. Trying the other brokers in paper mode and...",
+      "title": "Roadmap"
+    },
+    {
+      "headings": [
+        "Reporting a vulnerability",
+        "Supported versions",
+        "Scope",
+        "Keeping your setup safe"
+      ],
+      "kind": "doc",
+      "path": "SECURITY.md",
+      "text": "The Bridge holds your broker credentials and can place orders, so we take security reports seriously. Please do not open a public issue. Report it privately through GitHub's private vulnerability reporting: Go to the repository's Security tab. Click Report a vulnerability...",
+      "title": "Security policy"
+    },
+    {
+      "headings": [
+        "1. What the Bridge is",
+        "2. Process model",
+        "3. Module map",
+        "4. Request pipeline and data flow",
+        "5. Multi-account model",
+        "6. Rate-limit engine and streaming",
+        "7. Orders and paper trading",
+        "8. Safety and security model",
+        "9. Symbology",
+        "10. Integrations",
+        "11. API conventions",
+        "12. Compliance notes",
+        "13. What we will not do",
+        "14. Configuration and environment",
+        "15. Decisions"
+      ],
+      "kind": "doc",
+      "path": "docs/ARCHITECTURE.md",
+      "text": "Status: v2 design. The code contracts this document describes live in server/bridge/core/ and are enforced by tests; the HTTP contract is openapi.yaml. Anything marked (needs verification) must be checked against a primary source before it ships to users. One local service that...",
+      "title": "Mr. Chartist API Bridge: architecture"
+    },
+    {
+      "headings": [
+        "Capability table",
+        "Legend",
+        "Limits, live feed and data plans",
+        "What the brokers' terms say about pooling",
+        "Sign-in methods",
+        "Notes on the newer beta brokers",
+        "Using a broker through the Bridge"
+      ],
+      "kind": "doc",
+      "path": "docs/BROKERS.md",
+      "text": "The Bridge can read option chains, quotes, history and your portfolio from 41 Indian brokers, and can hold several accounts per broker. Broker keys are saved encrypted on your own machine (data/secrets.enc, sealed with the master key) and go only from the Bridge to the broker...",
+      "title": "Supported brokers"
+    },
+    {
+      "headings": [
+        "paper-margin-portfolio",
+        "optionchain-ivmodel"
+      ],
+      "kind": "doc",
+      "path": "docs/CHANGELOG.md",
+      "text": "API changes that need a migration window. Each entry keeps its anchor so Link headers can point at it. Paper accounts margin F&O legs together per underlying (paper.margin.model, default \"portfolio\"), with the approximate SPAN-like scan in server/bridge/calc/span-margin.js...",
+      "title": "Changelog"
+    },
+    {
+      "headings": [
+        "Start here",
+        "For AI assistants and search",
+        "Reference",
+        "Generated files"
+      ],
+      "kind": "doc",
+      "path": "docs/README.md",
+      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. These pages are for people who run it and people who build on it. Everything here works in demo mode first: sample prices, no broker, paper orders. Quickstart. Five minutes from a fresh clone to a price, a...",
+      "title": "Documentation"
+    },
+    {
+      "headings": [
+        "System",
+        "Accounts",
+        "Keys",
+        "Instruments",
+        "Market data",
+        "Streaming",
+        "Portfolio",
+        "Orders",
+        "Paper",
+        "Limits",
+        "Sources",
+        "Pooling",
+        "Quotas",
+        "Safety",
+        "Readiness",
+        "Spreadsheets",
+        "Webhooks",
+        "AI (MCP)",
+        "Compat REST"
+      ],
+      "kind": "doc",
+      "path": "docs/api/README.md",
+      "text": "117 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "title": "API reference: one page per endpoint"
+    },
+    {
+      "headings": [
+        "POST /v1/accounts"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/addAccount.md",
+      "text": "POST /v1/accounts. Adds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started without one), keeping the file's other content, and starts using it without a restart.",
+      "title": "Add a broker or paper account (saved to the config file, usable at once)"
+    },
+    {
+      "headings": [
+        "POST /v1/accounts/{accountId}/session"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/connectAccount.md",
+      "text": "POST /v1/accounts/{accountId}/session. Saves the non-secret values (API key, client id, access token) encrypted at rest, then logs in where the broker needs it.",
+      "title": "Connect or log in to the broker"
+    },
+    {
+      "headings": [
+        "DELETE /v1/accounts/{accountId}/session"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/disconnectAccount.md",
+      "text": "DELETE /v1/accounts/{accountId}/session.",
+      "title": "Forget the broker session (saved keys stay)"
+    },
+    {
+      "headings": [
+        "GET /v1/accounts/{accountId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/getAccount.md",
+      "text": "GET /v1/accounts/{accountId}.",
+      "title": "One account"
+    },
+    {
+      "headings": [
+        "GET /v1/accounts"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/listAccounts.md",
+      "text": "GET /v1/accounts. Only accounts this key may use are listed.",
+      "title": "Your configured accounts and their session state"
+    },
+    {
+      "headings": [
+        "GET /v1/brokers"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/listBrokers.md",
+      "text": "GET /v1/brokers. Capabilities come from each adapter's declared contract; limits from the Bridge's broker policy table (each number marked verified or not).",
+      "title": "Supported brokers and what each can do"
+    },
+    {
+      "headings": [
+        "DELETE /v1/accounts/{accountId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/removeAccount.md",
+      "text": "DELETE /v1/accounts/{accountId}. For an account added by mistake.",
+      "title": "Remove an account (from the config file and the running Bridge)"
+    },
+    {
+      "headings": [
+        "POST /v1/accounts/{accountId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/testAccount.md",
+      "text": "POST /v1/accounts/{accountId}/test.",
+      "title": "Make one cheap authenticated broker call"
+    },
+    {
+      "headings": [
+        "POST /mcp"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/ai-mcp/mcp.md",
+      "text": "POST /mcp. JSON-RPC 2.0 per the Model Context Protocol.",
+      "title": "MCP Streamable HTTP endpoint for AI assistants"
+    },
+    {
+      "headings": [
+        "POST /api/v1/analyzer"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatAnalyzer.md",
+      "text": "POST /api/v1/analyzer.",
+      "title": "Analyzer (paper) mode status for this key"
+    },
+    {
+      "headings": [
+        "POST /api/v1/analyzer/toggle"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatAnalyzerToggle.md",
+      "text": "POST /api/v1/analyzer/toggle.",
+      "title": "Switch analyzer mode for this key (off needs a live key)"
+    },
+    {
+      "headings": [
+        "POST /api/v1/basketorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatBasketorder.md",
+      "text": "POST /api/v1/basketorder.",
+      "title": "Several orders in one call"
+    },
+    {
+      "headings": [
+        "POST /api/v1/cancelallorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatCancelallorder.md",
+      "text": "POST /api/v1/cancelallorder.",
+      "title": "Cancel every open order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/cancelorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatCancelorder.md",
+      "text": "POST /api/v1/cancelorder.",
+      "title": "Cancel an order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/closeposition"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatCloseposition.md",
+      "text": "POST /api/v1/closeposition.",
+      "title": "Square off every open position"
+    },
+    {
+      "headings": [
+        "POST /api/v1/depth"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatDepth.md",
+      "text": "POST /api/v1/depth.",
+      "title": "Market depth"
+    },
+    {
+      "headings": [
+        "POST /api/v1/expiry"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatExpiry.md",
+      "text": "POST /api/v1/expiry.",
+      "title": "Expiry dates"
+    },
+    {
+      "headings": [
+        "POST /api/v1/funds"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatFunds.md",
+      "text": "POST /api/v1/funds.",
+      "title": "Funds"
+    },
+    {
+      "headings": [
+        "POST /api/v1/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatHistory.md",
+      "text": "POST /api/v1/history.",
+      "title": "Candles"
+    },
+    {
+      "headings": [
+        "POST /api/v1/holdings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatHoldings.md",
+      "text": "POST /api/v1/holdings.",
+      "title": "Holdings with statistics"
+    },
+    {
+      "headings": [
+        "POST /api/v1/intervals"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatIntervals.md",
+      "text": "POST /api/v1/intervals.",
+      "title": "Supported candle intervals"
+    },
+    {
+      "headings": [
+        "POST /api/v1/margin"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatMargin.md",
+      "text": "POST /api/v1/margin.",
+      "title": "Margin calculation (not available yet)"
+    },
+    {
+      "headings": [
+        "POST /api/v1/modifyorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatModifyorder.md",
+      "text": "POST /api/v1/modifyorder.",
+      "title": "Modify an open order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/multiquotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatMultiquotes.md",
+      "text": "POST /api/v1/multiquotes.",
+      "title": "Quotes for up to 200 symbols"
+    },
+    {
+      "headings": [
+        "POST /api/v1/openposition"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOpenposition.md",
+      "text": "POST /api/v1/openposition.",
+      "title": "Net quantity for one symbol and product"
+    },
+    {
+      "headings": [
+        "POST /api/v1/optionchain"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOptionchain.md",
+      "text": "POST /api/v1/optionchain.",
+      "title": "Option chain"
+    },
+    {
+      "headings": [
+        "POST /api/v1/optionsorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOptionsorder.md",
+      "text": "POST /api/v1/optionsorder.",
+      "title": "Order an option by offset (ATM, ITM2, OTM1 ...)"
+    },
+    {
+      "headings": [
+        "POST /api/v1/optionsymbol"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOptionsymbol.md",
+      "text": "POST /api/v1/optionsymbol.",
+      "title": "Option symbol for an offset"
+    },
+    {
+      "headings": [
+        "POST /api/v1/orderbook"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOrderbook.md",
+      "text": "POST /api/v1/orderbook.",
+      "title": "Order book with statistics"
+    },
+    {
+      "headings": [
+        "POST /api/v1/orderstatus"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOrderstatus.md",
+      "text": "POST /api/v1/orderstatus.",
+      "title": "One order's status"
+    },
+    {
+      "headings": [
+        "POST /api/v1/ping"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPing.md",
+      "text": "POST /api/v1/ping.",
+      "title": "Check the key and the account the calls act on"
+    },
+    {
+      "headings": [
+        "POST /api/v1/placeorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPlaceorder.md",
+      "text": "POST /api/v1/placeorder.",
+      "title": "Place an order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/placesmartorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPlacesmartorder.md",
+      "text": "POST /api/v1/placesmartorder.",
+      "title": "Order towards a target position size"
+    },
+    {
+      "headings": [
+        "POST /api/v1/positionbook"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPositionbook.md",
+      "text": "POST /api/v1/positionbook.",
+      "title": "Positions"
+    },
+    {
+      "headings": [
+        "POST /api/v1/quotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatQuotes.md",
+      "text": "POST /api/v1/quotes.",
+      "title": "Quote for one symbol"
+    },
+    {
+      "headings": [
+        "POST /api/v1/search"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatSearch.md",
+      "text": "POST /api/v1/search.",
+      "title": "Instrument search"
+    },
+    {
+      "headings": [
+        "POST /api/v1/splitorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatSplitorder.md",
+      "text": "POST /api/v1/splitorder.",
+      "title": "One order split into pieces"
+    },
+    {
+      "headings": [
+        "POST /api/v1/symbol"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatSymbol.md",
+      "text": "POST /api/v1/symbol.",
+      "title": "Instrument details"
+    },
+    {
+      "headings": [
+        "POST /api/v1/tradebook"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatTradebook.md",
+      "text": "POST /api/v1/tradebook.",
+      "title": "Trade book"
+    },
+    {
+      "headings": [],
+      "kind": "doc",
+      "path": "docs/api/errors.md",
+      "text": "Every error is application/problem+json with code, status, detail, retryable and requestId. The code is stable (codes are added, never renamed); detail is for people. retryable answers one question: is it safe to send exactly this request again? A write whose outcome is unknown...",
+      "title": "Error codes"
+    },
+    {
+      "headings": [
+        "GET /v1/symbols/convert"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/convertSymbolGet.md",
+      "text": "GET /v1/symbols/convert.",
+      "title": "Convert one symbol between formats"
+    },
+    {
+      "headings": [
+        "POST /v1/symbols/convert"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/convertSymbols.md",
+      "text": "POST /v1/symbols/convert.",
+      "title": "Convert up to 200 symbols in one call"
+    },
+    {
+      "headings": [
+        "GET /v1/instruments/{symbol}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/getInstrument.md",
+      "text": "GET /v1/instruments/{symbol}.",
+      "title": "Resolve one instrument (lot size, tick size, freeze quantity)"
+    },
+    {
+      "headings": [
+        "GET /v1/instruments/search"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/searchInstruments.md",
+      "text": "GET /v1/instruments/search.",
+      "title": "Search instruments across connected brokers' masters"
+    },
+    {
+      "headings": [
+        "POST /v1/keys"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/createKey.md",
+      "text": "POST /v1/keys. The key is in the response once and cannot be shown again; only a scrypt hash is stored.",
+      "title": "Create an API key"
+    },
+    {
+      "headings": [
+        "GET /v1/keys"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/listKeys.md",
+      "text": "GET /v1/keys. An admin key limited to some accounts lists only keys limited to those same accounts.",
+      "title": "List API keys (never the key itself)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/keys/{keyId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/revokeKey.md",
+      "text": "DELETE /v1/keys/{keyId}. An admin key limited to some accounts can revoke only keys limited to those accounts; any other key answers 404, as an unknown id does.",
+      "title": "Revoke a key (takes effect immediately)"
+    },
+    {
+      "headings": [
+        "POST /v1/sign-in"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/signIn.md",
+      "text": "POST /v1/sign-in. Used by the dashboard when it is opened from mc-bridge start --open or mc-bridge open, whose link carries a one-time code in the URL fragment (/dashboard#signin=, never sent to the server in a URL).",
+      "title": "Exchange a one-time sign-in code for a dashboard key"
+    },
+    {
+      "headings": [
+        "GET /v1/limits"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/limits/getLimits.md",
+      "text": "GET /v1/limits. With explain=1 the report also says why a request may have been slow or refused, in numbers instead of log lines (pools, consumers).",
+      "title": "Broker limits, safety limits and current budgets per account"
+    },
+    {
+      "headings": [
+        "GET /v1/usage"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/limits/getUsage.md",
+      "text": "GET /v1/usage. Per account and endpoint class: the binding window, every window (windows: this second, this minute, today) and today's counters.",
+      "title": "How much of each budget is used, queued and saved by streaming, caching and coalescing"
+    },
+    {
+      "headings": [
+        "GET /v1/depth"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getDepth.md",
+      "text": "GET /v1/depth.",
+      "title": "Market depth (5 levels where the broker offers it)"
+    },
+    {
+      "headings": [
+        "GET /v1/expiries"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getExpiries.md",
+      "text": "GET /v1/expiries. See /v1/reference/expiries for kind, lot and holiday shifts.",
+      "title": "Expiry dates for an underlying"
+    },
+    {
+      "headings": [
+        "GET /v1/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getHistory.md",
+      "text": "GET /v1/history. Give from+to, or to+countback.",
+      "title": "Historical candles, automatically split across broker limits"
+    },
+    {
+      "headings": [
+        "GET /v1/ltp"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getLtp.md",
+      "text": "GET /v1/ltp.",
+      "title": "Last traded price for up to 200 symbols"
+    },
+    {
+      "headings": [
+        "GET /v1/optionchain"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getOptionChain.md",
+      "text": "GET /v1/optionchain. Works for every F&O stock; see /v1/options/underlyings.",
+      "title": "Option chain with IV and Greeks"
+    },
+    {
+      "headings": [
+        "GET /v1/quotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getQuotes.md",
+      "text": "GET /v1/quotes.",
+      "title": "Full quotes for up to 200 symbols"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/cancel-all"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/cancelAllOrders.md",
+      "text": "POST /v1/orders/cancel-all.",
+      "title": "Cancel every open order for an account (or all accounts this key may use)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/orders/{orderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/cancelOrder.md",
+      "text": "DELETE /v1/orders/{orderId}.",
+      "title": "Cancel an open order"
+    },
+    {
+      "headings": [
+        "POST /v1/tickets/{ticketId}/confirm"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/confirmTicket.md",
+      "text": "POST /v1/tickets/{ticketId}/confirm. Used by the Bridge's own confirmation page on this computer.",
+      "title": "Human confirmation of an order prepared by an AI assistant or webhook"
+    },
+    {
+      "headings": [
+        "GET /v1/orders/{orderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/getOrder.md",
+      "text": "GET /v1/orders/{orderId}.",
+      "title": "One order (refreshed from the broker for live orders)"
+    },
+    {
+      "headings": [
+        "GET /v1/orders/by-client-id/{clientOrderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/getOrderByClientId.md",
+      "text": "GET /v1/orders/by-client-id/{clientOrderId}.",
+      "title": "Look up an order by your own clientOrderId"
+    },
+    {
+      "headings": [
+        "GET /v1/orders"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/listOrders.md",
+      "text": "GET /v1/orders.",
+      "title": "Orders (newest first)"
+    },
+    {
+      "headings": [
+        "GET /v1/tickets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/listTickets.md",
+      "text": "GET /v1/tickets. The dashboard's \"Pending confirmations\" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks.",
+      "title": "Orders waiting for a human confirmation"
+    },
+    {
+      "headings": [
+        "GET /v1/trades"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/listTrades.md",
+      "text": "GET /v1/trades.",
+      "title": "Executions (trade book)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/orders/{orderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/modifyOrder.md",
+      "text": "PATCH /v1/orders/{orderId}. Counts towards the order-rate cap.",
+      "title": "Modify an open order"
+    },
+    {
+      "headings": [
+        "POST /v1/orders"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/placeOrder.md",
+      "text": "POST /v1/orders. Every order passes the safety checks.",
+      "title": "Place an order (paper unless you ask for live)"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/preview"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/previewOrder.md",
+      "text": "POST /v1/orders/preview. Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value.",
+      "title": "Check an order without sending it"
+    },
+    {
+      "headings": [
+        "POST /v1/tickets/{ticketId}/reject"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/rejectTicket.md",
+      "text": "POST /v1/tickets/{ticketId}/reject. The \"no\" that goes with confirm.",
+      "title": "A person declines an order prepared by an AI assistant or webhook"
+    },
+    {
+      "headings": [
+        "GET /v1/paper/accounts/{accountId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/getPaperAccount.md",
+      "text": "GET /v1/paper/accounts/{accountId}.",
+      "title": "Paper account summary"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/margin"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/paperBasketMargin.md",
+      "text": "POST /v1/paper/accounts/{accountId}/margin. Portfolio model (server/bridge/calc/span-margin.js): approximate, not the exchange's SPAN.",
+      "title": "Margin of a basket against the paper book (approximate, nothing is placed)"
+    },
+    {
+      "headings": [
+        "GET /v1/paper/accounts/{accountId}/daily"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/paperDailyPnl.md",
+      "text": "GET /v1/paper/accounts/{accountId}/daily. One row per IST day: equity, realised, unrealised, charges, the day's change in equity (pnl), used margin and open positions.",
+      "title": "Daily P&L snapshots of a paper account, oldest first"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/daily"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/paperDailySnapshot.md",
+      "text": "POST /v1/paper/accounts/{accountId}/daily. Marks the book to the latest prices and stores today's row.",
+      "title": "Take today's P&L snapshot now"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/reset"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/resetPaperAccount.md",
+      "text": "POST /v1/paper/accounts/{accountId}/reset.",
+      "title": "Clear paper orders and positions and start again"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/reset/undo"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/undoPaperReset.md",
+      "text": "POST /v1/paper/accounts/{accountId}/reset/undo. Works for 2 minutes after a reset and only while no order has been placed since.",
+      "title": "Put back the paper book from before the last reset"
+    },
+    {
+      "headings": [
+        "PUT /v1/pooling/consent"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/pooling/acceptPooling.md",
+      "text": "PUT /v1/pooling/consent. acknowledge must equal the current notice.version.",
+      "title": "Accept the pooling notice for chosen accounts"
+    },
+    {
+      "headings": [
+        "GET /v1/pooling"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/pooling/getPooling.md",
+      "text": "GET /v1/pooling. Pooling is off until you accept the notice.",
+      "title": "Whether market-data reads may be spread over your own accounts"
+    },
+    {
+      "headings": [
+        "DELETE /v1/pooling/consent"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/pooling/revokePooling.md",
+      "text": "DELETE /v1/pooling/consent. Each account serves only its own reads again.",
+      "title": "Withdraw the pooling consent"
+    },
+    {
+      "headings": [
+        "POST /v1/positions/convert"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/convertPosition.md",
+      "text": "POST /v1/positions/convert. Paper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused into Intraday after the square-off time, while the kill switch is on, when the other product holds the opposite side, or into a product the cont",
+      "title": "Convert a position between Intraday (MIS) and carry (NRML)"
+    },
+    {
+      "headings": [
+        "GET /v1/funds"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/getFunds.md",
+      "text": "GET /v1/funds.",
+      "title": "Funds and margin for one account"
+    },
+    {
+      "headings": [
+        "GET /v1/holdings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/getHoldings.md",
+      "text": "GET /v1/holdings.",
+      "title": "Demat holdings for one account"
+    },
+    {
+      "headings": [
+        "GET /v1/positions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/getPositions.md",
+      "text": "GET /v1/positions.",
+      "title": "Positions for one account (live from the broker, or paper)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/quotas/{keyId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/quotas/clearQuota.md",
+      "text": "DELETE /v1/quotas/{keyId}. The key goes back to the quota from the configuration, or the default for its client kind.",
+      "title": "Remove a key's override"
+    },
+    {
+      "headings": [
+        "GET /v1/quotas"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/quotas/getQuotas.md",
+      "text": "GET /v1/quotas. Every key has a request quota (a token bucket) and a weight in the fair queue, so one runaway spreadsheet cannot starve an AI assistant.",
+      "title": "Each API key's share of the Bridge"
+    },
+    {
+      "headings": [
+        "PUT /v1/quotas/{keyId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/quotas/setQuota.md",
+      "text": "PUT /v1/quotas/{keyId}. Only the fields you send change.",
+      "title": "Override one key's quota or weight"
+    },
+    {
+      "headings": [
+        "POST /v1/readiness/check"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/checkReadiness.md",
+      "text": "POST /v1/readiness/check. Runs the checks at once for one account (or every account this key may see).",
+      "title": "Re-check now (probe and egress lookup, each with a 30 s cooldown)"
+    },
+    {
+      "headings": [
+        "POST /v1/demo/readiness"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/demoReadinessScenario.md",
+      "text": "POST /v1/demo/readiness. Exists only when the Bridge runs in demo mode.",
+      "title": "Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)"
+    },
+    {
+      "headings": [
+        "GET /v1/readiness"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/getReadiness.md",
+      "text": "GET /v1/readiness. One state per account (ready, warn, cannottrade, paperonly, unknown) with plain-English reasons and the facts each check used.",
+      "title": "Trading readiness of each live account (cached; no broker call)"
+    },
+    {
+      "headings": [
+        "GET /v1/readiness/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/getReadinessHistory.md",
+      "text": "GET /v1/readiness/history.",
+      "title": "Recent readiness transitions (newest first)"
+    },
+    {
+      "headings": [
+        "POST /v1/safety/kill-switch"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/engageKillSwitch.md",
+      "text": "POST /v1/safety/kill-switch. Any key may stop trading; an empty body works (reason \"manual\").",
+      "title": "Stop all orders now (any key may do this)"
+    },
+    {
+      "headings": [
+        "GET /v1/safety"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/getSafety.md",
+      "text": "GET /v1/safety.",
+      "title": "Kill switch, live-trading state and today's safety counters"
+    },
+    {
+      "headings": [
+        "GET /v1/audit"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/queryAudit.md",
+      "text": "GET /v1/audit.",
+      "title": "Read the append-only audit log"
+    },
+    {
+      "headings": [
+        "DELETE /v1/safety/kill-switch"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/releaseKillSwitch.md",
+      "text": "DELETE /v1/safety/kill-switch.",
+      "title": "Release the kill switch (admin, this computer only)"
+    },
+    {
+      "headings": [
+        "GET /v1/audit/verify"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/verifyAudit.md",
+      "text": "GET /v1/audit/verify.",
+      "title": "Check the audit log's hash chain"
+    },
+    {
+      "headings": [
+        "PUT /v1/sources/{id}/config"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/configureSource.md",
+      "text": "PUT /v1/sources/{id}/config. The key goes into the encrypted secrets store under source: and is never returned, logged or put in the configuration file.",
+      "title": "Store the API key of a source that needs one"
+    },
+    {
+      "headings": [
+        "GET /v1/sources"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/listSources.md",
+      "text": "GET /v1/sources. Every place the Bridge can read market data from: your broker accounts (kind: broker, always first for real-time data), the built-in free providers, and plugins you granted.",
+      "title": "Data sources, what each one is, and whether it is on"
+    },
+    {
+      "headings": [
+        "POST /v1/sources/{id}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/testSource.md",
+      "text": "POST /v1/sources/{id}/test. Makes one small call through the source's own test (a status or sample request) and reports the result.",
+      "title": "Check that a source answers"
+    },
+    {
+      "headings": [
+        "GET /v1/sources/trace"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/traceSources.md",
+      "text": "GET /v1/sources/trace. Runs the router's decision for a read and explains it: every candidate (your pooled broker accounts and the enabled sources), with the verdict (chosen, fallback or skipped), the reason, the score and the spare budget.",
+      "title": "Why a read would be served by one source and not another (dry run)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/sources/{id}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/updateSource.md",
+      "text": "PATCH /v1/sources/{id}. enabled: true turns a source on.",
+      "title": "Turn a source on or off"
+    },
+    {
+      "headings": [
+        "PATCH /v1/sources/settings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/updateSourcesSettings.md",
+      "text": "PATCH /v1/sources/settings. autoFallback: true lets a read that no broker account can answer go to a source you turned on, without the read asking for backup=true.",
+      "title": "Use free sources automatically when your brokers cannot answer"
+    },
+    {
+      "headings": [
+        "GET /xl/chain"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlChain.md",
+      "text": "GET /xl/chain.",
+      "title": "Flat option chain table (CSV or JSON records) for Power Query and Sheets"
+    },
+    {
+      "headings": [
+        "GET /xl/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlHistory.md",
+      "text": "GET /xl/history.",
+      "title": "Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)"
+    },
+    {
+      "headings": [
+        "GET /xl/ltp"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlLtp.md",
+      "text": "GET /xl/ltp. =WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\").",
+      "title": "One number as plain text, for Excel WEBSERVICE and AmiBroker"
+    },
+    {
+      "headings": [
+        "GET /xl/quote"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlQuote.md",
+      "text": "GET /xl/quote.",
+      "title": "One quote field as plain text"
+    },
+    {
+      "headings": [
+        "POST /v1/stream/token"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/createStreamToken.md",
+      "text": "POST /v1/stream/token. Use it as ?token= on /v1/stream or /v1/stream/sse so your API key never appears in a URL or a log.",
+      "title": "Short-lived token for WebSocket and SSE URLs"
+    },
+    {
+      "headings": [
+        "GET /v1/stream/stats"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/getStreamStats.md",
+      "text": "GET /v1/stream/stats.",
+      "title": "Upstream feeds, subscriptions and clients"
+    },
+    {
+      "headings": [
+        "GET /v1/stream/sse"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/openSse.md",
+      "text": "GET /v1/stream/sse. GET /v1/stream/sse?token=&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp.",
+      "title": "Server-Sent Events stream (same messages as the WebSocket)"
+    },
+    {
+      "headings": [
+        "GET /v1/stream"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/openStream.md",
+      "text": "GET /v1/stream. Connect with ws://127.0.0.1:4300/v1/stream?token= (or an Authorization header from scripts).",
+      "title": "WebSocket stream (upgrade)"
+    },
+    {
+      "headings": [
+        "GET /dashboard"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getDashboard.md",
+      "text": "GET /dashboard. Welcome checklist, accounts and the broker directory, a test console, live rate-limit usage, orders and pending confirmations, the kill switch, API keys, integration snippets and the request and audit logs.",
+      "title": "Local dashboard (HTML; this computer only)"
+    },
+    {
+      "headings": [
+        "GET /dashboard/{file}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getDashboardAsset.md",
+      "text": "GET /dashboard/{file}.",
+      "title": "Dashboard scripts, stylesheet and logo"
+    },
+    {
+      "headings": [
+        "GET /v1/health"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getHealth.md",
+      "text": "GET /v1/health. No key needed.",
+      "title": "Liveness check"
+    },
+    {
+      "headings": [
+        "GET /v1/meta"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getMeta.md",
+      "text": "GET /v1/meta.",
+      "title": "Versions, brokers, modules and routes"
+    },
+    {
+      "headings": [
+        "GET /openapi.yaml"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getOpenApi.md",
+      "text": "GET /openapi.yaml.",
+      "title": "This document"
+    },
+    {
+      "headings": [
+        "GET /"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getRoot.md",
+      "text": "GET /.",
+      "title": "Redirect to the local dashboard"
+    },
+    {
+      "headings": [
+        "GET /v1/requests"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/listRecentRequests.md",
+      "text": "GET /v1/requests. The last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id).",
+      "title": "Recent requests to this Bridge (newest first)"
+    },
+    {
+      "headings": [
+        "POST /v1/hooks"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/createHook.md",
+      "text": "POST /v1/hooks.",
+      "title": "Create a hook; the URL with its token is shown once"
+    },
+    {
+      "headings": [
+        "DELETE /v1/hooks/{hookId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/deleteHook.md",
+      "text": "DELETE /v1/hooks/{hookId}. An admin key limited to some accounts can delete only the hooks of those accounts; any other hook answers 404.",
+      "title": "Delete a hook (its URL stops working immediately)"
+    },
+    {
+      "headings": [
+        "GET /v1/hooks"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/listHooks.md",
+      "text": "GET /v1/hooks. An admin key limited to some accounts lists only the hooks of those accounts.",
+      "title": "List configured hooks (never the token)"
+    },
+    {
+      "headings": [
+        "POST /hooks/{source}/{token}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/receiveHook.md",
+      "text": "POST /hooks/{source}/{token}. Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background, through the same preview and safety checks as any order.",
+      "title": "Inbound alert (signed generic, ChartInk or GoCharting)"
+    },
+    {
+      "headings": [
+        "0. Sources rule (read first)",
+        "1. Files",
+        "2. Adapter shape",
+        "Capabilities",
+        "Auth kinds",
+        "3. Errors: the 422/502 convention",
+        "4. Order gate (real money)",
+        "5. Session login (password/PIN + current TOTP)",
+        "6. Fixtures and the harness",
+        "7. Current status",
+        "8. Per-broker checklist (copy into your PR description)"
+      ],
+      "kind": "doc",
+      "path": "docs/broker-contract.md",
+      "text": "How every one of the 41 broker adapters in server/brokers/ should look, how to prove it, and what each broker engineer fills in. The code is the source of truth: server/brokers/contract.mjs (with orderGate.mjs), contractShapes.mjs, contractHarness.mjs and sessionLogin.mjs. Dhan...",
+      "title": "Broker adapter contract (v1)"
+    },
+    {
+      "headings": [
+        "Postman",
+        "Bruno",
+        "Regenerating"
+      ],
+      "kind": "doc",
+      "path": "docs/collections/README.md",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 113 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "title": "API collections"
+    },
+    {
+      "headings": [],
+      "kind": "guide",
+      "path": "docs/guides/README.md",
+      "text": "Start with the quickstart (five minutes, demo mode, no broker needed) or the docs home, which sorts the guides by what you want to do. These guides go deeper, one topic each. Reference: one page per endpoint and the error codes, openapi.yaml (REST), asyncapi.yaml (streams),...",
+      "title": "Mr. Chartist API Bridge: guides"
+    },
+    {
+      "headings": [
+        "1. Declare accounts in bridge.config.json",
+        "2. Log in",
+        "3. Sessions",
+        "4. Family accounts",
+        "5. Choosing an account per request",
+        "6. Pooling needs your consent",
+        "7. Data beyond your accounts"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/accounts.md",
+      "text": "The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its own rate-limit budget and its own credentials; one account's credentials are never used for another account's calls. The easiest way: on the dashboard, open...",
+      "title": "Brokers and multiple accounts"
+    },
+    {
+      "headings": [
+        "Live values in AFL",
+        "History via ASCII import"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/amibroker.md",
+      "text": "Everything AmiBroker can reach is read-only: /xl/* cannot place orders. Full instructions and the files: integrations/amibroker. Copy integrations/amibroker/mrchartist-bridge.afl into AmiBroker's Formulas\\Include folder. Create a read-only URL key (AmiBroker cannot send...",
+      "title": "AmiBroker"
+    },
+    {
+      "headings": [
+        "ChatGPT connectors",
+        "OpenAI function calling from your own script"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/chatgpt-openai.md",
+      "text": "ChatGPT's connectors (custom connectors and apps) call MCP servers over the public internet, over HTTPS and usually with OAuth. The Bridge keeps /mcp on this computer on purpose and has no OAuth server, so ChatGPT cannot connect to it out of the box. Whether ChatGPT can reach a...",
+      "title": "ChatGPT and OpenAI"
+    },
+    {
+      "headings": [
+        "Symbols",
+        "Endpoints",
+        "Which account",
+        "Orders are paper until you say otherwise",
+        "WebSocket",
+        "Settings"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/compat-api.md",
+      "text": "Many Indian algo tools, SDKs, AmiBroker and Excel add-ins and alert bridges speak one common REST style: POST a JSON body to /api/v1/ with the API key in the body as apikey, and read { \"status\": \"success\", ... } or { \"status\": \"error\", \"message\": ... } back. The Bridge speaks it...",
+      "title": "Compat REST and WebSocket API (/api/v1)"
+    },
+    {
+      "headings": [
+        "What the Bridge is",
+        "SEBI retail algo framework",
+        "Who may use it",
+        "Market data",
+        "Other data sources",
+        "Tunnels and public endpoints",
+        "AI assistants",
+        "Brokers"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/compliance.md",
+      "text": "Not legal advice. These notes record how we read the rules that shape the Bridge's design, as of October 2026. Anything marked needs verification must be checked against the primary SEBI, NSE and BSE circulars and each broker's current notices before you rely on it. The detailed...",
+      "title": "Compliance notes"
+    },
+    {
+      "headings": [
+        "1. Why it matters",
+        "2. Options for a fixed address",
+        "3. Register the address with your broker, then tell the Bridge",
+        "4. Turn on the readiness lookup",
+        "5. The daily routine and what the badge means",
+        "6. Clock",
+        "7. Phones",
+        "8. Troubleshooting"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/deployment.md",
+      "text": "Paper trading works from any computer and any connection. Live API orders do not. This guide explains why, the ways to give the Bridge a fixed internet address, and how the Bridge's trading-readiness check tells you, before an order fails, that something is wrong. Every rule...",
+      "title": "Deployment: static IP, daily login and the readiness check"
+    },
+    {
+      "headings": [
+        "Excel for Windows: one value per cell",
+        "Tables with Power Query (Windows and Mac)",
+        "Google Sheets"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/excel-sheets.md",
+      "text": "Nothing a spreadsheet can call is able to place an order: every /xl route is a read-only GET. Full instructions and Power Query files: integrations/excel, integrations/google-sheets. Put the key in a cell on a hidden sheet and name it BridgeKey. With a symbol in A2: The answer...",
+      "title": "Excel and Google Sheets"
+    },
+    {
+      "headings": [
+        "Is it free?",
+        "Is my broker supported?",
+        "Why is pooling off?",
+        "Why can't I get real-time data from Yahoo?",
+        "Is paper trading safe?",
+        "Where is my data stored?",
+        "How do I reset?",
+        "More questions"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/faq.md",
+      "text": "Short answers, each pointing at the guide that has the details. The Bridge is free, open-source software under the MIT License. There is no hosted service and no account with us: it runs on your computer. What can cost money is outside the Bridge. Some brokers charge for their...",
+      "title": "FAQ"
+    },
+    {
+      "headings": [
+        "Windows: Setup.exe",
+        "Ready-to-run download",
+        "Mac and Linux: one line",
+        "Windows: one line",
+        "Android (Termux)",
+        "After installing",
+        "Uninstalling",
+        "If something goes wrong"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/install.md",
+      "text": "You do not need to know anything about programming. Pick one way below. Each takes a few minutes and needs no admin password. You never have to install Node.js yourself, and you never have to copy a key: the dashboard opens in your browser already signed in. Everything stays on...",
+      "title": "Installing the Bridge"
+    },
+    {
+      "headings": [
+        "Claude Desktop",
+        "Claude Code",
+        "Cursor and other clients",
+        "Tools",
+        "Letting an assistant prepare orders"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/mcp.md",
+      "text": "The Bridge is an MCP server. AI assistants use the same broker connections, rate limits, safety checks and audit log as every other tool, and they are read-only by default. Two transports: Streamable HTTP at POST /mcp on the Bridge (this computer only; Host and Origin checked;...",
+      "title": "AI assistants over MCP (Claude Desktop, Claude Code, Cursor)"
+    },
+    {
+      "headings": [
+        "What it does",
+        "Examples (NIFTY at 26344, lot 65, 3 November expiry, demo prices)",
+        "Where you see it",
+        "Settings",
+        "What it does not model"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/paper-margin.md",
+      "text": "Approximate, not the exchange's SPAN. The paper engine, the order preview and the margin route all use one function, portfolioMargin() in server/bridge/calc/span-margin.js, so they always agree. Your broker's figure is the one that counts for live orders. Legs are grouped by...",
+      "title": "Paper margin: how the Bridge estimates it"
+    },
+    {
+      "headings": [
+        "Market data",
+        "Paper orders",
+        "Live stream",
+        "pandas"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/python.md",
+      "text": "The Python client uses the standard library only (Python 3.9+), including its own small WebSocket client. Full method list: sdk/python/README.md. Every order write sends an Idempotency-Key (a fresh UUID unless you pass idempotencykey=), so resending after a network error never...",
+      "title": "Python"
+    },
+    {
+      "headings": [
+        "1. Get the code and start the Bridge",
+        "2. Make an API key",
+        "3. Ask for health and a price",
+        "4. Place a paper order",
+        "5. See where data comes from",
+        "6. Watch a live stream",
+        "7. Stop and clean up",
+        "Next steps",
+        "Troubleshooting",
+        "Port already in use",
+        "Node version",
+        "The key is not accepted (401)",
+        "The dashboard asks you to sign in",
+        "Requests are refused with 429"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/quickstart.md",
+      "text": "This guide takes you from a fresh clone to a price, a paper order, a list of data sources and a live stream. It runs in demo mode, so you need no broker account and no money. Every command and output below was run on a clean checkout; long output is trimmed with ... and the keys...",
+      "title": "Quickstart: five minutes to a first answer"
+    },
+    {
+      "headings": [
+        "The read path",
+        "Token buckets and priorities",
+        "Sharing fairly between your tools",
+        "When a broker says \"too many requests\"",
+        "When the budget runs out",
+        "Spreading reads across your own accounts (pooling)",
+        "Broker plans (Fyers)",
+        "Your own budget: quotas per key",
+        "Asking for less: stale-while-revalidate and prefetch priority",
+        "Seeing it work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/rate-limits.md",
+      "text": "Every broker API has request limits, and most are tight: often one quote request a second, sometimes one instrument per call. Ten tools each polling on their own break those limits within seconds. The Bridge sits between your tools and your brokers and makes the broker see one...",
+      "title": "How the Bridge handles broker rate limits"
+    },
+    {
+      "headings": [
+        "Paper first",
+        "Live orders need every one of these",
+        "Trading readiness",
+        "Checks on every order (paper and live)",
+        "Idempotency",
+        "Keys",
+        "Network",
+        "Secrets",
+        "Declining a pending confirmation",
+        "Audit log",
+        "Logs"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/safety.md",
+      "text": "The Bridge is built so that a mistake (a buggy script, a runaway alert, a confused AI assistant, a leaked key) costs as little as possible. Everything below is on by default. Every order, webhook and AI tool is paper unless it explicitly asks for live. Each order result says...",
+      "title": "Safety model"
+    },
+    {
+      "headings": [
+        "What you get from each kind of source",
+        "What the labels mean",
+        "Turning a source on",
+        "The built-in sources",
+        "When the Bridge uses a source",
+        "Seeing what answered a request",
+        "How pooling and quotas fit",
+        "Plugins",
+        "Configuration",
+        "Questions"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/sources.md",
+      "text": "Your broker accounts are the Bridge's main source of market data. They give real-time prices and option chains, and they are the only sources that orders, risk checks, paper fills and alerts use. The Bridge can also read from optional free sources and from plugins you add. Those...",
+      "title": "Data sources: where prices come from, and how the Bridge labels them"
+    },
+    {
+      "headings": [
+        "Authenticate without putting your key in a URL",
+        "WebSocket",
+        "SSE",
+        "Behaviour worth knowing"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/streaming.md",
+      "text": "One port serves both. Messages are described in asyncapi.yaml. The token is single use and must be used within 60 seconds; the connection then lives on with the key's scopes. A client that can send headers may use Authorization: Bearer on the upgrade request instead. Revoking...",
+      "title": "Live streaming: WebSocket and SSE"
+    },
+    {
+      "headings": [
+        "Browser apps"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/typescript.md",
+      "text": "A small client with no runtime dependencies (Node 20+), with TypeScript types in src/index.d.ts. Streaming uses Node 22's built-in WebSocket or the ws package. Full method list: sdk/node/README.md. Same guarantees as the Python client: an Idempotency-Key on every order write,...",
+      "title": "TypeScript and Node"
+    },
+    {
+      "headings": [
+        "1. Create a hook",
+        "2. Make the URL reachable",
+        "3. Alert messages",
+        "Signed generic hook (your own code)",
+        "ChartInk",
+        "GoCharting",
+        "4. What happens to a signal"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/webhooks.md",
+      "text": "An alert from your own code or a charting site becomes an order through a hook: a URL with a secret token, tied to one account and a set of limits. Every signal goes through the same safety checks, rate limits, idempotency and audit log as an order sent from a script. Hooks are...",
+      "title": "Alerts: signed generic hooks, ChartInk and GoCharting"
+    },
+    {
+      "headings": [
+        "1. What a source is",
+        "2. The descriptor",
+        "Tiers and data classes in practice",
+        "3. The provider: methods and shapes",
+        "quotes",
+        "history",
+        "expiries and optionChain",
+        "Labels the Bridge adds",
+        "4. Errors",
+        "5. Limits",
+        "6. Plugins",
+        "The manifest",
+        "Granting a plugin",
+        "Writing the entry file (Node)",
+        "The wire protocol: bridge-source/1",
+        "The brokered network",
+        "The sandbox model, and its honest limits",
+        "7. Conformance",
+        "The checklist, and where each item is checked",
+        "8. A worked example",
+        "9. Writing a built-in provider",
+        "10. Versioning"
+      ],
+      "kind": "doc",
+      "path": "docs/source-contract.md",
+      "text": "For developers who write a data source for the Bridge: a built-in provider in this repository, or a plugin that someone installs. The design and its reasons are in sources-architecture.md; traders read guides/sources.md. The code is the source of truth: A source answers...",
+      "title": "The data-source contract"
+    },
+    {
+      "headings": [
+        "Goals",
+        "What a source is",
+        "Data class on every answer",
+        "Routing",
+        "Limits and quotas",
+        "Pooling",
+        "Plugins",
+        "Terms and licensing"
+      ],
+      "kind": "doc",
+      "path": "docs/sources-architecture.md",
+      "text": "The Bridge answers market-data reads from more than one place and says honestly where each answer came from. This page is the design every part of that system follows. The code is the source of truth; this is the map. Use every legitimate source a person has. A trader often...",
+      "title": "Data sources, routing and quotas"
+    }
+  ]
+}

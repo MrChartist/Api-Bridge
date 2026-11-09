@@ -1,0 +1,25 @@
+meta {
+  name: Cancel every open order
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/v1/cancelallorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "<apikey>"
+  }
+}
+
+docs {
+  Cancel every open order
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatCancelallorder.md in the repository.
+}

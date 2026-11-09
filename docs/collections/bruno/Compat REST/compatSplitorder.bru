@@ -1,0 +1,25 @@
+meta {
+  name: One order split into pieces
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/splitorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "<apikey>"
+  }
+}
+
+docs {
+  One order split into pieces
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatSplitorder.md in the repository.
+}

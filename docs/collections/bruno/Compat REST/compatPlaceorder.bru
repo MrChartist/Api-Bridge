@@ -1,0 +1,33 @@
+meta {
+  name: Place an order
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/v1/placeorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "strategy": "my-script",
+    "symbol": "RELIANCE",
+    "exchange": "NSE",
+    "action": "BUY",
+    "quantity": 1,
+    "pricetype": "MARKET",
+    "product": "CNC"
+  }
+}
+
+docs {
+  Place an order
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+  - The example is a paper order on the demo paper account. A live order needs every opt-in in docs/guides/safety.md.
+
+  Reference: docs/api/compat-rest/compatPlaceorder.md in the repository.
+}

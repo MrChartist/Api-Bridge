@@ -1,0 +1,25 @@
+meta {
+  name: Several orders in one call
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/v1/basketorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "<apikey>"
+  }
+}
+
+docs {
+  Several orders in one call
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatBasketorder.md in the repository.
+}

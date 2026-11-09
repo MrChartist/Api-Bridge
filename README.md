@@ -72,7 +72,7 @@ The full walk-through, with the output of every command (a paper order, the sour
 
 [Quickstart](docs/guides/quickstart.md) · [FAQ](docs/guides/faq.md) · [One-step installer](docs/guides/install.md) · [Accounts](docs/guides/accounts.md) · [Rate limits](docs/guides/rate-limits.md) · [Sources](docs/guides/sources.md) · [Safety](docs/guides/safety.md) · [Streaming](docs/guides/streaming.md) · [MCP for AI assistants](docs/guides/mcp.md) · [Node SDK](docs/guides/typescript.md) · [Python SDK](docs/guides/python.md) · [Webhooks](docs/guides/webhooks.md) · [Excel and Sheets](docs/guides/excel-sheets.md) · [AmiBroker](docs/guides/amibroker.md)
 
-All guides are listed in [docs/guides/README.md](docs/guides/README.md). Reference: [openapi.yaml](docs/openapi.yaml), [asyncapi.yaml](docs/asyncapi.yaml), [ARCHITECTURE.md](docs/ARCHITECTURE.md), [BROKERS.md](docs/BROKERS.md).
+The [docs home](docs/README.md) sorts everything by what you want to do, and [docs/guides/README.md](docs/guides/README.md) lists every guide. Reference: [one page per endpoint](docs/api/README.md), [openapi.yaml](docs/openapi.yaml), [asyncapi.yaml](docs/asyncapi.yaml), [Postman and Bruno collections](docs/collections/README.md), [ARCHITECTURE.md](docs/ARCHITECTURE.md), [BROKERS.md](docs/BROKERS.md). For AI assistants: [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt).
 
 ## Contributing and security
 

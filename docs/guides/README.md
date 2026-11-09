@@ -1,6 +1,6 @@
 # Mr. Chartist API Bridge: guides
 
-Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker needed) or the [main README](../../README.md). These guides go deeper, one topic each.
+Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker needed) or the [docs home](../README.md), which sorts the guides by what you want to do. These guides go deeper, one topic each.
 
 | Guide | For |
 |---|---|
@@ -24,7 +24,9 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [safety.md](safety.md) | Paper and live modes, keys, limits, kill switch, audit |
 | [compliance.md](compliance.md) | SEBI, exchange and broker rules that shape the design (with needs-verification flags) |
 
-Reference: [openapi.yaml](../openapi.yaml) (REST), [asyncapi.yaml](../asyncapi.yaml) (streams),
+Reference: [one page per endpoint](../api/README.md) and the [error codes](../api/errors.md), [openapi.yaml](../openapi.yaml) (REST),
+[asyncapi.yaml](../asyncapi.yaml) (streams), [Postman and Bruno collections](../collections/README.md),
 [ARCHITECTURE.md](../ARCHITECTURE.md) (design), [BROKERS.md](../BROKERS.md) (broker table),
 [source-contract.md](../source-contract.md) (writing a data source or plugin),
 [sources-architecture.md](../sources-architecture.md) (how sources, routing and quotas fit together).
+For AI assistants: [llms.txt](../llms.txt) and [llms-full.txt](../llms-full.txt).

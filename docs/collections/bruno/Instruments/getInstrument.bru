@@ -1,0 +1,31 @@
+meta {
+  name: Resolve one instrument (lot size, tick size, freeze quantity)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/instruments/:symbol
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~include: refs
+}
+
+params:path {
+  symbol: NSE:RELIANCE
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Resolve one instrument (lot size, tick size, freeze quantity)
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/instruments/getInstrument.md in the repository.
+}

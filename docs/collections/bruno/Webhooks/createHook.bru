@@ -1,0 +1,33 @@
+meta {
+  name: Create a hook; the URL with its token is shown once
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/hooks
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "source": "generic",
+    "label": "my alert",
+    "account": "demo-paper",
+    "mode": "paper"
+  }
+}
+
+docs {
+  Create a hook; the URL with its token is shown once
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/webhooks/createHook.md in the repository.
+}

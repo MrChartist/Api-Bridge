@@ -1,0 +1,25 @@
+meta {
+  name: Order book with statistics
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orderbook
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}"
+  }
+}
+
+docs {
+  Order book with statistics
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatOrderbook.md in the repository.
+}

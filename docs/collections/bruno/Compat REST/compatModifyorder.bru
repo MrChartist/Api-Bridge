@@ -1,0 +1,25 @@
+meta {
+  name: Modify an open order
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/v1/modifyorder
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "<apikey>"
+  }
+}
+
+docs {
+  Modify an open order
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatModifyorder.md in the repository.
+}

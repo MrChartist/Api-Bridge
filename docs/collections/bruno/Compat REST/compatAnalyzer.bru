@@ -1,0 +1,25 @@
+meta {
+  name: Analyzer (paper) mode status for this key
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/analyzer
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}"
+  }
+}
+
+docs {
+  Analyzer (paper) mode status for this key
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatAnalyzer.md in the repository.
+}

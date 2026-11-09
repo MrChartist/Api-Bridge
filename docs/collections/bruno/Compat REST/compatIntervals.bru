@@ -1,0 +1,25 @@
+meta {
+  name: Supported candle intervals
+  type: http
+  seq: 24
+}
+
+post {
+  url: {{baseUrl}}/api/v1/intervals
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "<apikey>"
+  }
+}
+
+docs {
+  Supported candle intervals
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatIntervals.md in the repository.
+}

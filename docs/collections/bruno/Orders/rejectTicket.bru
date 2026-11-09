@@ -1,0 +1,36 @@
+meta {
+  name: A person declines an order prepared by an AI assistant or webhook
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/v1/tickets/:ticketId/reject
+  body: json
+  auth: bearer
+}
+
+params:path {
+  ticketId: <ticketId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "reason": "Not the order I meant"
+  }
+}
+
+docs {
+  A person declines an order prepared by an AI assistant or webhook
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The "no" that goes with confirm. Only an open ticket can be declined; it leaves the pending list at once and can never be confirmed afterwards. Declining a ticket that is already declined is a no-op that answers 200 with the same ticket. A ticket that was already confirmed, used to send its order, or has expired answers 409 `STATE_CONFLICT` with `state` (`confirmed`, `consumed` or `expired`); one the Bridge does not know answers 404. The decline is audited (`ticket.rejected`) and announced on the event bus. The assistant that prepared the order sees `status: rejected` and the reason (MCP tool `check_order_ticket`). Admin scope, this computer only, and not from an AI assistant, a webhook or any other automation.
+
+  Reference: docs/api/orders/rejectTicket.md in the repository.
+}
