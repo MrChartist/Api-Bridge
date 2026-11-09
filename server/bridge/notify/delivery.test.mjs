@@ -172,6 +172,22 @@ describe("pacing", () => {
   });
 });
 
+describe("group chats", () => {
+  it("a group gets at most the configured number of messages per minute (Telegram: 20), the rest wait", async () => {
+    const n = bootNotify({ config: { coalesceSeconds: 0, dedupeSeconds: 0, pacing: { perChatMs: 250, perSecond: 20, groupPerMinute: 3 } } });
+    const { target } = await n.svc.addTarget({ token: TOKEN });
+    await n.svc.addChat(target.id, { chatId: "-100777", name: "Desk" });
+    for (let i = 0; i < 5; i += 1) await n.svc.publish(msg(`m${i}`, "order.filled", `g${i}`));
+    await n.settle();
+    for (let i = 0; i < 20; i += 1) await n.advance(500);
+    expect(n.tg.texts()).toEqual(["m0", "m1", "m2"]);
+    for (let i = 0; i < 24; i += 1) await n.advance(3000);
+    expect(n.tg.texts()).toEqual(["m0", "m1", "m2", "m3", "m4"]);
+    const t = n.tg.sent().map((c) => c.at);
+    expect(t[3] - t[0]).toBeGreaterThanOrEqual(60_000);
+  });
+});
+
 describe("coalescing and dedupe", () => {
   it("a burst of the same kind: the first goes at once, the rest become ONE digest line", async () => {
     const n = bootNotify({ config: { coalesceSeconds: 20, dedupeSeconds: 0 } });

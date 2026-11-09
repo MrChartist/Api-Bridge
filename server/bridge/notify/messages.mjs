@@ -172,11 +172,12 @@ export function sourceMessage(s) {
 
 const names = (list) => list.map((a) => clip(a.label || a.id, 40)).join(", ");
 
-/** "3 accounts are not logged in: A, B, C." */
-export function morningMessage(list, { second = false, opens = "09:15" } = {}) {
+/** "3 accounts are not logged in: A, B, C." `opens` is the session open time from the reference calendar, when known. */
+export function morningMessage(list, { second = false, opens } = {}) {
   const n = list.length;
   const head = second ? `Still not logged in at the open: ${n} account${n === 1 ? " is" : "s are"} not logged in` : `${n} account${n === 1 ? " is" : "s are"} not logged in`;
-  return { key: "reminder.morning", group: second ? "reminder.second" : "reminder.morning", text: `${head}: ${names(list)}. ${second ? `The market opened at ${opens}.` : `Log in on this computer before the market opens at ${opens}.`}` };
+  const tail = second ? (opens ? `The market opened at ${opens}.` : "The market has opened.") : `Log in on this computer before the market opens${opens ? ` at ${opens}` : ""}.`;
+  return { key: "reminder.morning", group: second ? "reminder.second" : "reminder.morning", text: `${head}: ${names(list)}. ${tail}` };
 }
 
 /** End-of-day summary. rows: [{ label, mode, orders, fills, rejections, pnl }] */

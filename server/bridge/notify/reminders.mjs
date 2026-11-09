@@ -11,13 +11,14 @@ import { shippedHolidayRows, shippedSpecialSessions } from "../reference/shipped
 
 const MIN = 60_000;
 
-/** @returns {{ isTradingDay(date: string): boolean, source: "calendar"|"weekdays" }} */
+/** @returns {{ isTradingDay(date: string): boolean, isSpecialSession(date: string): boolean, marketOpen(): string | null, source: "calendar"|"weekdays" }} */
 export function createTradingCalendar() {
   try {
-    const cal = createCalendar({ holidays: shippedHolidayRows(), specialSessions: shippedSpecialSessions() });
-    return { isTradingDay: (date) => cal.isTradingDay(date, "NSE"), source: "calendar" };
+    const specials = shippedSpecialSessions();
+    const cal = createCalendar({ holidays: shippedHolidayRows(), specialSessions: specials });
+    return { isTradingDay: (date) => cal.isTradingDay(date, "NSE"), isSpecialSession: (date) => Object.hasOwn(specials, date), marketOpen: () => cal.windowFor("NSE").open, source: "calendar" };
   } catch {
-    return { isTradingDay: (date) => ![0, 6].includes(weekdayOf(date)), source: "weekdays" };
+    return { isTradingDay: (date) => ![0, 6].includes(weekdayOf(date)), isSpecialSession: () => false, marketOpen: () => null, source: "weekdays" };
   }
 }
 
@@ -32,6 +33,8 @@ export function dueReminders({ now, morning, calendar, sent }) {
   if (!morning?.enabled && !morning?.endOfDay?.enabled) return [];
   const date = istDateOf(now);
   if (!calendar.isTradingDay(date)) return [];
+  // A special session (Muhurat trading) has its own hours: the usual morning times would be wrong, so no reminders.
+  if (calendar.isSpecialSession?.(date)) return [];
   const out = [];
   const check = (kind, hhmm) => {
     const at = istInstant(date, hhmm);

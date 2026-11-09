@@ -150,6 +150,7 @@ export function createNotifyService(deps, opts = {}) {
   const lastSent = new Map(); // `${target}:${chat}` -> ms
   const blockedUntil = new Map(); // targetId -> ms (Telegram told us to wait)
   const globalSent = []; // send times in the last second
+  const chatSent = new Map(); // `${target}:${chat}` -> send times in the last minute (groups are limited per minute)
 
   /** One send with its bookkeeping. @returns {Promise<{ ok: true } | { ok: false, error: TelegramError }>} */
   async function sendNow(target, chat, text, { silent = false } = {}) {
@@ -157,6 +158,10 @@ export function createNotifyService(deps, opts = {}) {
       await clientFor(target).sendMessage(chat.id, text, { silent });
       lastSent.set(`${target.id}:${chat.key}`, now());
       globalSent.push(now());
+      const k = `${target.id}:${chat.key}`;
+      const recent = (chatSent.get(k) ?? []).filter((x) => x > now() - MIN);
+      recent.push(now());
+      chatSent.set(k, recent);
       noteOk(target, chat);
       return { ok: true };
     } catch (err) {
@@ -169,6 +174,14 @@ export function createNotifyService(deps, opts = {}) {
   }
 
   const backoff = (attempts) => Math.min(cfg.retry.maxMs, cfg.retry.baseMs * 2 ** Math.max(0, attempts - 1)) * (0.8 + 0.4 * random());
+
+  /** Milliseconds a group chat must still wait (Telegram: at most 20 messages per minute to a group). 0 for other chats. */
+  function groupWait(target, chatKey, t) {
+    const chat = target.chats.find((c) => c.key === chatKey);
+    if (!chat || !["group", "supergroup"].includes(chat.type)) return 0;
+    const recent = (chatSent.get(`${target.id}:${chatKey}`) ?? []).filter((x) => x > t - MIN);
+    return recent.length >= cfg.pacing.groupPerMinute ? recent[0] + MIN - t : 0;
+  }
 
   /** Handle one outbox item: send it and decide what happens to it. */
   async function deliver(item, target) {
@@ -456,31 +469,35 @@ export function createNotifyService(deps, opts = {}) {
     const s = settings();
     const t = now();
     const due = dueReminders({ now: t, morning: s.morning, calendar, sent: state().sent });
-    for (const r of due) {
-      state().sent[r.id] = t;
-      // keep ten days of marks
+    const mark = (id) => {
+      state().sent[id] = t;
       for (const k of Object.keys(state().sent)) if (t - state().sent[k] > 10 * 86_400_000) delete state().sent[k];
       stateFile.save();
+    };
+    for (const r of due) {
+      let result = null;
       if (r.kind === "morning" || r.kind === "second") {
         const list = notLoggedIn();
-        if (!list.length) continue;
-        if (r.kind === "second" && state().sent[`morning:${r.date}`] && t - state().sent[`morning:${r.date}`] < 10 * MIN) continue;
-        await publish(msg.morningMessage(list, { second: r.kind === "second" }), { bypassQuiet: true, noCoalesce: true });
+        const tooSoon = r.kind === "second" && state().sent[`morning:${r.date}`] && t - state().sent[`morning:${r.date}`] < 10 * MIN;
+        if (list.length && !tooSoon) result = await publish(msg.morningMessage(list, { second: r.kind === "second", opens: calendar.marketOpen?.() ?? undefined }), { bypassQuiet: true, noCoalesce: true });
       } else {
         const rows = [];
-        for (const [k, v] of Object.entries(state().daily.rows ?? {})) {
-          if (state().daily.date !== r.date) break;
-          const [accountId, mode] = k.split("|");
-          let pl = 0;
-          try {
-            pl = reader.limits(accountId).usage.byMode?.[mode]?.realisedPnl ?? 0;
-          } catch {
-            pl = 0;
+        if (state().daily.date === r.date) {
+          for (const [k, v] of Object.entries(state().daily.rows ?? {})) {
+            const [accountId, mode] = k.split("|");
+            let pl = 0;
+            try {
+              pl = reader.limits(accountId).usage.byMode?.[mode]?.realisedPnl ?? 0;
+            } catch {
+              pl = 0;
+            }
+            rows.push({ label: accountLabel(accountId), mode, orders: v.orders, fills: v.fills, rejections: v.rejections, pnl: pl });
           }
-          rows.push({ label: accountLabel(accountId), mode, orders: v.orders, fills: v.fills, rejections: v.rejections, pnl: pl });
         }
-        await publish(msg.eodMessage(rows, r.date), { bypassQuiet: true, noCoalesce: true });
+        result = await publish(msg.eodMessage(rows, r.date), { bypassQuiet: true, noCoalesce: true });
       }
+      // With no chat to write to yet, try again later in the same window (the person may be mid-setup).
+      if (result?.reason !== "no_chats") mark(r.id);
     }
   }
 
@@ -529,6 +546,7 @@ export function createNotifyService(deps, opts = {}) {
       const t = now();
       if ((blockedUntil.get(target.id) ?? 0) > t) continue;
       if (t - (lastSent.get(`${target.id}:${item.chatKey}`) ?? -Infinity) < cfg.pacing.perChatMs) continue;
+      if (groupWait(target, item.chatKey, t) > 0) continue;
       while (globalSent.length && globalSent[0] < t - SECOND) globalSent.shift();
       if (globalSent.length >= cfg.pacing.perSecond) continue;
       await deliver(item, target);
@@ -762,18 +780,26 @@ export function createNotifyService(deps, opts = {}) {
       await syncPollers();
     },
     /** "Find my chat": the chats that wrote to the bot recently and are not on the list yet. */
-    async findChats(id) {
+    async findChats(id, { waitMs = 2500 } = {}) {
       const t = await getTarget(id);
+      const have = new Set(t.chats.map((c) => c.key));
+      const list = () => {
+        const cutoff = now() - CANDIDATE_TTL_MS;
+        return [...candidates.entries()]
+          .filter(([k, c]) => c.seenAt >= cutoff && c.targetId === id && !have.has(k))
+          .map(([k, c]) => ({ ref: k, name: c.name, type: c.type ?? "unknown", idHint: maskId(c.id), seenAt: new Date(c.seenAt).toISOString() }));
+      };
       if (!cfg.inbound.enabled || !running) {
         // Polling is off: look once now (nothing else is reading this bot's messages).
         const r = await pollOnce(t, { timeout: 0 });
         if (!r.ok) throw refuseTelegram(r.error);
-      } else await syncPollers();
-      const cutoff = now() - CANDIDATE_TTL_MS;
-      const have = new Set(t.chats.map((c) => c.key));
-      return [...candidates.entries()]
-        .filter(([k, c]) => c.seenAt >= cutoff && c.targetId === id && !have.has(k))
-        .map(([k, c]) => ({ ref: k, name: c.name, type: c.type ?? "unknown", idHint: maskId(c.id), seenAt: new Date(c.seenAt).toISOString() }));
+        return list();
+      }
+      // Polling is on: the poller already holds a request open at Telegram, so a message shows up within a moment.
+      await syncPollers();
+      const until = Date.now() + waitMs;
+      while (!list().length && Date.now() < until) await new Promise((res) => setTimeout(res, 100));
+      return list();
     },
     /** Put a chat on the list: a candidate from findChats ({ ref }), or an id typed by hand ({ chatId }). */
     async addChat(id, { ref, chatId, name, commands }) {

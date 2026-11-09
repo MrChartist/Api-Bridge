@@ -10,7 +10,7 @@
  *     "morning": { "enabled": true, "at": "08:45", "secondAt": "09:10", "endOfDay": { "enabled": false, "at": "15:45" } },
  *     "coalesceSeconds": 20, "dedupeSeconds": 60,
  *     "rateLimitAlert": { "threshold": 20, "windowMinutes": 10 },
- *     "pacing": { "perChatMs": 1100, "perSecond": 20 },
+ *     "pacing": { "perChatMs": 1100, "perSecond": 20, "groupPerMinute": 18 },
  *     "retry": { "maxAttempts": 6, "baseMs": 2000, "maxMs": 300000, "maxAgeMinutes": 60 },
  *     "queue": { "max": 200 },
  *     "inbound": { "enabled": true, "commandsPerMinute": 10, "pollSeconds": 25 }
@@ -55,6 +55,8 @@ export const NOTIFY_CONFIG_SCHEMA = z
         perChatMs: z.number().int().min(250).max(60_000).default(1100),
         /** Telegram: about 30 messages per second for a whole bot. Kept well under it. */
         perSecond: z.number().int().min(1).max(30).default(20),
+        /** Telegram: a bot cannot "send more than 20 messages per minute" to a group. Kept under it. */
+        groupPerMinute: z.number().int().min(1).max(20).default(18),
       })
       .strict()
       .prefault({}),

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Telegram: alerts on your phone and read-only commands (`/price`, `/positions`, `/orders`, `/funds`, `/status`, `/kill`).
+  A durable outbox with retries, `retry_after`, pacing, digests and quiet hours; a morning "not logged in" reminder on
+  trading days; the bot token and chat ids are typed on this computer only and kept encrypted. New: `notify` config section
+  (no longer on the removed list), `/v1/notify/*`, `mc-bridge notify ...`, a Telegram card under Integrations, events
+  `ticket.prepared` and `hook.rejected` / `hook.stale` / `hook.failed`, `docs/guides/telegram.md` and `notifications.md`.
+  Order approval is never possible from Telegram, and `mc-bridge doctor` reports delivery truthfully.
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the

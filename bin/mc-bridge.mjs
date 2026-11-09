@@ -15,6 +15,7 @@
  *   mc-bridge sources list | enable <id> [--acknowledge <version>] | disable <id> | set-key <id> | test <id>
  *   mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display]
  *   mc-bridge sources plugins check <folder> | pin <folder>   (data sources and plugins; see docs/guides/sources.md)
+ *   mc-bridge notify telegram setup | remove <id>, notify status | test   (Telegram alerts; the token is asked for, never an argument)
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
  * (principal { kind: "local", id: "cli" }). Keys are printed once and never again.
