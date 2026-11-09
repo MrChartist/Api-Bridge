@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mrchartist-bridge"
 version = "0.3.0"
-description = "Python library for the Mr. Chartist API Bridge: typed market data with freshness labels, safe paper-first orders, live streams, asyncio and pandas helpers. Standard library only."
+description = "Python library for the Mr. Chartist API Bridge: typed market data with freshness labels, safe paper-first orders, live streams, asyncio, downloads, recordings, collections, events and pandas helpers. Standard library only (pandas and pyarrow are optional)."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -33,11 +33,13 @@ classifiers = [
 [project.optional-dependencies]
 # The core needs nothing: HTTP, the WebSocket client and the asyncio client are all standard library.
 pandas = ["pandas>=1.5"]
+# Optional Parquet output (frames.to_parquet, history_all(...).to_parquet). Nothing else needs it.
+parquet = ["pyarrow>=12"]
 # Reserved names. Streaming (sync and asyncio) and AsyncBridge work without any extra today; these keep
 # `pip install "mrchartist-bridge[stream]"` and `[async]` valid in scripts and requirements files.
 stream = []
 async = []
-all = ["pandas>=1.5"]
+all = ["pandas>=1.5", "pyarrow>=12"]
 dev = ["pytest>=7", "pandas>=1.5"]
 
 [project.scripts]

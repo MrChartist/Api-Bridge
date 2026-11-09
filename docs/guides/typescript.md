@@ -34,6 +34,46 @@ Same guarantees as the Python client: an `Idempotency-Key` on every order write,
 an error is retryable, never a blind retry of a write (`BridgeConnectionError` with `outcomeUnknown: true`), the key
 sent only as a header, and single-use stream tokens.
 
+## Downloads, recordings, collections, history and events
+
+The Bridge can fetch history for many symbols in the background and keep it as files, record option chains and quotes going
+forward from its own live data, keep named lists of instruments, and tell you what happened without polling. These groups
+return the reply's `data`; the plain one-route-one-method calls (`createDownload`, `listCollections`, ...) return the envelope.
+
+```ts
+import { BridgeClient, optionUniverse, verifySignature, DownloadFailedError } from "@mrchartist/bridge-client";
+
+let job = await bridge.downloads.create({ symbols: ["NSE:RELIANCE", "NSE:TCS"], intervals: "5m", from: "2024-01-01", dataset: "large-caps-5m" });
+try {
+  job = await bridge.downloads.wait(job, { onProgress: (j) => console.log(j.status, j.progress.done, "of", j.progress.total) });
+} catch (e) {
+  if (e instanceof DownloadFailedError) console.error(e.job.reason);   // kill switch, lost login, full disk ...
+  else throw e;
+}
+await bridge.downloads.save(job, "data/");      // each file checked against its SHA-256; manifest.json (with the data class) written
+await bridge.datasets.update("large-caps-5m", { wait: true });   // later: only the bars after the last stored one
+
+await bridge.recordings.rules.create({ name: "Index chains", kind: "chain", everySec: 30, collection: "index-options" });
+await bridge.collections.create("nifty-near", { universe: optionUniverse({ underlying: "NIFTY", count: 10 }) });
+const { symbols, warnings } = await bridge.collections.resolve("nifty-near");   // refused (422/503) on a delayed or stale price unless { allowStale: true }; then warnings say so
+
+for await (const c of bridge.historyAll({ symbol: "NSE:RELIANCE", interval: "5m", from: "2024-01-01", localFirst: true })) { /* typed Candle */ }
+for await (const ev of bridge.events.subscribe({ topics: ["download.*"], since: savedCursor })) console.log(ev.cursor, ev.topic, ev.data);
+```
+
+- Jobs run at the lowest priority on the Bridge (they never slow live reads or orders), survive a restart and stop with a stated
+  reason. Every job, dataset and recording says its data class, source and delay; delayed and end-of-day files are for analysis
+  only, never for orders, risk checks, paper fills or alerts.
+- `historyAll` asks for windows that fit the Bridge's per-call limit and halves any it reports as `partial`. With
+  `localFirst: true` the Bridge answers from data it already stored (real-time class, no gaps) and asks the broker only for the
+  rest: `candles.localWindows` and `candles.brokerWindows` show the split, and `candles.freshness` is the least current label.
+- `events.subscribe` reconnects with growing waits and resumes after the last cursor, so a restart loses nothing the Bridge
+  still keeps. For a URL on your side, `bridge.subscriptions.create({ url, topics, secret })` (admin key, from the Bridge's
+  computer) and check every delivery on the raw body: `verifySignature(secret, rawBody, req.headers["x-mcb-signature"])`
+  (header `t=<unix seconds>,v1=<hex>`, HMAC-SHA256 of `"<t>." + raw body`, 5-minute window).
+- Reading collections needs a `read` key; changing them needs the `paper` scope.
+- There is no Parquet or DataFrame in Node: `candles.records()`, `candles.toCsv()` and plain arrays. Python has both.
+
 ## Browser apps
 
 A page served from another origin (for example a Vite dev server on `http://localhost:5173`) must be listed in

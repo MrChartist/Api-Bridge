@@ -17,5 +17,11 @@ python sdk/python/examples/prices.py
 | `history_dataframe.py` | candles as a pandas DataFrame with an IST index (needs the `[pandas]` extra) |
 | `sources_freshness.py` | where data comes from, and what `require_realtime()` refuses |
 | `ticket_wait.py` | waiting for a person to approve an order on the Bridge's computer (the script cannot approve) |
+| `download_save.py` | a background download job: progress, saving the files with a checksum check, reading them back |
+| `collections_and_datasets.py` | a named list, an option universe that follows ATM and the weekly expiry, a dataset updated incrementally |
+| `record_chains.py` | recording option chains by hand and with a rule that runs every trading day |
+| `events_listen.py` | listening to Bridge events with reconnect, continuing from a saved cursor |
+| `webhook_receiver.py` | a small receiver that verifies the Bridge's webhook signature |
+| `history_all.py` | candles over a long range, local-first, with the label and optional Parquet |
 
 `strategies/` holds the strategy-file examples used by `python -m mrchartist_bridge strategy run`.

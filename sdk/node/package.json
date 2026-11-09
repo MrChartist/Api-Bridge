@@ -1,7 +1,7 @@
 {
   "name": "@mrchartist/bridge-client",
-  "version": "0.1.0",
-  "description": "Node client for the Mr. Chartist API Bridge: market data, paper and live orders with idempotency keys, and live streams.",
+  "version": "0.2.0",
+  "description": "Node client for the Mr. Chartist API Bridge: market data, paper and live orders with idempotency keys, live streams, downloads, recordings, collections and events.",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -42,7 +42,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/client.test.mjs"
+    "test": "node --test test/client.test.mjs test/data.test.mjs test/events.test.mjs test/examples.test.mjs"
   },
   "peerDependencies": {
     "ws": "^8.0.0"

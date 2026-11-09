@@ -83,6 +83,24 @@ await main()                                         # in a notebook; asyncio.ru
 | Spreadsheets | `bridge.xl.ltp(...)`, `.chain(...)`, `.history(...)`, `.formula(...)` for the `/xl` routes |
 | Alerts | `alerts.AlertMessage(...)` builds and checks a hook's alert JSON, `alerts.sign(...)`, `bridge.hooks.test(...)` (provisional; see the module) |
 
+## Data you keep, and events (0.3)
+
+Needs a Bridge that has the downloader, recorder, library and events routes; an older one answers 404 and the error says so.
+
+| Need | How |
+|---|---|
+| Download history in the background | `job = bridge.downloads.create(symbols, "5m", from_="2024-01-01")`, `bridge.downloads.wait(job, on_progress=...)`, `.save(job, "data/")` (each file checked against its SHA-256, `manifest.json` written, a file already there is not fetched again), `.read(job)` (list of dicts; `as_dataframe=True`), `.list()`, `.pause/resume/cancel/delete`, `.export_instruments(...)` |
+| Grow a dataset | `downloads.create(..., dataset="nifty-5m")`, later `bridge.datasets.update("nifty-5m", wait=True)` fetches only bars after the last one; `datasets.read(name, symbol, interval)` serves stored bars; `datasets.edit(...)` tags and renames |
+| Save option chains and quotes going forward | `bridge.recordings.create("chain", underlying="NIFTY", expiry=..., every_sec=30)`; `bridge.recordings.rules.create(...)` makes it happen every trading day by itself; `.save()`, `.read()` as for downloads |
+| Lists of instruments | `bridge.collections` (static lists and `option_universe(...)`), `resolve(name)` (recomputed each time; a delayed or stale price is refused unless `allow_stale=True`, then `warnings` says so; writes need the `paper` scope), `duplicate`, `tag`, `export`/`import_` (CSV or JSON), `usage`, `estimate` |
+| Candles over any range | `bridge.history_all(symbol, "5m", "2024-01-01", local_first=True)`: iterate typed `Candle`s (oldest first, no duplicates), or `.to_dataframe()`, `.records()`, `.to_csv(path)`, `.to_parquet(path)`; `local_first` lets the Bridge answer from data it already stored and saves API calls |
+| React to events | `for ev in bridge.events.subscribe(["download.*"]): ...` reconnects and resumes from the last `ev.cursor`; `bridge.subscriptions` manages signed webhooks; `verify_signature(secret, raw_body, header)` checks a delivery |
+| Parquet | `frames.to_parquet(...)` and `frames.csv_to_parquet(...)` only when `pyarrow` is installed (`pip install "mrchartist-bridge[parquet]"`); the data class is stored in the file's metadata |
+
+Every job, dataset and recording carries its data class, source and delay (`job.label`), and the manifest keeps them with the files.
+Delayed and end-of-day files are for analysis only. `AsyncBridge` has the same groups (`await bridge.downloads.wait(job)`,
+`async for ev in bridge.events.subscribe(...)`).
+
 Approval of orders that need a person stays on the Bridge's computer. `bridge.tickets` only watches; there is no call that
 confirms a ticket, and admin actions (keys, broker sessions, releasing the kill switch) are deliberately not in this library.
 

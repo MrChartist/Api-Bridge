@@ -21,8 +21,12 @@
 import { randomUUID } from "node:crypto";
 import { BridgeApiError, BridgeConnectionError } from "./errors.mjs";
 import { BridgeStream } from "./stream.mjs";
+import { Collections, Datasets, Downloads, Recordings, Subscriptions } from "./data.mjs";
+import { Events } from "./events.mjs";
+import { HistoryAll } from "./history.mjs";
 
 export const DEFAULT_BASE_URL = "http://127.0.0.1:4300";
+const seg = (s) => encodeURIComponent(String(s));
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
 const MAX_RETRY_WAIT_MS = 30_000;
 
@@ -72,7 +76,12 @@ export class BridgeClient {
     this._fetch = opts.fetch ?? globalThis.fetch;
     this._WebSocket = opts.WebSocket;
     this._sleep = opts.sleep ?? sleep;
-    this.userAgent = opts.userAgent ?? "mrchartist-bridge-node/0.1";
+    this.userAgent = opts.userAgent ?? "mrchartist-bridge-node/0.2";
+    this._now = opts.now ?? Date.now;
+    // Not enumerable, so console.log(client) and JSON.stringify(client) stay short and never loop back on themselves.
+    for (const [name, Group] of Object.entries({ downloads: Downloads, datasets: Datasets, recordings: Recordings, collections: Collections, subscriptions: Subscriptions, events: Events })) {
+      Object.defineProperty(this, name, { value: new Group(this), enumerable: false });
+    }
     if (typeof this._fetch !== "function") throw new Error("This runtime has no fetch(); use Node 20 or later.");
   }
 
@@ -194,8 +203,11 @@ export class BridgeClient {
   ltp(symbols, { account, maxAgeMs } = {}) { return this._get("/v1/ltp", { symbols: [].concat(symbols), account, maxAgeMs }); }
   quotes(symbols, { account, maxAgeMs } = {}) { return this._get("/v1/quotes", { symbols: [].concat(symbols), account, maxAgeMs }); }
   depth(symbol, { account, maxAgeMs } = {}) { return this._get("/v1/depth", { symbol, account, maxAgeMs }); }
-  /** @param {{ symbol: string, interval: string, from?: string|number, to?: string|number, countback?: number, account?: string, format?: "json"|"csv" }} p */
-  history({ symbol, interval, from, to, countback, account, format } = {}) { return this._get("/v1/history", { symbol, interval, from, to, countback, account, format }); }
+  /**
+   * @param {{ symbol: string, interval: string, from?: string|number, to?: string|number, countback?: number, account?: string, format?: "json"|"csv",
+   *   localFirst?: boolean, dataset?: string, backup?: boolean }} p  localFirst serves bars the Bridge already stored (dataset picks one) and fetches only the rest.
+   */
+  history({ symbol, interval, from, to, countback, account, format, localFirst, dataset, backup } = {}) { return this._get("/v1/history", { symbol, interval, from, to, countback, account, format, localFirst, dataset, backup }); }
   expiries(underlying, { exchange, account } = {}) { return this._get("/v1/expiries", { underlying, exchange, account }); }
   optionChain({ underlying, expiry, strikes, greeks, account, maxAgeMs } = {}) { return this._get("/v1/optionchain", { underlying, expiry, strikes, greeks, account, maxAgeMs }); }
   streamStats() { return this._get("/v1/stream/stats"); }
@@ -233,6 +245,121 @@ export class BridgeClient {
   async engageKillSwitch({ reason, cancelOpenOrders = false }) {
     return (await this.request("POST", "/v1/safety/kill-switch", { body: { reason, cancelOpenOrders } })).body;
   }
+
+  // ── Data you keep: downloads, datasets, recordings, collections, subscriptions (envelopes, like every call above) ──
+  // The friendlier groups are bridge.downloads, bridge.datasets, bridge.recordings, bridge.collections,
+  // bridge.subscriptions and bridge.events; these are the plain one-route-one-method calls they use.
+  createDownload(request) { return this._send("POST", "/v1/downloads", request); }
+  listDownloads({ status, limit, cursor } = {}) { return this._get("/v1/downloads", { status, limit, cursor }); }
+  download(id) { return this._get(`/v1/downloads/${seg(id)}`); }
+  pauseDownload(id) { return this._send("POST", `/v1/downloads/${seg(id)}/pause`); }
+  resumeDownload(id) { return this._send("POST", `/v1/downloads/${seg(id)}/resume`); }
+  cancelDownload(id) { return this._send("POST", `/v1/downloads/${seg(id)}/cancel`); }
+  deleteDownload(id) { return this._send("DELETE", `/v1/downloads/${seg(id)}`); }
+  editDownload(id, changes) { return this._send("PATCH", `/v1/downloads/${seg(id)}`, changes); }
+  downloadFiles(id) { return this._get(`/v1/downloads/${seg(id)}/files`); }
+  listDatasets({ tag } = {}) { return this._get("/v1/datasets", { tag }); }
+  dataset(name) { return this._get(`/v1/datasets/${seg(name)}`); }
+  updateDataset(name, body = {}) { return this._send("POST", `/v1/datasets/${seg(name)}/update`, body); }
+  editDataset(name, changes) { return this._send("PATCH", `/v1/datasets/${seg(name)}`, changes); }
+  listRecordings({ status } = {}) { return this._get("/v1/recordings", { status }); }
+  createRecording(request) { return this._send("POST", "/v1/recordings", request); }
+  recording(id) { return this._get(`/v1/recordings/${seg(id)}`); }
+  pauseRecording(id) { return this._send("POST", `/v1/recordings/${seg(id)}/pause`); }
+  resumeRecording(id) { return this._send("POST", `/v1/recordings/${seg(id)}/resume`); }
+  stopRecording(id) { return this._send("POST", `/v1/recordings/${seg(id)}/stop`); }
+  deleteRecording(id) { return this._send("DELETE", `/v1/recordings/${seg(id)}`); }
+  recordingFiles(id) { return this._get(`/v1/recordings/${seg(id)}/files`); }
+  recordingRules() { return this._get("/v1/recordings/rules"); }
+  createRecordingRule(rule) { return this._send("POST", "/v1/recordings/rules", rule); }
+  updateRecordingRule(id, changes) { return this._send("PATCH", `/v1/recordings/rules/${seg(id)}`, changes); }
+  deleteRecordingRule(id) { return this._send("DELETE", `/v1/recordings/rules/${seg(id)}`); }
+  listCollections({ tag, kind } = {}) { return this._get("/v1/collections", { tag, kind }); }
+  collection(name) { return this._get(`/v1/collections/${seg(name)}`); }
+  createCollection(collection) { return this._send("POST", "/v1/collections", collection); }
+  updateCollection(name, changes) { return this._send("PATCH", `/v1/collections/${seg(name)}`, changes); }
+  deleteCollection(name) { return this._send("DELETE", `/v1/collections/${seg(name)}`); }
+  /** A delayed or end-of-day ATM price is refused (422) and a stale one too (503) unless `allowStale: true` (then the answer is labelled). */
+  resolveCollection(name, { allowStale } = {}) { return this._get(`/v1/collections/${seg(name)}/resolve`, { allowStale: allowStale ? 1 : undefined }); }
+  collectionUsage(name) { return this._get(`/v1/collections/${seg(name)}/usage`); }
+  collectionEstimate(name, { intervals, days } = {}) { return this._get(`/v1/collections/${seg(name)}/estimate`, { intervals, days }); }
+  listSubscriptions() { return this._get("/v1/subscriptions"); }
+  createSubscription(subscription) { return this._send("POST", "/v1/subscriptions", subscription); }
+  updateSubscription(id, changes) { return this._send("PATCH", `/v1/subscriptions/${seg(id)}`, changes); }
+  deleteSubscription(id) { return this._send("DELETE", `/v1/subscriptions/${seg(id)}`); }
+  testSubscription(id) { return this._send("POST", `/v1/subscriptions/${seg(id)}/test`); }
+  subscriptionDeliveries(id, { limit, cursor } = {}) { return this._get(`/v1/subscriptions/${seg(id)}/deliveries`, { limit, cursor }); }
+
+  /** A write that is not an order: JSON in, body out, no Idempotency-Key (a lost reply is never retried). */
+  async _send(method, path, body, o = {}) {
+    return (await this.request(method, path, { body, signal: o.signal, timeoutMs: o.timeoutMs })).body;
+  }
+
+  /**
+   * Open a reply that is read piece by piece (a file or a Server-Sent Events stream). Resolves to the fetch Response once
+   * the status is known; a problem reply throws BridgeApiError. Retryable problems (rate limit) are retried and an
+   * unreachable Bridge is retried like a read. `timeoutMs` covers only the wait for the first answer; stop a running
+   * stream with `signal`.
+   * @param {string} method
+   * @param {string} path
+   * @param {{ query?: object, headers?: Record<string, string>, signal?: AbortSignal, timeoutMs?: number, accept?: string }} [o]
+   * @returns {Promise<Response>}
+   */
+  async openStream(method, path, o = {}) {
+    const url = this.baseUrl + path + toQuery(o.query);
+    const headers = { Accept: o.accept ?? "*/*", "User-Agent": this.userAgent, ...(o.headers ?? {}) };
+    if (this._apiKey) headers.Authorization = `Bearer ${this._apiKey}`;
+    for (let attempt = 0; ; attempt += 1) {
+      const ac = new AbortController();
+      const onAbort = () => ac.abort(o.signal.reason);
+      o.signal?.addEventListener("abort", onAbort, { once: true });
+      const timer = setTimeout(() => ac.abort(new Error("timeout")), o.timeoutMs ?? this.timeoutMs);
+      let res;
+      try {
+        res = await this._fetch(url, { method: method.toUpperCase(), headers, signal: ac.signal, redirect: "error" });
+      } catch (cause) {
+        o.signal?.removeEventListener("abort", onAbort);
+        if (o.signal?.aborted) throw cause;
+        if (attempt < this.maxRetries) {
+          await this._sleep(this._backoff(attempt), o.signal);
+          continue;
+        }
+        throw new BridgeConnectionError(`Could not reach the Bridge at ${this.baseUrl} (${ac.signal.aborted ? "timed out" : cause?.code ?? cause?.cause?.code ?? cause?.message ?? "network error"}).`, { cause, method, path, outcomeUnknown: false, timedOut: ac.signal.aborted });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (res.ok) return res; // the abort link stays: o.signal also stops the body that is still being read
+      o.signal?.removeEventListener("abort", onAbort);
+      const text = await res.text().catch(() => "");
+      let body = text;
+      if (/json/i.test(res.headers.get("content-type") ?? "")) {
+        try {
+          body = text ? JSON.parse(text) : null;
+        } catch {
+          body = text;
+        }
+      }
+      const problem =
+        body && typeof body === "object" && typeof body.code === "string"
+          ? { ...body, status: body.status ?? res.status }
+          : { status: res.status, code: res.headers.get("x-error-code") ?? `HTTP_${res.status}`, title: res.statusText, detail: typeof body === "string" ? body.slice(0, 200) : undefined, retryable: false };
+      const ra = Number(res.headers.get("retry-after"));
+      if (problem.retryAfterMs === undefined && Number.isFinite(ra) && ra >= 0) problem.retryAfterMs = ra * 1000;
+      const err = new BridgeApiError(problem);
+      if (err.retryable && attempt < this.maxRetries) {
+        await this._sleep(Math.min(MAX_RETRY_WAIT_MS, problem.retryAfterMs ?? this._backoff(attempt)), o.signal);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Candles over any length of time: `for await (const c of bridge.historyAll({ symbol, interval, from, to })) ...`.
+   * See history.mjs. `localFirst: true` lets the Bridge answer from the data it already stored (fewer broker calls).
+   * @param {import("./history.mjs").HistoryAllParams} p
+   */
+  historyAll(p) { return new HistoryAll(this, p); }
 
   /**
    * Iterate every item of a paginated list (orders, trades, instrument search).

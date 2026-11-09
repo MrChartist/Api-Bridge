@@ -527,9 +527,10 @@ class BridgeClient:
     def delete_collection(self, name: str) -> Any:
         return self.request("DELETE", "/v1/collections/" + _seg(name)).body
 
-    def resolve_collection(self, name: str) -> Dict[str, Any]:
-        """The concrete symbols of a collection right now (an option universe is recomputed on each call)."""
-        return self._get("/v1/collections/%s/resolve" % _seg(name))
+    def resolve_collection(self, name: str, *, allow_stale: Optional[bool] = None) -> Dict[str, Any]:
+        """The concrete symbols of a collection right now (an option universe is recomputed on each call). A delayed or
+        end-of-day ATM price is refused (422) and a stale one too (503) unless ``allow_stale=True`` (then labelled)."""
+        return self._get("/v1/collections/%s/resolve" % _seg(name), {"allowStale": 1 if allow_stale else None})
 
     def collection_usage(self, name: str) -> Dict[str, Any]:
         return self._get("/v1/collections/%s/usage" % _seg(name))

@@ -348,7 +348,7 @@ class DataRoutes:
                     return self.fake.problem(400, "VALIDATION_FAILED", "name is required")
                 if b["name"] in self.collections:
                     return self.fake.problem(409, "STATE_CONFLICT", "A collection called %s exists." % b["name"])
-                c = {"name": b["name"], "description": b.get("description"), "tags": b.get("tags") or [], "kind": b.get("kind", "static"), "symbols": b.get("symbols") or [], "universe": b.get("universe"),
+                c = {"id": self._id("col"), "name": b["name"], "description": b.get("description"), "tags": b.get("tags") or [], "kind": b.get("kind", "static"), "symbols": b.get("symbols") or [], "universe": b.get("universe"),
                      "updatedAt": "2026-11-09T10:00:00+05:30"}
                 self.collections[b["name"]] = c
                 return self.ok(c, 201)
@@ -376,9 +376,16 @@ class DataRoutes:
         if rest == ["resolve"]:
             syms, info = self.resolve_symbols(name)
             out = dict({"name": name, "symbols": syms, "resolvedAt": "2026-11-09T10:00:00+05:30"}, **info)
-            if c["kind"] == "option-universe" and self.atm_delayed:
-                out["warnings"] = ["The underlying price is delayed (about 900 s); ATM may be stale."]
-                out["freshness"] = {"source": "backup", "class": "delayed", "delaySec": 900, "official": False, "stale": False, "ageMs": 900000}
+            if c["kind"] == "option-universe":
+                out["atmSource"] = "stream"
+            if c["kind"] == "option-universe" and self.atm_delayed == "delayed":
+                return self.fake.problem(422, "VALIDATION_FAILED", "The underlying price is delayed: an ATM from it would be wrong.")
+            if c["kind"] == "option-universe" and self.atm_delayed == "stale":
+                if q.get("allowStale") != "1":
+                    return self.fake.problem(503, "UPSTREAM_ERROR", "The underlying price is stale.")
+                out["warnings"] = ["The underlying price is stale (45 s old); ATM may have moved."]
+                out["atmSource"] = "cache"
+                out["freshness"] = {"source": "cache", "class": "realtime", "delaySec": 0, "official": True, "stale": True, "ageMs": 45000}
             return self.ok(out)
         if rest == ["usage"]:
             used = [j["id"] for j in self.jobs.values() if j["request"].get("collection") == name]

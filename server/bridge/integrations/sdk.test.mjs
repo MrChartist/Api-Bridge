@@ -17,7 +17,7 @@ function run(cmd, args) {
 
 describe("SDKs against the fake Bridge", () => {
   it("Node SDK (node --test)", () => {
-    const r = run(process.execPath, ["--test", "sdk/node/test/client.test.mjs"]);
+    const r = run(process.execPath, ["--test", "sdk/node/test/client.test.mjs", "sdk/node/test/data.test.mjs", "sdk/node/test/events.test.mjs", "sdk/node/test/examples.test.mjs"]);
     if (r.status !== 0) console.error(r.out.slice(-6000));
     expect(r.error).toBeUndefined();
     expect(r.status).toBe(0);

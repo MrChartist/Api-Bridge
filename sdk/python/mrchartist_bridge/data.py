@@ -396,6 +396,8 @@ class Collection:
     symbols: Tuple[str, ...]
     universe: Optional[Mapping[str, Any]]
     updated_at: Optional[datetime] = None
+    id: Optional[str] = None
+    """Stable ``col_`` id: a renamed collection keeps it (the old name still resolves, with a warning)."""
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
@@ -403,7 +405,7 @@ class Collection:
         uni = d.get("universe")
         syms = tuple(str(s.get("symbol") if isinstance(s, Mapping) else s) for s in d.get("symbols") or ())
         kind = str(d.get("kind") or ("option-universe" if uni else "static"))
-        return cls(str(d.get("name")), d.get("description"), tuple(str(t) for t in d.get("tags") or ()), kind, syms, dict(uni) if isinstance(uni, Mapping) else None, parse_time(d.get("updatedAt")), dict(d))
+        return cls(str(d.get("name")), d.get("description"), tuple(str(t) for t in d.get("tags") or ()), kind, syms, dict(uni) if isinstance(uni, Mapping) else None, parse_time(d.get("updatedAt")), d.get("id"), dict(d))
 
     @property
     def is_dynamic(self) -> bool:
@@ -431,6 +433,8 @@ class Resolution:
     atm: Optional[float]
     freshness: Optional[Freshness]
     warnings: Tuple[str, ...]
+    atm_source: Optional[str] = None
+    """Where the price behind the ATM came from (as the Bridge reports it)."""
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
@@ -439,7 +443,8 @@ class Resolution:
         fr = d.get("freshness")
         warn = d.get("warnings") or d.get("notes") or ()
         return cls(str(d.get("name") or name), syms, parse_time(d.get("resolvedAt")), d.get("rule"), _num(d.get("atm") if d.get("atm") is not None else d.get("atmStrike")),
-                   Freshness.from_dict(fr) if isinstance(fr, Mapping) else None, tuple(str(w) for w in ([warn] if isinstance(warn, str) else warn)), dict(d))
+                   Freshness.from_dict(fr) if isinstance(fr, Mapping) else None, tuple(str(w) for w in ([warn] if isinstance(warn, str) else warn)),
+                   (str(d["atmSource"]) if isinstance(d.get("atmSource"), (str, int)) else (json.dumps(d["atmSource"], sort_keys=True) if d.get("atmSource") is not None else None)), dict(d))
 
     def __iter__(self) -> Iterator[str]:
         return iter(self.symbols)
@@ -960,15 +965,16 @@ class Collections(_Ns):
     def delete(self, name: str) -> None:
         self._c.delete_collection(name)
 
-    def resolve(self, name: str) -> Resolution:
-        """The concrete symbols now. An option universe is recomputed on each call (rolling expiry, moving ATM). Read
-        ``resolution.warnings`` and ``freshness``: with a delayed or missing price the Bridge says so instead of using a
-        stale ATM silently."""
-        return Resolution.from_dict(name, _data(self._c.resolve_collection(name)) or {})
+    def resolve(self, name: str, *, allow_stale: bool = False) -> Resolution:
+        """The concrete symbols now. An option universe is recomputed on each call (rolling expiry, moving ATM). The
+        Bridge refuses to work out an ATM from a delayed or end-of-day price (422) or a stale one (503): that raises the
+        usual typed error. ``allow_stale=True`` accepts a stale price; the answer is then labelled (``warnings``,
+        ``atm_source``, ``freshness``): read them, and never trade on such a resolution silently."""
+        return Resolution.from_dict(name, _data(self._c.resolve_collection(name, allow_stale=True if allow_stale else None)) or {})
 
-    def symbols(self, name: str) -> List[str]:
+    def symbols(self, name: str, *, allow_stale: bool = False) -> List[str]:
         """Shortcut for ``resolve(name).symbols`` as a list."""
-        return list(self.resolve(name).symbols)
+        return list(self.resolve(name, allow_stale=allow_stale).symbols)
 
     def usage(self, name: str) -> Dict[str, Any]:
         """Which downloads, recordings and datasets use the collection (as the Bridge reports it)."""

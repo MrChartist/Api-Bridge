@@ -20,6 +20,8 @@ from mrchartist_bridge import (  # noqa: E402
     ChecksumMismatch,
     DownloadFailed,
     NotFound,
+    UpstreamError,
+    ValidationFailed,
     WaitTimeout,
     option_universe,
 )
@@ -367,13 +369,23 @@ def test_option_universe_builder_checks():
 
 
 def test_resolve_follows_the_universe_and_is_honest_about_the_price(bridge, fake):
-    bridge.collections.create("nifty-near", universe=option_universe("NIFTY", count=1))
+    c = bridge.collections.create("nifty-near", universe=option_universe("NIFTY", count=1))
+    assert c.id and c.id.startswith("col_")
     r = bridge.collections.resolve("nifty-near")
-    assert r.symbols[0] == "NSE:NIFTY" and len(r) == 1 + 3 * 2 and r.atm == 26000 and "ATM 26000" in r.rule and r.is_reliable and r.resolved_at is not None
-    fake.data.atm_delayed = True
-    r2 = bridge.collections.resolve("nifty-near")
-    assert not r2.is_reliable and "delayed" in r2.warnings[0] and r2.freshness.is_delayed
-    assert bridge.collections.symbols("nifty-near") == list(r2.symbols)
+    assert r.symbols[0] == "NSE:NIFTY" and len(r) == 1 + 3 * 2 and r.atm == 26000 and "ATM 26000" in r.rule and r.is_reliable and r.resolved_at is not None and r.atm_source == "stream"
+    assert fake.find("GET", "/v1/collections/nifty-near/resolve")[-1]["query"] == {}
+    # a delayed price is refused by the Bridge (422): the library raises, it never falls back to a stale ATM
+    fake.data.atm_delayed = "delayed"
+    with pytest.raises(ValidationFailed):
+        bridge.collections.resolve("nifty-near", allow_stale=True)
+    # a stale price is refused (503) unless the caller says allow_stale; the answer is then labelled
+    fake.data.atm_delayed = "stale"
+    with pytest.raises(UpstreamError):
+        bridge.collections.resolve("nifty-near")
+    r2 = bridge.collections.resolve("nifty-near", allow_stale=True)
+    assert fake.find("GET", "/v1/collections/nifty-near/resolve")[-1]["query"] == {"allowStale": "1"}
+    assert not r2.is_reliable and "stale" in r2.warnings[0] and r2.atm_source == "cache" and r2.freshness.stale
+    assert bridge.collections.symbols("nifty-near", allow_stale=True) == list(r2.symbols)
 
 
 def test_collection_edit_rename_tag_duplicate_delete(bridge):
