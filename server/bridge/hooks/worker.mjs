@@ -187,6 +187,22 @@ export function createSignalWorker({ deps, store, logger, queueSize, concurrency
       });
     }) ?? (() => {});
 
+  // A person declined the ticket: the signal is over (status "rejected"), nothing was or will be sent.
+  const offRejected =
+    deps.bus?.on?.("ticket.rejected", (p) => {
+      const entry = awaiting.get(p?.ticketId);
+      if (!entry || p.principal !== `hook:${entry.hookId}`) return;
+      awaiting.delete(p.ticketId);
+      const rec = entry.rec;
+      rec.status = "rejected";
+      rec.code = "TICKET_REJECTED";
+      rec.reason = "You declined this order in the Bridge. Nothing was sent.";
+      rec.finishedAt = now();
+      record(rec);
+      logger.info("hook signal declined", { signalId: rec.signalId, hookId: rec.hookId });
+      audit(store.get(entry.hookId), rec).catch((err) => logger.warn("declined hook signal could not be audited", { code: err?.code }));
+    }) ?? (() => {});
+
   /** @param {Job} job */
   async function run(job) {
     const hook = store.get(job.hookId);
@@ -318,6 +334,7 @@ export function createSignalWorker({ deps, store, logger, queueSize, concurrency
     async stop({ timeoutMs = 5000 } = {}) {
       accepting = false;
       offConfirmed();
+      offRejected();
       const left = queue.splice(0);
       for (const j of left) {
         const rec = { signalId: j.signalId, hookId: j.hookId, index: j.index, status: "dropped", receivedAt: j.receivedAt, finishedAt: now(), symbol: j.signal.symbol, side: j.signal.side, orderId: null, ticketId: null, mode: null, code: "SHUTDOWN", reason: "The Bridge stopped before this signal was processed." };

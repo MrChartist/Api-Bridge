@@ -21,7 +21,8 @@ as little as possible. Everything below is on by default.
 5. `"mode": "live"` in the request;
 6. human confirmation for AI assistants and for hooks with `requireConfirmation`. "AI assistant" means a key created
    with `--client mcp`, on **every** route (REST included), not only the MCP endpoint; such a key cannot have the
-   admin scope, and the client that prepared a ticket can never confirm it;
+   admin scope, and the client that prepared a ticket can never confirm it. The person can also **decline** a ticket
+   (see below);
 7. an `Idempotency-Key` header or a `clientOrderId` (a live order without one is refused, so a retry cannot double it);
 8. every safety check below.
 
@@ -114,9 +115,28 @@ retries an order write blindly.
   `mc-bridge doctor` warns while they share a folder.
 - Passwords, PINs and TOTP codes are used once for a broker login and never stored.
 
+## Declining a pending confirmation
+
+A ticket that waits in Pending confirmations can be confirmed or declined. **Decline** (dashboard, with an optional short
+reason, or `POST /v1/tickets/{ticketId}/reject` with an admin key from this computer, body empty or
+`{"reason": "Wrong quantity"}`, 200 characters at most) ends the ticket at once, on the server:
+
+- Only an **open** ticket can be declined. Declining one that is already declined answers 200 with the same state.
+  A ticket that was confirmed, already used to send its order, or has expired answers **409** with
+  `state: "confirmed" | "consumed" | "expired"`; an id the Bridge does not know answers 404.
+- A declined ticket can never yield a confirmation code, whichever request comes second: confirming it afterwards is a
+  409 with `state: "rejected"`, and declining a ticket someone just confirmed is a 409 with `state: "confirmed"`.
+- It leaves `GET /v1/tickets`. The last ones declined stay readable for 15 minutes in memory
+  (`GET /v1/tickets?state=rejected`; the dashboard shows them as "Recently declined") and are forgotten on restart.
+- It is in the audit log as `ticket.rejected` (ticket id, account, symbol, side, mode, who declined, the reason you gave;
+  never a code or key), and announced as the `ticket.rejected` event. An AI assistant that checks the ticket sees
+  `status: "rejected"` and the reason ([mcp.md](mcp.md)); a webhook signal that was waiting on it ends as `rejected`
+  (code `TICKET_REJECTED`).
+- The same rules as confirming apply: admin key, this computer, and never an AI assistant, webhook or other automation.
+
 ## Audit log
 
-Every key change, login, order step, confirmation, kill-switch action and webhook signal is appended to
+Every key change, login, order step, confirmation or decline, kill-switch action and webhook signal is appended to
 `data/audit/YYYY-MM-DD.jsonl` (IST days), redacted and hash-chained. `GET /v1/audit` (admin, this computer) queries it;
 `GET /v1/audit/verify` checks the chain.
 

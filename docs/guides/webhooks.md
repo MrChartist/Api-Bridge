@@ -46,7 +46,7 @@ stops a URL at once.
 | `product`, `orderType` | Fixed per hook (`LIMIT` alerts must carry a price) |
 | `maxLotsPerSignal` | Larger signals are refused, never trimmed |
 | `allowedSymbols` | Only these canonical symbols (recommended for derivatives). Exact contracts: a dated future stops matching on expiry, so the create response warns 7 days ahead; update the hook at each roll-over |
-| `requireConfirmation` | Every signal waits on the dashboard (Pending confirmations); confirming places exactly that order, once |
+| `requireConfirmation` | Every signal waits on the dashboard (Pending confirmations); confirming places exactly that order, once; declining ends the signal as `rejected` (`TICKET_REJECTED`) and nothing is sent |
 | `allowSourceIps` | Optional allowlist of sender IP addresses or IPv4 CIDR blocks (for example the addresses your alert service publishes) |
 | `acknowledgeUnsignedLive` | `true` to accept that a live ChartInk or GoCharting hook is protected by its URL alone (audited and shown on the hook) |
 

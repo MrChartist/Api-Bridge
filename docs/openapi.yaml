@@ -1901,13 +1901,19 @@ paths:
       tags: [Orders]
       operationId: listTickets
       summary: Orders waiting for a human confirmation
-      description: The dashboard's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only.
+      description: The dashboard's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only. Only open tickets are listed; `state=rejected` lists the ones a person declined in the last 15 minutes (newest first), which the dashboard shows as "Declined".
+      parameters:
+        - name: state
+          in: query
+          required: false
+          description: "`open` (default): tickets waiting for a person. `rejected`: tickets a person declined recently."
+          schema: { type: string, enum: [open, rejected], default: open }
       x-stream: S7
       x-scope: admin
       x-loopback-only: true
       responses:
         "200":
-          description: Pending tickets, oldest first.
+          description: Tickets in the asked state (open: oldest first; rejected: newest first).
           content:
             application/json:
               schema:
@@ -1929,7 +1935,7 @@ paths:
       tags: [Orders]
       operationId: confirmTicket
       summary: Human confirmation of an order prepared by an AI assistant or webhook
-      description: Used by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds.
+      description: Used by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds. A ticket a person already declined answers 409 `STATE_CONFLICT` with `state: rejected` and never yields a token.
       x-stream: S7
       x-scope: admin
       x-loopback-only: true
@@ -1949,6 +1955,55 @@ paths:
                       confirmToken: { type: string }
                       expiresAt: { type: string, format: date-time }
                   meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/tickets/{ticketId}/reject:
+    parameters:
+      - name: ticketId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      tags: [Orders]
+      operationId: rejectTicket
+      summary: A person declines an order prepared by an AI assistant or webhook
+      description: >-
+        The "no" that goes with confirm. Only an open ticket can be declined; it leaves the pending list at once and
+        can never be confirmed afterwards. Declining a ticket that is already declined is a no-op that answers 200 with
+        the same ticket. A ticket that was already confirmed, used to send its order, or has expired answers 409
+        `STATE_CONFLICT` with `state` (`confirmed`, `consumed` or `expired`); one the Bridge does not know answers 404.
+        The decline is audited (`ticket.rejected`) and announced on the event bus. The assistant that prepared the
+        order sees `status: rejected` and the reason (MCP tool `check_order_ticket`). Admin scope, this computer only,
+        and not from an AI assistant, a webhook or any other automation.
+      x-stream: S7
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: string, maxLength: 200, description: "Optional, in the person's own words. The assistant that prepared the order can read it." }
+      responses:
+        "200":
+          description: The declined ticket (`status: rejected`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Ticket" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "409":
+          description: The ticket is not open any more. `state` says why (`confirmed`, `consumed`, `expired`).
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -4199,6 +4254,11 @@ components:
             properties:
               path: { type: string }
               message: { type: string }
+        ticketId: { type: string, description: "STATE_CONFLICT on a ticket route only: the ticket." }
+        state:
+          type: string
+          enum: [rejected, confirmed, consumed, expired]
+          description: "STATE_CONFLICT on a ticket route only: why it cannot be confirmed or declined. Read this, not `detail`."
         canCarry:
           type: object
           description: "CAPACITY_EXCEEDED only (PUT /v1/options/recorder/config): the underlyings the data account can carry."
@@ -5390,6 +5450,9 @@ components:
         estimatedValue: { type: [number, "null"] }
         createdAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time }
+        status: { type: string, enum: [open, rejected], description: "`open` while it waits for a person; `rejected` once a person declined it." }
+        rejectedAt: { type: string, format: date-time, description: "Declined tickets only." }
+        reason: { type: [string, "null"], maxLength: 200, description: "Declined tickets only: the person's reason, when they gave one." }
     Trade:
       type: object
       required: [tradeId, orderId, symbol, side, qty, price]

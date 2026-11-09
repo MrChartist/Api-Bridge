@@ -2087,7 +2087,7 @@ configureOrdersBook({ segmented });
 const orderBrief = (o) => h("div", { class: "ob-brief" }, sidePill(o.side), h("div", {}, h("strong", {}, contractName(o.symbol)), h("span", { class: "ob-sub" }, `${qtyText(o)} qty · ${orderTypeText(o.orderType)}${isFigure(o.price) ? ` at ${formatFixed(o.price, 2)}` : ""}`)));
 
 async function renderOrders() {
-  const [tickets, orders, accounts] = await Promise.all([optional(api("/v1/tickets")), optional(api("/v1/orders?limit=100")), optional(api("/v1/accounts"))]);
+  const [tickets, orders, accounts, declined] = await Promise.all([optional(api("/v1/tickets")), optional(api("/v1/orders?limit=100")), optional(api("/v1/accounts")), optional(api("/v1/tickets?state=rejected"))]);
   if (accounts.error)
     return card({
       glyph: "orders",
@@ -2106,9 +2106,11 @@ async function renderOrders() {
   // as each account answers, so a slow broker never holds the page).
   const pending = pendingSection({
     tickets: tickets.data?.data ?? [],
+    declined: declined.data?.data ?? [],
     error: tickets.error ?? null,
     byId,
     review: (t) => confirmTicket(t, byId),
+    changed: refreshTicketCount,
     setup: nextStep("Set up an AI assistant", "#/api/integrations?tool=claude", "small"),
     retry: () => show({ refresh: true }),
   });
@@ -2117,8 +2119,8 @@ async function renderOrders() {
 
   // A ticket or an order that arrives while the page is open shows up without a reload (and the nav count follows).
   every(4000, async () => {
-    const [t, o] = await Promise.all([optional(api("/v1/tickets", { fresh: true })), optional(api("/v1/orders?limit=100", { fresh: true }))]);
-    if (!t.error) pending.update(t.data?.data ?? []);
+    const [t, o, d] = await Promise.all([optional(api("/v1/tickets", { fresh: true })), optional(api("/v1/orders?limit=100", { fresh: true })), optional(api("/v1/tickets?state=rejected", { fresh: true }))]);
+    if (!t.error) pending.update(t.data?.data ?? [], null, d.error ? null : (d.data?.data ?? []));
     if (!o.error) book.update(o.data?.data ?? []);
     refreshTicketCount();
   });

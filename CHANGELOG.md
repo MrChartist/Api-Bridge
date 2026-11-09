@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
+  `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
+  was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the
+  event bus, and the last ones stay listed for 15 minutes in `GET /v1/tickets?state=rejected`. The dashboard's Decline
+  button uses it (an optional reason, the card goes at once and returns if the Bridge refuses, a "Recently declined"
+  list). AI assistants get the MCP tool `check_order_ticket` (`status: "rejected"` with the reason) and
+  `submit_confirmed_order` refuses a declined ticket plainly; a webhook signal waiting on it ends as `rejected`.
 - Data sources and plugins: optional free sources and owner-approved plugins next to your broker accounts, each answer
   labelled with its data class (`realtime`, `delayed`, `eod`), delay, `official` flag and confidence; `/v1/sources`, a
   routing trace, pooling consent, per-key quotas, `limits?explain=1` and a `purpose` read parameter. Plugins run in their
