@@ -24,6 +24,7 @@ import { getMode, markMode, onMode, pageShown, setMode, tabsShown } from "./easy
 import { watchGlossary } from "./glossary.js";
 import { helpRow, openHelp, toolbarHelp } from "./help.js";
 import { configureConnect, renderConnect, simpleSourcesNote } from "./connect.js";
+import { configureDevelopers, renderDevelopers } from "./developers.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -203,6 +204,7 @@ const INTEGRATION_TOOLS = [
 export const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, key: 1, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "connect", label: "Connect a tool", icon: "plug", tint: "green", key: 6, group: "Bridge", keywords: "excel sheets spreadsheet claude chatgpt ai assistant python node script amibroker app key setup integration", title: "Connect a tool", sub: "Give Excel, an AI assistant or a script its own key, with the setup ready to copy", render: renderConnect },
+  { id: "developers", advanced: true, label: "Developers", icon: "console", tint: "purple", key: 7, group: "Bridge", keywords: "developer api key app scope quota snippet curl python node sdk starter openapi errors error codes requests log webhook events", title: "Developers", sub: "Your first call, the key each job needs, your requests live, and every error explained", render: renderDevelopers },
   // Sources has a place in the phone tab bar and API (set up once, used at a desk) moves to More: whether the data is
   // flowing is the question people open the Bridge on a phone to ask, a key is made once.
   {
@@ -2152,6 +2154,7 @@ async function renderSourcesQuotas() {
 import { clockText, orderTypeText, qtyText, ticketLife } from "./orders-core.js";
 configureOrdersBook({ segmented });
 configureConnect({ segmented, snippetBlock });
+configureDevelopers({ segmented, snippetBlock, every, stop: () => clearInterval(timer), hashParams: () => hashParams(), setHashParam: (k, v) => setHashParam(k, v) });
 
 /** The order a sheet is about, on one line: side, contract, size and type. */
 const orderBrief = (o) => h("div", { class: "ob-brief" }, sidePill(o.side), h("div", {}, h("strong", {}, contractName(o.symbol)), h("span", { class: "ob-sub" }, `${qtyText(o)} qty · ${orderTypeText(o.orderType)}${isFigure(o.price) ? ` at ${formatFixed(o.price, 2)}` : ""}`)));

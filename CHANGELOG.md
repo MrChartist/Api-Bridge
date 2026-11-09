@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Developer kit: `mc-bridge init <starter>` (node, python, curl, sheets, webhook-receiver, mcp-client) writes a tested project with the real address and, on request, a least-privilege key in `.env` only; a Developers page in the dashboard (apps, scope finder, live requests by app, error catalogue); `GET /v1/errors`; `docs/guides/developers.md`.
 - Developer files generated from `docs/openapi.yaml`: Postman and Bruno collections (`docs/collections/`), one Markdown page
   per endpoint and the error codes (`docs/api/`), `docs/llms.txt`, `docs/llms-full.txt` and a search index. The curl
   examples in them and in the quickstart run in the tests; `npm run docs:generate` rewrites everything and `npm run

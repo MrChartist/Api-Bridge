@@ -1687,6 +1687,24 @@
     },
     {
       "headings": [
+        "Start in five minutes",
+        "Auth and scopes",
+        "Limits and retries",
+        "Errors",
+        "Pagination",
+        "Idempotency",
+        "Events",
+        "Data downloads",
+        "The versioning promise",
+        "Where next"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/developers.md",
+      "text": "This is the short path for someone who writes code against the Bridge: a working call in five minutes, which key to use, what to do when something fails, and what will not change under you. Everything here also lives in the dashboard on the Developers page (#/developers): apps,...",
+      "title": "Building on the Bridge: the developer guide"
+    },
+    {
+      "headings": [
         "The Excel workbook",
         "The key",
         "Refreshing, and how often",

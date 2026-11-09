@@ -44,6 +44,7 @@ Facts that help when writing code against it:
 - [Telegram: alerts on your phone, and prices when you ask](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/telegram.md): Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting
 - [Notifications: how the Bridge tells you things](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/notifications.md): How a message travels (outbox, retries, pacing, quiet hours), the notify settings and routes
 - [AmiBroker](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/amibroker.md): AmiBroker AFL and ASCII import
+- [Building on the Bridge: the developer guide](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/developers.md): Start in five minutes, starters (mc-bridge init), auth and scopes, limits and retries, errors, pagination, idempotency, events, data downloads, versioning promise
 - [Python](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/python.md): Python SDK
 - [TypeScript and Node](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/typescript.md): Node and TypeScript SDK
 - [Excel and Google Sheets](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/excel-sheets.md): Excel WEBSERVICE, Power Query, Google Sheets

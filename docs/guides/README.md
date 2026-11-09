@@ -20,6 +20,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [telegram.md](telegram.md) | Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting |
 | [notifications.md](notifications.md) | How a message travels (outbox, retries, pacing, quiet hours), the `notify` settings and routes |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
+| [developers.md](developers.md) | Start in five minutes, starters (`mc-bridge init`), auth and scopes, limits and retries, errors, pagination, idempotency, events, data downloads, versioning promise |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |
 | [excel-sheets.md](excel-sheets.md) | Excel `WEBSERVICE`, Power Query, Google Sheets |
