@@ -5,7 +5,7 @@
 import { BridgeError } from "../core/errors.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 
-const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
+export const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
 /** VALIDATION_FAILED for one field. */
 export const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });

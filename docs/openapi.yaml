@@ -2481,7 +2481,7 @@ paths:
       tags: [Spreadsheets]
       operationId: xlLtp
       summary: One number as plain text, for Excel WEBSERVICE and AmiBroker
-      description: "`=WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\")`. Read-only URL keys only; nothing under /xl can place an order."
+      description: "`=WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\")`. Read-only URL keys only; nothing under /xl can place an order. A value that is delayed or end-of-day is refused (422, `#N/A`) because a bare number cannot carry that label; use /xl/quotes for labelled prices."
       x-module: integrations
       x-scope: read
       security:
@@ -2571,6 +2571,236 @@ paths:
             text/csv:
               schema: { type: string }
         "4XX": { $ref: "#/components/responses/Problem" }
+
+  /xl/quotes:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlQuotes
+      summary: Prices for a whole sheet as one table (one request, one row per symbol)
+      description: "`symbols` is a comma-separated list (at most `integrations.xl.maxSymbols`, default 100); one row per symbol in the order asked, duplicates included. A symbol that cannot be priced gets blank values and a text in `error`; it never fails the table. Every row carries `as_of` (IST), `age_s`, `class`, `source` and `stale`; in demo mode also `demo` = DEMO. Prices never come from a backup data source (`?backup=true` is refused)."
+      x-module: integrations
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: symbols, in: query, required: true, description: "Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat.", schema: { type: string } }
+        - { name: fields, in: query, description: "Value columns in the order wanted (default ltp,chg,pct,volume). Freshness columns are always added.", schema: { type: string, example: "ltp,chg,pct,volume,as_of,class" } }
+        - { $ref: "#/components/parameters/XlFormat" }
+        - { $ref: "#/components/parameters/XlCache" }
+      responses:
+        "200":
+          description: One row per requested symbol. Columns - symbol, then the requested fields (ltp open high low close chg pct volume oi bid ask), then as_of age_s class source stale, then error (and demo in demo mode).
+          headers:
+            Cache-Control: { description: "`no-store`, or `private, max-age=N` with `?cache=1`.", schema: { type: string } }
+            ETag: { description: "Only with `?cache=1`.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string }
+            text/tab-separated-values:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "304": { description: "Only with `?cache=1` and a matching `If-None-Match`." }
+        "4XX":
+          description: A one-row table (`status,code,message,retry_after_s`) in the format asked for, with the real status, `Retry-After` and `X-Error-Code`.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /xl/instrument:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlInstrument
+      summary: Lot size, tick size and freeze quantity
+      description: "One symbol with one `field` and no `format` gives a bare value (text/plain, `#N/A` on error) for a single cell. Several symbols, several fields or an explicit `format` give a table (symbol, the fields, error)."
+      x-module: integrations
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: symbol, in: query, required: true, description: "One symbol or a comma-separated list. `symbols` is accepted too.", schema: { type: string } }
+        - { name: field, in: query, description: "lot, tick, freeze, name or kind; comma-separated for a table. Default all five.", schema: { type: string, example: "lot,tick,freeze" } }
+        - { $ref: "#/components/parameters/XlFormat" }
+        - { $ref: "#/components/parameters/XlCache" }
+      responses:
+        "200":
+          description: A bare number (text/plain) for one symbol and one field, otherwise a table.
+          headers:
+            Cache-Control: { description: "`no-store`, or `private, max-age=N` with `?cache=1`.", schema: { type: string } }
+            ETag: { description: "Only with `?cache=1`.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string }
+            text/tab-separated-values:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "304": { description: "Only with `?cache=1` and a matching `If-None-Match`." }
+        "4XX":
+          description: A one-row table (`status,code,message,retry_after_s`) in the format asked for, with the real status, `Retry-After` and `X-Error-Code`.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /xl/positions:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlPositions
+      summary: Positions of every account the key may use, as one table
+      description: "Columns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer gives one row with its name and an `error` text; the others are unaffected. Read-only."
+      x-module: integrations
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { name: open, in: query, description: "1 hides closed positions (quantity 0).", schema: { type: boolean } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { $ref: "#/components/parameters/XlFormat" }
+        - { $ref: "#/components/parameters/XlCache" }
+      responses:
+        "200":
+          description: One row per position.
+          headers:
+            Cache-Control: { description: "`no-store`, or `private, max-age=N` with `?cache=1`.", schema: { type: string } }
+            ETag: { description: "Only with `?cache=1`.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string }
+            text/tab-separated-values:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "304": { description: "Only with `?cache=1` and a matching `If-None-Match`." }
+        "4XX":
+          description: A one-row table (`status,code,message,retry_after_s`) in the format asked for, with the real status, `Retry-After` and `X-Error-Code`.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /xl/holdings:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlHoldings
+      summary: Holdings as one table
+      description: "Columns are fixed - account, mode, symbol, isin, qty, avg_price, ltp, pnl, as_of, age_s, class, source, stale, error."
+      x-module: integrations
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { $ref: "#/components/parameters/XlFormat" }
+        - { $ref: "#/components/parameters/XlCache" }
+      responses:
+        "200":
+          description: One row per holding.
+          headers:
+            Cache-Control: { description: "`no-store`, or `private, max-age=N` with `?cache=1`.", schema: { type: string } }
+            ETag: { description: "Only with `?cache=1`.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string }
+            text/tab-separated-values:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "304": { description: "Only with `?cache=1` and a matching `If-None-Match`." }
+        "4XX":
+          description: A one-row table (`status,code,message,retry_after_s`) in the format asked for, with the real status, `Retry-After` and `X-Error-Code`.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /xl/funds:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlFunds
+      summary: Funds, one row per account
+      description: "Columns are fixed - account, mode, available_cash, used_margin, total_balance, collateral, withdrawable, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error."
+      x-module: integrations
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { $ref: "#/components/parameters/XlFormat" }
+        - { $ref: "#/components/parameters/XlCache" }
+      responses:
+        "200":
+          description: One row per account.
+          headers:
+            Cache-Control: { description: "`no-store`, or `private, max-age=N` with `?cache=1`.", schema: { type: string } }
+            ETag: { description: "Only with `?cache=1`.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string }
+            text/tab-separated-values:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "304": { description: "Only with `?cache=1` and a matching `If-None-Match`." }
+        "4XX":
+          description: A one-row table (`status,code,message,retry_after_s`) in the format asked for, with the real status, `Retry-After` and `X-Error-Code`.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /xl/orders:
+    get:
+      tags: [Spreadsheets]
+      operationId: xlOrders
+      summary: Orders as one table, newest first
+      description: "Columns are fixed - account, mode, order_id, client_order_id, symbol, side, product, order_type, qty, filled_qty, avg_price, price, trigger_price, status, status_message, placed_at, updated_at (IST), then as_of, age_s, class, source, stale, error. `X-Truncated: true` when more orders exist than `limit`. This route only reads; placing and changing orders stays on /v1/orders."
+      x-module: integrations
+      x-scope: read
+      security:
+        - bearerAuth: []
+        - apiKeyQuery: []
+      parameters:
+        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, open, trigger_pending, partially_filled, filled, cancelled, rejected, expired, outcome_unknown] } }
+        - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 200 } }
+        - { $ref: "#/components/parameters/XlFormat" }
+        - { $ref: "#/components/parameters/XlCache" }
+      responses:
+        "200":
+          description: One row per order.
+          headers:
+            Cache-Control: { description: "`no-store`, or `private, max-age=N` with `?cache=1`.", schema: { type: string } }
+            ETag: { description: "Only with `?cache=1`.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string }
+            text/tab-separated-values:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
+        "304": { description: "Only with `?cache=1` and a matching `If-None-Match`." }
+        "4XX":
+          description: A one-row table (`status,code,message,retry_after_s`) in the format asked for, with the real status, `Retry-After` and `X-Error-Code`.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema: { type: array, items: { type: object } }
 
   /hooks/{source}/{token}:
     parameters:
@@ -3837,6 +4067,16 @@ components:
       in: query
       required: true
       schema: { $ref: "#/components/schemas/Symbol" }
+    XlFormat:
+      name: format
+      in: query
+      description: "csv (default, CRLF), tsv (tab separated, LF) or json (array of records)."
+      schema: { type: string, enum: [csv, tsv, json], default: csv }
+    XlCache:
+      name: cache
+      in: query
+      description: "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`."
+      schema: { type: boolean, default: false }
     Backup:
       name: backup
       in: query

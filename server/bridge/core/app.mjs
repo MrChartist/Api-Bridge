@@ -403,7 +403,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         // including failures raised before the handler ran (auth, scope, client rate limit).
         let reply = null;
         try {
-          reply = matched.options.formatError(err, { requestId });
+          reply = matched.options.formatError(err, { requestId, query: ctx?.query });
         } catch (fmtErr) {
           log.error("error formatter failed", { requestId, path, err: fmtErr });
         }

@@ -13,20 +13,20 @@ import integrations from "../module.mjs";
 import { NOW_MS, createFakeKeyStore, createFakeMarketData, createFakeSymbols } from "./fakes.mjs";
 
 /**
- * @param {{ integrations?: object, overrides?: Record<string, object>, now?: number }} [opts]
+ * @param {{ integrations?: object, overrides?: Record<string, object>, now?: number, logger?: object, demo?: boolean }} [opts]
  */
-export async function startTestApp({ integrations: section, overrides = {}, now = NOW_MS } = {}) {
+export async function startTestApp({ integrations: section, overrides = {}, now = NOW_MS, logger = createNullLogger(), demo = false } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-s10-"));
   const raw = { server: { port: 0 }, dataDir };
   if (section !== undefined) raw.integrations = section;
-  const { config } = loadConfig({ raw, env: {} });
+  const { config } = loadConfig({ raw, env: {}, demo });
   const marketData = overrides.marketData ?? createFakeMarketData({ now: () => now });
   const symbols = overrides.symbols ?? createFakeSymbols();
   const app = await createApp({
     config,
     modules: [integrations],
     overrides: { keyStore: createFakeKeyStore(), ...overrides, marketData, symbols },
-    logger: createNullLogger(),
+    logger,
     clock: { now: () => now },
   });
   const { port } = await app.listen();
