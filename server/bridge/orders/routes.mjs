@@ -6,6 +6,7 @@
  *   GET    /v1/orders?account=&mode=&status=&limit=&cursor=      list (both modes when mode is absent)
  *   POST   /v1/orders               Idempotency-Key header        201, Idempotency-Replayed: true on replay
  *   POST   /v1/orders/preview
+ *   POST   /v1/orders/to-target     and   POST /v1/orders/batch   and   POST /v1/margin/basket   (extraRoutes.mjs)
  *   POST   /v1/orders/cancel-all    { account?, mode?, bridgeOnly?, dryRun? }
  *   GET    /v1/orders/by-client-id/{clientOrderId}
  *   GET    /v1/orders/{orderId}     PATCH (OrderChanges)          DELETE
@@ -18,6 +19,7 @@
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
 import { startupReady } from "../core/startup.mjs";
+import { canonicaliseOrderInput } from "./aliases.mjs";
 import { ACCOUNT_RE, CLIENT_ORDER_ID_RE, ORDER_STATUSES, cancelAllSchema, parseWith } from "./orderValidation.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
@@ -57,7 +59,7 @@ function cursorParam(q) {
   return v;
 }
 
-function idempotencyKey(ctx) {
+export function idempotencyKey(ctx) {
   const v = ctx.req?.headers?.["idempotency-key"] ?? ctx.idempotencyKey;
   if (v === undefined || v === null || v === "") return undefined;
   const s = Array.isArray(v) ? v[0] : String(v);
@@ -65,12 +67,12 @@ function idempotencyKey(ctx) {
   return s;
 }
 
-const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
+export const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
 
 /** Write result -> reply, with Idempotency-Replayed when it was a replay. */
-function writeReply(ctx, { order, replayed }, status) {
+function writeReply(ctx, { order, replayed }, status, normalised = []) {
   const headers = replayed ? { "Idempotency-Replayed": "true" } : {};
-  return json({ data: order, meta: meta(ctx, { accountId: order.accountId, mode: order.mode }) }, { status, headers });
+  return json({ data: order, meta: meta(ctx, { accountId: order.accountId, mode: order.mode, ...(normalised.length ? { normalised } : {}) }) }, { status, headers });
 }
 
 /**
@@ -95,12 +97,13 @@ export function createOrderRoutes(deps) {
     async placeOrder(ctx) {
       const key = idempotencyKey(ctx);
       const result = await svc().place(ctx, ctx.body, { idempotencyKey: key });
-      return writeReply(ctx, result, 201);
+      return writeReply(ctx, result, 201, canonicaliseOrderInput(ctx.body).notes);
     },
 
     async previewOrder(ctx) {
       const data = await svc().preview(ctx, ctx.body);
-      return { data, meta: meta(ctx, { mode: data.mode }) };
+      const normalised = canonicaliseOrderInput(ctx.body).notes;
+      return { data, meta: meta(ctx, { mode: data.mode, ...(normalised.length ? { normalised } : {}) }) };
     },
 
     async cancelAll(ctx) {

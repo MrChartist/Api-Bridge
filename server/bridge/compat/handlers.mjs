@@ -520,8 +520,42 @@ export function createCompatHandlers(deps, cfg) {
       return ok(ctx, { symbol: o.symbol, exchange: o.exchange, lotsize: o.lotsize, tick_size: o.tick_size, freeze_qty: o.freeze_qty, underlying_ltp: o.underlying_ltp });
     },
 
-    async margin() {
-      throw new BridgeError("CAPABILITY_UNSUPPORTED", "Margin calculation is not available through the Bridge yet.");
+    /** The margin of up to 50 prospective positions, from the same calculation as POST /v1/margin/basket (read only). */
+    async margin(ctx, body) {
+      const list = body.positions;
+      if (!Array.isArray(list) || list.length === 0) throw bad("positions is required: a list of up to 50 positions.", "positions");
+      if (list.length > 50) throw bad("positions can hold at most 50 positions.", "positions");
+      const positions = list.map((p, i) => {
+        if (!p || typeof p !== "object" || Array.isArray(p)) throw bad(`positions[${i}] must be an object.`, `positions.${i}`);
+        const productIn = String(p.product ?? "MIS").toUpperCase();
+        const product = PRODUCT_IN[productIn];
+        if (!product) throw bad("product must be CNC, MIS or NRML.", `positions.${i}.product`);
+        const pricetype = String(p.pricetype ?? "MARKET").toUpperCase();
+        if (!PRICE_TYPES.includes(pricetype)) throw bad(`pricetype must be one of ${PRICE_TYPES.join(", ")}.`, `positions.${i}.pricetype`);
+        const price = num(p.price, `positions.${i}.price`, { min: 0, dflt: 0 });
+        const leg = {
+          symbol: toCanonical(p.symbol, p.exchange),
+          side: String(p.action ?? "").toUpperCase(),
+          quantity: num(p.quantity, `positions.${i}.quantity`, { min: 1, int: true }),
+          product,
+          orderType: pricetype,
+        };
+        if (price > 0) leg.price = price;
+        return leg;
+      });
+      const wanted = typeof body.account === "string" && body.account ? body.account : cfg.account;
+      const r = await deps.orders.basketMargin(ctx, { ...(wanted ? { account: wanted } : {}), positions });
+      return ok(ctx, {
+        data: {
+          total_margin_required: r.total,
+          span_margin: r.span,
+          exposure_margin: r.exposure,
+          hedge_benefit: r.hedgeBenefit,
+          source: r.source,
+          account: r.account,
+          note: r.note ?? null,
+        },
+      });
     },
   };
 }
