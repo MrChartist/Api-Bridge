@@ -24,6 +24,8 @@ export const USAGE = `Mr. Chartist API Bridge
 Usage:
   mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--force]
                                    first-run setup (alias: setup); asks questions unless --yes
+  mc-bridge init <node|python|curl|sheets|webhook-receiver|mcp-client> [folder] [--with-key] [--scope read|paper] [--expires 30d]
+                                   a ready project for developers, with this Bridge's address (--list shows them)
   mc-bridge start [--config <file>] [--demo] [--open]
                                    --demo: sample data, no broker, live trading off; --open: open the dashboard,
                                    already signed in (if the Bridge is already running, just opens the dashboard)
@@ -374,6 +376,26 @@ export async function runCli(positionals, flags, io) {
     switch (cmd) {
       case "init":
       case "setup": {
+        // mc-bridge init <starter> [folder]: a ready project for developers (server/bridge/starters). Without a word after
+        // init it is the first-run setup below.
+        if (cmd === "init" && (sub !== undefined || flags.list)) {
+          const { runInitStarter } = await import("../starters/initStarter.mjs");
+          return await runInitStarter({ id: sub, folder: arg }, flags, io, {
+            cli: cliCommand(io.env),
+            baseUrl: () => bridgeUrl(flags, io, loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list() }).config),
+            probe: probeBridge,
+            createKey: async (body) => {
+              const { app } = await bootServices({ ...flags, demo: false }, io);
+              try {
+                const made = await app.deps.keyStore.create(body);
+                await audit(app.deps, io, { type: "key.created", data: { keyId: made.record.id, scopes: made.record.scopes, label: made.record.label } });
+                return made;
+              } finally {
+                await app.close();
+              }
+            },
+          });
+        }
         const { runInit } = await import("./init.mjs");
         const { BROKER_NAMES } = await import("../accounts/brokerInfo.mjs");
         const brokerIds = createBrokerRegistry().list().slice().sort();
