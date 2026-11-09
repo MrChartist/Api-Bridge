@@ -97,7 +97,7 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
     ],
     node: [
       // The Node client (@mrchartist/bridge-client) is private: it is packed from this repository's sdk/node folder.
-      { title: "Install from your API Bridge folder (it is not on npm)", lang: "bash", code: `cd ${sh(`${folder}/sdk/node`)} && npm pack\n# then, in your project (ws is only needed to stream on Node 20):\nnpm install ${sh(`${folder}/sdk/node/mrchartist-bridge-client-0.1.0.tgz`)} ws` },
+      { title: "Install from your API Bridge folder (it is not on npm)", lang: "bash", code: `cd ${sh(`${folder}/sdk/node`)} && npm pack\n# then, in your project (ws is only needed to stream on Node 20):\nnpm install ${sh(`${folder}/sdk/node/mrchartist-bridge-client-0.2.0.tgz`)} ws` },
       {
         title: orders ? "Prices, a stream and a paper order (ESM)" : "Prices and a stream (ESM)",
         lang: "js",
