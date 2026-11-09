@@ -9,6 +9,11 @@
   button uses it (an optional reason, the card goes at once and returns if the Bridge refuses, a "Recently declined"
   list). AI assistants get the MCP tool `check_order_ticket` (`status: "rejected"` with the reason) and
   `submit_confirmed_order` refuses a declined ticket plainly; a webhook signal waiting on it ends as `rejected`.
+- Faster dashboard: its files are sent compressed (Brotli or gzip, chosen from `Accept-Encoding`, each file compressed once
+  per change, a separate ETag per encoding), the modules the app needs load in parallel instead of one import level at a
+  time, the sign-in screen is drawn before the app code has loaded, the live connection and API budget chip start after
+  the first page is drawn, and the broker list is kept for a minute (and shown from memory for half an hour while it is
+  fetched again behind it).
 - Data sources and plugins: optional free sources and owner-approved plugins next to your broker accounts, each answer
   labelled with its data class (`realtime`, `delayed`, `eod`), delay, `official` flag and confidence; `/v1/sources`, a
   routing trace, pooling consent, per-key quotas, `limits?explain=1` and a `purpose` read parameter. Plugins run in their
