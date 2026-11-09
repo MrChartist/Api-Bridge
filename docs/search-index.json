@@ -1302,6 +1302,18 @@
     },
     {
       "headings": [
+        "What each tool gets",
+        "Simple and Advanced view",
+        "Something wrong?",
+        "Words you do not know"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/connect.md",
+      "text": "The dashboard's Connect a tool page (#/connect, in the sidebar under Bridge, on the Accounts page and in the search palette) gives Excel, an AI assistant or a script its own key and the setup to paste, in three steps: Choose the tool: Excel or Google Sheets, an AI assistant...",
+      "title": "Connect a tool"
+    },
+    {
+      "headings": [
         "1. Why it matters",
         "2. Options for a fixed address",
         "3. Register the address with your broker, then tell the Bridge",

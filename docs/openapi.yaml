@@ -1903,7 +1903,7 @@ paths:
       x-loopback-only: true
       responses:
         "200":
-          description: Tickets in the asked state (open: oldest first; rejected: newest first).
+          description: "Tickets in the asked state (open: oldest first; rejected: newest first)."
           content:
             application/json:
               schema:
@@ -1925,7 +1925,7 @@ paths:
       tags: [Orders]
       operationId: confirmTicket
       summary: Human confirmation of an order prepared by an AI assistant or webhook
-      description: Used by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds. A ticket a person already declined answers 409 `STATE_CONFLICT` with `state: rejected` and never yields a token.
+      description: "Used by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds. A ticket a person already declined answers 409 `STATE_CONFLICT` with `state: rejected` and never yields a token."
       x-module: orders
       x-scope: admin
       x-loopback-only: true
@@ -1980,7 +1980,7 @@ paths:
                 reason: { type: string, maxLength: 200, description: "Optional, in the person's own words. The assistant that prepared the order can read it." }
       responses:
         "200":
-          description: The declined ticket (`status: rejected`).
+          description: "The declined ticket (`status: rejected`)."
           content:
             application/json:
               schema:
