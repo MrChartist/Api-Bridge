@@ -781,7 +781,7 @@ paths:
         and alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the
         Bridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited
         (`sources.setting_changed`). Only from this computer.
-      x-stream: S12
+      x-module: sources
       x-scope: admin
       x-loopback-only: true
       requestBody:
