@@ -13,8 +13,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootSecurityApp, samplePath } from "./__fixtures__/securityApp.mjs";
 
 const NONE_ALLOWED = new Set(["GET /v1/health", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in"]);
-const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/];
+const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/, /^GET \/v1\/events\/stream$/];
 const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify/status", "GET /v1/notify/targets", "GET /v1/notify/events"]);
+// Events out: reading webhook subscriptions and removing one are admin-only but not this-computer-only; adding or changing a target is.
+const ADMIN_NOT_LOOPBACK_RE = [/^GET \/v1\/events\/status$/, /^(GET|DELETE) \/v1\/subscriptions(\/:subscriptionId(\/(deliveries|dead-letters))?)?$/];
 
 let b;
 let routes;
@@ -56,7 +58,7 @@ describe("T-sec-2: route policy", () => {
   });
 
   it("every admin route is this-computer-only, except the read-only GET /v1/notify/* routes", () => {
-    const bad = routes.filter((r) => r.options.scope === "admin" && !r.options.loopbackOnly && !ADMIN_NOT_LOOPBACK.has(`${r.method} ${r.pattern}`));
+    const bad = routes.filter((r) => r.options.scope === "admin" && !r.options.loopbackOnly && !ADMIN_NOT_LOOPBACK.has(`${r.method} ${r.pattern}`) && !ADMIN_NOT_LOOPBACK_RE.some((re) => re.test(`${r.method} ${r.pattern}`)));
     expect(bad.map((r) => `${r.method} ${r.pattern}`)).toEqual([]);
   });
 

@@ -19,6 +19,7 @@
  *   mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display]
  *   mc-bridge sources plugins check <folder> | pin <folder>   (data sources and plugins; see docs/guides/sources.md)
  *   mc-bridge notify telegram setup | remove <id>, notify status | test   (Telegram alerts; the token is asked for, never an argument)
+ *   mc-bridge subscriptions list | add <https url> --topics ... | test | deliveries | dead-letters | tail   (signed webhooks out; see docs/guides/events.md)
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
  * (principal { kind: "local", id: "cli" }). Keys are printed once and never again.
@@ -69,6 +70,14 @@ const { positionals, values } = parseArgs({
     "include-secrets": { type: "boolean" },
     "dry-run": { type: "boolean" },
     "skip-config": { type: "boolean" },
+    topics: { type: "string" },
+    since: { type: "string" },
+    outcome: { type: "string" },
+    limit: { type: "string" },
+    retry: { type: "string" },
+    "retry-all": { type: "boolean" },
+    clear: { type: "boolean" },
+    "secret-stdin": { type: "boolean" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

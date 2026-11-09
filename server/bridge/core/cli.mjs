@@ -60,6 +60,11 @@ Usage:
   mc-bridge notify telegram setup   connect a Telegram bot: the token is read from a hidden prompt, never from the command line
   mc-bridge notify telegram remove <id>
   mc-bridge notify status | test [<id>]
+  mc-bridge subscriptions list | topics | status | show <id> | test <id> | pause <id> | resume <id> | remove <id>
+  mc-bridge subscriptions add <https url> --topics order.*,download.* [--label name] [--accounts a,b] [--secret-stdin]
+                                   send Bridge events to your own program, signed. The signing secret is made here and printed once
+  mc-bridge subscriptions rotate-secret <id> | deliveries <id> [--outcome dead] | dead-letters <id> [--retry <deliveryId> | --retry-all | --clear]
+  mc-bridge subscriptions tail [--topics order.*] [--since <cursor>]   print events as they happen
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -583,6 +588,11 @@ export async function runCli(positionals, flags, io) {
         const { notifyCommand } = await import("../notify/cli.mjs");
         warnKeyOnArgv(flags, io);
         return await notifyCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), prompt: terminalPrompt, cli: cliCommand(io.env), usage: USAGE });
+      }
+      case "subscriptions": {
+        const { subscriptionsCommand } = await import("../events/cli.mjs");
+        warnKeyOnArgv(flags, io);
+        return await subscriptionsCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), cli: cliCommand(io.env), usage: USAGE });
       }
       case "kill":
         return await killCommand(sub, flags, io);
