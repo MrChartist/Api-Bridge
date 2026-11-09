@@ -3010,6 +3010,65 @@
       "name": "Readiness"
     },
     {
+      "description": "Copies of your data folder (keys store, accounts, state, paper books, audit log), made on this computer only. The archive is never served over HTTP.",
+      "item": [
+        {
+          "name": "The last backup, the schedule and the copies kept on this computer",
+          "request": {
+            "description": "The last backup, the schedule and the copies kept on this computer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThis computer only, admin key. Lists the archives in the backups folder inside the data folder (name, size, time, kind) and the last success or failure. The archives themselves are never served over HTTP.\n\nReference: docs/api/backup/getBackup.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "backup"
+              ],
+              "raw": "{{baseUrl}}/v1/backup"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Make a backup now",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Make a backup now\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThis computer only, admin key. Writes one verified archive (tar.gz, mode 600) into the backups folder of the data folder and answers with its path on this computer. It holds the settings file, API key records, accounts, safety and quota state, source settings, pooling consent, paper books, order records and the audit log. It never holds the master key. `secrets.enc` (saved broker logins) is included only with `includeSecrets`, and is useful only with the original master key. Emits the bus events `backup.completed` or `backup.failed`.\n\nReference: docs/api/backup/createBackup.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "backup"
+              ],
+              "raw": "{{baseUrl}}/v1/backup"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Backup"
+    },
+    {
       "description": "Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.",
       "item": [
         {

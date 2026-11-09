@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-131 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+133 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -199,6 +199,15 @@ Whether each live account can trade now: session, static IP, order headroom, kil
 | [POST /v1/readiness/check](readiness/checkReadiness.md) | Re-check now (probe and egress lookup, each with a 30 s cooldown) | `read` |
 | [GET /v1/readiness/history](readiness/getReadinessHistory.md) | Recent readiness transitions (newest first) | `read` |
 | [POST /v1/demo/readiness](readiness/demoReadinessScenario.md) | Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes) | `read` |
+
+## Backup
+
+Copies of your data folder (keys store, accounts, state, paper books, audit log), made on this computer only. The archive is never served over HTTP.
+
+| Call | What it does | Needs |
+|---|---|---|
+| [GET /v1/backup](backup/getBackup.md) | The last backup, the schedule and the copies kept on this computer | `admin`, this computer only |
+| [POST /v1/backup](backup/createBackup.md) | Make a backup now | `admin`, this computer only |
 
 ## Spreadsheets
 

@@ -11,6 +11,8 @@
  *   mc-bridge accounts list
  *   mc-bridge doctor [--no-port-check] [--strict]
  *   mc-bridge expose [alerts|sheets] | check | status | off      (let TradingView or a Google Sheet reach the Bridge safely)
+ *   mc-bridge backup [--out FILE] [--include-secrets] | backup list | backup verify FILE   (see docs/guides/backup.md)
+ *   mc-bridge restore FILE [--dry-run] [--yes]   (the Bridge must be stopped)
  *   mc-bridge mcp --key <key>            (MCP over stdio for Claude Desktop, Claude Code, Cursor)
  *   mc-bridge openai-tools [--scope read|paper] [--format responses|chat]   (tool schemas for OpenAI function calling)
  *   mc-bridge sources list | enable <id> [--acknowledge <version>] | disable <id> | set-key <id> | test <id>
@@ -62,6 +64,10 @@ const { positionals, values } = parseArgs({
     purpose: { type: "string" },
     acknowledge: { type: "string" },
     "max-age": { type: "string" },
+    out: { type: "string" },
+    "include-secrets": { type: "boolean" },
+    "dry-run": { type: "boolean" },
+    "skip-config": { type: "boolean" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

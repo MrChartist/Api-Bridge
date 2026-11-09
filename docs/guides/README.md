@@ -7,6 +7,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [quickstart.md](quickstart.md) | Clone, start in demo mode, make a key, get a price, place a paper order, read a stream; and what to do when it does not work |
 | [faq.md](faq.md) | Is it free, is my broker supported, why pooling is off, why Yahoo is not real-time, where the data lives, how to reset |
 | [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
+| [backup.md](backup.md) | Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer) |
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
 | [sources.md](sources.md) | Where prices come from: your brokers, optional free sources and plugins, what delayed, end-of-day and unofficial mean, how to turn a source on |

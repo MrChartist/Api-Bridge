@@ -355,7 +355,6 @@ export const REMOVED_SETTINGS = Object.freeze({
   reference: "the reference-data store is not part of v2",
   participants: "participant open interest is not part of v2",
   notify: "notification targets are not part of v2",
-  backup: "backup data is now the sources section (see docs/guides/sources.md)",
   "stream.candles": "live candles are not served by the stream",
 });
 

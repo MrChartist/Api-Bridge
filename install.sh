@@ -1,21 +1,32 @@
 #!/bin/sh
 # Mr. Chartist API Bridge: one-line installer for macOS, Linux and Android (Termux). No admin password needed.
 #
-#   curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh | sh
+#   curl -fsSL https://github.com/MrChartist/api-bridge-v2/releases/latest/download/install.sh | sh
 #
 # Options (after "| sh -s --", for example:  curl -fsSL <url> | sh -s -- --demo):
+#   --version <number>   install that release (for example 2.0.0) instead of the newest one
+#   --sha256 <hex>       the SHA-256 you expect for the download, taken from somewhere you trust (see below)
 #   --demo               start with sample prices (no broker needed), to try it out
 #   --no-start           install only; do not start the Bridge
 #   --uninstall          remove the Bridge's program files and shortcuts (your settings and data are kept)
 #   --uninstall --purge  also delete your settings, keys and data (asks first; add --yes to skip the question)
-# Running it again upgrades the Bridge in place; your settings and data are never touched.
+# Running it again upgrades the Bridge in place; your settings and data are never touched. When the Bridge's version
+# changes, the Bridge itself copies your data to ~/.mc-bridge/data/backups the first time it starts (docs/guides/backup.md).
+#
+# What is downloaded: a released version of the Bridge (a file on the GitHub release for that version), together with the
+# release's SHA256SUMS.txt. The download's SHA-256 is checked against that list BEFORE anything is installed; if it does not
+# match, nothing is installed and the message says so. This catches a damaged download and a file that was swapped on its
+# own; it cannot catch a release that was itself replaced, because the list comes from the same place. For that, give
+# --sha256 (or MCB_SHA256) a value you took from somewhere else. How to check by hand: docs/guides/install.md.
 #
 # Where things go: the program in ~/.mc-bridge/app (its own Node.js in ~/.mc-bridge/app/runtime when the computer
 # has no Node.js 22), settings and data in ~/.mc-bridge, the "mc-bridge" command in ~/.local/bin, and a
 # "Mr Chartist Bridge" app in ~/Applications (macOS: Spotlight and Launchpad find it) or in your applications menu
 # and on the Desktop (Linux).
-# For testing: MCB_SOURCE=<folder, .tar.gz file or URL> installs from there; MCB_REF=<branch or tag> picks a version.
-# MCB_HOME moves the whole thing (the Bridge itself reads MCB_HOME too).
+# For testing: MCB_SOURCE=<folder, .tar.gz file or URL> installs from there (a folder or a file on this computer is not
+# checked unless you also give --sha256; a URL needs it); MCB_RELEASE_BASE=<folder or URL laid out like GitHub's releases
+# page> replaces GitHub; MCB_VERSION is the same as --version. MCB_HOME moves the whole thing (the Bridge itself reads
+# MCB_HOME too).
 #
 # Everything is inside functions and the last line calls main, so a download cut short runs nothing at all.
 
@@ -23,20 +34,37 @@ mcb_main() {
   set -u
   STEPS=5
   OPT_DEMO=0 OPT_NO_START=0 OPT_UNINSTALL=0 OPT_PURGE=0 OPT_YES=0 MOVED_RUNTIME=0 STAGE="" WORK=""
-  for arg in "$@"; do
-    case "$arg" in
+  OPT_VERSION=${MCB_VERSION:-} OPT_SHA256=${MCB_SHA256:-}
+  while [ $# -gt 0 ]; do
+    case "$1" in
       --demo) OPT_DEMO=1 ;;
       --no-start) OPT_NO_START=1 ;;
       --uninstall) OPT_UNINSTALL=1 ;;
       --purge) OPT_PURGE=1 ;;
       --yes | -y) OPT_YES=1 ;;
+      --version)
+        [ $# -ge 2 ] || mcb_fail "--version needs a number, for example: --version 2.0.0"
+        OPT_VERSION=$2; shift ;;
+      --version=*) OPT_VERSION=${1#--version=} ;;
+      --sha256)
+        [ $# -ge 2 ] || mcb_fail "--sha256 needs the 64 characters of the checksum."
+        OPT_SHA256=$2; shift ;;
+      --sha256=*) OPT_SHA256=${1#--sha256=} ;;
       -h | --help)
-        sed -n '2,18p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true
-        echo "Options: --demo, --no-start, --uninstall, --uninstall --purge [--yes]"
+        sed -n '2,26p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true
+        echo "Options: --version <number>, --sha256 <hex>, --demo, --no-start, --uninstall, --uninstall --purge [--yes]"
         return 0 ;;
-      *) mcb_fail "Unknown option: $arg" "Options: --demo, --no-start, --uninstall, --uninstall --purge, --yes" ;;
+      *) mcb_fail "Unknown option: $1" "Options: --version <number>, --sha256 <hex>, --demo, --no-start, --uninstall, --uninstall --purge, --yes" ;;
     esac
+    shift
   done
+  OPT_VERSION=${OPT_VERSION#v}
+  if [ -n "$OPT_VERSION" ] && ! printf '%s' "$OPT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+    mcb_fail "--version must be a release number like 2.0.0 (it is \"$OPT_VERSION\")."
+  fi
+  if [ -n "$OPT_SHA256" ] && ! printf '%s' "$OPT_SHA256" | grep -Eq '^[0-9a-fA-F]{64}$'; then
+    mcb_fail "--sha256 must be exactly 64 hexadecimal characters."
+  fi
   [ "$OPT_PURGE" = 0 ] || [ "$OPT_UNINSTALL" = 1 ] || mcb_fail "--purge only works together with --uninstall."
 
   [ -n "${HOME:-}" ] && [ -d "$HOME" ] || mcb_fail "Your home folder could not be found (HOME is not set)."
@@ -190,42 +218,104 @@ mcb_cleanup() {
 }
 
 mcb_get() {
-  if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --connect-timeout 20 -o "$2" "$1"
-  elif command -v wget >/dev/null 2>&1; then wget -q -T 20 -t 3 -O "$2" "$1"
-  else mcb_fail "This needs curl or wget to download the Bridge, and neither is on this computer." "Install curl (for example: sudo apt install curl) and run this again."
+  case "$1" in
+    http://* | https://*)
+      if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --connect-timeout 20 -o "$2" "$1"
+      elif command -v wget >/dev/null 2>&1; then wget -q -T 20 -t 3 -O "$2" "$1"
+      else mcb_fail "This needs curl or wget to download the Bridge, and neither is on this computer." "Install curl (for example: sudo apt install curl) and run this again."
+      fi ;;
+    file://*) cp "${1#file://}" "$2" ;;
+    /*) cp "$1" "$2" ;;
+    *) return 1 ;;
+  esac
+}
+
+# The SHA-256 of a file, as lower-case hex (sha256sum, or shasum on macOS, or openssl).
+mcb_sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print tolower($1)}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print tolower($1)}'
+  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 "$1" | awk '{print tolower($NF)}'
+  else return 1
   fi
 }
 
-# Put the Bridge's files into $1, from GitHub or from MCB_SOURCE (a folder, a .tar.gz file or a URL).
+# Stop unless file $1 has the SHA-256 $2. $3 says what the file is.
+mcb_check_sha() {
+  _got=$(mcb_sha256_of "$1") || mcb_fail "Cannot check the download: this computer has none of sha256sum, shasum or openssl." "Nothing was installed. Install one of them and run this again."
+  _want=$(printf '%s' "$2" | tr 'A-F' 'a-f')
+  if [ "$_got" != "$_want" ]; then
+    rm -f "$1"
+    mcb_fail "STOPPED: $3 does not match its published checksum, so it was NOT installed." \
+      "  expected SHA-256: $_want" \
+      "  downloaded file:  $_got" \
+      "The file may be damaged, or somebody may have swapped it. Nothing on this computer was changed." \
+      "Run this again. If it fails again, do not install, and tell us: https://github.com/MrChartist/api-bridge-v2/issues"
+  fi
+  echo "    Checked: the SHA-256 matches ($(printf '%s' "$_got" | cut -c1-12)...)."
+}
+
+# Download the release's checksum list and the source archive into $WORK/src.tar.gz, and set MCB_WANT_SHA to the
+# checksum the list gives for it. The version is --version, or the newest release.
+mcb_fetch_release() {
+  base=${MCB_RELEASE_BASE:-https://github.com/MrChartist/api-bridge-v2/releases}
+  base=${base%/}
+  ver=$OPT_VERSION
+  if [ -n "$ver" ]; then dir="$base/download/v$ver"; echo "    Release v$ver"; else dir="$base/latest/download"; echo "    The newest release"; fi
+  mcb_get "$dir/SHA256SUMS.txt" "$WORK/SHA256SUMS.txt" ||
+    mcb_fail "Could not download the list of checksums: $dir/SHA256SUMS.txt" "Check your internet connection. If you asked for a version, check that it exists: https://github.com/MrChartist/api-bridge-v2/releases" "Nothing was installed."
+  if [ -z "$ver" ]; then
+    name=$(awk '$2 ~ /^\*?mr-chartist-bridge-.*-source\.tar\.gz$/ { f = $2; sub(/^\*/, "", f); print f; exit }' "$WORK/SHA256SUMS.txt")
+    [ -n "$name" ] || mcb_fail "The newest release has no installable download listed in its checksums." "Try a version by hand: --version <number> (see https://github.com/MrChartist/api-bridge-v2/releases). Nothing was installed."
+    ver=${name#mr-chartist-bridge-}
+    ver=${ver%-source.tar.gz}
+    dir="$base/download/v$ver"
+    echo "    That is v$ver"
+  fi
+  name="mr-chartist-bridge-$ver-source.tar.gz"
+  MCB_WANT_SHA=$(awk -v n="$name" '{ f = $2; sub(/^\*/, "", f); if (f == n) { print tolower($1); exit } }' "$WORK/SHA256SUMS.txt")
+  [ -n "$MCB_WANT_SHA" ] || mcb_fail "The release's checksum list does not name $name, so it cannot be checked." "Nothing was installed."
+  if [ -n "$OPT_SHA256" ] && [ "$(printf '%s' "$OPT_SHA256" | tr 'A-F' 'a-f')" != "$MCB_WANT_SHA" ]; then
+    mcb_fail "STOPPED: the checksum you gave with --sha256 is not the one the release publishes for $name." "  you gave:      $OPT_SHA256" "  release lists: $MCB_WANT_SHA" "Nothing was installed. One of the two is wrong; do not go on until you know which."
+  fi
+  echo "    Downloading $name ..."
+  mcb_get "$dir/$name" "$WORK/src.tar.gz" || mcb_fail "Could not download the Bridge: $dir/$name" "Check your internet connection and run this again. Nothing was installed."
+}
+
+# Put the Bridge's files into $1: a release from GitHub (checked against its SHA256SUMS.txt first), or MCB_SOURCE (a
+# folder, a .tar.gz file or a URL).
 mcb_fetch_source() {
   dest=$1
   src=${MCB_SOURCE:-}
-  ref=${MCB_REF:-}
   command -v tar >/dev/null 2>&1 || mcb_fail "This needs the 'tar' program, which is missing. Install it and run this again."
-  if [ -z "$src" ]; then
-    if [ -n "$ref" ]; then src="https://codeload.github.com/MrChartist/api-bridge-v2/tar.gz/$ref"
-    else src="https://codeload.github.com/MrChartist/api-bridge-v2/tar.gz/refs/heads/main"; fi
-  fi
+  [ -z "${MCB_REF:-}" ] || mcb_fail "MCB_REF is not used any more: the installer takes released versions only." "Use --version <number> (or MCB_VERSION) instead."
   mkdir -p "$WORK/src"
-  if [ -d "$src" ]; then
-    echo "    From the folder $src"
+  if [ -n "$src" ] && [ -d "$src" ]; then
+    echo "    From the folder $src (on this computer; not checked)"
     # Program files only: no installed parts, no git history, no private Node.js, no local settings or data.
     (cd "$src" && tar -cf - --exclude=node_modules --exclude=.git --exclude=./runtime --exclude=./data \
       --exclude=./bridge.config.json --exclude=./.cache --exclude=./coverage --exclude=./.mc-bridge .) |
       (cd "$WORK/src" && tar -xf -) || mcb_fail "Could not copy the Bridge from $src."
   else
-    case "$src" in
-      http://* | https://*)
-        echo "    Downloading from ${src%%/tar.gz/*} ..."
-        mcb_get "$src" "$WORK/src.tar.gz" || mcb_fail "Could not download the Bridge. Check your internet connection and run this again." ;;
-      *)
-        [ -f "$src" ] || mcb_fail "MCB_SOURCE points to $src, which does not exist."
-        cp "$src" "$WORK/src.tar.gz" || mcb_fail "Could not read $src." ;;
-    esac
+    MCB_WANT_SHA=$OPT_SHA256
+    if [ -z "$src" ]; then
+      mcb_fetch_release
+    else
+      case "$src" in
+        http://* | https://*)
+          [ -n "$MCB_WANT_SHA" ] || mcb_fail "A web address given as MCB_SOURCE needs the expected checksum too (--sha256 or MCB_SHA256), because nothing else vouches for that file." "Nothing was installed."
+          echo "    Downloading from ${src%%/tar.gz/*} ..."
+          mcb_get "$src" "$WORK/src.tar.gz" || mcb_fail "Could not download the Bridge. Check your internet connection and run this again." ;;
+        *)
+          [ -f "$src" ] || mcb_fail "MCB_SOURCE points to $src, which does not exist."
+          cp "$src" "$WORK/src.tar.gz" || mcb_fail "Could not read $src." ;;
+      esac
+    fi
+    if [ -n "$MCB_WANT_SHA" ]; then mcb_check_sha "$WORK/src.tar.gz" "$MCB_WANT_SHA" "The Bridge download"
+    else echo "    A file on this computer; not checked (give --sha256 to check it)."; fi
     (cd "$WORK/src" && gzip -dc ../src.tar.gz | tar -xf -) ||
       mcb_fail "The Bridge download could not be unpacked (it may be incomplete). Run this again."
   fi
-  # GitHub's archive has one folder inside (api-bridge-v2-main); a folder copy does not.
+  # A release archive has one folder inside (mr-chartist-bridge-<version>); a folder copy does not.
   root="$WORK/src"
   if [ ! -f "$root/bin/mc-bridge.mjs" ]; then
     for d in "$WORK"/src/*/; do
@@ -256,7 +346,7 @@ mcb_make_shim() {
     echo 'if [ -x "$MCB_APP/runtime/bin/node" ]; then PATH="$MCB_APP/runtime/bin:$PATH"; export PATH; fi'
     echo 'if ! command -v node >/dev/null 2>&1; then'
     echo '  echo "Node.js for the Bridge was not found. Run the installer again:" >&2'
-    echo '  echo "  curl -fsSL https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.sh | sh" >&2'
+    echo '  echo "  curl -fsSL https://github.com/MrChartist/api-bridge-v2/releases/latest/download/install.sh | sh" >&2'
     echo '  exit 1'
     echo 'fi'
     echo 'exec node "$MCB_APP/bin/mc-bridge.mjs" "$@"'

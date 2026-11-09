@@ -128,6 +128,7 @@
         "Quotas",
         "Safety",
         "Readiness",
+        "Backup",
         "Spreadsheets",
         "Webhooks",
         "AI (MCP)",
@@ -135,7 +136,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "131 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "133 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -218,6 +219,24 @@
       "path": "docs/api/ai-mcp/mcp.md",
       "text": "POST /mcp. JSON-RPC 2.0 per the Model Context Protocol.",
       "title": "MCP Streamable HTTP endpoint for AI assistants"
+    },
+    {
+      "headings": [
+        "POST /v1/backup"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/backup/createBackup.md",
+      "text": "POST /v1/backup. This computer only, admin key.",
+      "title": "Make a backup now"
+    },
+    {
+      "headings": [
+        "GET /v1/backup"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/backup/getBackup.md",
+      "text": "GET /v1/backup. This computer only, admin key.",
+      "title": "The last backup, the schedule and the copies kept on this computer"
     },
     {
       "headings": [
@@ -1351,7 +1370,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 127 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 129 requests in 20 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1400,6 +1419,25 @@
       "path": "docs/guides/amibroker.md",
       "text": "Everything AmiBroker can reach is read-only: /xl/* cannot place orders. Full instructions and the files: integrations/amibroker. Copy integrations/amibroker/mrchartist-bridge.afl into AmiBroker's Formulas\\Include folder. Create a read-only URL key (AmiBroker cannot send...",
       "title": "AmiBroker"
+    },
+    {
+      "headings": [
+        "What a backup holds, and what it never holds",
+        "Make a backup",
+        "Restore",
+        "A copy before every upgrade",
+        "Daily backup (optional)",
+        "Recovery runbook",
+        "The disk died (you have a backup file elsewhere)",
+        "An upgrade went wrong",
+        "You moved to another computer",
+        "Docker",
+        "Settings reference"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/backup.md",
+      "text": "The Bridge keeps everything you cannot make again in one data folder: your API key records, accounts, safety and quota state, paper books, order records, audit log and source settings. This guide shows how to copy that folder safely, how to put a copy back, and what to do when a...",
+      "title": "Backup and restore"
     },
     {
       "headings": [
@@ -1528,6 +1566,8 @@
         "Windows: one line",
         "Android (Termux)",
         "After installing",
+        "Updating safely",
+        "Checking that the download is genuine",
         "Uninstalling",
         "If something goes wrong"
       ],

@@ -32,6 +32,7 @@ No key needed. Callers on this computer also see which services are built.
 | `demo` | boolean | no | Present and true only in demo mode (sample data, no real broker). |
 | `dataNotice` | string | no | In demo mode: a plain sentence saying the data is sample data. |
 | `services` | object | no |  |
+| `backup` | object | no | For callers on this computer. When the last backup was made, whether the last one failed, and whether the daily schedule is on. |
 | `startup` | object | no | Present only while the Bridge is starting and holds positions, funds, orders, trades and the book (at most 20 s) until its start-up jobs finish (in demo mode, the demo book seed), so no client reads a partial book. Each job's progress lets a page show it instead of a silent wait. Absent once those reads answer. |
 
 ## Examples

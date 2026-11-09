@@ -42,6 +42,9 @@ Usage:
   mc-bridge expose check [--public-url <url> --allow-outbound] [--json]
                                    test that only the intended routes answer; --allow-outbound lets it call the public url
   mc-bridge expose status | off [alerts|sheets]
+  mc-bridge backup [--out FILE] [--include-secrets]   one archive of your data folder (never the master key; never overwrites)
+  mc-bridge backup list | verify FILE                 the copies kept in the data folder; check an archive
+  mc-bridge restore FILE [--dry-run] [--yes]          put a backup back (the Bridge must be stopped; makes a safety copy first)
   mc-bridge kill [--reason <text>] [--cancel-open] [--key <key>]
   mc-bridge kill release [--key <admin key>]
   mc-bridge mcp --key <key> [--url http://127.0.0.1:4300] [--config <file>]
@@ -136,6 +139,7 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   }
   add(config.accounts.length ? "ok" : "warn", "accounts", config.accounts.length ? `${config.accounts.length} account(s): ${config.accounts.map((a) => `${a.id} (${a.broker})`).join(", ")}` : "No accounts configured yet");
   for (const c of poolingDoctorChecks({ config })) add(c.level, c.check, c.message);
+  for (const c of (await import("../backup/doctor.mjs")).backupDoctorChecks({ config, env })) add(c.level, c.check, c.message);
   try {
     new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata" }).format(new Date());
     add("ok", "timezone", "Asia/Kolkata time zone data available");
@@ -386,7 +390,7 @@ export async function runCli(positionals, flags, io) {
       case "start": {
         // Double-clicking the start file a second time: if this Bridge is already running on its port, open its
         // dashboard instead of failing on the busy port.
-        const planned = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true }).config;
+        const { config: planned, source: plannedSource } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true });
         const plannedUrl = localBaseUrl(planned.server.host, planned.server.port);
         const running = planned.server.port === 0 ? null : await probeBridge(plannedUrl);
         if (running) {
@@ -403,6 +407,15 @@ export async function runCli(positionals, flags, io) {
           await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
           return 0;
         }
+        // A new Bridge version may change how files are stored: copy the data first (never stops the start).
+        const snapshot = await (await import("../backup/manager.mjs")).createBackupManager({
+          dataDir: planned.dataDir,
+          configFile: configFileForWrites(plannedSource, io.env),
+          config: planned,
+          bridgeVersion: (await import("./app.mjs")).BRIDGE_VERSION,
+          env: io.env,
+        }).snapshotBeforeStart();
+        if (snapshot.message) io.err(snapshot.message);
         const { app } = await bootServices(flags, io, { server: true });
         let port;
         let publicPort;
@@ -561,6 +574,9 @@ export async function runCli(positionals, flags, io) {
         return await sourcesCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
+      case "backup":
+      case "restore":
+        return await backupRestoreCommand(cmd, positionals.slice(1), flags, io);
       default:
         io.err(`Unknown command "${cmd}".\n\n${USAGE}`);
         return 1;
@@ -935,3 +951,15 @@ async function pluginsCommand(action, folder, flags, io) {
   return report.ok ? 0 : 1;
 }
 // === end sources ===============================================================================================
+
+/**
+ * `mc-bridge backup` and `mc-bridge restore` (server/bridge/backup/cli.mjs). A separate block: it only gathers what the
+ * commands need from this file (the loaded config, the probe that detects a running Bridge) and hands it over.
+ */
+async function backupRestoreCommand(cmd, args, flags, io) {
+  const { config, source } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list() });
+  const { BRIDGE_VERSION } = await import("./app.mjs");
+  const { backupCommand, restoreCommand } = await import("../backup/cli.mjs");
+  const ctx = { config, configFile: configFileForWrites(source, io.env), bridgeVersion: BRIDGE_VERSION, cli: cliCommand(io.env), probeBridge, localBaseUrl, usesDataDir };
+  return cmd === "backup" ? backupCommand(args, flags, io, ctx) : restoreCommand(args, flags, io, ctx);
+}

@@ -20,6 +20,8 @@
  *  limits.throttled    { accountId, endpointClass, retryAfterMs, upstream: boolean }
  *  audit.appended      { seq, type, accountId? }
  *  config.warning      { message }
+ *  backup.completed    { kind, at, path, bytes, files, includesSecrets }   a backup was written (no file contents)
+ *  backup.failed       { kind, at, message }                               a backup could not be written
  *  key.revoked         { keyId }                    StreamHub closes WS/SSE connections opened with this key
  *  ticket.confirmed    { ticketId, accountId, principal }   a person confirmed an order ticket (no token in the payload)
  *  ticket.rejected     { ticketId, accountId, principal }   a person declined an order ticket (principal: who prepared it)
@@ -42,6 +44,8 @@ export const TOPICS = Object.freeze([
   "limits.throttled",
   "audit.appended",
   "config.warning",
+  "backup.completed",
+  "backup.failed",
   "key.revoked",
   "ticket.confirmed",
   "ticket.rejected",

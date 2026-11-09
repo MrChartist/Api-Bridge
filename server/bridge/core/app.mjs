@@ -36,6 +36,7 @@ import { createRouter } from "./router.mjs";
 import { registerExposeRoutes, sheetsAdmits, createSheetsLimiter } from "./exposeRoutes.mjs";
 import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
+import { backupHealth } from "../backup/health.mjs";
 import { httpConsumer, runAsConsumer } from "../ratelimit/consumer.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
@@ -101,6 +102,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "reference.js": "text/javascript; charset=utf-8",
   "charges.js": "text/javascript; charset=utf-8",
   "readiness.js": "text/javascript; charset=utf-8",
+  "backup-card.js": "text/javascript; charset=utf-8",
   "layout-prefs.js": "text/javascript; charset=utf-8",
   "live.js": "text/javascript; charset=utf-8",
   "budget.js": "text/javascript; charset=utf-8",
@@ -203,7 +205,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       } catch {
         sources = undefined;
       }
-      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}) };
+      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}), backup: backupHealth({ config, dataDir: config.dataDir }) };
     },
     { auth: "none", summary: "Liveness; detail only for loopback callers" },
   );
