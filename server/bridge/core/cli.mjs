@@ -60,6 +60,11 @@ Usage:
   mc-bridge notify telegram setup   connect a Telegram bot: the token is read from a hidden prompt, never from the command line
   mc-bridge notify telegram remove <id>
   mc-bridge notify status | test [<id>]
+  mc-bridge record quotes <symbols...> --every <s> [--all-day]   save real-time prices to files (one file per symbol per day)
+  mc-bridge record chain <UNDERLYING> --every <s> [--expiry <date>] [--strikes <n>] [--all-day]   save option-chain snapshots (at least 15 s)
+  mc-bridge record list | status | show <id> | files <id> | pause <id> | resume <id> | stop <id> | delete <id>
+  mc-bridge record auto on|off|status   record by itself every trading day (off until you turn it on)
+  mc-bridge record rules | rule add quotes|chain <...> --every <s> | rule on|off|remove <id> | preset index-option-chains|my-watchlist
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -584,6 +589,8 @@ export async function runCli(positionals, flags, io) {
         warnKeyOnArgv(flags, io);
         return await notifyCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), prompt: terminalPrompt, cli: cliCommand(io.env), usage: USAGE });
       }
+      case "record":
+        return await recordCliCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
       case "backup":
@@ -974,4 +981,10 @@ async function backupRestoreCommand(cmd, args, flags, io) {
   const { backupCommand, restoreCommand } = await import("../backup/cli.mjs");
   const ctx = { config, configFile: configFileForWrites(source, io.env), bridgeVersion: BRIDGE_VERSION, cli: cliCommand(io.env), probeBridge, localBaseUrl, usesDataDir };
   return cmd === "backup" ? backupCommand(args, flags, io, ctx) : restoreCommand(args, flags, io, ctx);
+}
+
+/** `mc-bridge record ...` (server/bridge/recorder/cli.mjs). A separate block: it only connects to the running Bridge and hands over. */
+async function recordCliCommand(args, flags, io) {
+  const { recordCommand } = await import("../recorder/cli.mjs");
+  return recordCommand(args, flags, io, { connect: () => sourcesClient(flags, io), cli: cliCommand(io.env), usage: USAGE });
 }

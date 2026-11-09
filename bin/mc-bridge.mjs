@@ -19,6 +19,7 @@
  *   mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display]
  *   mc-bridge sources plugins check <folder> | pin <folder>   (data sources and plugins; see docs/guides/sources.md)
  *   mc-bridge notify telegram setup | remove <id>, notify status | test   (Telegram alerts; the token is asked for, never an argument)
+ *   mc-bridge record quotes|chain ..., record list|status|show|files|pause|resume|stop|delete, record auto on|off, record rules|rule ..., record preset ...   (save real-time data; docs/guides/recording.md)
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
  * (principal { kind: "local", id: "cli" }). Keys are printed once and never again.
@@ -69,6 +70,18 @@ const { positionals, values } = parseArgs({
     "include-secrets": { type: "boolean" },
     "dry-run": { type: "boolean" },
     "skip-config": { type: "boolean" },
+    every: { type: "string" },
+    expiry: { type: "string" },
+    strikes: { type: "string" },
+    name: { type: "string" },
+    collection: { type: "string" },
+    days: { type: "string" },
+    start: { type: "string" },
+    end: { type: "string" },
+    "keep-days": { type: "string" },
+    "max-disk-mb": { type: "string" },
+    "all-day": { type: "boolean" },
+    "delete-files": { type: "boolean" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

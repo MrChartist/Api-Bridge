@@ -19,5 +19,6 @@ import compat from "../compat/module.mjs";
 import sources from "../sources/module.mjs";
 import backup from "../backup/module.mjs";
 import notify from "../notify/module.mjs";
+import recorder from "../recorder/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, recorder]);
