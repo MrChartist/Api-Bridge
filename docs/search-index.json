@@ -121,6 +121,7 @@
         "Instruments",
         "Market data",
         "Streaming",
+        "Events",
         "Portfolio",
         "Orders",
         "Paper",
@@ -139,7 +140,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "150 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "165 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -517,6 +518,141 @@
       "path": "docs/api/errors.md",
       "text": "Every error is application/problem+json with code, status, detail, retryable and requestId. The code is stable (codes are added, never renamed); detail is for people. retryable answers one question: is it safe to send exactly this request again? A write whose outcome is unknown...",
       "title": "Error codes"
+    },
+    {
+      "headings": [
+        "DELETE /v1/subscriptions/{subscriptionId}/dead-letters"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/clearSubscriptionDeadLetters.md",
+      "text": "DELETE /v1/subscriptions/{subscriptionId}/dead-letters.",
+      "title": "Forget this subscription's dead letters"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/createSubscription.md",
+      "text": "POST /v1/subscriptions. The target is an outside URL, so this works from this computer only.",
+      "title": "Send events to a URL, signed (this computer only)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/deleteSubscription.md",
+      "text": "DELETE /v1/subscriptions/{subscriptionId}.",
+      "title": "Remove a subscription, its queue, dead letters, log and stored secret"
+    },
+    {
+      "headings": [
+        "GET /v1/events/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/getEventsStatus.md",
+      "text": "GET /v1/events/status.",
+      "title": "The event log, open connections and the webhook queue"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/getSubscription.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}.",
+      "title": "One webhook subscription with its health"
+    },
+    {
+      "headings": [
+        "GET /v1/events/topics"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listEventTopics.md",
+      "text": "GET /v1/events/topics. A read key sees no admin-only topic.",
+      "title": "The topics this key may receive"
+    },
+    {
+      "headings": [
+        "GET /v1/events"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listEvents.md",
+      "text": "GET /v1/events. The same events, filters and cursor as the stream, in one answer.",
+      "title": "Replay events as JSON (the polling twin of the stream)"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}/dead-letters"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptionDeadLetters.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}/dead-letters.",
+      "title": "Events that could not be delivered, newest first"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}/deliveries"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptionDeliveries.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}/deliveries. Every attempt with its outcome, HTTP status and a short failure code.",
+      "title": "The delivery log, newest first"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptions.md",
+      "text": "GET /v1/subscriptions. The URL's path and the signing secret are never returned, only the host.",
+      "title": "Webhook subscriptions"
+    },
+    {
+      "headings": [
+        "GET /v1/events/ws"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/openEventSocket.md",
+      "text": "GET /v1/events/ws. ws://127.0.0.1:4300/v1/events/ws?token=&topics=order.*&since=.",
+      "title": "WebSocket stream of Bridge events (upgrade), same events and cursor as the SSE stream"
+    },
+    {
+      "headings": [
+        "GET /v1/events/stream"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/openEventStream.md",
+      "text": "GET /v1/events/stream. GET /v1/events/stream?token=&topics=order.,download.&since=.",
+      "title": "Server-Sent Events stream of Bridge events, with replay from a cursor"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/retrySubscriptionDeadLetter.md",
+      "text": "POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry.",
+      "title": "Put a dead letter back in the queue (this computer only)"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions/{subscriptionId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/testSubscription.md",
+      "text": "POST /v1/subscriptions/{subscriptionId}/test. One attempt, not queued and not retried; it appears in the delivery log.",
+      "title": "Send one signed test event now (this computer only)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/updateSubscription.md",
+      "text": "PATCH /v1/subscriptions/{subscriptionId}. Only the fields sent change.",
+      "title": "Change a subscription (this computer only)"
     },
     {
       "headings": [
@@ -1539,7 +1675,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 146 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 160 requests in 22 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1675,6 +1811,25 @@
       "path": "docs/guides/deployment.md",
       "text": "Paper trading works from any computer and any connection. Live API orders do not. This guide explains why, the ways to give the Bridge a fixed internet address, and how the Bridge's trading-readiness check tells you, before an order fails, that something is wrong. Every rule...",
       "title": "Deployment: static IP, daily login and the readiness check"
+    },
+    {
+      "headings": [
+        "Listen live: SSE and WebSocket",
+        "Cursors and replay",
+        "Which events, and who sees them",
+        "Webhooks: the Bridge calls you",
+        "What your server receives",
+        "Check the signature",
+        "Retries, dead letters and the log",
+        "Where a webhook may point",
+        "The secret",
+        "Settings",
+        "Troubleshooting"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/events.md",
+      "text": "The Bridge can tell your own programs when something happens: an order was filled, a broker login ended, a data download finished, the kill switch was turned on. You can listen live (a stream), ask for what you missed (replay), or have the Bridge call your program (a signed...",
+      "title": "Events out: react to the Bridge without polling"
     },
     {
       "headings": [
@@ -1894,7 +2049,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/streaming.md",
-      "text": "One port serves both. Messages are described in asyncapi.yaml. The token is single use and must be used within 60 seconds; the connection then lives on with the key's scopes. A client that can send headers may use Authorization: Bearer on the upgrade request instead. Revoking...",
+      "text": "One port serves both. Messages are described in asyncapi.yaml. This page is about prices; for events (orders, logins, downloads, the kill switch) with replay and signed webhooks, see events.md. The token is single use and must be used within 60 seconds; the connection then lives...",
       "title": "Live streaming: WebSocket and SSE"
     },
     {

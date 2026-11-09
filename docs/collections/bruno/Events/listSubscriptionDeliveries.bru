@@ -1,0 +1,34 @@
+meta {
+  name: The delivery log, newest first
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/v1/subscriptions/:subscriptionId/deliveries
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~outcome: delivered
+  ~limit: 100
+}
+
+params:path {
+  subscriptionId: <subscriptionId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The delivery log, newest first
+
+  - An API key with the `admin` scope.
+
+  Every attempt with its outcome, HTTP status and a short failure code. No receiver answer text, URL path or secret.
+
+  Reference: docs/api/events/listSubscriptionDeliveries.md in the repository.
+}

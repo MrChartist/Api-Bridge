@@ -1,0 +1,27 @@
+meta {
+  name: Remove a subscription, its queue, dead letters, log and stored secret
+  type: http
+  seq: 9
+}
+
+delete {
+  url: {{baseUrl}}/v1/subscriptions/:subscriptionId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  subscriptionId: <subscriptionId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Remove a subscription, its queue, dead letters, log and stored secret
+
+  - An API key with the `admin` scope.
+
+  Reference: docs/api/events/deleteSubscription.md in the repository.
+}
