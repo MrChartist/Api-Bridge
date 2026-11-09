@@ -42,7 +42,7 @@ describe("budgetSummary", () => {
 
 describe("consumer names", () => {
   it("names dashboard pages, MCP, compat and keys, and never passes odd characters", () => {
-    expect(httpConsumer({ headers: { "x-mcb-client": "dashboard", "x-mcb-page": "chain" }, path: "/v1/optionchain" })).toBe("Dashboard · Option Chain");
+    expect(httpConsumer({ headers: { "x-mcb-client": "dashboard", "x-mcb-page": "orders" }, path: "/v1/optionchain" })).toBe("Dashboard · Orders");
     expect(httpConsumer({ headers: { "x-mcb-client": "dashboard", "x-mcb-page": "<script>" }, path: "/v1/quotes" })).toBe("Dashboard");
     expect(httpConsumer({ headers: {}, path: "/mcp" })).toBe("MCP (AI tools)");
     expect(httpConsumer({ headers: {}, path: "/api/v1/ltp" })).toBe("Excel / compat");
