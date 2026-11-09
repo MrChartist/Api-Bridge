@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Spreadsheets: `GET /xl/quotes` gives a whole sheet of prices in one request (`csv`, `tsv` or `json`, one row per symbol,
+  a bad symbol is a blank row with an `error`), every row labelled with `as_of`, `age_s`, `class`, `source`, `stale`
+  (and `DEMO` in demo mode). New read-only tables `/xl/positions`, `/xl/holdings`, `/xl/funds`, `/xl/orders` and
+  `/xl/instrument` (lot, tick, freeze). `?cache=1` opts in to `max-age` and an `ETag`; refused requests answer a
+  one-row table with "Too many refreshes: wait N seconds". Single-value routes refuse delayed or end-of-day prices.
+- Excel workbook rebuilt: formulas stored with the `_xlfn.` prefix (no more `#NAME?`), a filled watchlist, Positions,
+  Holdings, Funds and Orders sheets, one request per sheet, a Status line, and no key in a visible cell. Google Sheets
+  Apps Script now has a menu, `BRIDGE_QUOTES` and a timed refresh. Integrations > Excel and Sheets in the dashboard
+  makes the key, the workbook and the script, and has a "Test it" button. Guide rewritten.
 - Declining a pending confirmation is real now: `POST /v1/tickets/{ticketId}/reject` (admin, this computer only, optional
   `{ "reason" }` up to 200 characters) removes the ticket for good, so it can never be confirmed later; a ticket that
   was confirmed, used or has expired answers 409 with its `state`. It is audited as `ticket.rejected`, announced on the

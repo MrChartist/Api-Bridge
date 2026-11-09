@@ -1751,7 +1751,7 @@ async function renderAccounts() {
   const demo = app.state.demo;
   const ctx = { brokerOf, paperCount, details: (a) => accountDetails(a, ctx), add: (id) => addAccountFlow(list, { preselect: id, accounts: accs }) };
   const addBtn = (cls = "primary small") => h("button", { type: "button", class: cls, disabled: list.length ? undefined : true, title: list.length ? undefined : "The broker list did not load", onclick: () => addAccountFlow(list, { accounts: accs }) }, icon("plus"), demo ? "Add your broker" : "Add a broker");
-  const excel = h("button", { type: "button", class: "small quiet acct-xl", "aria-label": "Download Excel workbook", title: "A .xlsx with your watchlist and open positions as live formulas against this Bridge", onclick: () => import("./workbook.js").then((m) => m.downloadWorkbook()) }, icon("download"), h("span", {}, "Excel workbook"));
+  const excel = h("button", { type: "button", class: "small quiet acct-xl", "aria-label": "Download Excel workbook", title: "A .xlsx that reads prices and your book from this Bridge with one request per sheet (read-only). More choices under Integrations › Excel and Sheets", onclick: () => import("./workbook.js").then((m) => m.downloadWorkbook()) }, icon("download"), h("span", {}, "Excel workbook"));
 
   const rows = accs.map((a) => accountRow(a, ctx));
   const needLogin = accs.filter((a) => acctStatus(a).next === "login").length;
@@ -2816,7 +2816,7 @@ const INTRO = {
   webhooks: "Alerts from your scripts, ChartInk scans or GoCharting place paper orders through a webhook. Each hook has its own secret address.",
   python: "The Python client: standard library only, Python 3.9 or newer. Paper orders get an Idempotency-Key for you.",
   node: "The Node client (ESM). Streaming on Node 20 needs the ws package; Node 22 has a WebSocket built in.",
-  excel: "Live prices in cells with WEBSERVICE. The key goes in the address, so use a read-only key with an expiry.",
+  excel: "Prices and your book in a spreadsheet, one request per refresh instead of one per cell. Read-only: a sheet cannot place an order.",
   amibroker: "Live values in AFL from the Bridge's cache and stream. History imports use /xl/history with the shipped .format files.",
   claude: "The Bridge is an MCP server. An assistant can read prices, chains and your positions; it can only prepare orders for you to confirm.",
   chatgpt: "ChatGPT connectors cannot reach a server on your computer. Use the same tools from your own script with OpenAI function calling.",
@@ -2857,7 +2857,7 @@ async function renderIntegrations() {
       const [glyph, tint] = API_TILE[active] ?? ["keys", "gray"];
       panel.setAttribute("aria-labelledby", picker.querySelector(`[data-id="${active}"]`)?.id ?? "");
       const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active] ?? [];
-      const preset = KEY_PRESETS[active];
+      const preset = active === "excel" ? null : KEY_PRESETS[active]; // Excel and Sheets make their key inside their own panel
       const keyBtn = preset && h("button", { type: "button", class: "small tinted" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join(" + ")} key for this`);
       if (keyBtn) {
         keyBtn.disabled = Boolean(createdKeys[active]);
@@ -2877,6 +2877,7 @@ async function renderIntegrations() {
           }
         });
       }
+      const sheets = active === "excel" ? (await import("./sheets-panel.js")).sheetsPanel({ accounts, download: (opts) => import("./workbook.js").then((m) => m.downloadWorkbook(opts)) }) : null;
       const guide = h("a", { class: "btn small quiet", href: `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${name} guide (opens in a new tab)` }, "Guide", icon("external"));
       const parts = [
         h("header", { class: "card-head" }, iconTile(glyph, tint, "lg"), h("div", { class: "card-titles" }, h("h2", {}, name), h("p", {}, INTRO[active])), h("div", { class: "card-actions" }, guide)),
@@ -2885,8 +2886,9 @@ async function renderIntegrations() {
           { class: "card-body ai-body" },
           h("div", { class: "ai-meta" }, h("div", { class: "ai-addr" }, h("span", { class: "ai-addr-label" }, "Your Bridge address"), h("code", {}, location.origin), copyButton(location.origin, { ariaLabel: "Copy your Bridge address", toastLabel: "Address copied", cls: "small copy" })), keyBtn ?? null),
           createdKeys[active] ? alertBox({ title: "Your new key is filled into the code below.", detail: "It is shown only on this page, and only until you leave it. Copy it now." }, "info") : null,
+          sheets,
           active === "webhooks" ? h("div", { class: "ai-hooks" }) : null,
-          s.length ? h("div", { class: "stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : null, s.map(snippetBlock)) : null,
+          s.length ? h("div", { class: "stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : active === "excel" ? h("h3", { class: "ai-sub" }, "Formulas and code, if you would rather build your own") : null, s.map(snippetBlock)) : null,
         ),
       ];
       panel.replaceChildren(...parts);

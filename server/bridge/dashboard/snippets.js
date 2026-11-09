@@ -97,7 +97,7 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
     ],
     excel: [
       {
-        title: "Excel (Windows): one live value per cell. Put the key in a cell named BridgeKey",
+        title: "Excel (Windows): one value in one cell. For a list use the workbook above: one request for every row. Put the key in a cell named BridgeKey",
         lang: "excel",
         code: [
           `=VALUE(WEBSERVICE("${host}/xl/ltp?symbol="&ENCODEURL(A2)&"&key="&BridgeKey))`,
@@ -106,9 +106,14 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       },
       { title: "Your key for the BridgeKey cell", lang: "text", code: url },
       {
-        title: "Google Sheets (needs your own tunnel; see integrations/google-sheets)",
+        title: "A whole list in one request (CSV: Power Query, curl, IMPORTDATA). Each row says how current it is",
+        lang: "text",
+        code: `${host}/xl/quotes?symbols=NSE:RELIANCE,NSE:TCS,NSE:NIFTY&fields=ltp,chg,pct,volume&format=csv`,
+      },
+      {
+        title: "Google Sheets (needs your own tunnel; use the Apps Script from this page)",
         lang: "excel",
-        code: `=BRIDGE_LTP("${symbol}")\n=BRIDGE_QUOTE("NSE:RELIANCE", "changePct")`,
+        code: `=BRIDGE_QUOTES(A5:A30)\n=BRIDGE_QUOTE("NSE:RELIANCE", "pct")`,
       },
     ],
     amibroker: [
