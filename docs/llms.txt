@@ -20,9 +20,9 @@ Facts that help when writing code against it:
 
 ## API reference
 
-- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 129 operations with schemas, scopes and error codes
+- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 131 operations with schemas, scopes and error codes
 - [AsyncAPI description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/asyncapi.yaml): WebSocket and SSE message formats
-- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (129), grouped by area, each with curl and Python examples
+- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (131), grouped by area, each with curl and Python examples
 - [Error codes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/errors.md): every stable error code with its HTTP status and whether a retry is safe
 - [Postman and Bruno collections](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/collections/README.md): import every request, with paper-mode examples and no real keys
 
@@ -46,6 +46,8 @@ Facts that help when writing code against it:
 - [Excel and Google Sheets](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/excel-sheets.md): Excel WEBSERVICE, Power Query, Google Sheets
 - [AI assistants over MCP (Claude Desktop, Claude Code, Cursor)](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/mcp.md): Claude Desktop, Claude Code, Cursor (MCP)
 - [ChatGPT and OpenAI](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/chatgpt-openai.md): ChatGPT and OpenAI function calling
+- [Letting TradingView (and a Google Sheet) reach the Bridge safely](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/expose-alerts.md): Letting TradingView alerts and a Google Sheet reach the Bridge through a tunnel or proxy without exposing the dashboard: mc-bridge expose, the safe layout, provider recipes, tests
+- [Running the Bridge on a VPS](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/vps.md): A hardened VPS recipe: firewall, systemd or Docker, reaching the dashboard, static IP registration and change planning, updating, backups
 - [Deployment: static IP, daily login and the readiness check](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/deployment.md): Static IP for live orders (ISP, VPS, VPN), the daily login and the trading-readiness badge
 - [Safety model](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/safety.md): Paper and live modes, keys, limits, kill switch, audit
 - [Compliance notes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/compliance.md): SEBI, exchange and broker rules that shape the design (with needs-verification flags)

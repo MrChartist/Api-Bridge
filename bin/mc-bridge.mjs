@@ -9,7 +9,8 @@
  *   mc-bridge keys list
  *   mc-bridge keys revoke <keyId>
  *   mc-bridge accounts list
- *   mc-bridge doctor [--no-port-check]
+ *   mc-bridge doctor [--no-port-check] [--strict]
+ *   mc-bridge expose [alerts|sheets] | check | status | off      (let TradingView or a Google Sheet reach the Bridge safely)
  *   mc-bridge mcp --key <key>            (MCP over stdio for Claude Desktop, Claude Code, Cursor)
  *   mc-bridge openai-tools [--scope read|paper] [--format responses|chat]   (tool schemas for OpenAI function calling)
  *   mc-bridge sources list | enable <id> [--acknowledge <version>] | disable <id> | set-key <id> | test <id>
@@ -36,6 +37,14 @@ const { positionals, values } = parseArgs({
     format: { type: "string" },
     "allow-query": { type: "boolean" },
     "no-port-check": { type: "boolean" },
+    strict: { type: "boolean" },
+    provider: { type: "string" },
+    host: { type: "string" },
+    port: { type: "string" },
+    "allow-ips": { type: "string" },
+    "public-url": { type: "string" },
+    "allow-outbound": { type: "boolean" },
+    check: { type: "boolean" },
     json: { type: "boolean" },
     demo: { type: "boolean" },
     open: { type: "boolean" },

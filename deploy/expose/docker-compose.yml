@@ -1,0 +1,56 @@
+# The Bridge and Caddy on a Linux VPS with Docker (docs/guides/vps.md). Real accounts, not the demo.
+# STATUS: `docker compose config` accepts it (syntax only); not yet run on a real VPS.
+#
+#   export DOMAIN=hooks.example.com
+#   docker compose -f deploy/expose/docker-compose.yml up -d --build
+#   docker compose -f deploy/expose/docker-compose.yml logs bridge       # the first admin key, printed once
+#   docker compose -f deploy/expose/docker-compose.yml exec bridge mc-bridge expose alerts --provider caddy --host "$DOMAIN" --yes
+#   docker compose -f deploy/expose/docker-compose.yml restart bridge     # the Bridge reads its settings only at start
+#
+# Both containers use the host's network on purpose:
+#   - Caddy reaches the alerts listener on 127.0.0.1:4301, so the Bridge sees Caddy as a local proxy and trusts the
+#     X-Forwarded-For header it adds (hooks.clientIpHeader). Over a Docker bridge network the Bridge would see an
+#     address that is not loopback and ignore the header, and the sender allowlist would refuse every alert.
+#   - The Bridge binds 127.0.0.1 only: its dashboard and API are NOT on the VPS's public address. Reach the dashboard
+#     with an SSH tunnel or WireGuard (docs/guides/vps.md). The firewall should allow only 80 and 443 (and SSH or
+#     WireGuard) from outside.
+# Orders leave from this VPS, so register THIS VPS's address with your broker as the static IP.
+services:
+  bridge:
+    build: ../..
+    image: mrchartist/api-bridge-v2:local
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      MCB_CONFIG: /data/bridge.config.json
+      MCB_MASTER_KEY_FILE: /secrets/master.key   # in its own volume, apart from the data
+      TZ: Asia/Kolkata
+    volumes:
+      - bridge-data:/data
+      - bridge-secrets:/secrets
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    network_mode: host
+    depends_on: [bridge]
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN, for example DOMAIN=hooks.example.com}
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  bridge-data:
+  bridge-secrets:
+  caddy-data:
+  caddy-config:

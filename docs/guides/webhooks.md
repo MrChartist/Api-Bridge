@@ -288,6 +288,9 @@ to it:
 cloudflared tunnel --url http://127.0.0.1:4301     # or a named tunnel with your own host name
 ```
 
+`mc-bridge expose alerts` does this (and the host list, the client-address header and a TradingView sender allowlist) in one
+step and checks the result: see [expose-alerts.md](expose-alerts.md).
+
 Give the sender `https://<tunnel host>/hooks/<source>/<token>` (the `path` from step 1). If the tunnel runs on this
 computer and adds a client-IP header, set `hooks.clientIpHeader` so IP allowlists see the real sender (trusted only from loopback).
 

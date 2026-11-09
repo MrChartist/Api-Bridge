@@ -33,6 +33,7 @@ import { createLogger } from "./logger.mjs";
 import { MIN_COMPRESS_BYTES, createCompressionCache, etagFor, ifNoneMatches, isCompressible, negotiateEncoding } from "./staticCompress.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
+import { registerExposeRoutes, sheetsAdmits, createSheetsLimiter } from "./exposeRoutes.mjs";
 import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
 import { httpConsumer, runAsConsumer } from "../ratelimit/consumer.mjs";
@@ -111,6 +112,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "getstarted.js": "text/javascript; charset=utf-8",
   "getstarted-core.js": "text/javascript; charset=utf-8",
   "connection.js": "text/javascript; charset=utf-8",
+  "expose-card.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",
   "logo.svg": "image/svg+xml",
@@ -293,6 +295,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     { auth: "none", summary: "This API's OpenAPI 3.1 description" },
   );
 
+  registerExposeRoutes(core, { config, configFile: coreDeps.paths.configFile, deps });
   for (const m of mods) if (m.register) await m.register(facadeFor(m.name), deps);
   // Demo-only controls (demo/routes.mjs): registered only in demo mode, each under its owning module.
   registerDemoRoutes({ config, facadeFor, deps, modules: mods, ...(demoRoutes ? { routes: demoRoutes } : {}) });
@@ -333,7 +336,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         return;
       }
       const m = router.match(req.method ?? "GET", url.pathname);
-      if (!m.route || (listener.public && !m.route.options.public)) {
+      if (!m.route || (listener.public && !(listener.sheets ? sheetsAdmits(req.method, m.route) : m.route.options.public))) {
         if (m.route === null && m.allowed.length && !listener.public) {
           throw new BridgeError("METHOD_NOT_ALLOWED", undefined, { headers: { Allow: m.allowed.join(", ") } });
         }
@@ -350,6 +353,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       ctx.loopback = !listener.public && isLocalRequest(req, { localPeers: config.server.localPeers });
       if (opts.loopbackOnly && !ctx.loopback) throw new BridgeError("LOOPBACK_ONLY");
 
+      // The Sheets listener: a request cap per caller address first (so a flood of bad keys is cheap to refuse).
+      if (listener.sheets) {
+        const verdict = listener.limiter.hit(ctx.clientIp);
+        if (!verdict.ok) throw new BridgeError("RATE_LIMITED", "Too many requests to the Sheets address. Slow the sheet's refresh.", { retryAfterMs: verdict.retryAfterMs });
+      }
       const authMode = opts.auth ?? "key";
       if (authMode === "key") {
         const found = extractApiKey(req, url, { allowQuery: opts.allowQueryKey === true });
@@ -366,6 +374,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
           if (found.viaQuery && (!record.allowQuery || record.scopes.some((s) => s !== "read"))) {
             throw new BridgeError("UNAUTHENTICATED", "Only read-only keys created for URL use may be sent as ?key=.");
           }
+          if (listener.sheets && record.scopes.some((sc) => sc !== "read")) throw new BridgeError("UNAUTHENTICATED", "Only read-only keys are accepted on the Sheets address. Create a read-only key for the sheet.");
           ctx.key = record;
           ctx.scopes = expandScopes(record.scopes);
           ctx.principal = { kind: "key", id: record.id, label: record.label };
@@ -428,7 +437,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       } else sendProblem(res, problem, { ...headers, ...(ctx?.responseHeaders ?? {}), ...problemHeaders(err) });
     } finally {
       const ms = Date.now() - t0;
-      log.info("http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined });
+      log.info("http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined, ...(listener.sheets ? { sheets: true, ip: req.socket?.remoteAddress } : {}) });
       if (!listener.public && path !== "/v1/requests" && !path.startsWith("/dashboard")) {
         const client = req.headers["x-mcb-client"] === "dashboard" ? "dashboard" : null;
         recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId, ...(ctx?.route ? { route: ctx.route } : {}) });
@@ -454,7 +463,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         return reject("403 Forbidden");
       }
       const entry = upgrades.get(url.pathname);
-      if (!entry || (listener.public && !entry.options.public)) return reject("404 Not Found");
+      if (!entry || listener.sheets || (listener.public && !entry.options.public)) return reject("404 Not Found");
       await entry.handler({ req, socket, head, url, requestId, log: log.child({ requestId, module: entry.module }), viaPublicIngress: listener.public, reject });
     } catch (err) {
       log.error("upgrade failed", { requestId, err });
@@ -515,6 +524,12 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         pub.hostCheck = (h) => createHostCheck({ port: pub.boundPort ?? s.publicIngress.port, allowedHosts: s.publicIngress.allowedHosts })(h);
         publicPort = await bind(s.publicIngress.host, s.publicIngress.port, pub);
       }
+      let sheetsPort = null;
+      if (s.sheetsIngress.enabled) {
+        const sh = { public: true, sheets: true, hostCheck: null, limiter: createSheetsLimiter({ perMinute: s.sheetsIngress.requestsPerMinute, now: () => deps.clock.now() }) };
+        sh.hostCheck = (h) => createHostCheck({ port: sh.boundPort ?? s.sheetsIngress.port, allowedHosts: s.sheetsIngress.allowedHosts })(h);
+        sheetsPort = await bind(s.sheetsIngress.host, s.sheetsIngress.port, sh);
+      }
       for (const m of mods) if (m.start) await m.start(deps);
       // Not awaited: the Bridge answers at once; only the gated reads wait for the startup jobs.
       openStartup(deps).catch(() => {});
@@ -524,8 +539,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         log.warn("could not write the local control token; mc-bridge kill will need --key", { err });
       }
       for (const w of warnings) log.warn(w);
-      log.info("bridge listening", { host: s.host, port, publicPort, version: BRIDGE_VERSION });
-      return { port, publicPort };
+      log.info("bridge listening", { host: s.host, port, publicPort, ...(sheetsPort ? { sheetsPort } : {}), version: BRIDGE_VERSION });
+      return { port, publicPort, sheetsPort };
     },
     /** Stop modules (reverse order) and close listeners. */
     async close() {

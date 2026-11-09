@@ -1,0 +1,56 @@
+# Caddy in front of the Bridge's PUBLIC listeners, on the same VPS as the Bridge (docs/guides/vps.md).
+# STATUS: not run against a real Caddy (the build machine had none). Check it with
+#   caddy validate --config /etc/caddy/Caddyfile
+# before you reload, and run `mc-bridge expose check --public-url https://$DOMAIN --allow-outbound` afterwards.
+#
+# What it does:
+#   - answers only POST /hooks/* from the TradingView sender addresses, and 404 to everything else;
+#   - points at the alerts listener (127.0.0.1:4301), never at the main port 4300 (dashboard, /v1 admin, keys);
+#   - caps the message at 16 KB (the Bridge caps it too);
+#   - Caddy sets X-Forwarded-For and ignores a value the caller sent (Caddy's reverse_proxy documentation, read
+#     2026-11-09), and the Bridge reads the right-most entry when hooks.clientIpHeader is "x-forwarded-for"
+#     (mc-bridge expose alerts --provider caddy). Do not set trusted_proxies for this site.
+#   - The `remote_ip` and `request_body max_size` lines are standard Caddy options that the reverse_proxy page above
+#     does not cover: `caddy validate` is the check.
+#
+# Set DOMAIN in the service's environment (for example `Environment=DOMAIN=hooks.example.com` in a systemd drop-in).
+# The four addresses are TradingView's published webhook senders, read from
+# https://www.tradingview.com/support/solutions/43000529348-about-webhooks/ on 2026-11-09. Compare them with that page
+# before you rely on them. If you also receive alerts from another service, remove the remote_ip line and rely on the
+# Bridge's own allowlist settings instead.
+
+{$DOMAIN} {
+	@tradingview {
+		method POST
+		path /hooks/*
+		remote_ip 52.89.214.238 34.212.75.30 54.218.53.128 52.32.178.7
+	}
+	handle @tradingview {
+		request_body {
+			max_size 16KB
+		}
+		reverse_proxy 127.0.0.1:4301
+	}
+	handle {
+		respond "Not found" 404
+	}
+	header -Server
+}
+
+# Optional: a second host name for a Google Sheet (docs/guides/expose-alerts.md, "Google Sheets").
+# It points at the Sheets listener (127.0.0.1:4302), which serves GET /xl/* for read-only keys and nothing else.
+# Run `mc-bridge expose sheets --provider caddy --host $SHEET_DOMAIN` first. Remove the leading # to turn it on.
+#
+# {$SHEET_DOMAIN} {
+# 	@xl {
+# 		method GET
+# 		path /xl/*
+# 	}
+# 	handle @xl {
+# 		reverse_proxy 127.0.0.1:4302
+# 	}
+# 	handle {
+# 		respond "Not found" 404
+# 	}
+# 	header -Server
+# }

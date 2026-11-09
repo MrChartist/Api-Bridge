@@ -135,7 +135,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "129 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "131 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -1182,6 +1182,15 @@
     },
     {
       "headings": [
+        "POST /v1/expose/check"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/checkExposure.md",
+      "text": "POST /v1/expose/check. Sends a few probe requests from this computer to each enabled public listener on 127.0.0.1 and reports whether the dashboard and the API stay hidden, foreign host names and web pages are refused and the body cap holds.",
+      "title": "Check that only the intended routes answer on the public listeners"
+    },
+    {
+      "headings": [
         "GET /dashboard"
       ],
       "kind": "endpoint",
@@ -1197,6 +1206,15 @@
       "path": "docs/api/system/getDashboardAsset.md",
       "text": "GET /dashboard/{file}.",
       "title": "Dashboard scripts, stylesheet and logo"
+    },
+    {
+      "headings": [
+        "GET /v1/expose"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getExposure.md",
+      "text": "GET /v1/expose. Plain-words state of the two optional public listeners (server.publicIngress for webhook alerts, server.sheetsIngress for Google Sheets), the address patterns to use, and the exposure checks that mc-bridge doctor also runs, each with a one-line fix.",
+      "title": "What is set up to be reached from outside this computer"
     },
     {
       "headings": [
@@ -1333,7 +1351,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 125 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 127 requests in 19 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1461,6 +1479,30 @@
       "path": "docs/guides/excel-sheets.md",
       "text": "Nothing a spreadsheet can call is able to place an order: every /xl route is a read-only GET. Full instructions and Power Query files: integrations/excel, integrations/google-sheets. Put the key in a cell on a hidden sheet and name it BridgeKey. With a symbol in A2: The answer...",
       "title": "Excel and Google Sheets"
+    },
+    {
+      "headings": [
+        "1. The safe layout",
+        "What not to do",
+        "2. Where orders come from (the static IP rule)",
+        "3. The three settings that make a listener safe",
+        "4. The wizard: mc-bridge expose",
+        "5. Provider recipes",
+        "A. Cloudflare Tunnel, named (recommended at home)",
+        "B. Cloudflare quick tunnel (first test only)",
+        "C. ngrok (reserved domain)",
+        "D. Caddy reverse proxy on a VPS",
+        "E. A plain port forward on your router (not recommended)",
+        "6. Google Sheets",
+        "7. Test it",
+        "8. Turn it off",
+        "9. What mc-bridge doctor checks",
+        "10. When it does not work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/expose-alerts.md",
+      "text": "TradingView sends an alert from its own servers, and Google Sheets fetches prices from Google's servers. Neither can reach a Bridge that listens on 127.0.0.1. This guide shows how to open one narrow door for them without opening the dashboard, and without breaking the static-IP...",
+      "title": "Letting TradingView (and a Google Sheet) reach the Bridge safely"
     },
     {
       "headings": [
@@ -1629,6 +1671,25 @@
       "path": "docs/guides/typescript.md",
       "text": "A small client with no runtime dependencies (Node 20+), with TypeScript types in src/index.d.ts. Streaming uses Node 22's built-in WebSocket or the ws package. Full method list: sdk/node/README.md. Same guarantees as the Python client: an Idempotency-Key on every order write,...",
       "title": "TypeScript and Node"
+    },
+    {
+      "headings": [
+        "1. Choose and prepare the server",
+        "2. Harden it",
+        "3. Install the Bridge",
+        "4. Or with Docker",
+        "5. Reach the dashboard (never over the internet)",
+        "6. Let TradingView in",
+        "7. Register the static address, and plan changes",
+        "8. Updating",
+        "9. Backups",
+        "10. Keep an eye on it",
+        "Checklist"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/vps.md",
+      "text": "For live trading, SEBI's retail algo framework needs orders to come from a static IP registered with your broker (needs verification against the circular and your broker's rules; compliance.md, deployment.md). A small Linux server with a fixed IPv4 address is the most common...",
+      "title": "Running the Bridge on a VPS"
     },
     {
       "headings": [

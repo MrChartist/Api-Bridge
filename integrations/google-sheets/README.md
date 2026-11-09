@@ -10,14 +10,15 @@
 computer, so they cannot reach the Bridge at `127.0.0.1`. Using Sheets means making the Bridge reachable from the
 internet through a tunnel you run yourself. Only do this if you understand the trade-off:
 
-- Anyone who learns the tunnel URL and a key can read your market data, positions and orders list through it.
+- Anyone who learns the tunnel URL and a key can read what `/xl` serves through it (on the main port: positions and orders too).
   Put the tunnel behind its own access control (for example an identity-aware proxy on the tunnel) where you can.
 - Use a **read-only** key with an expiry, limited to the accounts the sheet needs:
   `mc-bridge keys create --label sheets --scope read --accounts dhan-main --expires 30d`
-- Add the tunnel's host name to `server.allowedHosts` in `bridge.config.json`, otherwise the Bridge refuses the
-  requests (DNS-rebinding protection). The separate public-ingress listener serves webhooks only and will not
-  serve `/xl`. Requests through the tunnel are never treated as "this computer": the dashboard and every admin,
-  login and confirmation route refuse them, even with an admin key.
+- Run `mc-bridge expose sheets --provider <cloudflare|ngrok|caddy> --host <your host>` and restart the Bridge. It turns on
+  the **Sheets listener** (`server.sheetsIngress`, port 4302): it serves only `GET /xl/*` for read-only keys, with its own
+  host list and a request cap. Point your tunnel at that port, never at the main port 4300. See
+  [docs/guides/expose-alerts.md](../../docs/guides/expose-alerts.md#6-google-sheets). (A tunnel to the main port also works if
+  its host is in `server.allowedHosts`, but then a read key reaches far more than a sheet needs; do not.)
 - Broker data terms are generally for personal use; do not share the sheet with other people.
 
 Excel on Windows (see `../excel`) works locally with none of this.

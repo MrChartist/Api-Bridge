@@ -86,6 +86,60 @@
           "response": []
         },
         {
+          "name": "What is set up to be reached from outside this computer",
+          "request": {
+            "description": "What is set up to be reached from outside this computer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nPlain-words state of the two optional public listeners (`server.publicIngress` for webhook alerts, `server.sheetsIngress`\nfor Google Sheets), the address patterns to use, and the exposure checks that `mc-bridge doctor` also runs, each with\na one-line fix. It reads the settings the Bridge started with; it changes nothing and calls nothing outside this\ncomputer. Setting up is the terminal command `mc-bridge expose`.\n\nReference: docs/api/system/getExposure.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "expose"
+              ],
+              "raw": "{{baseUrl}}/v1/expose"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check that only the intended routes answer on the public listeners",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Check that only the intended routes answer on the public listeners\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nSends a few probe requests from this computer to each enabled public listener on 127.0.0.1 and reports whether the\ndashboard and the API stay hidden, foreign host names and web pages are refused and the body cap holds. With\n`publicUrl` it also looks up that host name and calls the public address from this computer, but only when\n`allowOutbound` is true; otherwise no name lookup and no outbound request is made.\n\nReference: docs/api/system/checkExposure.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "expose",
+                "check"
+              ],
+              "raw": "{{baseUrl}}/v1/expose/check"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "This document",
           "request": {
             "auth": {

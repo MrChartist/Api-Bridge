@@ -1,0 +1,18 @@
+# cloudflared configuration for a named Cloudflare Tunnel to the Bridge's alerts listener
+# (docs/guides/expose-alerts.md). Save as ~/.cloudflared/config.yml after `cloudflared tunnel create mc-bridge`.
+# STATUS: untested. The tunnel, credentials-file and run steps follow Cloudflare's "create a locally-managed tunnel"
+# page. That page shows a single `url:` line; the `ingress:` list below is the form for several host names and was
+# not on the page we checked, so compare it with Cloudflare's current documentation. For one host name you can
+# replace the ingress block with:   url: http://127.0.0.1:4301
+#
+# The tunnel points ONLY at the alerts listener (4301). Never at 4300 (the dashboard and the API), and never at the
+# Sheets listener unless you mean to publish Sheets (then add a second hostname, see below).
+tunnel: <Tunnel-UUID>
+credentials-file: /home/<you>/.cloudflared/<Tunnel-UUID>.json
+ingress:
+  - hostname: hooks.example.com
+    service: http://127.0.0.1:4301
+  # Optional, Google Sheets: its own host name and its own listener (mc-bridge expose sheets).
+  # - hostname: sheet.example.com
+  #   service: http://127.0.0.1:4302
+  - service: http_status:404

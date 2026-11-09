@@ -247,6 +247,109 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/expose:
+    get:
+      tags: [System]
+      operationId: getExposure
+      summary: What is set up to be reached from outside this computer
+      description: |
+        Plain-words state of the two optional public listeners (`server.publicIngress` for webhook alerts, `server.sheetsIngress`
+        for Google Sheets), the address patterns to use, and the exposure checks that `mc-bridge doctor` also runs, each with
+        a one-line fix. It reads the settings the Bridge started with; it changes nothing and calls nothing outside this
+        computer. Setting up is the terminal command `mc-bridge expose`.
+      x-module: core
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The exposure state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [state, exposed, headline, tone, alerts, sheets, checks]
+                    properties:
+                      state: { type: string, enum: [off, on] }
+                      exposed: { type: array, items: { type: string, enum: [alerts, sheets] } }
+                      headline: { type: string }
+                      tone: { type: string, enum: [ok, warn, bad] }
+                      alerts: { $ref: "#/components/schemas/ExposeListener" }
+                      sheets: { $ref: "#/components/schemas/ExposeListener" }
+                      checks:
+                        type: array
+                        items:
+                          type: object
+                          required: [level, check, message]
+                          properties:
+                            level: { type: string, enum: [ok, warn] }
+                            check: { type: string }
+                            message: { type: string }
+                            fix: { type: string, description: One line saying what to change. }
+                            blocking: { type: boolean, description: True when the mistake leaves the Bridge open to the internet or voids a safety rule; `doctor --strict` then exits 1. }
+                      restartNote: { type: string }
+                      guide: { type: string, format: uri }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/expose/check:
+    post:
+      tags: [System]
+      operationId: checkExposure
+      summary: Check that only the intended routes answer on the public listeners
+      description: |
+        Sends a few probe requests from this computer to each enabled public listener on 127.0.0.1 and reports whether the
+        dashboard and the API stay hidden, foreign host names and web pages are refused and the body cap holds. With
+        `publicUrl` it also looks up that host name and calls the public address from this computer, but only when
+        `allowOutbound` is true; otherwise no name lookup and no outbound request is made.
+      x-module: core
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kinds: { type: array, items: { type: string, enum: [alerts, sheets] } }
+                publicUrl: { type: string, description: Your public address, for example https://hooks.example.com. }
+                allowOutbound: { type: boolean, description: Must be true to test publicUrl. }
+      responses:
+        "200":
+          description: The result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [verdict, headline, items]
+                    properties:
+                      verdict: { type: string, enum: [good, notes, not_working, unsafe, not_exposed] }
+                      headline: { type: string }
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          required: [id, title, status, detail]
+                          properties:
+                            id: { type: string }
+                            title: { type: string }
+                            status: { type: string, enum: [pass, warn, fail, skipped] }
+                            severity: { type: string, enum: [blocking, setup, note] }
+                            detail: { type: string }
+                            fix: { type: string }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /openapi.yaml:
     get:
       tags: [System]
@@ -6045,6 +6148,18 @@ components:
         data: { type: object }
         prevHash: { type: string }
         hash: { type: string }
+
+    ExposeListener:
+      type: object
+      required: [enabled, listen, hosts]
+      properties:
+        enabled: { type: boolean }
+        listen: { type: string, description: Address and port the listener is bound to. }
+        hosts: { type: array, items: { type: string }, description: The host names it answers to (besides 127.0.0.1). }
+        urlPattern: { type: string, description: The public address pattern, shown when a host is set. }
+        clientIpHeader: { type: [string, "null"], description: Alerts only. The header trusted for the caller's address behind a local tunnel. }
+        senderAllowlist: { type: integer, description: Alerts only. How many sender addresses are allowed. }
+        requestsPerMinute: { type: integer, description: Sheets only. The request cap per caller address. }
 
     Hook:
       type: object

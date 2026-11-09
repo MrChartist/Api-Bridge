@@ -15,6 +15,7 @@ import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
+import { exposureChecks, readHooksQuietly } from "./expose.mjs";
 import { poolingDoctorChecks } from "../sources/pooling.mjs";
 import { PLUGIN_TRUST_NOTICE } from "../sources/plugin/notice.mjs";
 
@@ -32,7 +33,15 @@ Usage:
   mc-bridge keys revoke <keyId>
   mc-bridge accounts list
   mc-bridge accounts connect <accountId> [--key <admin key>] [--url http://127.0.0.1:4300]
-  mc-bridge doctor [--no-port-check]
+  mc-bridge doctor [--no-port-check] [--strict] [--json]
+                                   --strict: exit 1 also for a blocking exposure problem (for a scheduler or monitor)
+  mc-bridge expose [alerts|sheets] [--provider cloudflare|cloudflare-quick|ngrok|caddy|port-forward] [--host <public host>]
+                   [--port <n>] [--allow-ips tradingview|none|<a,b,c>] [--yes] [--check] [--json]
+                                   let TradingView alerts (or a Google Sheet) reach this Bridge through a tunnel or proxy,
+                                   without exposing the dashboard; asks questions unless --yes (restart the Bridge after)
+  mc-bridge expose check [--public-url <url> --allow-outbound] [--json]
+                                   test that only the intended routes answer; --allow-outbound lets it call the public url
+  mc-bridge expose status | off [alerts|sheets]
   mc-bridge kill [--reason <text>] [--cancel-open] [--key <key>]
   mc-bridge kill release [--key <admin key>]
   mc-bridge mcp --key <key> [--url http://127.0.0.1:4300] [--config <file>]
@@ -69,7 +78,7 @@ export function parseExpiry(value, now = Date.now()) {
  */
 export async function runDoctor({ config, warnings = [], source = null, env = process.env, portCheck = true, deps = null }) {
   const out = [];
-  const add = (level, check, message) => out.push({ level, check, message });
+  const add = (level, check, message, extra = {}) => out.push({ level, check, message, ...extra });
   const major = Number(process.versions.node.split(".")[0]);
   add(major >= 22 ? "ok" : "fail", "node", `Node.js ${process.versions.node}${major >= 22 ? "" : " (22 or newer is required)"}`);
   add(source ? "ok" : "warn", "config", source ? `Loaded ${source}` : `No bridge.config.json yet; using safe defaults. Run: ${cliCommand(env)} init`);
@@ -116,6 +125,15 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   else add("warn", "live-trading", `Live trading is ON for: ${liveAccounts.join(", ") || "no account (enable per account)"}. Orders must leave from your broker-registered static IP.`);
   if (s.killSwitchOnStart) add("warn", "kill-switch", "The kill switch will be engaged at start");
   for (const c of readinessDoctorChecks(config)) add(c.level, c.check, c.message);
+  {
+    let keys = null;
+    try {
+      if (deps && !isStub(deps.keyStore)) keys = await deps.keyStore.list();
+    } catch {
+      keys = null;
+    }
+    for (const c of exposureChecks(config, { hooks: readHooksQuietly(config.dataDir), keys })) add(c.level, c.check, c.message, { ...(c.fix ? { fix: c.fix } : {}), ...(c.blocking ? { blocking: true } : {}) });
+  }
   add(config.accounts.length ? "ok" : "warn", "accounts", config.accounts.length ? `${config.accounts.length} account(s): ${config.accounts.map((a) => `${a.id} (${a.broker})`).join(", ")}` : "No accounts configured yet");
   for (const c of poolingDoctorChecks({ config })) add(c.level, c.check, c.message);
   try {
@@ -388,8 +406,9 @@ export async function runCli(positionals, flags, io) {
         const { app } = await bootServices(flags, io, { server: true });
         let port;
         let publicPort;
+        let sheetsPort;
         try {
-          ({ port, publicPort } = await app.listen());
+          ({ port, publicPort, sheetsPort } = await app.listen());
         } catch (err) {
           await app.close().catch(() => {});
           if (err?.code === "EADDRINUSE") {
@@ -405,7 +424,7 @@ export async function runCli(positionals, flags, io) {
           io.err("  ************************************************************");
           io.err("");
         }
-        io.err(`Mr. Chartist API Bridge listening on http://${app.config.server.host}:${port}${publicPort ? ` (public ingress on ${publicPort})` : ""}`);
+        io.err(`Mr. Chartist API Bridge listening on http://${app.config.server.host}:${port}${publicPort ? ` (public ingress on ${publicPort})` : ""}${sheetsPort ? ` (Sheets listener on ${sheetsPort})` : ""}`);
         io.err(`Data folder: ${app.config.dataDir}`);
         for (const line of await startHints({ app, port, env: io.env })) io.err(line);
         if (flags.open) await openSignedInDashboard({ dataDir: app.config.dataDir, baseUrl: localBaseUrl(app.config.server.host, port), io });
@@ -446,8 +465,18 @@ export async function runCli(positionals, flags, io) {
         if (existsSync(loaded.config.dataDir)) ({ app: { deps }, config, warnings, source } = await bootServices(flags, io));
         const checks = await runDoctor({ config, warnings, source, env: io.env, portCheck: !flags["no-port-check"], deps });
         if (flags.json) io.out(JSON.stringify(checks, null, 2));
-        else for (const c of checks) io.out(`${c.level === "ok" ? "OK  " : c.level === "warn" ? "WARN" : "FAIL"}  ${c.check.padEnd(14)} ${c.message}`);
-        return checks.some((c) => c.level === "fail") ? 1 : 0;
+        else {
+          for (const c of checks) {
+            io.out(`${(c.level === "ok" ? "OK" : c.blocking ? "BLOCK" : c.level === "warn" ? "WARN" : "FAIL").padEnd(5)} ${c.check.padEnd(20)} ${c.message}`);
+            if (c.fix) io.out(`      Fix: ${c.fix}`);
+          }
+        }
+        // --strict: a blocking exposure problem also fails the run (a monitor or scheduler can act on the exit code).
+        return checks.some((c) => c.level === "fail" || (flags.strict === true && c.blocking)) ? 1 : 0;
+      }
+      case "expose": {
+        const { runExposeCommand } = await import("./exposeCli.mjs");
+        return await runExposeCommand(sub, arg, flags, { ...io, prompt: io.prompt ?? ((q, o) => terminalPrompt(q, o)) });
       }
       case "keys": {
         const { app, source } = await bootServices(flags, io);

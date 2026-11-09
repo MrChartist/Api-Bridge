@@ -5,6 +5,7 @@ import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveC
 import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
+import { exposeCard } from "./expose-card.js";
 import "./sources-ui.js";
 import { onReconnected } from "./connection.js";
 import { createGetStarted } from "./getstarted.js";
@@ -2947,10 +2948,12 @@ async function renderIntegrations() {
           h("div", { class: "ai-meta" }, h("div", { class: "ai-addr" }, h("span", { class: "ai-addr-label" }, "Your Bridge address"), h("code", {}, location.origin), copyButton(location.origin, { ariaLabel: "Copy your Bridge address", toastLabel: "Address copied", cls: "small copy" })), keyBtn ?? null),
           createdKeys[active] ? alertBox({ title: "Your new key is filled into the code below.", detail: "It is shown only on this page, and only until you leave it. Copy it now." }, "info") : null,
           active === "webhooks" ? h("div", { class: "ai-hooks" }) : null,
+          active === "webhooks" || active === "excel" ? h("div", { class: "ai-expose" }) : null,
           s.length ? h("div", { class: "stack" }, active === "webhooks" ? h("h3", { class: "ai-sub" }, "How to send an alert") : null, s.map(snippetBlock)) : null,
         ),
       ];
       panel.replaceChildren(...parts);
+      if (active === "webhooks" || active === "excel") exposeCard(panel.querySelector(".ai-expose"), active === "excel" ? "sheets" : "alerts");
       if (active === "webhooks") await webhookPanel(paperAcc, panel.querySelector(".ai-hooks"));
     }
     drawTool();

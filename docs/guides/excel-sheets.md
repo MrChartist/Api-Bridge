@@ -49,12 +49,15 @@ http://127.0.0.1:4300/xl/history?symbol=NSE:NIFTY&interval=5m&countback=500
 > verification per broker**); the risk is yours. Excel on this computer needs no tunnel. See
 > [compliance.md](compliance.md#tunnels-and-public-endpoints).
 
-Sheets formulas and Apps Script run on Google's servers and cannot reach `127.0.0.1`. You need your own tunnel, its
-host name in `server.allowedHosts`, and a read-only key with an expiry, limited to the accounts the sheet needs.
-Anyone with the tunnel URL and the key can read your data, so put the tunnel behind its own access control where you
-can, and do not share the sheet. Requests that arrive through a tunnel (a host from `server.allowedHosts`, or any
-`X-Forwarded-For` / `Forwarded` / `CF-Connecting-IP` header) are never treated as coming from this computer: the
-dashboard, key creation, hooks, account logins, order confirmations and kill-switch release all refuse them.
+Sheets formulas and Apps Script run on Google's servers and cannot reach `127.0.0.1`. Run `mc-bridge expose sheets`: it
+turns on a separate **Sheets listener** (`server.sheetsIngress`, port 4302) that serves only `GET /xl/*`, only for
+read-only keys, with its own host list and a request cap. Point your tunnel at that port and at nothing else (never at
+4300); the dashboard, `/v1` and every admin route do not exist on it. Make a read-only key with an expiry, limited to the
+accounts the sheet needs. Anyone with the address and the key can read your data, so do not share the sheet. The steps,
+the safe layout and the check are in [expose-alerts.md](expose-alerts.md#6-google-sheets). If you tunnel to the main port
+anyway, requests that arrive through a tunnel (a host from `server.allowedHosts`, or any `X-Forwarded-For` / `Forwarded` /
+`CF-Connecting-IP` header) are never treated as coming from this computer, but a read key then reaches far more than a
+sheet needs; `mc-bridge doctor` warns about it.
 
 [`bridge.gs`](../../integrations/google-sheets/bridge.gs) adds `=BRIDGE_LTP("NSE:NIFTY")`,
 `=BRIDGE_QUOTE("NSE:RELIANCE","changePct")`, `=BRIDGE_CHAIN("NIFTY","2026-10-27",10)` and
