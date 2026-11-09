@@ -46,6 +46,7 @@ import {
   shareSentence,
   sharePercent,
   sortJobs,
+  staleAtmNotice,
   symbolLabel,
   tagCounts,
   tradingDays,
@@ -244,7 +245,28 @@ describe("option universes", () => {
     expect(none.atm.text).toMatch(/not available right now.*Nothing was guessed/);
     expect(resolveModel({ symbols: ["a"], atm: { strike: 1, stale: true, class: "realtime" } }).atm.trusted).toBe(false);
     expect(resolveModel(null).ok).toBe(false);
+    const withSource = resolveModel({ symbols: ["a"], atm: { strike: 25000, underlyingPrice: 24987.5, class: "realtime" }, atmSource: "your broker stream" });
+    expect(withSource.atm.text).toBe("The middle strike is 25000, from a live price of 24987.50. Price source: your broker stream.");
+    expect(resolveModel({ symbols: ["a"], atmSource: { name: "broker quote" } }).atm.text).toBe("The middle strike was worked out from broker quote.");
     expect(resolveModel({ symbols: ["a"], warnings: ["Expiry rolled"] }).notes).toEqual(["Expiry rolled"]);
+  });
+});
+
+describe("a refused resolve", () => {
+  it("says why a delayed, end-of-day or stale price was not used", () => {
+    expect(staleAtmNotice({ status: 422 }).title).toBe("The price is not real-time");
+    expect(staleAtmNotice({ status: 422 }).text).toMatch(/Nothing was guessed/);
+    expect(staleAtmNotice({ status: 503 }).title).toBe("The price is out of date");
+    expect(staleAtmNotice({ status: 500 })).toBeNull();
+    expect(staleAtmNotice(null)).toBeNull();
+  });
+  it("asks for the labelled answer only when told to", async () => {
+    const calls = [];
+    const c = createDataClient(async (m, p) => (calls.push(`${m} ${p}`), { data: null }));
+    await c.collections.resolve("a b");
+    await c.collections.resolve("a", { allowStale: true });
+    await c.collections.duplicate("a", { name: "b" });
+    expect(calls).toEqual(["GET /v1/collections/a%20b/resolve", "GET /v1/collections/a/resolve?allowStale=1", "POST /v1/collections/a/duplicate"]);
   });
 });
 
@@ -439,6 +461,8 @@ describe("recordings and auto-record", () => {
     expect(recordingProblem({ kind: "quotes", everySec: 5 })).toMatch(/Pick a collection or paste/);
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", keepDays: 0 })).toMatch(/Keep days/);
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", keepDays: "" })).toBe("");
+    expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "", end: "15:00" })).toMatch(/start and end/);
+    expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "09:20", end: "15:00" })).toBe("");
   });
 });
 

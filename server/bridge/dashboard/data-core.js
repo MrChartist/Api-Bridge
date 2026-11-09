@@ -392,6 +392,10 @@ export function resolveModel(res, { sample = 8 } = {}) {
       atm = { tone: "warn", text: `The middle strike (${strike ?? DASH}) was worked out from a ${cls.label.toLowerCase()} price${spot ? ` of ${spot}` : ""}, so it may be off. Use real-time data for recording.`, trusted: false };
     } else atm = { tone: "ok", text: `The middle strike is ${strike ?? DASH}${spot ? `, from a live price of ${spot}` : ""}.`, trusted: true };
   }
+  // Where the middle strike's price came from, when the Bridge says (never hidden).
+  const src = res.atmSource && typeof res.atmSource === "object" ? (res.atmSource.name ?? res.atmSource.source ?? "") : String(res.atmSource ?? "");
+  if (src && atm) atm = { ...atm, text: `${atm.text} Price source: ${src}.` };
+  else if (src) atm = { tone: "ok", text: `The middle strike was worked out from ${src}.`, trusted: true };
   return {
     ok: true,
     count: Number.isFinite(Number(res.count)) ? Number(res.count) : symbols.length,
@@ -695,12 +699,12 @@ export function recordingView(rec, nowMs = Date.now()) {
   };
 }
 
-/** One sentence for a schedule: "during market hours" or "Mon to Fri, 09:15 to 15:30". */
+/** One sentence for a schedule: "during market hours" or "Mon to Fri, with your own hours". */
 export function scheduleText(s) {
   if (!s || s === "market-hours") return "during market hours";
   if (typeof s === "object") {
     const days = Array.isArray(s.days) && s.days.length ? s.days.join(", ") : "trading days";
-    return `${days}, ${s.start ?? "09:15"} to ${s.end ?? "15:30"} IST`;
+    return `${days}, ${s.start ?? "market open"} to ${s.end ?? "market close"} IST`;
   }
   return String(s);
 }
@@ -798,6 +802,7 @@ export function recordingProblem(f) {
   if (f.kind === "chain") {
     if (!f.collection && !String(f.underlying ?? "").trim()) return "Pick a collection or type the index to record, for example NIFTY.";
   } else if (!f.collection && !(f.symbols ?? []).length) return "Pick a collection or paste the symbols to record.";
+  if (f.custom && (!f.start || !f.end)) return "Pick the start and end time, or choose market hours.";
   if (f.keepDays !== undefined && f.keepDays !== null && f.keepDays !== "" && !(Number(f.keepDays) >= 1)) return "Keep days must be 1 or more, or empty to keep everything.";
   return "";
 }
@@ -918,7 +923,8 @@ export function createDataClient(call) {
       create: (body) => out("POST", "/v1/collections", body),
       patch: (name, body) => out("PATCH", `/v1/collections/${e(name)}`, body),
       remove: (name) => out("DELETE", `/v1/collections/${e(name)}`),
-      resolve: (name) => out("GET", `/v1/collections/${e(name)}/resolve`),
+      resolve: (name, o = {}) => out("GET", `/v1/collections/${e(name)}/resolve${o.allowStale ? "?allowStale=1" : ""}`),
+      duplicate: (name, body) => out("POST", `/v1/collections/${e(name)}/duplicate`, body),
       /** Resolve an option universe that is not saved yet (a dry run). */
       resolveDraft: (universe) => out("POST", "/v1/collections/resolve", { kind: "option-universe", universe }),
     },
@@ -934,4 +940,14 @@ export function noLogin(accounts, demo = false) {
   if (!Array.isArray(accounts)) return false;
   if (!accounts.length) return true;
   return !accounts.some((a) => a?.broker === "paper" || a?.broker === "demo" || a?.session?.state === "connected");
+}
+
+/**
+ * Why a resolve was refused, in plain words: a delayed or end-of-day price (422) or a stale one (503) is never used for the
+ * middle strike unless the person asks to see it anyway (then the answer is labelled). null for any other failure.
+ */
+export function staleAtmNotice(err) {
+  if (err?.status === 422) return { title: "The price is not real-time", text: "The middle strike needs a real-time price, and the only price available is delayed or end of day. Nothing was guessed. You can still see the symbols it would pick from that price, clearly labelled, but do not use them for recording." };
+  if (err?.status === 503) return { title: "The price is out of date", text: "The latest price is too old to trust for the middle strike, so no symbols were worked out. Log in to your broker or wait for prices to resume. You can still see a labelled guess." };
+  return null;
 }

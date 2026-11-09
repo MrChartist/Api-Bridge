@@ -59,6 +59,7 @@ import {
   sharePercent,
   shareSentence,
   slug,
+  staleAtmNotice,
   sortJobs,
   symbolLabel,
   tagCounts,
@@ -903,8 +904,8 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
     symbols: Array.isArray(rule?.symbols) ? rule.symbols.join("\n") : "",
     everySec: rule?.everySec ?? (rule?.kind === "quotes" ? 5 : 30),
     custom: typeof rule?.schedule === "object" && rule?.schedule !== null,
-    start: rule?.schedule?.start ?? "09:15",
-    end: rule?.schedule?.end ?? "15:30",
+    start: rule?.schedule?.start ?? "",
+    end: rule?.schedule?.end ?? "",
     days: rule?.schedule?.days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"],
     keepDays: rule?.keepDays ?? "",
     format: rule?.format ?? "csv",
@@ -975,8 +976,8 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
       const drawHours = () => {
         hoursBox.hidden = !f.custom;
         if (!f.custom) return hoursBox.replaceChildren();
-        const st = input({ id: "rc-start", type: "time", value: f.start });
-        const en = input({ id: "rc-end", type: "time", value: f.end });
+        const st = input({ id: "rc-start", type: "time", value: f.start, required: true });
+        const en = input({ id: "rc-end", type: "time", value: f.end, required: true });
         st.addEventListener("input", () => (f.start = st.value));
         en.addEventListener("input", () => (f.end = en.value));
         const days = h("div", { class: "chips", role: "group", "aria-label": "Days" }, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => h("button", { type: "button", class: "chip-btn", "aria-pressed": String(f.days.includes(d)), onclick: (e) => {
@@ -1006,7 +1007,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
       drawHours();
       paintSize();
       const save = btn(mode === "rule" ? (rule ? "Save rule" : "Add rule and turn it on") : "Start recording", "primary", async () => {
-        const p = recordingProblem({ kind: f.kind, everySec: f.everySec, collection: f.source === "collection" ? f.collection : null, underlying: f.source === "index" ? f.underlying : null, symbols: f.source === "symbols" ? parseSymbolList(f.symbols).symbols : [], keepDays: f.keepDays });
+        const p = recordingProblem({ kind: f.kind, everySec: f.everySec, collection: f.source === "collection" ? f.collection : null, underlying: f.source === "index" ? f.underlying : null, symbols: f.source === "symbols" ? parseSymbolList(f.symbols).symbols : [], keepDays: f.keepDays, custom: mode === "rule" && f.custom, start: f.start, end: f.end });
         if (p) return err.replaceChildren(h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, p))));
         busy(save, true);
         try {
@@ -1332,6 +1333,37 @@ export async function renderDatasets() {
 
 // ── Collections tab ──
 
+/**
+ * Work out a saved option universe right now and show it in `box`: how many symbols, a few examples, the rule used, where the
+ * middle strike's price came from and any warning. A delayed, end-of-day or stale price is refused by the Bridge (422 or 503);
+ * the box says so and offers to show the labelled guess, never a quiet one.
+ */
+async function showResolve(box, name, { sample = 12, allowStale = false, onData = () => {}, keep = null, extra = null } = {}) {
+  const r = await optional(client.collections.resolve(name, { allowStale }));
+  if (r.error) {
+    const n = staleAtmNotice(r.error);
+    if (n && !allowStale) {
+      put(box, keep, h("div", { class: "alert warn dt-atm", role: "status" }, icon("warn"), h("div", {}, h("strong", {}, n.title), h("span", { class: "detail" }, n.text), h("div", { class: "alert-actions" }, btn("Show it anyway, labelled", "small tinted", () => showResolve(box, name, { sample, allowStale: true, onData, keep }))))));
+      return;
+    }
+    put(box, keep, hint(isUnavailable(r.error) ? "This Bridge cannot work out the symbols yet." : `Could not work out the symbols: ${friendlyError(r.error).title}.`));
+    return;
+  }
+  const m = resolveModel(r.data, { sample });
+  onData(r.data);
+  put(
+    box,
+    keep,
+    h("p", { class: "dt-preview-count" }, h("strong", {}, plural(m.count, "symbol")), m.resolvedAt ? h("span", { class: "hint" }, ` worked out ${agoText(m.resolvedAt)}`) : null),
+    allowStale ? h("div", { class: "alert warn dt-atm", role: "status" }, icon("warn"), h("div", {}, h("span", {}, "Labelled guess: this uses a price that is not real-time. Do not record or trade from it."))) : null,
+    m.atm ? h("div", { class: `alert ${m.atm.tone === "ok" && !allowStale ? "ok" : "warn"} dt-atm`, role: "status" }, icon(m.atm.tone === "ok" && !allowStale ? "check" : "warn"), h("div", {}, h("span", {}, m.atm.text))) : null,
+    ...m.notes.map((n) => h("p", { class: "hint" }, n)),
+    m.sample.length ? h("div", { class: "chips dt-sample" }, m.sample.map((s) => chip(symbolLabel(s))), m.more ? chip(`+${formatInt(m.more)} more`) : null) : null,
+    m.rule ? h("p", { class: "hint" }, `Rule used: ${m.rule}`) : null,
+    extra ? h("p", { class: "hint" }, extra) : null,
+  );
+}
+
 /** The collection builder: a fixed list, or an option universe with a live preview of the symbols it works out. */
 function openCollectionSheet({ collection = null, kind = "static", names = [], onSaved }) {
   const edit = Boolean(collection);
@@ -1384,11 +1416,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
         if (mine !== seq) return;
         const keep = preview.querySelector(".dt-preview-sentence")?.cloneNode(true);
         if (r.error) {
-          if (isUnavailable(r.error) && edit) {
-            const r2 = await optional(client.collections.resolve(collection.name));
-            if (mine !== seq) return;
-            if (!r2.error) return drawResolved(r2.data, keep, "This is the saved version. Save to see your changes.");
-          }
+          if (isUnavailable(r.error) && edit) return showResolve(preview, collection.name, { sample: 8, keep, extra: "This is the saved version. Save to see your changes." });
           const size = universeSize(f.u);
           put(preview, keep ?? "", h("p", { class: "hint" }, isUnavailable(r.error) ? `${size.count === null ? "" : `${size.approx ? "About " : ""}${plural(size.count, "symbol")}. `}The live list shows after you save.` : `The preview did not work: ${friendlyError(r.error).title}.`));
           return;
@@ -1548,18 +1576,7 @@ export async function renderCollections() {
     const symbolsBox = h("div", { class: "dt-preview" }, hint(c.kind === "option-universe" ? "Working out the symbols for right now…" : ""));
     if (c.kind === "option-universe") {
       body.append(h("p", { class: "dt-preview-sentence" }, universeSentence(c.universe)));
-      optional(client.collections.resolve(c.name)).then((r) => {
-        if (r.error) return put(symbolsBox, hint(isUnavailable(r.error) ? "This Bridge cannot work out the symbols yet." : `Could not work out the symbols: ${friendlyError(r.error).title}.`));
-        const m = resolveModel(r.data, { sample: 12 });
-        put(symbolsBox, 
-          h("p", { class: "dt-preview-count" }, h("strong", {}, plural(m.count, "symbol")), m.resolvedAt ? h("span", { class: "hint" }, ` worked out ${agoText(m.resolvedAt)}`) : null),
-          m.atm ? h("div", { class: `alert ${m.atm.tone === "ok" ? "ok" : "warn"} dt-atm`, role: "status" }, icon(m.atm.tone === "ok" ? "check" : "warn"), h("div", {}, h("span", {}, m.atm.text))) : null,
-          ...m.notes.map((n) => h("p", { class: "hint" }, n)),
-          h("div", { class: "chips dt-sample" }, m.sample.map((s) => chip(symbolLabel(s))), m.more ? chip(`+${formatInt(m.more)} more`) : null),
-          m.rule ? h("p", { class: "hint" }, `Rule used: ${m.rule}`) : null,
-        );
-        c._resolved = r.data;
-      });
+      showResolve(symbolsBox, c.name, { sample: 12, onData: (d) => ((c._resolved = d), paintEst()) });
     } else {
       const sy = c.symbols ?? [];
       put(symbolsBox, h("p", { class: "dt-preview-count" }, h("strong", {}, plural(sy.length, "symbol"))), h("div", { class: "chips dt-sample" }, sy.slice(0, 24).map((s) => chip(symbolLabel(s))), sy.length > 24 ? chip(`+${formatInt(sy.length - 24)} more`) : null));
@@ -1590,7 +1607,12 @@ export async function renderCollections() {
         const r = await run(e.currentTarget, async () => {
           const { name: _n, ...rest } = c;
           delete rest._resolved;
-          await client.collections.create({ ...rest, name: n });
+          try {
+            await client.collections.duplicate(c.name, { name: n });
+          } catch (err) {
+            if (!isUnavailable(err)) throw err;
+            await client.collections.create({ ...rest, name: n });
+          }
           await refresh(n);
         }, { ok: `Made ${n}.` });
         if (r) close();
