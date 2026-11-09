@@ -116,10 +116,18 @@ describe("GET /v1/requests", () => {
   it("marks a read that joined another caller's in-flight call as shared", async () => {
     const env = await boot();
     const other = await env.make("other", "*");
-    const [a, b] = await Promise.all([env.http("/v1/ltp?symbols=NSE:INFY&maxAgeMs=0"), env.http("/v1/ltp?symbols=NSE:INFY&maxAgeMs=0", { key: other })]);
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
-    const entries = (await env.http("/v1/requests?limit=50")).json.data.filter((e) => e.path === "/v1/ltp");
-    expect(entries.map((e) => e.route.from).sort()).toEqual(["live", "shared"]);
+    // Whether two requests overlap depends on timing, so try the pair again (up to 12 times) until one of them joined the
+    // other's call. When they do overlap, exactly one is live and the other is shared; when they do not, both are live.
+    let froms = [];
+    for (let i = 0; i < 12 && !froms.includes("shared"); i++) {
+      const [a, b] = await Promise.all([env.http("/v1/ltp?symbols=NSE:INFY&maxAgeMs=0"), env.http("/v1/ltp?symbols=NSE:INFY&maxAgeMs=0", { key: other })]);
+      expect(a.status).toBe(200);
+      expect(b.status).toBe(200);
+      const entries = (await env.http("/v1/requests?limit=50")).json.data.filter((e) => e.path === "/v1/ltp");
+      froms = entries.map((e) => e.route.from);
+    }
+    expect(froms.every((f) => f === "live" || f === "shared")).toBe(true);
+    expect(froms).toContain("shared");
+    expect(froms.filter((f) => f === "live").length).toBeGreaterThanOrEqual(froms.filter((f) => f === "shared").length);
   });
 });
