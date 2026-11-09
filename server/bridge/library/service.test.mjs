@@ -16,6 +16,18 @@ describe("contract", () => {
   });
 });
 
+describe("library.enabled false", () => {
+  it("every use answers a plain 'switched off' error", async () => {
+    const { lib } = makeLibrary({ library: { enabled: false } });
+    expect(() => lib.list()).toThrow(/switched off/);
+    expect(() => lib.create({ name: "a", symbols: [] })).toThrow(/switched off/);
+    expect(() => lib.get("a")).toThrow(expect.objectContaining({ code: "CAPABILITY_UNSUPPORTED" }));
+    await expect(lib.resolve("a")).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
+    expect(() => lib.importData({ data: [], name: "x" })).toThrow(/switched off/);
+    expect(lib.status().enabled).toBe(false);
+  });
+});
+
 describe("create, get, list", () => {
   it("creates a static collection with canonical, de-duplicated symbols and sorted lower-case tags", () => {
     const { lib } = makeLibrary();

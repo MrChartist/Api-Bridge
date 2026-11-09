@@ -113,7 +113,7 @@ describe("an option universe", () => {
     expect(rows(r).map((x) => x[0])).toEqual(["symbol", "NSE:NIFTY", "NFO:NIFTY-2026-10-27-25000-CE"]);
     expect(resolveCalls[0][0]).toBe("u");
     expect(resolveCalls[0][1]).toMatchObject({ priority: "interactive", allowedAccounts: ["dhan-main"] });
-    expect(resolveCalls[0][1].allowStale).toBeUndefined(); // never a stale price for a sheet
+    expect(resolveCalls[0][1].allowStale).toBe(false); // never a stale price for a sheet, whatever library.allowStaleAtm says
     expect(r.headers["x-collection-atm-source"]).toBe("live");
     expect(r.headers["x-collection-resolved-at"]).toBe("2026-10-16T09:30:00.000Z");
     expect(r.headers["x-collection-rule"]).toMatch(/current-weekly/);

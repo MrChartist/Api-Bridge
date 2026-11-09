@@ -1,0 +1,37 @@
+meta {
+  name: Size of downloading a collection (symbols x intervals x days)
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/v1/collections/:name/estimate?intervals=<intervals>&days=1
+  body: none
+  auth: bearer
+}
+
+params:query {
+  intervals: <intervals>
+  days: 1
+  ~allowStale: true
+}
+
+params:path {
+  name: <name>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Size of downloading a collection (symbols x intervals x days)
+
+  - An API key with the `read` scope (any key).
+
+  Rows, bytes and broker calls before you start. An option universe is resolved first (a stale price is accepted for a
+  count and is labelled in `atmSource`). An estimate: a recently listed contract has fewer days than asked, and a broker
+  may keep less intraday history than you ask for.
+
+  Reference: docs/api/collections/estimateCollection.md in the repository.
+}

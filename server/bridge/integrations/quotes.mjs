@@ -109,7 +109,7 @@ export async function collectionSymbols(deps, query, opts, max) {
   if (name === undefined) return null;
   if (opt(query, "symbols") !== undefined || opt(query, "symbol") !== undefined) throw invalid("collection", "Give symbols or collection, not both.");
   if (name.length > 64) throw invalid("collection", "collection is a name from GET /v1/collections.");
-  const r = await deps.library.resolve(name, { signal: opts.signal, allowedAccounts: opts.allowedAccounts, accountId: opts.accountId, priority: "interactive" });
+  const r = await deps.library.resolve(name, { signal: opts.signal, allowedAccounts: opts.allowedAccounts, accountId: opts.accountId, priority: "interactive", allowStale: false });
   if (r.count > max) throw invalid("collection", `"${r.name}" resolves to ${r.count} symbols and a sheet request takes at most ${max} (integrations.xl.maxSymbols). Use a smaller collection, or fewer strikes.`);
   if (!r.count) throw invalid("collection", `"${r.name}" resolves to no symbols right now.`);
   const headers = { "X-Collection-Resolved-At": r.resolvedAt, "X-Collection-Atm-Source": r.atmSource, "X-Collection-Rule": String(r.rule).replace(/[^\x20-\x7e]/g, "?").slice(0, 400) };

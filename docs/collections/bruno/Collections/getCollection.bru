@@ -1,0 +1,27 @@
+meta {
+  name: One collection with its symbols or universe
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/collections/:name
+  body: none
+  auth: bearer
+}
+
+params:path {
+  name: <name>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  One collection with its symbols or universe
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/collections/getCollection.md in the repository.
+}

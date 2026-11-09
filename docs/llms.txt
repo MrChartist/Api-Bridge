@@ -20,9 +20,9 @@ Facts that help when writing code against it:
 
 ## API reference
 
-- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 150 operations with schemas, scopes and error codes
+- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 161 operations with schemas, scopes and error codes
 - [AsyncAPI description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/asyncapi.yaml): WebSocket and SSE message formats
-- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (150), grouped by area, each with curl and Python examples
+- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (161), grouped by area, each with curl and Python examples
 - [Error codes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/errors.md): every stable error code with its HTTP status and whether a retry is safe
 - [Postman and Bruno collections](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/collections/README.md): import every request, with paper-mode examples and no real keys
 
@@ -46,6 +46,7 @@ Facts that help when writing code against it:
 - [AmiBroker](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/amibroker.md): AmiBroker AFL and ASCII import
 - [Python](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/python.md): Python SDK
 - [TypeScript and Node](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/typescript.md): Node and TypeScript SDK
+- [Collections: lists of instruments and option universes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/collections.md): Named, tagged lists of instruments and option universes (rolling expiry, ATM strike) for downloads, recordings, sheets and Python; import, export, size estimate
 - [Excel and Google Sheets](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/excel-sheets.md): Excel WEBSERVICE, Power Query, Google Sheets
 - [AI assistants over MCP (Claude Desktop, Claude Code, Cursor)](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/mcp.md): Claude Desktop, Claude Code, Cursor (MCP)
 - [ChatGPT and OpenAI](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/chatgpt-openai.md): ChatGPT and OpenAI function calling

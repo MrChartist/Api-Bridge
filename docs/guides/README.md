@@ -22,6 +22,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |
+| [collections.md](collections.md) | Named, tagged lists of instruments and option universes (rolling expiry, ATM strike) for downloads, recordings, sheets and Python; import, export, size estimate |
 | [excel-sheets.md](excel-sheets.md) | Excel `WEBSERVICE`, Power Query, Google Sheets |
 | [mcp.md](mcp.md) | Claude Desktop, Claude Code, Cursor (MCP) |
 | [chatgpt-openai.md](chatgpt-openai.md) | ChatGPT and OpenAI function calling |

@@ -1,0 +1,33 @@
+meta {
+  name: Change a collection, or rename it (send `name`)
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/v1/collections/:name
+  body: json
+  auth: bearer
+}
+
+params:path {
+  name: <name>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Change a collection, or rename it (send `name`)
+
+  - An API key with the `paper` scope (or `live`).
+
+  A rename keeps the collection's id and its old name keeps working. The kind cannot change.
+
+  Reference: docs/api/collections/updateCollection.md in the repository.
+}

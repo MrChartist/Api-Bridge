@@ -19,6 +19,7 @@
  *   mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display]
  *   mc-bridge sources plugins check <folder> | pin <folder>   (data sources and plugins; see docs/guides/sources.md)
  *   mc-bridge notify telegram setup | remove <id>, notify status | test   (Telegram alerts; the token is asked for, never an argument)
+ *   mc-bridge collections list | show | create | universe | resolve | tag | rename | duplicate | delete | export | import | usage | estimate
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
  * (principal { kind: "local", id: "cli" }). Keys are printed once and never again.
@@ -69,6 +70,27 @@ const { positionals, values } = parseArgs({
     "include-secrets": { type: "boolean" },
     "dry-run": { type: "boolean" },
     "skip-config": { type: "boolean" },
+    // mc-bridge collections
+    tag: { type: "string" },
+    tags: { type: "string" },
+    description: { type: "string" },
+    kind: { type: "string" },
+    name: { type: "string" },
+    file: { type: "string" },
+    underlying: { type: "string" },
+    expiries: { type: "string" },
+    strikes: { type: "string" },
+    from: { type: "string" },
+    to: { type: "string" },
+    sides: { type: "string" },
+    interval: { type: "string" },
+    days: { type: "string" },
+    spot: { type: "string" },
+    future: { type: "boolean" },
+    "no-underlying": { type: "boolean" },
+    replace: { type: "boolean" },
+    "skip-invalid": { type: "boolean" },
+    "allow-stale": { type: "boolean" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

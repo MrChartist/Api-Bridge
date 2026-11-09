@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Library of collections ([docs/guides/collections.md](docs/guides/collections.md)): named, tagged lists of instruments and option
+  universes (`current-weekly`, `current-monthly`, `all-weekly`, dates; ATM +/- N listed strikes, honest about a stale, delayed or
+  last-close price). `GET/POST /v1/collections`, `.../{name}` (rename, tags), `/resolve`, `/estimate`, `/usage`, `/export`,
+  `/duplicate`, `POST /v1/collections/import`; `deps.library` for downloads and recordings; `mc-bridge collections`; bus topic
+  `collection.changed`; `/xl/quotes?collection=<name>` for Excel and Sheets; config `library`.
 - Developer files generated from `docs/openapi.yaml`: Postman and Bruno collections (`docs/collections/`), one Markdown page
   per endpoint and the error codes (`docs/api/`), `docs/llms.txt`, `docs/llms-full.txt` and a search index. The curl
   examples in them and in the quickstart run in the tests; `npm run docs:generate` rewrites everything and `npm run

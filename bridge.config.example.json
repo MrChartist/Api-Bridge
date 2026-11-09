@@ -59,5 +59,6 @@
   "hooks": { "queueSize": 200, "concurrency": 2, "dedupeWindowMs": 120000, "signatureToleranceS": 300, "maxSignalsPerMinute": 30, "allowSourceIps": [] },
   "mcp": { "enabled": true, "toolsets": ["market", "analytics", "account"], "orderAccounts": [], "maxItems": 200 },
   "compat": { "enabled": true, "analyzer": true },
+  "library": { "maxCollections": 200, "maxSymbols": 5000, "maxWeeklyExpiries": 5, "allowStaleAtm": false },
   "readiness": { "egressIp": { "mode": "off", "lookupUrl": null }, "gateAutomated": true }
 }

@@ -80,7 +80,12 @@ export function createLibraryService(deps, opts = {}) {
   };
   const changed = (action, rec, extra = {}) => emit({ action, id: rec.id, name: rec.name, kind: rec.kind, tags: [...rec.tags], ...extra });
 
+  function ensureOn() {
+    if (!cfg.enabled) throw new BridgeError("CAPABILITY_UNSUPPORTED", "The collection library is switched off (library.enabled is false in the config).");
+  }
+
   function find(key) {
+    ensureOn();
     const k = typeof key === "string" ? key.trim() : "";
     const hit = k ? store.find(k) : null;
     if (!hit) throw new BridgeError("NOT_FOUND", `There is no collection called "${String(key).slice(0, 64)}". List them with GET /v1/collections.`);
@@ -119,6 +124,7 @@ export function createLibraryService(deps, opts = {}) {
 
   const service = {
     list({ tag, kind, q } = {}) {
+      ensureOn();
       let rows = store.list();
       if (kind) rows = rows.filter((r) => r.kind === kind);
       if (q) {
@@ -135,6 +141,7 @@ export function createLibraryService(deps, opts = {}) {
     },
 
     create(body) {
+      ensureOn();
       const def = parseCreate(body, { maxSymbols: cfg.maxSymbols });
       ensureRoom();
       ensureFree(def.name);
@@ -244,6 +251,7 @@ export function createLibraryService(deps, opts = {}) {
      * @param {{ data: string | object, format?: "csv"|"json", name?: string, description?: string, tags?: string[], replace?: boolean, skipInvalid?: boolean }} p
      */
     importData({ data, format, name, description, tags, replace = false, skipInvalid = false }) {
+      ensureOn();
       let fmt = format;
       if (fmt === undefined) fmt = typeof data === "string" && !/^\s*[[{]/.test(data) ? "csv" : "json";
       const bodies = [];

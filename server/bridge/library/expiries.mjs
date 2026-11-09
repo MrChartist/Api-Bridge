@@ -80,7 +80,7 @@ const noWeeklies = (underlying, items) =>
  * @param {{ underlying: string, maxWeekly?: number, today: string, droppedToday?: string | null, close?: string }} o
  * @returns {{ picked: any[], warnings: string[], rule: string }}
  */
-export function selectExpiries(rule, items, { underlying, maxWeekly = 5, today, droppedToday = null, close = "15:30" }) {
+export function selectExpiries(rule, items, { underlying, maxWeekly = 5, today, droppedToday = null, close = "" }) {
   const warnings = [];
   if (!items.length) {
     throw new BridgeError("SYMBOL_NOT_FOUND", `${underlying} has no upcoming expiries in the instrument list${droppedToday ? ` (${droppedToday} has just expired)` : ""}.`);
@@ -123,7 +123,7 @@ export function selectExpiries(rule, items, { underlying, maxWeekly = 5, today, 
       throw new BridgeError("VALIDATION_FAILED", `Unknown expiry rule "${rule}".`);
     }
   }
-  if (droppedToday && !Array.isArray(rule)) warnings.push(`The ${droppedToday} expiry closed at ${close} IST today, so the rule rolled on to the next one.`);
+  if (droppedToday && !Array.isArray(rule)) warnings.push(`The ${droppedToday} expiry closed${close ? ` at ${close} IST` : ""} today, so the rule rolled on to the next one.`);
   for (const e of picked) {
     if (e.shifted) warnings.push(`${e.date} (${WEEKDAY[weekdayOf(e.date)]}) is not the usual expiry day: ${e.reason}. The exchange's listed date is used.`);
   }

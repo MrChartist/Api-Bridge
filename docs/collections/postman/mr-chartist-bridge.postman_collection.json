@@ -804,6 +804,466 @@
       "name": "Instruments"
     },
     {
+      "description": "Named, tagged lists of instruments and option universes (rolling expiries, at-the-money strikes) that downloads, recordings and sheets use instead of pasted symbols.",
+      "item": [
+        {
+          "name": "List collections (static lists and option universes)",
+          "request": {
+            "description": "List collections (static lists and option universes)\n\n- An API key with the `read` scope (any key).\n\nSummaries without symbol lists, ordered by name. `tag` may repeat or be comma separated; a collection must have every tag asked for.\n\nReference: docs/api/collections/listCollections.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections"
+              ],
+              "query": [
+                {
+                  "description": "Tags to match, all of them (comma separated, or repeat the parameter).",
+                  "disabled": true,
+                  "key": "tag",
+                  "value": "<tag>"
+                },
+                {
+                  "disabled": true,
+                  "key": "kind",
+                  "value": "static"
+                },
+                {
+                  "description": "Text found in the name, description or a tag.",
+                  "disabled": true,
+                  "key": "q",
+                  "value": "RELIANCE"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/collections"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create a collection",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"name\": \"<name>\"\n}"
+            },
+            "description": "Create a collection\n\n- An API key with the `paper` scope (or `live`).\n\nA static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used\n(`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.\nWriting needs the `paper` scope.\n\nReference: docs/api/collections/createCollection.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections"
+              ],
+              "raw": "{{baseUrl}}/v1/collections"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Make collections from CSV or JSON",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Make collections from CSV or JSON\n\n- An API key with the `paper` scope (or `live`).\n\nJSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file\nthat `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with\n`name` in the query (or as JSON `{ format: \"csv\", csv, name }`); the symbols are in a column named `symbol`, or the\nfirst column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`\nis true for a CSV.\n\nReference: docs/api/collections/importCollections.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                "import"
+              ],
+              "query": [
+                {
+                  "description": "Name of the new collection (required for CSV and for a plain list).",
+                  "disabled": true,
+                  "key": "name",
+                  "value": "<name>"
+                },
+                {
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                },
+                {
+                  "description": "Comma separated tags for a single collection.",
+                  "disabled": true,
+                  "key": "tags",
+                  "value": "<tags>"
+                },
+                {
+                  "disabled": true,
+                  "key": "description",
+                  "value": "<description>"
+                },
+                {
+                  "description": "Replace a collection of the same name instead of answering 409.",
+                  "disabled": true,
+                  "key": "replace",
+                  "value": "false"
+                },
+                {
+                  "description": "CSV only: skip lines that are not symbols and import the rest.",
+                  "disabled": true,
+                  "key": "skipInvalid",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/collections/import"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One collection with its symbols or universe",
+          "request": {
+            "description": "One collection with its symbols or universe\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/collections/getCollection.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name"
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change a collection, or rename it (send `name`)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Change a collection, or rename it (send `name`)\n\n- An API key with the `paper` scope (or `live`).\n\nA rename keeps the collection's id and its old name keeps working. The kind cannot change.\n\nReference: docs/api/collections/updateCollection.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name"
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete a collection",
+          "request": {
+            "description": "Delete a collection\n\n- An API key with the `paper` scope (or `live`).\n\nRefused with 409 while a download, recording or rule that is running uses it, unless `force=true`.\n\nReference: docs/api/collections/deleteCollection.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "force",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The concrete symbols of a collection right now",
+          "request": {
+            "description": "The concrete symbols of a collection right now\n\n- An API key with the `read` scope (any key).\n\nA static collection answers its list. An option universe is worked out now: the expiry rule rolls on by itself, and\nthe at-the-money strike comes from the live price of the underlying. The answer says which price it used\n(`atmSource`). A price that is delayed, end-of-day or stale is refused with an error (422 or 503) unless\n`allowStale=true`, and then it is labelled and warned about. With the market closed the price is the last close and\n`atmSource` is `last-close`.\n\nReference: docs/api/collections/resolveCollection.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name",
+                "resolve"
+              ],
+              "query": [
+                {
+                  "description": "Accept a stale, delayed or end-of-day price for the ATM (it is labelled).",
+                  "disabled": true,
+                  "key": "allowStale",
+                  "value": "false"
+                },
+                {
+                  "description": "Refuse any price that is not live (for a caller that records or downloads at once).",
+                  "disabled": true,
+                  "key": "requireLive",
+                  "value": "false"
+                },
+                {
+                  "description": "Work out the ATM from this price instead of reading one.",
+                  "disabled": true,
+                  "key": "spot",
+                  "value": "1"
+                },
+                {
+                  "disabled": true,
+                  "key": "priority",
+                  "value": "interactive"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name/resolve",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Copy a collection under a new name",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Copy a collection under a new name\n\n- An API key with the `paper` scope (or `live`).\n\nWithout a name the copy is called `<name>-copy` (then `-copy2` ...).\n\nReference: docs/api/collections/duplicateCollection.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name",
+                "duplicate"
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name/duplicate",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "A collection as a CSV or JSON file",
+          "request": {
+            "description": "A collection as a CSV or JSON file\n\n- An API key with the `read` scope (any key).\n\nJSON is the definition (a universe stays a universe) and imports back with `POST /v1/collections/import`. CSV is the\nsymbols; for an option universe it is the symbols as they resolve now (`X-Resolved-At`).\n\nReference: docs/api/collections/exportCollection.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name",
+                "export"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "format",
+                  "value": "json"
+                },
+                {
+                  "description": "JSON only: write a universe as the static list of this moment.",
+                  "disabled": true,
+                  "key": "resolved",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name/export",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "What is made from this collection",
+          "request": {
+            "description": "What is made from this collection\n\n- An API key with the `read` scope (any key).\n\nThe downloads, recordings, auto-record rules and datasets that use it. A kind marked `not-available` in `sources` is kept by a part of the Bridge that is off, so it is not counted.\n\nReference: docs/api/collections/getCollectionUsage.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name",
+                "usage"
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name/usage",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Size of downloading a collection (symbols x intervals x days)",
+          "request": {
+            "description": "Size of downloading a collection (symbols x intervals x days)\n\n- An API key with the `read` scope (any key).\n\nRows, bytes and broker calls before you start. An option universe is resolved first (a stale price is accepted for a\ncount and is labelled in `atmSource`). An estimate: a recently listed contract has fewer days than asked, and a broker\nmay keep less intraday history than you ask for.\n\nReference: docs/api/collections/estimateCollection.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                ":name",
+                "estimate"
+              ],
+              "query": [
+                {
+                  "description": "Comma separated, for example 5m,1d.",
+                  "key": "intervals",
+                  "value": "<intervals>"
+                },
+                {
+                  "description": "Calendar days back from today (1 to 3650).",
+                  "key": "days",
+                  "value": "1"
+                },
+                {
+                  "disabled": true,
+                  "key": "allowStale",
+                  "value": "true"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/collections/:name/estimate?intervals=<intervals>&days=1",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Collections"
+    },
+    {
       "description": "Quotes, LTP, depth, history, expiries and option chains, served streaming-first within broker limits.",
       "item": [
         {
@@ -3575,9 +4035,15 @@
               ],
               "query": [
                 {
-                  "description": "Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat.",
+                  "description": "Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat. Give `symbols` or `collection`.",
                   "key": "symbols",
                   "value": "NSE:RELIANCE,NSE:NIFTY"
+                },
+                {
+                  "description": "A collection name from `GET /v1/collections` instead of `symbols`. An option universe is worked out at the time of the request from a live price; a price that is not live is refused. The collection must resolve to at most `integrations.xl.maxSymbols` symbols. Response headers `X-Collection-Resolved-At`, `X-Collection-Atm-Source`, `X-Collection-Rule` and (when there are any) `X-Collection-Warnings` say when and how.",
+                  "disabled": true,
+                  "key": "collection",
+                  "value": "<collection>"
                 },
                 {
                   "description": "Value columns in the order wanted (default ltp,chg,pct,volume). Freshness columns are always added.",
