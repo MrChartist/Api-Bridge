@@ -460,6 +460,26 @@ export const SERVICE_CONTRACTS = Object.freeze({
     requires: ["secrets", "audit", "accounts", "safety", "marketData", "orders", "readiness", "backupData"],
     methods: ["status", "listTargets", "events", "publish", "testTarget"],
   },
+
+  /**
+   * RecorderService. Saves the Bridge's own real-time data going forward (quotes, option chains) to files on this
+   * computer, by hand or by rules every trading day. Real-time class only; delayed and end-of-day answers are refused.
+   * Reads from the live feed first, then the cache, then background-priority broker calls inside a share cap.
+   *  create(input, { who? }) -> Promise<RecordingView>       a manual recording (POST /v1/recordings)
+   *  list() -> RecordingView[]
+   *  get(id) -> RecordingView                                with files summary and recent gaps
+   *  pause(id) | resume(id) | stop(id) -> RecordingView
+   *  remove(id) -> void                                      deletes the files too
+   *  files(id) -> Array<{ name, date, symbol, format, compressed, bytes, rows, url }>
+   *  status() -> { line, today, recordings, disk, apiCalls, ... }   the plain status line ("Recording today: 3 rules, ...")
+   *  Extras: rules (listRules, createRule, patchRule, deleteRule), auto/setAuto, presets/applyPreset, openFile, callsToday,
+   *  attach({ library }), start, close.
+   */
+  recorder: {
+    iface: "RecorderService",
+    requires: ["accounts", "scheduler", "symbols", "streamHub", "marketData"],
+    methods: ["create", "list", "get", "pause", "resume", "stop", "remove", "files", "status"],
+  },
 });
 
 /** Core deps every factory receives in addition to its `requires`. */

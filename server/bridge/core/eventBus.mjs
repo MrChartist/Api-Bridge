@@ -38,6 +38,10 @@
  *  hook.rejected       { hookId?, label?, source?, reason, code?, symbol?, side? }   a webhook alert did not become an order (after the 202)
  *  hook.stale          { hookId?, label?, source?, reason?, symbol?, side? }          an alert was too old to trade on
  *  hook.failed         { hookId?, label?, source?, reason, code?, symbol?, side? }    an accepted alert's order could not be made
+ *  recording.started   { id, name, auto, ruleId?, kind, everySec, date }          a recording began (by hand), or an auto-record rule began its day
+ *  recording.stopped   { id, name, auto, ruleId?, reason, rows, bytes, gaps }     stopped by hand, session end of a rule, rule off, deleted
+ *  recording.gap       { id, name, state: "open"|"closed", gapId, from, to, reason, message }   no data was saved for a stretch (feed silent, login missing ...)
+ *  recording.disk_low  { id|null, name|null, scope: "recording"|"total"|"volume", level: "warning"|"stopped", stopped, usedMb?, limitMb?, freeMb?, message }
  */
 export const TOPICS = Object.freeze([
   "tick",
@@ -64,6 +68,10 @@ export const TOPICS = Object.freeze([
   "hook.rejected",
   "hook.stale",
   "hook.failed",
+  "recording.started",
+  "recording.stopped",
+  "recording.gap",
+  "recording.disk_low",
 ]);
 
 /**
