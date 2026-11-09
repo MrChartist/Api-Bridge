@@ -30,6 +30,7 @@ import threading
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence, TypeVar, Union
 
 from .bridge import Bridge
+from .events import verify_signature
 from .orders import BatchResult, TargetResult
 from .records import Account, Depth, Funds, History, Holding, Ltp, Order, Ping, Position, Preview, Quote, Result, Source, TicketOutcome
 from .stream import BridgeStream, StreamEvent, parse_event
@@ -102,6 +103,43 @@ class AsyncTickets(_Base):
         return await self._call(self._o.sync.tickets.wait, ticket, timeout, **kw)
 
 
+class AsyncNamespace(_Base):
+    """Any synchronous namespace (``downloads``, ``datasets``, ``recordings`` and its ``rules``, ``collections``,
+    ``subscriptions``) for asyncio: every method has the same name and arguments and is awaited (it runs in a worker
+    thread). ``await bridge.downloads.wait(job)`` holds one worker thread until the job ends."""
+
+    def __init__(self, owner: "AsyncBridge", ns: Any) -> None:
+        super().__init__(owner)
+        self._ns = ns
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        attr = getattr(self._ns, name)
+        if hasattr(attr, "_b") and not callable(attr):
+            return AsyncNamespace(self._o, attr)
+        if callable(attr):
+            async def call(*a: Any, **kw: Any) -> Any:
+                return await self._call(attr, *a, **kw)
+
+            call.__name__ = name
+            call.__doc__ = getattr(attr, "__doc__", None)
+            return call
+        return attr
+
+
+class AsyncEvents(_Base):
+    """``bridge.events`` for asyncio: ``async for ev in bridge.events.subscribe(...)``; the signature helpers are plain functions."""
+
+    def subscribe(self, topics: Union[str, Sequence[str], None] = None, since: Optional[str] = None, *, queue_size: int = 1000, **kw: Any) -> "AsyncStream":
+        return AsyncStream(self._o.sync.events.subscribe(topics, since, **kw), queue_size=queue_size)
+
+    async def wait_for(self, topic: str, predicate: Any = None, **kw: Any) -> Any:
+        return await self._call(self._o.sync.events.wait_for, topic, predicate, **kw)
+
+    verify_signature = staticmethod(verify_signature)
+
+
 class AsyncBridge:
     """``Bridge`` for asyncio. Takes the same arguments as ``Bridge`` plus ``max_concurrency``."""
 
@@ -111,6 +149,12 @@ class AsyncBridge:
         self._sem: Optional[asyncio.Semaphore] = None
         self.orders = AsyncOrders(self)
         self.tickets = AsyncTickets(self)
+        self.downloads = AsyncNamespace(self, self.sync.downloads)
+        self.datasets = AsyncNamespace(self, self.sync.datasets)
+        self.recordings = AsyncNamespace(self, self.sync.recordings)
+        self.collections = AsyncNamespace(self, self.sync.collections)
+        self.subscriptions = AsyncNamespace(self, self.sync.subscriptions)
+        self.events = AsyncEvents(self)
 
     @classmethod
     def demo(cls, *args: Any, **kw: Any) -> "AsyncBridge":
@@ -169,6 +213,10 @@ class AsyncBridge:
 
     async def history(self, symbol: str, interval: str, **kw: Any) -> History:
         return await self._call(self.sync.history, symbol, interval, **kw)
+
+    async def history_all(self, symbol: str, interval: str, from_: Any, to: Any = None, **kw: Any) -> History:
+        """All candles of a long range as one ``History`` (see ``Bridge.history_all``; fetched in a worker thread)."""
+        return await self._call(lambda: self.sync.history_all(symbol, interval, from_, to, **kw).to_history())
 
     async def expiries(self, underlying: str, **kw: Any) -> List[str]:
         return await self._call(self.sync.expiries, underlying, **kw)
