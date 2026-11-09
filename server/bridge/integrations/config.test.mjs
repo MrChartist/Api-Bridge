@@ -8,7 +8,7 @@ import integrations from "./module.mjs";
 describe("integrations config", () => {
   it("defaults everything from {}", () => {
     const c = parseIntegrationsConfig({});
-    expect(c.xl).toEqual({ chainFormat: "csv", historyLayout: "standard", defaultCountback: 500 });
+    expect(c.xl).toEqual({ chainFormat: "csv", historyLayout: "standard", defaultCountback: 500, maxSymbols: 100, cacheSeconds: 5 });
     expect(parseIntegrationsConfig(undefined)).toEqual(c);
   });
 

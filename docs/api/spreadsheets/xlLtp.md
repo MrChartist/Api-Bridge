@@ -12,7 +12,7 @@
 
 - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
 
-`=WEBSERVICE("http://127.0.0.1:4300/xl/ltp?symbol="&ENCODEURL(A1)&"&key=...")`. Read-only URL keys only; nothing under /xl can place an order.
+`=WEBSERVICE("http://127.0.0.1:4300/xl/ltp?symbol="&ENCODEURL(A1)&"&key=...")`. Read-only URL keys only; nothing under /xl can place an order. A value that is delayed or end-of-day is refused (422, `#N/A`) because a bare number cannot carry that label; use /xl/quotes for labelled prices.
 
 ## Parameters
 

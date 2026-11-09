@@ -1,0 +1,33 @@
+meta {
+  name: Positions of every account the key may use, as one table
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/xl/positions
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~account: demo-paper
+  ~open: false
+  ~mode: paper
+  ~format: csv
+  ~cache: false
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Positions of every account the key may use, as one table
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  Columns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer gives one row with its name and an `error` text; the others are unaffected. Read-only.
+
+  Reference: docs/api/spreadsheets/xlPositions.md in the repository.
+}

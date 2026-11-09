@@ -77,6 +77,7 @@ export function createFakeSymbols() {
 }
 
 const freshness = (source = "stream") => ({
+  class: "realtime",
   source,
   asOf: "2026-10-16T15:00:00+05:30",
   ageMs: 120,

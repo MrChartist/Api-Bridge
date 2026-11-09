@@ -57,7 +57,7 @@ describe("keys never live in shipped files", () => {
     expect(ex).not.toMatch(/key=|mcb_/);
   });
   it("Power Query and Apps Script send the key as a header", () => {
-    for (const f of ["integrations/excel/history.pq", "integrations/excel/chain.pq"]) {
+    for (const f of ["integrations/excel/history.pq", "integrations/excel/chain.pq", "integrations/excel/quotes.pq"]) {
       expect(read(f), f).toMatch(/Authorization = "Bearer " & Key/);
       expect(read(f), f).not.toMatch(/key\s*=/);
     }

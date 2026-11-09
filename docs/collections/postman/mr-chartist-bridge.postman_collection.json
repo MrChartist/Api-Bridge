@@ -3432,7 +3432,7 @@
         {
           "name": "One number as plain text, for Excel WEBSERVICE and AmiBroker",
           "request": {
-            "description": "One number as plain text, for Excel WEBSERVICE and AmiBroker\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\n`=WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\")`. Read-only URL keys only; nothing under /xl can place an order.\n\nReference: docs/api/spreadsheets/xlLtp.md in the repository.",
+            "description": "One number as plain text, for Excel WEBSERVICE and AmiBroker\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\n`=WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\")`. Read-only URL keys only; nothing under /xl can place an order. A value that is delayed or end-of-day is refused (422, `#N/A`) because a bare number cannot carry that label; use /xl/quotes for labelled prices.\n\nReference: docs/api/spreadsheets/xlLtp.md in the repository.",
             "header": [],
             "method": "GET",
             "url": {
@@ -3555,6 +3555,281 @@
                 }
               ],
               "raw": "{{baseUrl}}/xl/history?symbol=NSE:RELIANCE&interval=5m&layout=standard"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Prices for a whole sheet as one table (one request, one row per symbol)",
+          "request": {
+            "description": "Prices for a whole sheet as one table (one request, one row per symbol)\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\n`symbols` is a comma-separated list (at most `integrations.xl.maxSymbols`, default 100); one row per symbol in the order asked, duplicates included. A symbol that cannot be priced gets blank values and a text in `error`; it never fails the table. Every row carries `as_of` (IST), `age_s`, `class`, `source` and `stale`; in demo mode also `demo` = DEMO. Prices never come from a backup data source (`?backup=true` is refused).\n\nReference: docs/api/spreadsheets/xlQuotes.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "quotes"
+              ],
+              "query": [
+                {
+                  "description": "Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat.",
+                  "key": "symbols",
+                  "value": "NSE:RELIANCE,NSE:NIFTY"
+                },
+                {
+                  "description": "Value columns in the order wanted (default ltp,chg,pct,volume). Freshness columns are always added.",
+                  "disabled": true,
+                  "key": "fields",
+                  "value": "ltp,chg,pct,volume,as_of,class"
+                },
+                {
+                  "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                },
+                {
+                  "description": "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`.",
+                  "disabled": true,
+                  "key": "cache",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/quotes?symbols=NSE:RELIANCE,NSE:NIFTY"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Lot size, tick size and freeze quantity",
+          "request": {
+            "description": "Lot size, tick size and freeze quantity\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nOne symbol with one `field` and no `format` gives a bare value (text/plain, `#N/A` on error) for a single cell. Several symbols, several fields or an explicit `format` give a table (symbol, the fields, error).\n\nReference: docs/api/spreadsheets/xlInstrument.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "instrument"
+              ],
+              "query": [
+                {
+                  "description": "One symbol or a comma-separated list. `symbols` is accepted too.",
+                  "key": "symbol",
+                  "value": "NSE:RELIANCE"
+                },
+                {
+                  "description": "lot, tick, freeze, name or kind; comma-separated for a table. Default all five.",
+                  "disabled": true,
+                  "key": "field",
+                  "value": "ltp"
+                },
+                {
+                  "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                },
+                {
+                  "description": "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`.",
+                  "disabled": true,
+                  "key": "cache",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/instrument?symbol=NSE:RELIANCE"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Positions of every account the key may use, as one table",
+          "request": {
+            "description": "Positions of every account the key may use, as one table\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nColumns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer gives one row with its name and an `error` text; the others are unaffected. Read-only.\n\nReference: docs/api/spreadsheets/xlPositions.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "positions"
+              ],
+              "query": [
+                {
+                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "1 hides closed positions (quantity 0).",
+                  "disabled": true,
+                  "key": "open",
+                  "value": "false"
+                },
+                {
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "paper"
+                },
+                {
+                  "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                },
+                {
+                  "description": "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`.",
+                  "disabled": true,
+                  "key": "cache",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/positions"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Holdings as one table",
+          "request": {
+            "description": "Holdings as one table\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nColumns are fixed - account, mode, symbol, isin, qty, avg_price, ltp, pnl, as_of, age_s, class, source, stale, error.\n\nReference: docs/api/spreadsheets/xlHoldings.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "holdings"
+              ],
+              "query": [
+                {
+                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                },
+                {
+                  "description": "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`.",
+                  "disabled": true,
+                  "key": "cache",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/holdings"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Funds, one row per account",
+          "request": {
+            "description": "Funds, one row per account\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nColumns are fixed - account, mode, available_cash, used_margin, total_balance, collateral, withdrawable, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error.\n\nReference: docs/api/spreadsheets/xlFunds.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "funds"
+              ],
+              "query": [
+                {
+                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "paper"
+                },
+                {
+                  "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                },
+                {
+                  "description": "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`.",
+                  "disabled": true,
+                  "key": "cache",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/funds"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Orders as one table, newest first",
+          "request": {
+            "description": "Orders as one table, newest first\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nColumns are fixed - account, mode, order_id, client_order_id, symbol, side, product, order_type, qty, filled_qty, avg_price, price, trigger_price, status, status_message, placed_at, updated_at (IST), then as_of, age_s, class, source, stale, error. `X-Truncated: true` when more orders exist than `limit`. This route only reads; placing and changing orders stays on /v1/orders.\n\nReference: docs/api/spreadsheets/xlOrders.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "xl",
+                "orders"
+              ],
+              "query": [
+                {
+                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                },
+                {
+                  "disabled": true,
+                  "key": "status",
+                  "value": "pending"
+                },
+                {
+                  "disabled": true,
+                  "key": "mode",
+                  "value": "paper"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "200"
+                },
+                {
+                  "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
+                  "disabled": true,
+                  "key": "format",
+                  "value": "csv"
+                },
+                {
+                  "description": "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`.",
+                  "disabled": true,
+                  "key": "cache",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/xl/orders"
             }
           },
           "response": []

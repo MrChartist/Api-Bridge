@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-144 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+150 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -237,6 +237,12 @@ Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
 | [GET /xl/quote](spreadsheets/xlQuote.md) | One quote field as plain text | `read` |
 | [GET /xl/chain](spreadsheets/xlChain.md) | Flat option chain table (CSV or JSON records) for Power Query and Sheets | `read` |
 | [GET /xl/history](spreadsheets/xlHistory.md) | Candles as CSV (layout=amibroker matches the shipped AmiBroker import format) | `read` |
+| [GET /xl/quotes](spreadsheets/xlQuotes.md) | Prices for a whole sheet as one table (one request, one row per symbol) | `read` |
+| [GET /xl/instrument](spreadsheets/xlInstrument.md) | Lot size, tick size and freeze quantity | `read` |
+| [GET /xl/positions](spreadsheets/xlPositions.md) | Positions of every account the key may use, as one table | `read` |
+| [GET /xl/holdings](spreadsheets/xlHoldings.md) | Holdings as one table | `read` |
+| [GET /xl/funds](spreadsheets/xlFunds.md) | Funds, one row per account | `read` |
+| [GET /xl/orders](spreadsheets/xlOrders.md) | Orders as one table, newest first | `read` |
 
 ## Webhooks
 

@@ -21,7 +21,7 @@ export const METHODS = Object.freeze(["GET", "POST", "PUT", "PATCH", "DELETE"]);
  *   body?: "json" | "json-or-text" | "raw" | "none",
  *   bodyLimitBytes?: number,
  *   summary?: string,
- *   formatError?: (err: unknown, info: { requestId: string }) => import("./http.mjs").Reply,
+ *   formatError?: (err: unknown, info: { requestId: string, query?: URLSearchParams }) => import("./http.mjs").Reply,
  *                                          // error body for clients that cannot read problem+json (Excel);
  *                                          // used for every failure on the route, including auth and rate limit
  *   onError?: (ctx: import("./context.mjs").RequestContext, err: unknown) => void,

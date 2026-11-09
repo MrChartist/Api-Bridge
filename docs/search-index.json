@@ -137,7 +137,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "144 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "150 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -1238,12 +1238,39 @@
     },
     {
       "headings": [
+        "GET /xl/funds"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlFunds.md",
+      "text": "GET /xl/funds. Columns are fixed - account, mode, availablecash, usedmargin, totalbalance, collateral, withdrawable, realisedpnl, unrealisedpnl, asof, age_s, class, source, stale, error.",
+      "title": "Funds, one row per account"
+    },
+    {
+      "headings": [
         "GET /xl/history"
       ],
       "kind": "endpoint",
       "path": "docs/api/spreadsheets/xlHistory.md",
       "text": "GET /xl/history.",
       "title": "Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)"
+    },
+    {
+      "headings": [
+        "GET /xl/holdings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlHoldings.md",
+      "text": "GET /xl/holdings. Columns are fixed - account, mode, symbol, isin, qty, avgprice, ltp, pnl, asof, age_s, class, source, stale, error.",
+      "title": "Holdings as one table"
+    },
+    {
+      "headings": [
+        "GET /xl/instrument"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlInstrument.md",
+      "text": "GET /xl/instrument. One symbol with one field and no format gives a bare value (text/plain, #N/A on error) for a single cell.",
+      "title": "Lot size, tick size and freeze quantity"
     },
     {
       "headings": [
@@ -1256,12 +1283,39 @@
     },
     {
       "headings": [
+        "GET /xl/orders"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlOrders.md",
+      "text": "GET /xl/orders. Columns are fixed - account, mode, orderid, clientorderid, symbol, side, product, ordertype, qty, filledqty, avgprice, price, triggerprice, status, statusmessage, placedat, updatedat (IST), then asof, ages, class, source, stale, error.",
+      "title": "Orders as one table, newest first"
+    },
+    {
+      "headings": [
+        "GET /xl/positions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlPositions.md",
+      "text": "GET /xl/positions. Columns are fixed - account, mode, symbol, product, qty, avgprice, ltp, pnl, realisedpnl, unrealisedpnl, asof, age_s, class, source, stale, error.",
+      "title": "Positions of every account the key may use, as one table"
+    },
+    {
+      "headings": [
         "GET /xl/quote"
       ],
       "kind": "endpoint",
       "path": "docs/api/spreadsheets/xlQuote.md",
       "text": "GET /xl/quote.",
       "title": "One quote field as plain text"
+    },
+    {
+      "headings": [
+        "GET /xl/quotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlQuotes.md",
+      "text": "GET /xl/quotes. symbols is a comma-separated list (at most integrations.xl.maxSymbols, default 100); one row per symbol in the order asked, duplicates included.",
+      "title": "Prices for a whole sheet as one table (one request, one row per symbol)"
     },
     {
       "headings": [
@@ -1470,7 +1524,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 140 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 146 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1609,13 +1663,20 @@
     },
     {
       "headings": [
-        "Excel for Windows: one value per cell",
-        "Tables with Power Query (Windows and Mac)",
-        "Google Sheets"
+        "The Excel workbook",
+        "The key",
+        "Refreshing, and how often",
+        "What a sheet costs, measured",
+        "Google Sheets",
+        "The routes (for Power Query, curl, your own script)",
+        "When something is wrong",
+        "Power Query (Windows and Mac)",
+        "Sharing a template",
+        "Formula safety"
       ],
       "kind": "guide",
       "path": "docs/guides/excel-sheets.md",
-      "text": "Nothing a spreadsheet can call is able to place an order: every /xl route is a read-only GET. Full instructions and Power Query files: integrations/excel, integrations/google-sheets. Put the key in a cell on a hidden sheet and name it BridgeKey. With a symbol in A2: The answer...",
+      "text": "Prices and your own book in a spreadsheet, with one request per refresh instead of one per cell. Nothing a spreadsheet can call is able to place, change or cancel an order: every /xl route is a read-only GET. Fastest way: open the dashboard, API > Integrations > Excel and...",
       "title": "Excel and Google Sheets"
     },
     {

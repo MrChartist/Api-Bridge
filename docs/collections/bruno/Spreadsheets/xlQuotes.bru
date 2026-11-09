@@ -1,0 +1,32 @@
+meta {
+  name: Prices for a whole sheet as one table (one request, one row per symbol)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/xl/quotes?symbols=NSE:RELIANCE,NSE:NIFTY
+  body: none
+  auth: bearer
+}
+
+params:query {
+  symbols: NSE:RELIANCE,NSE:NIFTY
+  ~fields: ltp,chg,pct,volume,as_of,class
+  ~format: csv
+  ~cache: false
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Prices for a whole sheet as one table (one request, one row per symbol)
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  `symbols` is a comma-separated list (at most `integrations.xl.maxSymbols`, default 100); one row per symbol in the order asked, duplicates included. A symbol that cannot be priced gets blank values and a text in `error`; it never fails the table. Every row carries `as_of` (IST), `age_s`, `class`, `source` and `stale`; in demo mode also `demo` = DEMO. Prices never come from a backup data source (`?backup=true` is refused).
+
+  Reference: docs/api/spreadsheets/xlQuotes.md in the repository.
+}

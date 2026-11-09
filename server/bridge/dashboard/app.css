@@ -2337,6 +2337,24 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .tg-card .group > .alert { margin: 0 var(--space-4); }
 @media (max-width: 719px) { .tg-card .list-row.tg-chat { flex-wrap: wrap; } .tg-card .tg-chat .names { flex: 1 1 calc(100% - 64px); } }
 
+/* Excel and Sheets panel (sheets-panel.js) */
+.xs { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.xs-step { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: var(--r-md); background: var(--fill-1); min-width: 0; }
+.xs-step h3 { font: var(--t-headline); }
+.xs-step h4 { font: var(--t-label); color: var(--label-2); }
+.xs-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 16px; }
+.xs-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.xs-row select { width: auto; min-width: 0; flex: 1 1 180px; }
+.xs-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.xs-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.xs-note { font: var(--t-footnote); color: var(--label-2); overflow-wrap: anywhere; }
+.xs-summary { font: var(--t-body); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.xs-key { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.xs-key code { overflow-wrap: anywhere; word-break: break-all; }
+.xs-test { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.xs textarea { font-family: var(--font-mono); resize: vertical; min-height: 120px; }
+@media (prefers-reduced-motion: reduce) { .xs-step { transition: none; } }
+
 /* Test console */
 .ac { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: var(--panel-gap); min-width: 0; }
 .ac > * { min-width: 0; }

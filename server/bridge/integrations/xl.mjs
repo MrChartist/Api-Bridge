@@ -225,6 +225,10 @@ export function createXlRoutes(deps, cfg) {
     const r = kind === "ltp" ? await deps.marketData.ltp([symbol], opts) : await deps.marketData.quotes([symbol], opts);
     const item = (r?.items ?? [])[0];
     if (!item) throw itemError(r?.errors, `No ${kind === "ltp" ? "price" : "quote"} for ${symbol}.`);
+    // A bare number cannot say "this is delayed". A value whose class is not realtime (a delayed or end-of-day feed)
+    // is refused here; /xl/quotes serves it with its class label instead.
+    const cls = item.freshness?.class;
+    if (cls && cls !== "realtime") throw new BridgeError("CAPABILITY_UNSUPPORTED", `${item.symbol ?? symbol} is only available ${cls === "eod" ? "end-of-day" : "delayed"} right now, and a single value cannot carry that label. Use /xl/quotes, which says how current each price is.`);
     return item;
   }
 

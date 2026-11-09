@@ -98,6 +98,8 @@ export const DASHBOARD_FILES = Object.freeze({
   "workbook.js": "text/javascript; charset=utf-8",
   "workbook-core.js": "text/javascript; charset=utf-8",
   "xlsx-core.js": "text/javascript; charset=utf-8",
+  "sheets-panel.js": "text/javascript; charset=utf-8",
+  "sheets-script.js": "text/javascript; charset=utf-8",
   "today-core.js": "text/javascript; charset=utf-8",
   "reference.js": "text/javascript; charset=utf-8",
   "charges.js": "text/javascript; charset=utf-8",
@@ -432,7 +434,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         // including failures raised before the handler ran (auth, scope, client rate limit).
         let reply = null;
         try {
-          reply = matched.options.formatError(err, { requestId });
+          reply = matched.options.formatError(err, { requestId, query: ctx?.query });
         } catch (fmtErr) {
           log.error("error formatter failed", { requestId, path, err: fmtErr });
         }

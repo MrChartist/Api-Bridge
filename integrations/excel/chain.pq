@@ -5,7 +5,7 @@
 let
     BridgeUrl = "http://127.0.0.1:4300",
     Underlying = "NIFTY",
-    Expiry = "2026-10-27",      // YYYY-MM-DD; list expiries with GET /v1/expiries?underlying=NIFTY
+    Expiry = "2026-11-24",      // CHANGE THIS to a current expiry (YYYY-MM-DD): an expired date gives "No ... expiry". List them with GET /v1/expiries?underlying=NIFTY
     Strikes = "15",             // strikes on each side of ATM
     Key = Text.Trim(Text.From(Excel.CurrentWorkbook(){[Name = "BridgeKey"]}[Content]{0}[Column1])),
     Raw = Web.Contents(
