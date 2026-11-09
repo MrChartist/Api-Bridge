@@ -23,7 +23,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "market",
-  stream: "S5",
   configKey: "market",
   configSchema: MARKET_CONFIG_SCHEMA,
   services: { marketData: (deps) => createMarketDataService(deps) },

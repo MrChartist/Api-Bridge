@@ -22,7 +22,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "readiness",
-  stream: "S20",
   configKey: "readiness",
   configSchema: READINESS_CONFIG_SCHEMA,
   services: { readiness: (deps) => createReadinessService(deps) },

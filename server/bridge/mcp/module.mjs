@@ -35,7 +35,6 @@ function packageVersion(root) {
 
 export default defineModule({
   name: "mcp",
-  stream: "S11",
   configKey: "mcp",
   configSchema: MCP_CONFIG_SCHEMA,
   register(app, deps) {

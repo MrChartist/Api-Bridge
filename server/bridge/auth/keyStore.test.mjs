@@ -368,18 +368,11 @@ describe("KeyStore: a creator cannot grant more than it holds", () => {
   });
 });
 
-describe("KeyStore: a strategy run's key is marked as one", () => {
-  it("purpose strategy-run is set only by the Bridge (not POST /v1/keys), kept on disk and on the authenticated record", async () => {
+describe("KeyStore: no per-run key purpose in v2", () => {
+  it("a key has no purpose, and the request body cannot ask for one", async () => {
     const ks = mk();
-    const { key, record } = await ks.create({ label: "Algo x", scopes: ["paper"], accounts: ["paper"], clientKind: "script" }, { purpose: "strategy-run" });
-    expect(record.purpose).toBe("strategy-run");
-    expect((await ks.authenticate(key)).purpose).toBe("strategy-run");
-    const again = mk();
-    expect((await again.get(record.id)).purpose).toBe("strategy-run");
-    // An ordinary key has no purpose, and the request body cannot ask for one.
     const plain = await ks.create({ label: "plain", scopes: ["paper"] });
     expect(plain.record).not.toHaveProperty("purpose");
     await expect(ks.create({ label: "x", scopes: ["paper"], purpose: "strategy-run" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
-    await expect(ks.create({ label: "x", scopes: ["paper"] }, { purpose: "anything" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

@@ -107,15 +107,6 @@ export function createFakeBridge() {
     if (m && req.method === "GET") return envelope(orderFrom({}, decodeURIComponent(m[1])));
     if (m && req.method === "PATCH") return idempotent(req, body, () => ({ ...orderFrom({}, decodeURIComponent(m[1])), price: body?.price ?? null }));
     if (m && req.method === "DELETE") return idempotent(req, body, () => ({ ...orderFrom({}, decodeURIComponent(m[1])), status: "cancelled" }));
-    if (req.method === "GET" && p === "/v1/backup/quotes") {
-      const items = (q.get("symbols") ?? "").split(",").map((s) => ({ symbol: s, ltp: 1201.8, freshness: { ...freshness, source: "backup", provider: "yahoo", accountId: null, broker: null } }));
-      return envelope(items, { errors: [] });
-    }
-    if (req.method === "POST" && p === "/v1/scanner/jobs") {
-      const job = { id: "scan_0123456789abcdef", status: "completed", request: body, progress: { total: 2, done: 2, matched: 1, errors: 0 }, results: [{ symbol: "NSE:TCS", values: { close: 4000, "rsi(14)": 61.2 }, source: "broker", accountId: "dhan-main" }], errors: [] };
-      return { status: q.get("waitMs") ? 200 : 202, body: { data: q.get("waitMs") ? job : { ...job, status: "running", results: [] }, meta: { requestId: "req_fake" } } };
-    }
-    if (req.method === "GET" && p === "/v1/scanner/jobs/scan_0123456789abcdef") return envelope({ id: "scan_0123456789abcdef", status: "completed", progress: { total: 2, done: 2, matched: 1, errors: 0 }, results: [], errors: [] });
     if (req.method === "POST" && p === "/v1/safety/kill-switch") return envelope({ engaged: true, reason: body?.reason ?? null, by: "key", at: "2026-10-16T15:00:00+05:30" });
     if (req.method === "POST" && p === "/v1/stream/token") {
       const token = `st_${randomUUID()}`;

@@ -52,20 +52,6 @@ describe("reads", () => {
     assert.equal((await c.quotes("NSE:RELIANCE")).data[0].bid, 99.95);
   });
 
-  it("backup quotes and scans", async () => {
-    const b = await client().backupQuotes(["NSE:RELIANCE"]);
-    assert.equal(b.data[0].freshness.source, "backup");
-    const job = await client().scan({ universe: "NIFTY50", condition: "rsi(14) > 60", columns: ["rsi(14)"] }, { waitMs: 5000 });
-    assert.equal(job.data.status, "completed");
-    assert.equal(job.data.results[0].symbol, "NSE:TCS");
-    const sent = fake.requests().find((r) => r.path === "/v1/scanner/jobs");
-    assert.equal(sent.query.waitMs, "5000");
-    assert.equal(sent.body.condition, "rsi(14) > 60");
-    assert.equal(sent.idempotencyKey, null);
-    const again = await client().scanJob(job.data.id);
-    assert.equal(again.data.status, "completed");
-  });
-
   it("paginates with nextCursor", async () => {
     const ids = [];
     for await (const o of client().paginate((p) => client().orders(p), { account: "dhan-main" })) ids.push(o.orderId);

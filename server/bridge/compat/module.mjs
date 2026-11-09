@@ -87,7 +87,6 @@ async function authenticate(ctx, deps) {
 
 export default defineModule({
   name: "compat",
-  stream: "S14",
   configKey: "compat",
   configSchema: COMPAT_CONFIG_SCHEMA,
   register(app, deps) {

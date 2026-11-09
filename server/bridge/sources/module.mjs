@@ -39,7 +39,6 @@ async function importIfPresent(file, logger) {
 
 export default defineModule({
   name: "sources",
-  stream: "S12",
   configKey: "sources",
   configSchema: sourcesConfigSchema,
   services: {

@@ -36,7 +36,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "integrations",
-  stream: "S10",
   configKey: "integrations",
   configSchema: INTEGRATIONS_CONFIG_SCHEMA,
   register(app, deps) {

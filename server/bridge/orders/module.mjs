@@ -33,7 +33,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "orders",
-  stream: "S7",
   configKey: "orders",
   configSchema: ORDERS_CONFIG_SCHEMA,
   services: { orders: (deps) => createOrderService(deps) },

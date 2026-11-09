@@ -1,4 +1,4 @@
-"""``python3 -m mrchartist_bridge strategy describe|run <file.py>``: the entry point the Bridge's strategy runner uses."""
+"""``python3 -m mrchartist_bridge strategy describe|run <file.py>``: run a strategy file or describe its parameters."""
 
 import sys
 

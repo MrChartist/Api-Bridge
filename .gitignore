@@ -1,4 +1,5 @@
-# Dependencies
+# Dependencies (no trailing slash: a symlinked node_modules in a worktree must be ignored too)
+node_modules
 node_modules/
 
 

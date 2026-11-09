@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { loadConfig } from "./config.mjs";
+import { findRemovedSettings, loadConfig } from "./config.mjs";
 import { SERVICE_CONTRACTS, SERVICES_NOT_IN_V2, assertService, isStub, notImplementedService } from "./contracts.mjs";
 import { BUILTIN_MODULES } from "./builtinModules.mjs";
 import { SERVICE_ORDER, applyModuleConfig, buildServices, defineModule, scopedDeps, validateModules } from "./modules.mjs";
@@ -18,9 +18,8 @@ const coreDeps = () => ({
 });
 
 describe("service contracts", () => {
-  it("every contract names an owning stream, its requires exist and methods are unique", () => {
+  it("every contract's requires exist and its methods are unique", () => {
     for (const [name, spec] of Object.entries(SERVICE_CONTRACTS)) {
-      expect(spec.stream, name).toMatch(/^S(\d|1\d|2[0-7])$/);
       for (const r of spec.requires) expect(SERVICE_CONTRACTS[r], `${name} requires ${r}`).toBeDefined();
       expect(new Set(spec.methods).size).toBe(spec.methods.length);
     }
@@ -33,7 +32,7 @@ describe("service contracts", () => {
     expect(SERVICE_ORDER.length).toBe(Object.keys(SERVICE_CONTRACTS).length);
   });
 
-  it("stubs satisfy their contract and throw NOT_IMPLEMENTED naming the stream", () => {
+  it("stubs satisfy their contract and throw NOT_IMPLEMENTED", () => {
     for (const name of Object.keys(SERVICE_CONTRACTS)) {
       const stub = notImplementedService(name);
       expect(() => assertService(name, stub)).not.toThrow();
@@ -52,29 +51,27 @@ describe("service contracts", () => {
 
 describe("defineModule and validateModules", () => {
   it("accepts a well-formed module", () => {
-    const m = defineModule({ name: "safety", stream: "S9", services: { audit: () => notImplementedService("audit") }, register() {} });
+    const m = defineModule({ name: "safety", services: { audit: () => notImplementedService("audit") }, register() {} });
     expect(Object.isFrozen(m)).toBe(true);
   });
 
-  it("refuses services from another stream, non-contract services and core config keys", () => {
-    expect(() => defineModule({ name: "xx", stream: "S1", services: { audit: () => ({}) } })).toThrow(/belongs to stream S9/);
-    expect(() => defineModule({ name: "xx", stream: "S1", services: { cache: () => ({}) } })).toThrow(/not a contract service/);
-    expect(() => defineModule({ name: "xx", stream: "S1", configKey: "safety", configSchema: z.object({}) })).toThrow(/belongs to core/);
-    expect(() => defineModule({ name: "xx", stream: "S1", configKey: "x" })).toThrow(/configSchema/);
-    expect(() => defineModule({ name: "X", stream: "S1" })).toThrow(/name/);
-    expect(() => defineModule({ name: "xy", stream: "S99x" })).toThrow(/stream/);
+  it("refuses non-contract services and core config keys", () => {
+    expect(() => defineModule({ name: "xx", services: { cache: () => ({}) } })).toThrow(/not a contract service/);
+    expect(() => defineModule({ name: "xx", configKey: "safety", configSchema: z.object({}) })).toThrow(/belongs to core/);
+    expect(() => defineModule({ name: "xx", configKey: "x" })).toThrow(/configSchema/);
+    expect(() => defineModule({ name: "X" })).toThrow(/name/);
   });
 
   it("refuses two providers for one service and duplicate names", () => {
-    const a = defineModule({ name: "aa", stream: "S9", services: { audit: () => ({}) } });
-    const b = defineModule({ name: "bb", stream: "S9", services: { audit: () => ({}) } });
+    const a = defineModule({ name: "aa", services: { audit: () => ({}) } });
+    const b = defineModule({ name: "bb", services: { audit: () => ({}) } });
     expect(() => validateModules([a, b])).toThrow(/provided by both/);
     expect(() => validateModules([a, a])).toThrow(/Duplicate module/);
   });
 });
 
 describe("module config sections", () => {
-  const hooks = defineModule({ name: "hooks", stream: "S11", configKey: "hooks", configSchema: z.object({ ackTimeoutMs: z.number().default(500) }).strict() });
+  const hooks = defineModule({ name: "hooks", configKey: "hooks", configSchema: z.object({ ackTimeoutMs: z.number().default(500) }).strict() });
 
   it("parses module sections with defaults and rejects unknown sections", () => {
     const base = loadConfig({ raw: {}, env: {} }).config;
@@ -86,11 +83,32 @@ describe("module config sections", () => {
   });
 });
 
+describe("settings that v2 removed", () => {
+  it("name every removed setting in one friendly error, not a bare unknown-key message", () => {
+    const old = loadConfig({ raw: { alerts: { max: 5 }, vol: {}, stream: { candles: { maxBars: 100 } }, mcp: { toolsets: ["market", "options"] } }, env: {} }).config;
+    let err;
+    try {
+      applyModuleConfig(old, BUILTIN_MODULES);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({ code: "VALIDATION_FAILED" });
+    for (const k of ["alerts", "vol", "stream.candles", 'mcp.toolsets "options"']) expect(err.detail).toContain(`${k}: this setting was removed in v2`);
+    expect(err.errors.map((e) => e.path)).toEqual(["alerts", "vol", "stream.candles", 'mcp.toolsets "options"']);
+  });
+
+  it("leave a config that has none of them alone", () => {
+    const ok = loadConfig({ raw: { stream: { heartbeatMs: 20000 }, mcp: { toolsets: ["market"] } }, env: {} }).config;
+    expect(findRemovedSettings(ok)).toEqual([]);
+    expect(() => applyModuleConfig(ok, BUILTIN_MODULES)).not.toThrow();
+  });
+});
+
 describe("buildServices", () => {
   it("fills unprovided services with stubs and checks provided ones", async () => {
     const deps = await buildServices(coreDeps(), []);
     for (const name of Object.keys(SERVICE_CONTRACTS)) expect(isStub(deps[name])).toBe(true);
-    const broken = defineModule({ name: "audit-mod", stream: "S9", services: { audit: () => ({ append() {} }) } });
+    const broken = defineModule({ name: "audit-mod", services: { audit: () => ({ append() {} }) } });
     await expect(buildServices(coreDeps(), [broken])).rejects.toThrow(/missing/);
   });
 
@@ -98,7 +116,6 @@ describe("buildServices", () => {
     let seen;
     const mod = defineModule({
       name: "acc",
-      stream: "S1",
       services: {
         accounts: (deps) => {
           seen = deps;
@@ -128,19 +145,12 @@ describe("buildServices", () => {
 });
 
 describe("built-in modules", () => {
-  it("every contract service has exactly one built-in provider in its own stream", () => {
+  it("every contract service has exactly one built-in provider", () => {
     const { providers } = validateModules(BUILTIN_MODULES);
-    for (const [name, spec] of Object.entries(SERVICE_CONTRACTS)) {
+    for (const name of Object.keys(SERVICE_CONTRACTS)) {
       if (SERVICES_NOT_IN_V2.includes(name)) continue;
-      const mod = BUILTIN_MODULES.find((m) => m.name === providers.get(name));
-      expect(mod, name).toBeDefined();
-      expect(mod.stream).toBe(spec.stream);
+      expect(BUILTIN_MODULES.find((m) => m.name === providers.get(name)), name).toBeDefined();
     }
-  });
-
-  it("all eleven module tags are represented", () => {
-    const streams = new Set(BUILTIN_MODULES.map((m) => m.stream));
-    for (let i = 1; i <= 11; i += 1) expect(streams.has(`S${i}`), `S${i}`).toBe(true);
   });
 
   it("route options use only known values", async () => {

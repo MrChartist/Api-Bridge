@@ -15,11 +15,8 @@
  */
 import { z } from "zod";
 
-/**
- * "options" is an opt-in toolset kept out of the default list so it stays under 20 tools. A tool with a
- * `requiredScope` (ToolDef.requiredScope) is shown only to keys that hold it.
- */
-export const TOOLSETS = Object.freeze(["market", "analytics", "account", "orders", "options"]);
+/** A tool with a `requiredScope` (ToolDef.requiredScope) is shown only to keys that hold it. */
+export const TOOLSETS = Object.freeze(["market", "analytics", "account", "orders"]);
 export const DEFAULT_TOOLSETS = Object.freeze(["market", "analytics", "account"]);
 
 export const MCP_DEFAULTS = Object.freeze({

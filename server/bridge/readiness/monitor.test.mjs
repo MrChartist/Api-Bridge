@@ -16,13 +16,12 @@ const T = (s) => Date.parse(s);
 const MON_0840 = T("2026-10-19T08:40:00+05:30");
 const MON_1000 = T("2026-10-19T10:00:00+05:30");
 
-function harness({ readiness = {}, accounts: accs, liveTrading = true, egress, audit, dataDir = mkdtempSync(join(tmpdir(), "mcb-rd-")), notifyTargets = [], session = {} } = {}) {
+function harness({ readiness = {}, accounts: accs, liveTrading = true, egress, audit, dataDir = mkdtempSync(join(tmpdir(), "mcb-rd-")), session = {} } = {}) {
   const config = {
     demo: false,
     safety: { liveTrading },
     accounts: accs ?? [{ id: "zerodha-main", broker: "zerodha", label: "Main", enabled: true, live: { enabled: true, allowedSources: ["rest", "webhook"], registeredIp: "203.0.113.10" } }],
     readiness: parseReadinessConfig(readiness),
-    notify: { targets: notifyTargets },
   };
   const bus = createEventBus();
   const sessions = new Map(config.accounts.map((a) => [a.id, { state: "connected", expiresAt: null, message: null, ...session }]));
@@ -201,14 +200,13 @@ describe("readiness monitor triggers and probes", () => {
     svc.stop();
   });
 
-  it("targets without an events list listen through the defaults; the summary says needs / need", async () => {
+  it("the summary says needs / need", async () => {
     vi.setSystemTime(MON_1000);
-    const h = harness({ notifyTargets: [{ id: "phone", kind: "telegram" }, { id: "scans", kind: "telegram", events: ["scan.alert"] }] });
+    const h = harness({});
     const svc = h.make();
     await svc.check({});
     const s = svc.status();
-    expect(s.notifications.targetsListening).toEqual(["phone"]);
-    expect(s.notifications.warning).toBeNull();
+    expect(s.notifications).toMatchObject({ targetsListening: [], warning: null });
     expect(s.summary).toBe("1 of 1 live account needs attention");
 
     const live = { enabled: true, allowedSources: ["rest"], registeredIp: "203.0.113.10" };
@@ -216,7 +214,6 @@ describe("readiness monitor triggers and probes", () => {
     const svc2 = two.make();
     await svc2.check({});
     expect(svc2.status().summary).toBe("2 of 2 live accounts need attention");
-    expect(svc2.status().notifications.warning).toMatch(/No notification target listens/);
   });
 
   it("probe cooldown (30 s) and singleflight per account", async () => {
@@ -381,7 +378,6 @@ describe("readiness contract helpers", () => {
     expect(s.accounts[0].state).toBe("paper_only");
     expect(s.accounts[0].reasons[0].code).toBe("LIVE_OFF");
     expect(s).toMatchObject({ overall: "paper_only", paperOnly: true });
-    expect(s.notifications.warning).toMatch(/No notification target listens to trading\.readiness/);
   });
 
   it("registerAutomation: onState on every state change of its account", async () => {

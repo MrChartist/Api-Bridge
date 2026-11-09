@@ -7,11 +7,6 @@
  *   { "op": "unsubscribe", "symbols": ["NSE:NIFTY"], "id"?: ... }
  *   { "op": "subscribe_orders", "accounts"?: ["dhan-main"], "id"?: ... }
  *   { "op": "unsubscribe_orders", "id"?: ... }
- *   { "op": "subscribe_scans", "id"?: ... }        scanner progress, completions and saved-scan alerts (SSE: &scans=1)
- *   { "op": "unsubscribe_scans", "id"?: ... }
- *   { "op": "subscribe_events", "asset"?: "stock"|"option", "kinds"?: [...], "sides"?: [...], "id"?: ... }
- *                                                  live market events as they are detected (SSE: &events=1)
- *   { "op": "unsubscribe_events", "id"?: ... }
  *   { "op": "subscribe_budget", "id"?: ... }      the API budget (ratelimit/budget.mjs) once a second while it changes,
  *                                                  at least every 5 s; only accounts the key may use (SSE: &budget=1)
  *   { "op": "unsubscribe_budget", "id"?: ... }
@@ -22,11 +17,7 @@
  *   snapshot   { id?, mode, symbols, ticks, pending }               reply to subscribe: latest known value per symbol
  *   tick       { symbol, ltp, ... }                                 fields depend on the mode (see tickBody)
  *   order      { order }                                            from "order.updated", only accounts the key may use
- *   scan       { event: progress|completed|alert, jobId, savedId, ... }   only this key's scans (all of them for an admin key)
  *   budget     { accounts, callsToday, savedToday, savings, stream }   reply to subscribe_budget, then while it changes
- *   market_event { action: new|update, event, sentAt }             a live event record; repeats inside its cool-down
- *                                                  arrive as "update" with the same id and a higher count (conflated
- *                                                  per id, like ticks per symbol)
  *   status     { accountId, broker, state: up|stale|down, connected, reason, subscriptions }
  *   error      { code, message, retryable, id?, op?, symbols? }
  *   go_away    { reason, message, reconnectAfterMs }                then the server closes the connection
@@ -62,18 +53,6 @@ export const clientOpSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("unsubscribe"), symbols: symbolList, id: opId }).strict(),
   z.object({ op: z.literal("subscribe_orders"), accounts: z.array(accountId).min(1).max(100).optional(), id: opId }).strict(),
   z.object({ op: z.literal("unsubscribe_orders"), id: opId }).strict(),
-  z.object({ op: z.literal("subscribe_scans"), id: opId }).strict(),
-  z.object({ op: z.literal("unsubscribe_scans"), id: opId }).strict(),
-  z
-    .object({
-      op: z.literal("subscribe_events"),
-      asset: z.enum(["stock", "option"]).optional(),
-      kinds: z.array(z.string().regex(/^[a-z0-9_]{2,40}$/)).max(60).optional(),
-      sides: z.array(z.enum(["bull", "bear", "neutral"])).max(3).optional(),
-      id: opId,
-    })
-    .strict(),
-  z.object({ op: z.literal("unsubscribe_events"), id: opId }).strict(),
   z.object({ op: z.literal("subscribe_budget"), id: opId }).strict(),
   z.object({ op: z.literal("unsubscribe_budget"), id: opId }).strict(),
   z.object({ op: z.literal("ping"), id: opId }).strict(),
@@ -216,12 +195,6 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
   let closed = false;
   /** @type {"*" | Set<string> | null} */
   let orderFilter = null;
-  /** Unsubscribe functions for the scan topics, or null when not subscribed. */
-  let scanOffs = null;
-  /** Unsubscribe function for market events, or null; and the filter the client asked for. */
-  let eventsOff = null;
-  let eventsFilter = null;
-  let eventSlots = 0;
   let tokens = cfg.maxOpsPerSecond;
   let refillAt = now();
   const offs = [];
@@ -239,23 +212,11 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
   };
 
   // ── queue ──
-  function enqueue(msg, tickSymbol, eventId) {
+  function enqueue(msg, tickSymbol) {
     if (closed) return;
     seq += 1;
     const out = { type: msg.type, seq, ...msg };
-    if (eventId !== undefined) {
-      // One slot per event id: an update replaces a queued new/update of the same event (its count only goes up).
-      const k = `e:${eventId}`;
-      const queued = queue.get(k);
-      if (queued) {
-        queue.delete(k);
-        if (queued.action === "new") out.action = "new";
-      } else if (eventSlots >= cfg.maxQueuedMessages) {
-        slowConsumer();
-        return;
-      } else eventSlots += 1;
-      queue.set(k, out);
-    } else if (tickSymbol !== undefined) {
+    if (tickSymbol !== undefined) {
       const k = `t:${tickSymbol}`;
       if (queue.has(k)) {
         queue.delete(k);
@@ -287,7 +248,6 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
       const [k, msg] = queue.entries().next().value;
       queue.delete(k);
       if (k.charCodeAt(0) === 99 /* c */) control -= 1;
-      else if (k.charCodeAt(0) === 101 /* e */) eventSlots -= 1;
       try {
         transport.write(msg);
         sent += 1;
@@ -343,50 +303,6 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
     if (orderFilter !== "*" && !orderFilter.has(p.accountId)) return;
     enqueue({ type: "order", order: p });
   };
-
-  const seesAllScans = expandScopes(key.scopes ?? []).has("admin");
-  const onScan = (event) => (p) => {
-    if (!p || (!seesAllScans && p.keyId !== key.id)) return;
-    const { keyId: _k, ...rest } = p;
-    enqueue({ type: "scan", event, ...rest });
-  };
-  function doSubscribeScans() {
-    if (scanOffs) return;
-    scanOffs = [bus.on("scan.progress", onScan("progress")), bus.on("scan.completed", onScan("completed")), bus.on("scan.alert", onScan("alert"))];
-    offs.push(...scanOffs);
-  }
-  function doUnsubscribeScans() {
-    for (const off of scanOffs ?? []) {
-      off();
-      const i = offs.indexOf(off);
-      if (i >= 0) offs.splice(i, 1);
-    }
-    scanOffs = null;
-  }
-
-  // Market events: every key with read scope sees them (they describe the market, not an account).
-  function doSubscribeEvents(op) {
-    eventsFilter = { asset: op.asset ?? null, kinds: op.kinds?.length ? new Set(op.kinds) : null, sides: op.sides?.length ? new Set(op.sides) : null };
-    if (eventsOff) return;
-    eventsOff = bus.on("market.event", (p) => {
-      const ev = p?.event;
-      const f = eventsFilter;
-      if (!ev || !f) return;
-      if (f.asset && ev.asset !== f.asset) return;
-      if (f.kinds && !f.kinds.has(ev.kind)) return;
-      if (f.sides && !f.sides.has(ev.side)) return;
-      enqueue({ type: "market_event", action: p.type === "update" ? "update" : "new", event: ev, sentAt: now() }, undefined, ev.id);
-    });
-    offs.push(eventsOff);
-  }
-  function doUnsubscribeEvents() {
-    if (!eventsOff) return;
-    eventsOff();
-    const i = offs.indexOf(eventsOff);
-    if (i >= 0) offs.splice(i, 1);
-    eventsOff = null;
-    eventsFilter = null;
-  }
 
   // ── API budget (the dashboard's budget indicator) ──
   let budgetTimer = null;
@@ -486,10 +402,6 @@ export function createClientSession({ id, kind, key, hub, bus, transport, config
       else if (op.op === "unsubscribe") doUnsubscribe(op);
       else if (op.op === "subscribe_orders") doSubscribeOrders(op);
       else if (op.op === "unsubscribe_orders") orderFilter = null;
-      else if (op.op === "subscribe_scans") doSubscribeScans();
-      else if (op.op === "unsubscribe_scans") doUnsubscribeScans();
-      else if (op.op === "subscribe_events") doSubscribeEvents(op);
-      else if (op.op === "unsubscribe_events") doUnsubscribeEvents();
       else if (op.op === "subscribe_budget") doSubscribeBudget();
       else if (op.op === "unsubscribe_budget") doUnsubscribeBudget();
       else if (op.op === "ping") enqueue({ type: "heartbeat", time: istIso(now()), conflated: conflatedSinceBeat, ...ref });

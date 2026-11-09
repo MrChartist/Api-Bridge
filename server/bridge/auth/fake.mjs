@@ -15,7 +15,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
-import { generateKeyId, KEY_PURPOSES, keyCreateSchema, publicRecord, STREAM_TOKEN_TTL_MS } from "./keyStore.mjs";
+import { generateKeyId, keyCreateSchema, publicRecord, STREAM_TOKEN_TTL_MS } from "./keyStore.mjs";
 import { assertSecretName } from "./secretStore.mjs";
 
 /**
@@ -89,7 +89,6 @@ export function createFakeKeyStore({ clock = { now: () => Date.now() } } = {}) {
       accounts: v.accounts ?? "*",
       allowQuery: Boolean(v.allowQuery) && v.scopes.length === 1 && v.scopes[0] === "read",
       clientKind: v.clientKind ?? "other",
-      ...(v.purpose ? { purpose: v.purpose } : {}),
       createdAt: new Date(clock.now()).toISOString(),
       expiresAt: v.expiresAt ?? null,
       lastUsedAt: null,
@@ -104,11 +103,10 @@ export function createFakeKeyStore({ clock = { now: () => Date.now() } } = {}) {
     addKey(input) {
       return add(input);
     },
-    async create(input, { loopback = true, purpose } = {}) {
+    async create(input, { loopback = true } = {}) {
       const parsed = keyCreateSchema.safeParse(input ?? {});
       if (!parsed.success) throw fromValidation(parsed.error, "The key request is not valid.");
-      if (purpose !== undefined && !KEY_PURPOSES.includes(purpose)) throw new BridgeError("VALIDATION_FAILED", `purpose must be one of ${KEY_PURPOSES.join(", ")}.`);
-      const v = { ...parsed.data, ...(purpose ? { purpose } : {}) };
+      const v = parsed.data;
       if (v.allowQuery && !(v.scopes.length === 1 && v.scopes[0] === "read")) throw new BridgeError("VALIDATION_FAILED", "allowQuery is only allowed for keys whose only scope is read.");
       if (!loopback && (v.scopes.includes("live") || v.scopes.includes("admin"))) throw new BridgeError("LOOPBACK_ONLY", "Keys with the live or admin scope can only be created from this computer.");
       return add(v);

@@ -107,16 +107,6 @@ tags:
     description: Paper and live orders with idempotency and safety checks.
   - name: Paper
     description: The paper-trading engine.
-  - name: Alerts
-    description: Position alerts (P&L, spot, delta, time to expiry, premium multiple). They notify only; they never place an order.
-  - name: Triggers
-    description: GTT single and OCO, trailing stops, stop and target on an entry, and position stops and targets, checked on the Bridge. Each fire places its order through every check of POST /v1/orders as source guard.
-  - name: Watchlists
-    description: Named lists of symbols, priced with % change, OI change for F&O and IV. One list can feed Live events and one the Home page.
-  - name: Journal
-    description: The trade journal. Fills grouped into trades by strategy group, with tags, notes, setup, daily P&L and stats. Read only; it places nothing.
-  - name: Strategies
-    description: Python strategies from the strategies folder, run by the Bridge with a key per run. Paper by default; every order passes the Bridge's safety gates.
   - name: Limits
     description: Broker limits, budgets and usage.
   - name: Sources
@@ -128,47 +118,17 @@ tags:
   - name: Safety
     description: Kill switch, safety counters and the audit log.
   - name: Readiness
-    description: "Whether each live account can trade now: session, static IP, order headroom, kill switch (H5)."
-  - name: Book
-    description: >-
-      One positions book per holder and a family view (F2/F11). Each holder is priced only from that holder's own market
-      data; every leg keeps its account and every exit goes to that account. Margin is per account, never pooled.
+    description: "Whether each live account can trade now: session, static IP, order headroom, kill switch."
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
     description: Inbound alerts from ChartInk, GoCharting and signed senders.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
-  - name: Events
-    description: Live market events (Spider-style event selector, better) detected on stream ticks across a universe of stocks, indices and option chains.
-  - name: Scanner
-    description: Condition scans over big universes, spread over your pooled accounts at background priority.
   - name: Compat REST
     description: >-
       Endpoints in the common apikey-in-body style (POST JSON, `apikey` in the body, { status, ... } replies) so SDKs and add-ins written for that style work
       against the Bridge. Same services, limits and safety as /v1; orders are paper while analyzer mode is on.
-  - name: Notifications
-    description: Push saved-scan alerts, live fills, the kill switch and expired sessions to Telegram, Discord, Slack or a signed webhook.
-  - name: Backup data
-    description: Free public sources (Yahoo Finance, NSE website) used as a labelled fallback when no broker account can answer.
-  - name: Reference data
-    description: Contract calendar, lots, ban list, MWPL, F&O universe, corporate actions, rate and charges. Every value carries source and asOf.
-  - name: Volatility
-    description: Vol-time clock, daily ATM IV store, IV rank and percentile, IV history and VIX. IV in vol points; every series carries quality and source.
-  - name: Options desk
-    description: F&O underlyings, expiry and delivery costs, and the option sweep behind the screener.
-  - name: Participant OI
-    description: >-
-      NSE participant-wise open interest: Client, DII, FII and Pro long and short contracts in index
-      and stock futures and options, one file a day after the close. NSE only; summed over all strikes and expiries;
-      number of contracts. Fetched from the NSE archives only when archive downloads are on. Descriptive data, not advice.
-  - name: Options data
-    description: Recorded option-chain snapshots (every minute in session), daily derived statistics and the recorder's status. Stored only on this computer.
-
-  - name: Studies
-    description: Chart studies (`ind.*`) and candlestick patterns from the ChartistScript core, computed on this computer over the Bridge's own candles. Read only; nothing here can reach orders.
-  - name: Analytics
-    description: Options analytics from the Bridge's own chain and quotes (OI, gamma exposure, skew, basis, Greeks, payoff, position size). Computed from the Bridge's own data; saved alert rules are the only thing it stores.
 paths:
   /v1/health:
     get:
@@ -176,7 +136,7 @@ paths:
       operationId: getHealth
       summary: Liveness check
       description: No key needed. Callers on this computer also see which services are built.
-      x-stream: core
+      x-module: core
       security: []
       responses:
         "200":
@@ -190,7 +150,7 @@ paths:
       tags: [System]
       operationId: getRoot
       summary: Redirect to the local dashboard
-      x-stream: core
+      x-module: core
       x-loopback-only: true
       security: []
       responses:
@@ -203,7 +163,7 @@ paths:
       operationId: getDashboard
       summary: Local dashboard (HTML; this computer only)
       description: Welcome checklist, accounts and the broker directory, a test console, live rate-limit usage, orders and pending confirmations, the kill switch, API keys, integration snippets and the request and audit logs. The page asks for an API key and keeps it in the browser tab only.
-      x-stream: core
+      x-module: core
       x-loopback-only: true
       security: []
       responses:
@@ -218,7 +178,7 @@ paths:
       tags: [System]
       operationId: getDashboardAsset
       summary: Dashboard scripts, stylesheet and logo
-      x-stream: core
+      x-module: core
       x-loopback-only: true
       security: []
       parameters:
@@ -236,7 +196,7 @@ paths:
       tags: [System]
       operationId: getMeta
       summary: Versions, brokers, modules and routes
-      x-stream: core
+      x-module: core
       x-scope: read
       responses:
         "200":
@@ -253,7 +213,7 @@ paths:
       operationId: listRecentRequests
       summary: Recent requests to this Bridge (newest first)
       description: The last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id). Requests the dashboard makes for itself carry client "dashboard". Webhook paths are shown as their pattern, never with their token. A market-data read that returned something also carries `route`, a short record of what answered it.
-      x-stream: core
+      x-module: core
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -292,7 +252,7 @@ paths:
       tags: [System]
       operationId: getOpenApi
       summary: This document
-      x-stream: core
+      x-module: core
       security: []
       responses:
         "200":
@@ -307,7 +267,7 @@ paths:
       operationId: listBrokers
       summary: Supported brokers and what each can do
       description: Capabilities come from each adapter's declared contract; limits from the Bridge's broker policy table (each number marked verified or not).
-      x-stream: S1
+      x-module: accounts
       x-scope: read
       responses:
         "200":
@@ -329,7 +289,7 @@ paths:
       operationId: listAccounts
       summary: Your configured accounts and their session state
       description: Only accounts this key may use are listed. Never includes credentials.
-      x-stream: S1
+      x-module: accounts
       x-scope: read
       responses:
         "200":
@@ -360,7 +320,7 @@ paths:
         `account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is
         contacted. `leaveDemo: true` also removes `"demo": true` from the file. Paper accounts are refused in demo mode
         (it has its own), and so is everything when the demo dashboard is served to other computers.
-      x-stream: S1
+      x-module: accounts
       x-scope: admin
       x-loopback-only: true
       requestBody:
@@ -402,7 +362,7 @@ paths:
       tags: [Accounts]
       operationId: getAccount
       summary: One account
-      x-stream: S1
+      x-module: accounts
       x-scope: read
       responses:
         "200":
@@ -427,7 +387,7 @@ paths:
         account with live trading set up in the config file (remove those in the file, on purpose) and the last paper
         account. Admin scope with an admin key that may use every account, this computer only. Refused in demo mode.
         Audited as `account.removed`.
-      x-stream: S1
+      x-module: accounts
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -462,7 +422,7 @@ paths:
         Saves the non-secret values (API key, client id, access token) encrypted at rest, then logs in where the broker
         needs it. For session-login brokers send the password/PIN and the current 6-digit TOTP code in `secrets`: they
         are used once for the broker login and never stored, cached or logged. Admin scope, this computer only.
-      x-stream: S1
+      x-module: accounts
       x-scope: admin
       x-loopback-only: true
       requestBody:
@@ -487,7 +447,7 @@ paths:
       tags: [Accounts]
       operationId: disconnectAccount
       summary: Forget the broker session (saved keys stay)
-      x-stream: S1
+      x-module: accounts
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -511,7 +471,7 @@ paths:
       tags: [Accounts]
       operationId: testAccount
       summary: Make one cheap authenticated broker call
-      x-stream: S1
+      x-module: accounts
       x-scope: read
       responses:
         "200":
@@ -538,7 +498,7 @@ paths:
       operationId: listKeys
       summary: List API keys (never the key itself)
       description: An admin key limited to some accounts lists only keys limited to those same accounts.
-      x-stream: S2
+      x-module: auth
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -559,7 +519,7 @@ paths:
       operationId: createKey
       summary: Create an API key
       description: The key is in the response once and cannot be shown again; only a scrypt hash is stored.
-      x-stream: S2
+      x-module: auth
       x-scope: admin
       x-loopback-only: true
       requestBody:
@@ -592,7 +552,7 @@ paths:
       operationId: revokeKey
       summary: Revoke a key (takes effect immediately)
       description: An admin key limited to some accounts can revoke only keys limited to those accounts; any other key answers 404, as an unknown id does.
-      x-stream: S2
+      x-module: auth
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -615,7 +575,7 @@ paths:
       operationId: createStreamToken
       summary: Short-lived token for WebSocket and SSE URLs
       description: Use it as `?token=` on `/v1/stream` or `/v1/stream/sse` so your API key never appears in a URL or a log. Valid for 60 seconds to connect; the connection then lives on with the key's scopes.
-      x-stream: S2
+      x-module: auth
       x-scope: read
       responses:
         "200":
@@ -648,7 +608,7 @@ paths:
         (scopes admin and paper, all accounts, label "Dashboard sign-in") that expires in 30 days; audited `key.created`.
         A wrong, expired or used code gets one generic 401. After 20 failed attempts in a minute the route answers 429
         for the rest of that minute. No API key needed; this computer only.
-      x-stream: S2
+      x-module: auth
       x-loopback-only: true
       security: []
       requestBody:
@@ -680,7 +640,7 @@ paths:
       operationId: getLimits
       summary: Broker limits, safety limits and current budgets per account
       description: With `explain=1` the report also says why a request may have been slow or refused, in numbers instead of log lines (`pools`, `consumers`).
-      x-stream: S3
+      x-module: ratelimit
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/AccountQueryOptional"
@@ -712,7 +672,7 @@ paths:
         today's counters. `series=1` adds each account's calls per second over the last two minutes (`series`).
         `view=budget` answers the dashboard's budget summary instead (the `budget` stream message). Admin keys also get
         `consumers`: today's broker calls and saved calls per dashboard page, API key label, MCP, compat and background job.
-      x-stream: S3
+      x-module: ratelimit
       x-scope: read
       parameters:
         - name: series
@@ -746,7 +706,7 @@ paths:
         (`class`, `delaySec`), whether it is `official`, what it may be asked (`capabilities`), the vendor's documented
         `limits`, how much of them the Bridge used (`usage`), its `health`, and the terms you accept by turning it on.
         API keys of sources that need one are never returned; `configured` only says whether one is stored.
-      x-stream: S12
+      x-module: sources
       x-scope: read
       responses:
         "200":
@@ -778,7 +738,7 @@ paths:
         enabled sources), with the verdict (`chosen`, `fallback` or `skipped`), the reason, the score and the spare
         budget. Nothing is fetched and no upstream call is made, so it costs no quota. `class` is the data class the
         answer would carry.
-      x-stream: S12
+      x-module: sources
       x-scope: read
       parameters:
         - name: capability
@@ -819,7 +779,7 @@ paths:
         equal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored
         first (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`
         turns it off at once. Your broker accounts (`builtin`) cannot be switched off here.
-      x-stream: S12
+      x-module: sources
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -851,7 +811,7 @@ paths:
       description: |
         The key goes into the encrypted secrets store under `source:<id>` and is never returned, logged or put in the
         configuration file. Only from this computer.
-      x-stream: S12
+      x-module: sources
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -885,7 +845,7 @@ paths:
       operationId: testSource
       summary: Check that a source answers
       description: Makes one small call through the source's own `test` (a status or sample request) and reports the result. It counts against the source's quota.
-      x-stream: S12
+      x-module: sources
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -913,7 +873,7 @@ paths:
         Pooling is off until you accept the notice. Accounts are grouped by holder; only accounts of one holder are
         ever pooled, only read-only market data is pooled, and orders always go through the account they belong to. An
         account whose broker's policy is `not-allowed` is never pooled.
-      x-stream: S12
+      x-module: sources
       x-scope: read
       responses:
         "200":
@@ -937,7 +897,7 @@ paths:
       description: |
         `acknowledge` must equal the current `notice.version`. Only accounts of one holder with a policy other than
         `not-allowed` are accepted. Only from this computer.
-      x-stream: S12
+      x-module: sources
       x-scope: admin
       x-loopback-only: true
       requestBody:
@@ -963,7 +923,7 @@ paths:
       operationId: revokePooling
       summary: Withdraw the pooling consent
       description: Each account serves only its own reads again.
-      x-stream: S12
+      x-module: sources
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -990,7 +950,7 @@ paths:
         starve an AI assistant. `kinds` are the default weights by client kind (`ui`, `mcp`, `excel`, `script`, `other`);
         `keys[].source` says whether a key's figures are the default, from the configuration, or an override set with
         `PUT /v1/quotas/{keyId}`. `usage` counts requests and how often the key was throttled.
-      x-stream: S3
+      x-module: ratelimit
       x-scope: read
       responses:
         "200":
@@ -1012,7 +972,7 @@ paths:
       operationId: setQuota
       summary: Override one key's quota or weight
       description: "Only the fields you send change. `perDay: null` removes the daily cap. The override survives a restart."
-      x-stream: S3
+      x-module: ratelimit
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -1040,7 +1000,7 @@ paths:
       operationId: clearQuota
       summary: Remove a key's override
       description: The key goes back to the quota from the configuration, or the default for its client kind.
-      x-stream: S3
+      x-module: ratelimit
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -1064,7 +1024,7 @@ paths:
       tags: [Instruments]
       operationId: searchInstruments
       summary: Search instruments across connected brokers' masters
-      x-stream: S4
+      x-module: symbols
       x-scope: read
       parameters:
         - name: q
@@ -1115,7 +1075,7 @@ paths:
       tags: [Instruments]
       operationId: getInstrument
       summary: Resolve one instrument (lot size, tick size, freeze quantity)
-      x-stream: S4
+      x-module: symbols
       x-scope: read
       responses:
         "200":
@@ -1136,7 +1096,7 @@ paths:
       tags: [Instruments]
       operationId: convertSymbolGet
       summary: Convert one symbol between formats
-      x-stream: S4
+      x-module: symbols
       x-scope: read
       parameters:
         - name: input
@@ -1171,7 +1131,7 @@ paths:
       tags: [Instruments]
       operationId: convertSymbols
       summary: Convert up to 200 symbols in one call
-      x-stream: S4
+      x-module: symbols
       x-scope: read
       requestBody:
         required: true
@@ -1211,7 +1171,7 @@ paths:
       tags: [Market data]
       operationId: getLtp
       summary: Last traded price for up to 200 symbols
-      x-stream: S5
+      x-module: market
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/Symbols"
@@ -1241,7 +1201,7 @@ paths:
       tags: [Market data]
       operationId: getQuotes
       summary: Full quotes for up to 200 symbols
-      x-stream: S5
+      x-module: market
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/Symbols"
@@ -1271,7 +1231,7 @@ paths:
       tags: [Market data]
       operationId: getDepth
       summary: Market depth (5 levels where the broker offers it)
-      x-stream: S5
+      x-module: market
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/SymbolQuery"
@@ -1298,7 +1258,7 @@ paths:
       operationId: getHistory
       summary: Historical candles, automatically split across broker limits
       description: Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.
-      x-stream: S5
+      x-module: market
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/SymbolQuery"
@@ -1344,7 +1304,7 @@ paths:
       operationId: getExpiries
       summary: Expiry dates for an underlying
       description: See /v1/reference/expiries for kind, lot and holiday shifts.
-      x-stream: S5
+      x-module: market
       x-scope: read
       parameters:
         - name: underlying
@@ -1384,7 +1344,7 @@ paths:
       operationId: getOptionChain
       summary: Option chain with IV and Greeks
       description: Works for every F&O stock; see /v1/options/underlyings.
-      x-stream: S5
+      x-module: market
       x-scope: read
       parameters:
         - name: underlying
@@ -1442,7 +1402,7 @@ paths:
         `{"op":"subscribe_orders"}`, `{"op":"ping"}`. Server messages: `snapshot`, `tick` (with a per-connection `seq`),
         `order`, `status` (upstream connected or stale), `error`, `heartbeat` every 15 s and `go_away` before a restart.
         A gap in `seq` means re-subscribe for a fresh snapshot. Full message schemas: docs/asyncapi.yaml.
-      x-stream: S6
+      x-module: stream
       x-websocket: true
       security: []
       parameters:
@@ -1461,7 +1421,7 @@ paths:
       operationId: openSse
       summary: Server-Sent Events stream (same messages as the WebSocket)
       description: "`GET /v1/stream/sse?token=<stream token>&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp`. Each event's `id` is its `seq`; a reconnect gets a fresh snapshot first."
-      x-stream: S6
+      x-module: stream
       security: []
       parameters:
         - name: token
@@ -1489,7 +1449,7 @@ paths:
       tags: [Streaming]
       operationId: getStreamStats
       summary: Upstream feeds, subscriptions and clients
-      x-stream: S6
+      x-module: stream
       x-scope: read
       responses:
         "200":
@@ -1510,7 +1470,7 @@ paths:
       tags: [Portfolio]
       operationId: getPositions
       summary: Positions for one account (live from the broker, or paper)
-      x-stream: S7
+      x-module: orders
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/AccountQuery"
@@ -1539,11 +1499,7 @@ paths:
         into Intraday after the square-off time, while the kill switch is on, when the other product holds the
         opposite side, or into a product the contract cannot be traded in (shares to MARGIN, futures and options to
         CNC or MTF: INVALID_ORDER, as for an order). Live: not supported through the Bridge yet (CAPABILITY_UNSUPPORTED); convert in the broker's app.
-        The position's open stops and targets (bracket and position triggers) go with the converted quantity to the new
-        product at the same levels: a trigger that fits is moved whole (same id); a larger one is split, the converted
-        part becoming a new trigger with convertedFrom set. A carried trigger is good till the new product's limit
-        (the contract's expiry for carry, today's square-off for Intraday).
-      x-stream: S7
+      x-module: orders
       x-scope: paper
       requestBody:
         required: true
@@ -1579,7 +1535,7 @@ paths:
       tags: [Portfolio]
       operationId: getHoldings
       summary: Demat holdings for one account
-      x-stream: S7
+      x-module: orders
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/AccountQuery"
@@ -1602,7 +1558,7 @@ paths:
       tags: [Portfolio]
       operationId: getFunds
       summary: Funds and margin for one account
-      x-stream: S7
+      x-module: orders
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/AccountQuery"
@@ -1626,7 +1582,7 @@ paths:
       tags: [Orders]
       operationId: listOrders
       summary: Orders (newest first)
-      x-stream: S7
+      x-module: orders
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/AccountQueryOptional"
@@ -1658,7 +1614,7 @@ paths:
         file and `"mode": "live"` in the body; orders from AI assistants also need a `confirmToken` from a human
         confirmation. `quantity` is in units and must be a multiple of the lot size; or send `lots`. There is no default
         product or order type. MARKET and SL-M orders get market protection (or are refused) as configured.
-      x-stream: S7
+      x-module: orders
       x-scope: paper
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1689,7 +1645,7 @@ paths:
       operationId: previewOrder
       summary: Check an order without sending it
       description: Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value. When a human must confirm (orders from AI assistants, or hooks set to require it), it opens a ticket that you confirm in the dashboard (Orders, Pending confirmations); the confirmation yields the `confirmToken` that `POST /v1/orders` needs.
-      x-stream: S7
+      x-module: orders
       x-scope: paper
       requestBody:
         required: true
@@ -1715,7 +1671,7 @@ paths:
       tags: [Orders]
       operationId: cancelAllOrders
       summary: Cancel every open order for an account (or all accounts this key may use)
-      x-stream: S7
+      x-module: orders
       x-scope: paper
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1776,7 +1732,7 @@ paths:
       tags: [Orders]
       operationId: getOrderByClientId
       summary: Look up an order by your own clientOrderId
-      x-stream: S7
+      x-module: orders
       x-scope: read
       responses:
         "200":
@@ -1802,7 +1758,7 @@ paths:
       tags: [Orders]
       operationId: getOrder
       summary: One order (refreshed from the broker for live orders)
-      x-stream: S7
+      x-module: orders
       x-scope: read
       responses:
         "200":
@@ -1822,7 +1778,7 @@ paths:
       operationId: modifyOrder
       summary: Modify an open order
       description: Counts towards the order-rate cap. Brokers limit modifications per order (for example 25); after that, cancel and place again.
-      x-stream: S7
+      x-module: orders
       x-scope: paper
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1850,7 +1806,7 @@ paths:
       tags: [Orders]
       operationId: cancelOrder
       summary: Cancel an open order
-      x-stream: S7
+      x-module: orders
       x-scope: paper
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1875,7 +1831,7 @@ paths:
       tags: [Orders]
       operationId: listTrades
       summary: Executions (trade book)
-      x-stream: S7
+      x-module: orders
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/AccountQueryOptional"
@@ -1908,7 +1864,7 @@ paths:
           required: false
           description: "`open` (default): tickets waiting for a person. `rejected`: tickets a person declined recently."
           schema: { type: string, enum: [open, rejected], default: open }
-      x-stream: S7
+      x-module: orders
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -1936,7 +1892,7 @@ paths:
       operationId: confirmTicket
       summary: Human confirmation of an order prepared by an AI assistant or webhook
       description: Used by the Bridge's own confirmation page on this computer. Returns the `confirmToken` that `POST /v1/orders` needs. Tickets expire after about 60 seconds. A ticket a person already declined answers 409 `STATE_CONFLICT` with `state: rejected` and never yields a token.
-      x-stream: S7
+      x-module: orders
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -2014,7 +1970,7 @@ paths:
       tags: [Paper]
       operationId: getPaperAccount
       summary: Paper account summary
-      x-stream: S8
+      x-module: paper
       x-scope: read
       responses:
         "200":
@@ -2037,7 +1993,7 @@ paths:
       tags: [Paper]
       operationId: resetPaperAccount
       summary: Clear paper orders and positions and start again
-      x-stream: S8
+      x-module: paper
       x-scope: paper
       requestBody:
         content:
@@ -2069,7 +2025,7 @@ paths:
       operationId: undoPaperReset
       summary: Put back the paper book from before the last reset
       description: Works for 2 minutes after a reset and only while no order has been placed since. Orders that were pending at the reset stay cancelled.
-      x-stream: S8
+      x-module: paper
       x-scope: paper
       responses:
         "200":
@@ -2095,8 +2051,8 @@ paths:
       description: >-
         One row per IST day: equity, realised, unrealised, charges, the day's change in equity (`pnl`), used margin and
         open positions. Taken at the end of each session (the first maintenance pass after the session end, or the day
-        roll) and on demand. Kept through a paper reset. The trade journal's P&L calendar reads these.
-      x-stream: S8
+        roll) and on demand.
+      x-module: paper
       x-scope: read
       responses:
         "200":
@@ -2120,7 +2076,7 @@ paths:
       operationId: paperDailySnapshot
       summary: Take today's P&L snapshot now
       description: Marks the book to the latest prices and stores today's row. It never replaces today's end-of-day row, which it returns instead.
-      x-stream: S8
+      x-module: paper
       x-scope: paper
       responses:
         "200":
@@ -2147,7 +2103,7 @@ paths:
         Portfolio model (server/bridge/calc/span-margin.js): approximate, not the exchange's SPAN. Per underlying, a
         16-scenario price and volatility scan, plus exposure margin, a calendar charge across expiries and expiry-day ELM.
         Without an underlying price the legs fall back to the simple per-leg model and are listed in `fallback`.
-      x-stream: S8
+      x-module: paper
       x-scope: read
       requestBody:
         required: true
@@ -2213,7 +2169,7 @@ paths:
       tags: [Safety]
       operationId: getSafety
       summary: Kill switch, live-trading state and today's safety counters
-      x-stream: S9
+      x-module: safety
       x-scope: read
       responses:
         "200":
@@ -2234,7 +2190,7 @@ paths:
       tags: [Safety]
       operationId: engageKillSwitch
       summary: Stop all orders now (any key may do this)
-      x-stream: S9
+      x-module: safety
       x-scope: read
       description: >-
         Any key may stop trading; an empty body works (reason "manual"). cancelOpenOrders needs a live key (or admin
@@ -2269,7 +2225,7 @@ paths:
       tags: [Safety]
       operationId: releaseKillSwitch
       summary: Release the kill switch (admin, this computer only)
-      x-stream: S9
+      x-module: safety
       x-scope: admin
       x-loopback-only: true
       requestBody:
@@ -2301,7 +2257,7 @@ paths:
       tags: [Readiness]
       operationId: getReadiness
       summary: Trading readiness of each live account (cached; no broker call)
-      x-stream: S20
+      x-module: readiness
       x-scope: read
       description: >-
         One state per account (ready, warn, cannot_trade, paper_only, unknown) with plain-English reasons and the facts
@@ -2329,7 +2285,7 @@ paths:
       tags: [Readiness]
       operationId: checkReadiness
       summary: Re-check now (probe and egress lookup, each with a 30 s cooldown)
-      x-stream: S20
+      x-module: readiness
       x-scope: read
       description: >-
         Runs the checks at once for one account (or every account this key may see). The broker read call and the
@@ -2362,7 +2318,7 @@ paths:
       tags: [Readiness]
       operationId: getReadinessHistory
       summary: Recent readiness transitions (newest first)
-      x-stream: S20
+      x-module: readiness
       x-scope: read
       parameters:
         - { name: account, in: query, required: false, schema: { $ref: "#/components/schemas/AccountId" } }
@@ -2389,7 +2345,7 @@ paths:
       tags: [Readiness]
       operationId: demoReadinessScenario
       summary: Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)
-      x-stream: S20
+      x-module: readiness
       x-scope: read
       x-demo-only: true
       description: >-
@@ -2424,7 +2380,7 @@ paths:
       tags: [Safety]
       operationId: queryAudit
       summary: Read the append-only audit log
-      x-stream: S9
+      x-module: safety
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -2459,7 +2415,7 @@ paths:
       tags: [Safety]
       operationId: verifyAudit
       summary: Check the audit log's hash chain
-      x-stream: S9
+      x-module: safety
       x-scope: admin
       x-loopback-only: true
       parameters:
@@ -2492,7 +2448,7 @@ paths:
       operationId: xlLtp
       summary: One number as plain text, for Excel WEBSERVICE and AmiBroker
       description: "`=WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\")`. Read-only URL keys only; nothing under /xl can place an order."
-      x-stream: S10
+      x-module: integrations
       x-scope: read
       security:
         - bearerAuth: []
@@ -2512,7 +2468,7 @@ paths:
       tags: [Spreadsheets]
       operationId: xlQuote
       summary: One quote field as plain text
-      x-stream: S10
+      x-module: integrations
       x-scope: read
       security:
         - bearerAuth: []
@@ -2536,7 +2492,7 @@ paths:
       tags: [Spreadsheets]
       operationId: xlChain
       summary: Flat option chain table (CSV or JSON records) for Power Query and Sheets
-      x-stream: S10
+      x-module: integrations
       x-scope: read
       security:
         - bearerAuth: []
@@ -2560,7 +2516,7 @@ paths:
       tags: [Spreadsheets]
       operationId: xlHistory
       summary: Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)
-      x-stream: S10
+      x-module: integrations
       x-scope: read
       security:
         - bearerAuth: []
@@ -2603,7 +2559,7 @@ paths:
         symbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send
         `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`; requests older than 5 minutes or
         replayed are refused. Served on the public ingress listener when it is enabled.
-      x-stream: S11
+      x-module: hooks
       x-public: true
       security: []
       parameters:
@@ -2639,7 +2595,7 @@ paths:
       operationId: listHooks
       summary: List configured hooks (never the token)
       description: An admin key limited to some accounts lists only the hooks of those accounts.
-      x-stream: S11
+      x-module: hooks
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -2659,7 +2615,7 @@ paths:
       tags: [Webhooks]
       operationId: createHook
       summary: Create a hook; the URL with its token is shown once
-      x-stream: S11
+      x-module: hooks
       x-scope: admin
       x-loopback-only: true
       requestBody:
@@ -2702,7 +2658,7 @@ paths:
       operationId: deleteHook
       summary: Delete a hook (its URL stops working immediately)
       description: An admin key limited to some accounts can delete only the hooks of those accounts; any other hook answers 404.
-      x-stream: S11
+      x-module: hooks
       x-scope: admin
       x-loopback-only: true
       responses:
@@ -2720,7 +2676,7 @@ paths:
         JSON-RPC 2.0 per the Model Context Protocol. The key's scopes decide which tools exist: market-data and account
         tools for `read`; order tools only when enabled in config, and every order still needs your confirmation in the
         Bridge. Desktop assistants should prefer `mc-bridge mcp` over stdio.
-      x-stream: S11
+      x-module: mcp
       x-scope: read
       requestBody:
         required: true
@@ -2743,7 +2699,7 @@ paths:
       tags: [Compat REST]
       operationId: compatPing
       summary: "Check the key and the account the calls act on"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -2778,7 +2734,7 @@ paths:
       tags: [Compat REST]
       operationId: compatAnalyzer
       summary: "Analyzer (paper) mode status for this key"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -2813,7 +2769,7 @@ paths:
       tags: [Compat REST]
       operationId: compatAnalyzerToggle
       summary: "Switch analyzer mode for this key (off needs a live key)"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -2848,7 +2804,7 @@ paths:
       tags: [Compat REST]
       operationId: compatFunds
       summary: "Funds"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -2883,7 +2839,7 @@ paths:
       tags: [Compat REST]
       operationId: compatOrderbook
       summary: "Order book with statistics"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -2918,7 +2874,7 @@ paths:
       tags: [Compat REST]
       operationId: compatTradebook
       summary: "Trade book"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -2953,7 +2909,7 @@ paths:
       tags: [Compat REST]
       operationId: compatPositionbook
       summary: "Positions"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -2988,7 +2944,7 @@ paths:
       tags: [Compat REST]
       operationId: compatHoldings
       summary: "Holdings with statistics"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3023,7 +2979,7 @@ paths:
       tags: [Compat REST]
       operationId: compatPlaceorder
       summary: "Place an order"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3058,7 +3014,7 @@ paths:
       tags: [Compat REST]
       operationId: compatPlacesmartorder
       summary: "Order towards a target position size"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3093,7 +3049,7 @@ paths:
       tags: [Compat REST]
       operationId: compatBasketorder
       summary: "Several orders in one call"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3128,7 +3084,7 @@ paths:
       tags: [Compat REST]
       operationId: compatSplitorder
       summary: "One order split into pieces"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3163,7 +3119,7 @@ paths:
       tags: [Compat REST]
       operationId: compatModifyorder
       summary: "Modify an open order"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3198,7 +3154,7 @@ paths:
       tags: [Compat REST]
       operationId: compatCancelorder
       summary: "Cancel an order"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3233,7 +3189,7 @@ paths:
       tags: [Compat REST]
       operationId: compatCancelallorder
       summary: "Cancel every open order"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3268,7 +3224,7 @@ paths:
       tags: [Compat REST]
       operationId: compatCloseposition
       summary: "Square off every open position"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3303,7 +3259,7 @@ paths:
       tags: [Compat REST]
       operationId: compatOrderstatus
       summary: "One order's status"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3338,7 +3294,7 @@ paths:
       tags: [Compat REST]
       operationId: compatOpenposition
       summary: "Net quantity for one symbol and product"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3373,7 +3329,7 @@ paths:
       tags: [Compat REST]
       operationId: compatOptionsorder
       summary: "Order an option by offset (ATM, ITM2, OTM1 ...)"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3408,7 +3364,7 @@ paths:
       tags: [Compat REST]
       operationId: compatQuotes
       summary: "Quote for one symbol"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3443,7 +3399,7 @@ paths:
       tags: [Compat REST]
       operationId: compatMultiquotes
       summary: "Quotes for up to 200 symbols"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3478,7 +3434,7 @@ paths:
       tags: [Compat REST]
       operationId: compatDepth
       summary: "Market depth"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3513,7 +3469,7 @@ paths:
       tags: [Compat REST]
       operationId: compatHistory
       summary: "Candles"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3548,7 +3504,7 @@ paths:
       tags: [Compat REST]
       operationId: compatIntervals
       summary: "Supported candle intervals"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3583,7 +3539,7 @@ paths:
       tags: [Compat REST]
       operationId: compatSymbol
       summary: "Instrument details"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3618,7 +3574,7 @@ paths:
       tags: [Compat REST]
       operationId: compatSearch
       summary: "Instrument search"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3653,7 +3609,7 @@ paths:
       tags: [Compat REST]
       operationId: compatExpiry
       summary: "Expiry dates"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3688,7 +3644,7 @@ paths:
       tags: [Compat REST]
       operationId: compatOptionchain
       summary: "Option chain"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3723,7 +3679,7 @@ paths:
       tags: [Compat REST]
       operationId: compatOptionsymbol
       summary: "Option symbol for an offset"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3758,7 +3714,7 @@ paths:
       tags: [Compat REST]
       operationId: compatMargin
       summary: "Margin calculation (not available yet)"
-      x-stream: S14
+      x-module: compat
       security: []
       requestBody:
         required: true
@@ -3816,12 +3772,6 @@ components:
       schema: { type: integer }
 
   parameters:
-    StrategyId:
-      name: strategyId
-      in: path
-      required: true
-      description: The file name without .py, lowercase, with - as _.
-      schema: { type: string, pattern: "^[a-z0-9][a-z0-9_]{0,31}$" }
     AccountIdPath:
       name: accountId
       in: path
@@ -3927,81 +3877,7 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
 
-    AnalyticsResult:
-      description: Computed analytics. `data` is specific to the route; chain-based routes add `meta.freshness`.
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [data, meta]
-            properties:
-              data: { type: object, additionalProperties: true }
-              errors: { type: array, items: { type: object, additionalProperties: true } }
-              meta: { $ref: "#/components/schemas/Meta" }
-    StrategyResult:
-      description: A strategy answer. `data` depends on the route.
-      content:
-        application/json:
-          schema:
-            type: object
-            required: [data, meta]
-            properties:
-              data: { type: object, additionalProperties: true }
-              meta: { $ref: "#/components/schemas/Meta" }
   schemas:
-    TriggerLegInput:
-      type: object
-      required: [trigger, order]
-      properties:
-        trigger: { type: number, exclusiveMinimum: 0 }
-        op: { type: string, enum: [above, below], description: "Default: the side of the price now that the trigger is on." }
-        role: { type: string, enum: [entry, stop, target] }
-        trail: { type: [object, "null"], properties: { points: { type: number }, pct: { type: number, maximum: 50 } } }
-        order:
-          type: object
-          required: [side]
-          properties:
-            side: { type: string, enum: [BUY, SELL] }
-            quantity: { type: integer, minimum: 1 }
-            lots: { type: integer, minimum: 1 }
-            orderType: { type: string, enum: [LIMIT, MARKET], default: MARKET }
-            price: { type: number }
-    TriggerInput:
-      type: object
-      required: [account, symbol, product, legs]
-      properties:
-        account: { type: string }
-        symbol: { type: string }
-        product: { type: string, enum: [INTRADAY, MARGIN, CNC, MTF] }
-        type: { type: string, enum: [single, oco] }
-        origin: { type: string, enum: [gtt, bracket, position, amo], default: gtt, description: "amo: an after-market order, one leg without a trigger, held on this Bridge and sent at 09:15 IST on the next trading day through every check." }
-        parentOrderId: { type: string, description: "bracket: the entry order, which must exist and be in the same mode as the bracket (else VALIDATION_FAILED). The exits arm when it fills; if it ends part filled (cancelled or expired after a partial fill) they arm for the filled quantity, reduce-only; with nothing filled they are cancelled." }
-        mode: { type: string, enum: [paper, live], default: paper }
-        name: { type: string, maxLength: 80 }
-        expiresAt: { type: string, format: date-time }
-        legs: { type: array, minItems: 1, maxItems: 2, items: { $ref: "#/components/schemas/TriggerLegInput" } }
-    Trigger:
-      type: object
-      additionalProperties: true
-      properties:
-        id: { type: string }
-        name: { type: string }
-        account: { type: string }
-        symbol: { type: string }
-        product: { type: string }
-        mode: { type: string, enum: [paper, live] }
-        type: { type: string, enum: [single, oco] }
-        origin: { type: string, enum: [gtt, bracket, position, amo] }
-        openAt: { type: string, description: "amo: when it goes out (09:15 IST on the next trading day)." }
-        held: { type: string, enum: [bridge, broker], description: "amo: held on this Bridge (it must be running at 09:15) or queued at the broker." }
-        reduceOnly: { type: boolean }
-        status: { type: string, enum: [waiting, active, firing, triggered, cancelled, failed, expired] }
-        legs: { type: array, items: { type: object, additionalProperties: true } }
-        expiresAt: { type: string }
-        convertedFrom: { type: string, description: "The trigger this one was split from when part of its position was converted to another product." }
-        lastLtp: { type: [number, "null"] }
-        result: { type: [object, "null"], additionalProperties: true, description: "orderId, status, code and message once it fired, failed or was cancelled." }
-        warnings: { type: array, items: { type: string } }
     PaperDailyPnl:
       type: object
       required: [day, at, source, equity, pnl]
@@ -4016,201 +3892,6 @@ components:
         pnl: { type: number, description: The day's change in equity (from the previous row, or the starting capital after a reset). }
         usedMargin: { type: [number, "null"] }
         openPositions: { type: integer }
-    SnapshotUnits:
-      type: object
-      properties:
-        oi: { type: string, const: units }
-        volume: { type: string, const: units }
-        iv: { type: string, const: percent }
-        price: { type: string, const: INR }
-        age: { type: string, const: ms }
-    SnapshotSide:
-      type: object
-      description: Arrays aligned to `strikes`; only the requested fields are present; null = no value.
-      additionalProperties:
-        type: array
-        items: { type: [number, "null"] }
-    OptionSnapshot:
-      type: object
-      required: [slot, ts, source, quality, partial, strikes, ce, pe]
-      properties:
-        slot: { type: string, format: date-time }
-        ts: { type: string, format: date-time }
-        source: { type: string, enum: [stream, rest, nse-backup, backfill], description: "Open enum." }
-        accountId: { type: [string, "null"] }
-        broker: { type: [string, "null"] }
-        accounts: { type: [object, "null"], additionalProperties: { type: integer } }
-        quality: { type: string, enum: [live, demo, demo-backfill, suspect-holiday], description: "Open enum." }
-        partial: { type: boolean }
-        missingLegs: { type: integer }
-        oiUnitVerified: { type: boolean }
-        lotSize: { type: [integer, "null"] }
-        spot: { type: [number, "null"] }
-        forward: { type: [number, "null"] }
-        atm: { type: [number, "null"] }
-        straddle: { type: [number, "null"] }
-        rate: { type: [number, "null"], description: "Decimal." }
-        t: { type: [number, "null"], description: "Years." }
-        model: { type: string }
-        strikes: { type: array, items: { type: number } }
-        ce: { $ref: "#/components/schemas/SnapshotSide" }
-        pe: { $ref: "#/components/schemas/SnapshotSide" }
-    SnapshotGap:
-      type: object
-      required: [from, to, slots, reason]
-      properties:
-        from: { type: string, format: date-time }
-        to: { type: string, format: date-time }
-        slots: { type: integer }
-        minutes: { type: integer, description: "Minutes the gap stands for (slots times each slot's cadence)." }
-        reason: { type: string, enum: [stream-down, budget, broker-error, session-expired, not-subscribed-yet, bridge-down, disk-full, paused], description: "Open enum." }
-        detail: { type: [string, "null"] }
-    OptionSnapshotPage:
-      type: object
-      required: [underlying, expiry, units, fields, snapshots, gaps, coverage]
-      properties:
-        underlying: { type: string }
-        expiry: { type: string, format: date }
-        exchange: { type: [string, "null"] }
-        units: { $ref: "#/components/schemas/SnapshotUnits" }
-        fields: { type: array, items: { type: string } }
-        snapshots: { type: array, items: { $ref: "#/components/schemas/OptionSnapshot" } }
-        gaps: { type: array, items: { $ref: "#/components/schemas/SnapshotGap" } }
-        coverage:
-          type: object
-          properties:
-            expectedSlots: { type: integer }
-            recordedSlots: { type: integer }
-            gapSlots: { type: integer }
-            partialSlots: { type: integer }
-            firstSlot: { type: [string, "null"], format: date-time }
-            lastSlot: { type: [string, "null"], format: date-time }
-        unavailable:
-          type: [object, "null"]
-          properties:
-            reason: { type: string, enum: [not-in-plan, not-recorded-yet, refused] }
-            detail: { type: string }
-        method: { type: object, additionalProperties: { type: string } }
-        nextCursor: { type: [string, "null"] }
-    OptionDailyRow:
-      type: object
-      required: [date, underlying, expiry, quality]
-      properties:
-        date: { type: string, format: date }
-        underlying: { type: string }
-        expiry: { type: string, format: date }
-        asOf: { type: string, format: date-time }
-        source: { type: string }
-        quality: { type: string }
-        spot: { type: [number, "null"] }
-        forward: { type: [number, "null"] }
-        atm: { type: [number, "null"] }
-        straddle: { type: [number, "null"] }
-        pcrOi: { type: [number, "null"] }
-        pcrVolume: { type: [number, "null"] }
-        maxPain: { type: [number, "null"] }
-        strikesCovered: { type: integer }
-        largestCallOi: { type: [object, "null"], description: "Strike with the largest call OI (not a gamma Call Wall).", properties: { strike: { type: number }, oi: { type: integer } } }
-        largestPutOi: { type: [object, "null"], description: "Strike with the largest put OI (not a gamma Put Wall).", properties: { strike: { type: number }, oi: { type: integer } } }
-        ceOi: { type: [integer, "null"] }
-        peOi: { type: [integer, "null"] }
-        topAdds: { type: array, items: { type: object, properties: { strike: { type: number }, right: { type: string, enum: [CE, PE] }, dOi: { type: integer } } } }
-        topCuts: { type: array, items: { type: object, properties: { strike: { type: number }, right: { type: string, enum: [CE, PE] }, dOi: { type: integer } } } }
-        dOiBasis: { type: string, enum: [prev-recorded, broker-prev-close, none] }
-        future: { type: [object, "null"], properties: { expiry: { type: string, format: date }, ltp: { type: number }, oi: { type: [integer, "null"] }, basis: { type: number }, basisAnnPct: { type: [number, "null"] }, rolloverPct: { type: [number, "null"] } } }
-        slots: { type: integer }
-        gapSlots: { type: integer }
-        partialSlots: { type: integer }
-        gex: { type: "null", description: "Reserved." }
-        zeroGamma: { type: "null", description: "Reserved." }
-    RecorderConfig:
-      type: object
-      additionalProperties: false
-      properties:
-        enabled: { type: boolean }
-        account: { type: [string, "null"] }
-        indices: { type: array, items: { type: string }, maxItems: 12 }
-        indexExpiries: { type: integer, minimum: 1, maximum: 4 }
-        indexStrikes: { type: integer, minimum: 1, maximum: 60 }
-        stocks: { type: array, items: { type: string }, maxItems: 200 }
-        stockExpiries: { type: integer, minimum: 1, maximum: 2 }
-        stockStrikes: { type: integer, minimum: 1, maximum: 30 }
-        stockEveryMinutes: { type: integer, enum: [5, 10, 15] }
-        sources: { type: object, properties: { stream: { type: boolean }, rest: { type: boolean }, nseBackup: { type: boolean } } }
-        budgetShare: { type: number, minimum: 0.05, maximum: 0.5 }
-        streamShare: { type: number, minimum: 0.1, maximum: 0.9 }
-        strikeBuffer: { type: integer, minimum: 0, maximum: 10 }
-        allowSingleTokenRest: { type: boolean }
-        retentionDays: { type: integer, minimum: 7, maximum: 3650 }
-        maxDiskMb: { type: integer, minimum: 100 }
-        recordSpecialSessions: { type: boolean }
-        dailyAt: { type: string, pattern: "^\\d{2}:\\d{2}$" }
-        slotOffsetMs: { type: integer, minimum: 0, maximum: 30000 }
-        restSpreadMs: { type: integer, minimum: 0, maximum: 55000 }
-        demo: { type: object, properties: { alwaysOpen: { type: boolean }, backfillDays: { type: integer, minimum: 0, maximum: 5 } } }
-    RecorderPlanResult:
-      type: object
-      required: [ok, message, plan]
-      properties:
-        ok: { type: boolean }
-        message: { type: string }
-        plan: { type: object }
-        budget: { type: object }
-        capacity: { type: object }
-    RecorderStatus:
-      type: object
-      required: [state, demo, session, plan, today, disk, coverage, sources, warnings]
-      properties:
-        state: { type: string, enum: [recording, idle-closed, paused, not-configured, degraded, holiday-suspected, disk-full, error], description: "Open enum." }
-        stateDetail: { type: string }
-        demo: { type: boolean }
-        account: { type: [object, "null"] }
-        session: { type: object }
-        plan: { type: object }
-        budget: { type: object }
-        today: { type: object }
-        disk: { type: object }
-        coverage:
-          type: array
-          description: "One row per planned chain today. *Slots counts records; *Minutes weighs each slot by its cadence (a 5-minute chain's slot is 5 minutes); everyMinutesNow is the cadence in force now (the demo's always-open clock uses 5 minutes outside 09:15-15:30)."
-          items:
-            type: object
-            properties:
-              underlying: { type: string }
-              expiry: { type: string, format: date }
-              everyMinutes: { type: integer }
-              everyMinutesNow: { type: integer }
-              firstSlot: { type: [string, "null"], format: date-time }
-              expectedSlots: { type: integer }
-              recordedSlots: { type: integer }
-              gapSlots: { type: integer }
-              expectedMinutes: { type: integer }
-              recordedMinutes: { type: integer }
-              gapMinutes: { type: integer }
-              gaps: { type: array, items: { $ref: "#/components/schemas/SnapshotGap" } }
-        sources: { type: object }
-        oiUnits: { type: object }
-        holidaySuspected: { type: [object, "null"], description: "Set when today looked like an unlisted holiday (flat first six minutes, no volume)." }
-        backfill: { type: [object, "null"], description: "Demo mode only: the synthetic back-fill." }
-        settings: { type: object, description: "The recorder settings in use (RecorderConfig shape)." }
-        warnings: { type: array, items: { type: string } }
-        feasibility:
-          type: array
-          description: "Only with ?feasibility=true: one row per broker (default settings)."
-          items:
-            type: object
-            properties:
-              broker: { type: string }
-              label: { type: string }
-              feed: { type: string }
-              rest: { type: string }
-              indices: { type: string }
-              stocks: { type: string }
-              restAllowed: { type: boolean }
-              indexByStream: { type: integer }
-              indexByRest: { type: integer }
-              indexRefused: { type: integer }
-              stocksTotal: { type: integer }
     Problem:
       type: object
       required: [type, title, status, code, retryable]
@@ -4258,18 +3939,7 @@ components:
         state:
           type: string
           enum: [rejected, confirmed, consumed, expired]
-          description: "STATE_CONFLICT on a ticket route only: why it cannot be confirmed or declined. Read this, not `detail`."
-        canCarry:
-          type: object
-          description: "CAPACITY_EXCEEDED only (PUT /v1/options/recorder/config): the underlyings the data account can carry."
-          properties:
-            indices: { type: array, items: { type: string } }
-            stocks: { type: array, items: { type: string } }
-        refused:
-          type: array
-          description: "CAPACITY_EXCEEDED only: the chains refused for capacity, with the reason."
-          items: { type: object }
-    ErrorCode:
+          description: "STATE_CONFLICT on a ticket route only: why it cannot be confirmed or declined. Read this, not `detail`."    ErrorCode:
       type: string
       description: Stable codes; new ones may be added. Source of truth server/bridge/core/errors.mjs.
       enum:
@@ -4295,17 +3965,13 @@ components:
         - INVALID_ORDER
         - SESSION_EXPIRED
         - CONFIRMATION_REQUIRED
-        - CAPACITY_EXCEEDED
-        - ALERT_LIMIT
         - STATE_CONFLICT
-        - COMPUTE_LIMIT
         - PAPER_ONLY
         - ORDER_GATE_CLOSED
         - DAILY_LIMIT_REACHED
         - MARKET_CLOSED
         - KILL_SWITCH_ACTIVE
         - CANNOT_TRADE
-        - AUTOMATION_NOT_ALLOWED
         - RATE_LIMITED
         - ORDER_RATE_LIMITED
         - UPSTREAM_RATE_LIMITED
@@ -4315,7 +3981,6 @@ components:
         - UPSTREAM_ERROR
         - BROKER_UNAVAILABLE
         - UPSTREAM_TIMEOUT
-        - COMPUTE_TIMEOUT
         - OUTCOME_UNKNOWN
     Meta:
       type: object
@@ -4433,52 +4098,6 @@ components:
         data: {}
         orderid: { type: [string, "null"] }
       additionalProperties: true
-    ScanRequest:
-      type: object
-      required: [condition]
-      description: Give universe or symbols (not both).
-      properties:
-        name: { type: string, maxLength: 80 }
-        universe: { type: string, description: "FNO, NIFTY50, INDICES or a name from scanner.universes" }
-        symbols: { type: array, items: { type: string }, maxItems: 5000 }
-        interval: { type: string, enum: ["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M", "live"], default: "1d", description: "live: daily bars with today's bar live at the end, plus the facts (OI change, PCR, IV rank, MWPL ...; GET /v1/scanner/library lists them)." }
-        lookback: { type: integer, minimum: 2, maximum: 5000, description: "Bars per symbol; default from the condition" }
-        condition: { type: string, maxLength: 1000, example: "rsi(14) > 60 and close crosses above ema(20)" }
-        columns: { type: array, maxItems: 12, items: { type: string }, example: ["rsi(14)", "close / sma(200) - 1"] }
-        sort:
-          type: object
-          properties:
-            by: { type: string }
-            order: { type: string, enum: [asc, desc], default: desc }
-        limit: { type: integer, minimum: 1, maximum: 5000 }
-        source: { type: string, enum: [auto, broker, backup], default: auto }
-    SavedScanRequest:
-      type: object
-      required: [name, request]
-      properties:
-        name: { type: string, maxLength: 80 }
-        request: { $ref: "#/components/schemas/ScanRequest" }
-        everyMinutes: { type: integer, minimum: 1, maximum: 1440, nullable: true }
-        marketHoursOnly: { type: boolean, default: true }
-        atClose: { type: boolean, default: false, description: "Run once after the close (15:31 IST) on trading days." }
-        notify: { type: boolean, default: true, description: "Send scan.alert to the notification targets." }
-        builder: { type: object, nullable: true, description: "The builder model, so the scan reopens in the builder." }
-        libraryId: { type: string, nullable: true }
-        columns: { type: array, maxItems: 20, items: { type: string } }
-    SavedScanPatch:
-      type: object
-      description: Any of the SavedScanRequest fields.
-      properties:
-        name: { type: string, maxLength: 80 }
-        request: { $ref: "#/components/schemas/ScanRequest" }
-        everyMinutes: { type: integer, minimum: 1, maximum: 1440, nullable: true }
-        marketHoursOnly: { type: boolean }
-        atClose: { type: boolean }
-        notify: { type: boolean }
-        builder: { type: object, nullable: true }
-        libraryId: { type: string, nullable: true }
-        columns: { type: array, maxItems: 20, items: { type: string } }
-
     Freshness:
       type: object
       required: [source, asOf, ageMs, stale, class, delaySec, official, confidence, flags]
@@ -4613,10 +4232,6 @@ components:
             - { type: array, items: { $ref: "#/components/schemas/AccountId" } }
         allowQuery: { type: boolean }
         clientKind: { type: string, enum: [script, excel, mcp, ui, other] }
-        purpose:
-          type: string
-          enum: [strategy-run]
-          description: Set by the Bridge only, never from a request. strategy-run is a Python strategy's per-run key (revoked when the run ends and at every start); it cannot set triggers.
         createdAt: { type: string, format: date-time }
         expiresAt: { type: [string, "null"], format: date-time }
         lastUsedAt: { type: [string, "null"], format: date-time }
@@ -4755,150 +4370,6 @@ components:
         close: { type: number }
         volume: { type: number }
         oi: { type: number }
-    StudyParam:
-      type: object
-      required: [name, type]
-      properties:
-        name: { type: string }
-        type: { type: string, enum: [int, number, choice, source] }
-        min: { type: number }
-        max: { type: number }
-        values: { type: array, items: { type: string }, description: "choice and source: the allowed values." }
-        default: { oneOf: [{ type: number }, { type: string }] }
-    StudyCatalogue:
-      type: object
-      required: [studies, patterns, intervals, limits, core]
-      properties:
-        studies:
-          type: array
-          items:
-            type: object
-            required: [id, summary, pane, available, causality, params, outputs]
-            properties:
-              id: { type: string, example: bb }
-              summary: { type: string }
-              pane: { type: string, enum: [price, panel] }
-              available: { type: boolean }
-              reason: { type: string, description: "Why an unavailable study cannot be used yet." }
-              causality: { type: [string, "null"], enum: [causal, noncausal, null] }
-              params: { type: array, items: { $ref: "#/components/schemas/StudyParam" } }
-              outputs:
-                type: array
-                items:
-                  type: object
-                  required: [name, type]
-                  properties:
-                    name: { type: string, example: upper }
-                    type: { type: string, enum: [float, int, bool] }
-        patterns:
-          type: array
-          items:
-            type: object
-            required: [id, bias, position]
-            properties:
-              id: { type: string, example: bullish_engulfing }
-              bias: { type: string, enum: [bullish, bearish, neutral] }
-              position: { type: string, enum: [above, below] }
-        intervals: { type: array, items: { type: string, enum: ["1d", "1w", "1M"] } }
-        limits: { type: object, description: "maxStudies, maxBars, maxLookback, scriptMaxChars, scriptMaxLines, maxPlotsPerScript, budgetElements." }
-        core: { type: object, description: "version, stdlib, ir, stdlibFrozen." }
-    StudyComputeRequest:
-      type: object
-      additionalProperties: false
-      required: [symbol, interval]
-      properties:
-        symbol: { type: string, maxLength: 64, example: "NSE:RELIANCE" }
-        interval: { type: string, enum: ["1d", "1w", "1M"] }
-        from: { oneOf: [{ type: string, maxLength: 40 }, { type: number }], description: "First candle shown: ISO date or date-time (IST if no offset), or epoch seconds. Not with countback." }
-        to: { oneOf: [{ type: string, maxLength: 40 }, { type: number }], description: "Last candle (default now)." }
-        countback: { type: integer, minimum: 1, maximum: 5000, description: "Candles shown, ending at to. Default 500 when from is not given." }
-        studies:
-          type: array
-          maxItems: 16
-          items:
-            type: object
-            additionalProperties: false
-            required: [id]
-            properties:
-              id: { type: string, description: "A study id from GET /v1/studies.", example: supertrend }
-              params: { type: object, additionalProperties: { oneOf: [{ type: number }, { type: string }] }, description: "Settings by name; each within its range. Left out: the default." }
-              key: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_.-]{0,39}$", description: "Names the study's series (`<key>.<output>`). Default `<id><index>`." }
-        patterns:
-          oneOf:
-            - { type: array, maxItems: 24, items: { type: string } }
-            - { type: string, enum: [all] }
-          description: Candlestick pattern ids from GET /v1/studies, or "all".
-        script: { type: string, maxLength: 12000, description: "A ChartistScript indicator. Not with studies or patterns." }
-        inputs: { type: object, additionalProperties: { oneOf: [{ type: number }, { type: boolean }, { type: string }] }, description: "The script's settings by name." }
-        warmup: { type: boolean, default: true, description: "Fetch earlier candles so the first value shown is warmed up." }
-    StudySeries:
-      type: object
-      required: [key, study, field, label, pane, style, type, values]
-      properties:
-        key: { type: string, example: bb1.upper, description: "`<study key>.<output>` for studies; `p1`, `p2`, ... (plots) and `b1`, ... (backgrounds) for a script." }
-        study: { type: string, description: "The study key, or `script`." }
-        field: { type: string }
-        label: { type: string }
-        pane: { type: string, enum: [price, panel] }
-        style: { type: string, enum: [line, hist, area, step, background] }
-        type: { type: string, enum: [float, int, bool], description: "int and bool are states (supertrend direction, SAR up), not prices." }
-        values: { type: array, items: { type: [number, "null"] }, description: "One per entry of data.time; null where unknown." }
-        level: { type: number, description: "Script plots of one fixed number: a reference level." }
-        width: { type: integer }
-        color: { type: string, enum: [up, down, neutral, blue, teal, amber, gray] }
-        colors: { type: array, items: { type: [string, "null"] }, description: "Script plots coloured per candle." }
-    StudyMarker:
-      type: object
-      required: [key, time, price, position, shape, text]
-      properties:
-        key: { type: string, example: pattern.hammer }
-        time: { type: integer, description: "Epoch seconds of the candle." }
-        price: { type: [number, "null"], description: "The candle's low (below) or high (above)." }
-        position: { type: string, enum: [above, below] }
-        shape: { type: string, enum: [dot, triangle_up, triangle_down, square, diamond] }
-        text: { type: string }
-        pattern: { type: string }
-        bias: { type: string, enum: [bullish, bearish, neutral] }
-        color: { type: string }
-    StudyComputeResult:
-      type: object
-      required: [symbol, interval, partial, truncated, warmup, time, series, markers, fills, studies, usage]
-      properties:
-        symbol: { type: string }
-        interval: { type: string }
-        partial: { type: boolean, description: "Some history chunks failed (as /v1/history)." }
-        truncated: { type: boolean, description: "More than 5000 candles were in range; the newest 5000 are shown." }
-        warmup:
-          type: object
-          properties:
-            needed: { type: integer, description: "Earlier candles the request needs (the core's plan)." }
-            used: { type: integer, description: "Earlier candles there were." }
-            short: { type: integer, description: "How many were missing; the first values shown may then be null." }
-        time: { type: array, items: { type: integer }, description: "Epoch seconds, ascending, one per candle shown." }
-        series: { type: array, items: { $ref: "#/components/schemas/StudySeries" } }
-        markers: { type: array, items: { $ref: "#/components/schemas/StudyMarker" } }
-        fills:
-          type: array
-          items:
-            type: object
-            properties:
-              key: { type: string }
-              between: { type: array, items: { type: string }, minItems: 2, maxItems: 2 }
-              color: { type: string }
-        studies:
-          type: array
-          items:
-            type: object
-            properties:
-              key: { type: string }
-              id: { type: string }
-              params: { type: object }
-              pane: { type: string, enum: [price, panel] }
-              causality: { type: string }
-              outputs: { type: array, items: { type: string } }
-              warmBars: { type: integer }
-        script: { type: object, description: "Script mode: name, overlay, irHash, scriptHash, inputs, warmBars." }
-        usage: { type: object, description: "scripts run, estimatedElements, budgetElements." }
     HistoryResult:
       type: object
       required: [symbol, interval, candles, freshness, partial]
@@ -4927,14 +4398,6 @@ components:
         theta: { type: [number, "null"] }
         vega: { type: [number, "null"] }
         greeksSource: { type: [string, "null"], enum: [broker, computed, null] }
-        oiChangeBasis:
-          type: [string, "null"]
-          enum: [broker, recorder, day-baseline, null]
-          description: >-
-            Option sweep chains only: where oiChange came from. broker = the broker chain's own change; recorder = OI now
-            minus the last OI recorded on the previous trading day; day-baseline = OI now minus the first OI seen today
-            (oiChangeSince says when); null = unknown.
-        oiChangeSince: { type: string, description: "day-baseline only: IST HH:MM of the baseline." }
         brokerIv: { type: [number, "null"], description: "The broker's own IV (percent), when it sent one and ivModel=b76-forward recomputed iv." }
         tickAgeMs: { type: integer, minimum: 0, description: "Stream-first chains only, on a quiet leg (freshness.quiet): how old its last tick is. The figures are its last trade; no tick on a live subscription means no trade since." }
         ivReason:
@@ -4945,197 +4408,6 @@ components:
             2 ticks of intrinsic on the forward; NOQUOTE = no usable price; TICK = price at or below one tick; INTRINSIC = at
             or below discounted intrinsic; RANGE = solved IV outside 1-300 %; SETTLED = past the settlement; NOFORWARD = no
             forward. Null when the IV solved.
-    FnoBan:
-      description: Ban band of a stock (null for indices).
-      oneOf:
-        - type: object
-          required: [inBan]
-          properties:
-            inBan: { type: boolean }
-            mwplPct: { type: [number, "null"] }
-            band: { type: [string, "null"], enum: [ban, high, normal, null] }
-            forDate: { type: [string, "null"], format: date }
-            asOf: { type: [string, "null"] }
-            source: { type: string, enum: [demo-override] }
-        - type: object
-          required: [available, reason]
-          properties:
-            available: { type: boolean, const: false }
-            reason: { type: string }
-    FnoUnderlying:
-      type: object
-      required: [underlying, kind, exchange, spot, settlement]
-      properties:
-        underlying: { type: string }
-        name: { type: string }
-        kind: { type: string, enum: [index, stock] }
-        exchange: { type: string, enum: [NFO, BFO] }
-        spot: { type: string, description: "The cash or index symbol that prices it." }
-        settlement: { type: string, enum: [cash, physical] }
-        lot: { type: [integer, "null"] }
-        nextLot: { type: [object, "null"], properties: { lot: { type: [integer, "null"] }, from: { type: [string, "null"] } } }
-        tickSize: { type: [number, "null"] }
-        strikeStep: { type: [number, "null"], description: "Inferred from listed strikes." }
-        freezeQty: { type: [integer, "null"] }
-        weekly: { type: boolean }
-        ban: { oneOf: [{ $ref: "#/components/schemas/FnoBan" }, { type: "null" }] }
-        events: { type: integer }
-        nonStandard: { type: boolean }
-        sweep: { type: object, properties: { covered: { type: boolean }, method: { type: [string, "null"] }, limitedReason: { type: [string, "null"] } } }
-        quote: { type: [object, "null"], properties: { ltp: { type: [number, "null"] }, changePct: { type: [number, "null"] } } }
-    FnoUnderlyingList:
-      type: object
-      required: [asOf, source, counts, items]
-      properties:
-        asOf: { type: string }
-        source: { type: object, properties: { universe: { type: string }, knownSince: { type: [string, "null"] }, masters: { type: array, items: { type: string } }, note: { type: string } } }
-        counts: { type: object, properties: { index: { type: integer }, stock: { type: integer }, inBan: { type: integer }, missingAtBroker: { type: integer } } }
-        items: { type: array, items: { $ref: "#/components/schemas/FnoUnderlying" } }
-        quotes: { type: object, properties: { loaded: { type: boolean }, reason: { type: string } } }
-    FnoUnderlyingDetail:
-      allOf:
-        - $ref: "#/components/schemas/FnoUnderlying"
-        - type: object
-          properties:
-            expiries:
-              type: array
-              items: { type: object, properties: { date: { type: string, format: date }, kind: { type: [string, "null"] }, lot: { type: [integer, "null"] }, shifted: { type: boolean }, ruleDate: { type: string }, strikeStep: { type: [number, "null"] }, strikes: { type: integer }, tickSize: { type: [number, "null"] } } }
-            deliveryMargin: { type: object, description: "Schedule for the nearest expiry (stocks), or { available false, reason INDEX_CASH_SETTLED }." }
-            settlementPrice: { type: object, properties: { method: { type: string }, window: { type: string } } }
-            nonStandardContracts: { type: array, items: { type: object, properties: { symbol: { type: string }, lot: { type: integer }, reason: { type: string } } } }
-            rules: { type: array, items: { type: string } }
-    ExpiryCostsRequest:
-      type: object
-      required: [underlying, legs]
-      additionalProperties: false
-      properties:
-        underlying: { type: string, maxLength: 30 }
-        asOf: { type: string, format: date }
-        spot: { type: number, exclusiveMinimum: 0 }
-        varElmPct: { type: number, minimum: 1, maximum: 100, description: "Your broker's VaR + ELM rate in percent; unlocks the indicative rupee delivery margin." }
-        account: { type: string, maxLength: 64 }
-        legs:
-          type: array
-          minItems: 1
-          maxItems: 40
-          items:
-            type: object
-            required: [symbol, qty]
-            additionalProperties: false
-            properties:
-              symbol: { $ref: "#/components/schemas/Symbol" }
-              qty: { type: integer, description: "Signed units: + long, − short." }
-              bid: { type: number, minimum: 0 }
-              ask: { type: number, minimum: 0 }
-    ExpiryCostsLeg:
-      type: object
-      properties:
-        symbol: { type: string }
-        qty: { type: integer }
-        moneyness: { type: [string, "null"], enum: [ITM, CTM, OTM, null], description: "CTM is the Bridge's display band (closeToMoneyStrikes steps), not an exchange definition." }
-        intrinsic: { type: [number, "null"] }
-        obligation: { type: [object, "null"], properties: { kind: { type: string, enum: [receive-shares, deliver-shares] }, shares: { type: integer }, cash: { type: number }, text: { type: string } } }
-        deliveryMargin: { type: [object, "null"], properties: { pct: { type: [number, "null"] }, indicative: { type: [number, "null"] }, basis: { type: [string, "null"] }, inWindow: { type: boolean } } }
-        settle: { type: [object, "null"], properties: { total: { type: number }, lines: { type: array, items: { type: object, properties: { key: { type: string }, value: { type: number } } } }, excluded: { type: array, items: { type: string } } } }
-        squareOff: { type: [object, "null"], properties: { price: { type: [number, "null"] }, side: { type: string, enum: [BUY, SELL] }, total: { type: [number, "null"] }, premium: { type: [number, "null"] }, lines: { type: array, items: { type: object } } } }
-        difference: { type: [number, "null"] }
-        covered: { type: [boolean, "null"] }
-        underlying: { type: string }
-    ExpiryCostsResult:
-      type: object
-      required: [asOf, legs, notes]
-      properties:
-        asOf: { type: string, format: date }
-        day: { type: [string, "null"], description: "E-n (trading days to the expiry) or E." }
-        inWindow: { type: boolean }
-        settlement: { type: string, enum: [cash, physical] }
-        spot: { type: [number, "null"] }
-        strikeStep: { type: [number, "null"] }
-        rates: { type: object, properties: { asOf: { type: [string, "null"] }, verified: { type: boolean }, source: { type: string } } }
-        legs: { type: array, items: { $ref: "#/components/schemas/ExpiryCostsLeg" } }
-        notes: { type: array, items: { type: string } }
-    SweepRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        underlyings:
-          oneOf:
-            - { type: string, enum: [indices, stocks, indices+stocks] }
-            - { type: array, maxItems: 500, items: { type: string, maxLength: 30 } }
-        stocks:
-          oneOf:
-            - { type: string, enum: [all, optIn] }
-            - { type: array, maxItems: 1000, items: { type: string, maxLength: 30 } }
-        force: { type: boolean }
-        method: { type: string, enum: [auto, chain, quotes] }
-    SweepPlan:
-      type: object
-      properties:
-        account: { type: object, properties: { id: { type: string }, broker: { type: string } } }
-        fits: { type: boolean }
-        limited: { type: boolean }
-        groups:
-          type: array
-          items: { type: object, properties: { kind: { type: string, enum: [index, stock] }, method: { type: string, enum: [chain, quotes] }, keys: { type: integer }, stocks: { type: integer }, calls: { type: integer }, class: { type: string }, ratePerMin: { type: number }, minutes: { type: number } } }
-        minutes: { type: number }
-        hv: { type: object, properties: { calls: { type: integer }, source: { type: string }, minutes: { type: number } } }
-        autoIntervalSec: { type: integer }
-        maxStocksThatFit: { type: integer }
-        message: { type: string }
-        quotesVerified: { type: boolean }
-        basis: { type: string }
-    SweepJob:
-      type: object
-      required: [id, status, progress]
-      properties:
-        id: { type: string }
-        status: { type: string, enum: [queued, running, done, partial, cancelled, failed, interrupted] }
-        requestedBy: { type: string }
-        startedAt: { type: string }
-        finishedAt: { type: [string, "null"] }
-        plan: { $ref: "#/components/schemas/SweepPlan" }
-        progress:
-          type: object
-          properties:
-            total: { type: integer }
-            done: { type: integer }
-            failed: { type: integer }
-            phase: { type: [string, "null"], enum: [queued, spots, index-chains, stock-chains, hv, null] }
-            current: { type: [string, "null"] }
-            etaSeconds: { type: [integer, "null"] }
-            calls: { type: object, additionalProperties: { type: integer } }
-            hv: { type: object, properties: { done: { type: integer }, total: { type: integer } } }
-        cursor: { type: integer }
-        durationMs: { type: [integer, "null"] }
-        joined: { type: boolean }
-        reused: { type: boolean }
-        lease: { type: object, properties: { until: { type: [string, "null"] } } }
-    SweepChainsPage:
-      type: object
-      required: [items, nextCursor, done]
-      properties:
-        items:
-          type: array
-          items:
-            type: object
-            properties:
-              key: { type: string }
-              seq: { type: integer }
-              at: { type: string }
-              method: { type: string, enum: [chain, quotes] }
-              chain: { $ref: "#/components/schemas/OptionChain" }
-        nextCursor: { type: integer }
-        done: { type: boolean }
-        hv: { type: object, additionalProperties: { type: number }, description: "HV20 (percent) per underlying; on the last page only." }
-    SweepSettings:
-      type: object
-      properties:
-        optIn: { type: array, items: { type: string } }
-        setAt: { type: [string, "null"] }
-        setBy: { type: [string, "null"] }
-        background: { type: boolean }
-        leaseSeconds: { type: integer }
-        persisted: { type: boolean }
     OptionChain:
       type: object
       required: [underlying, expiry, rows, freshness]
@@ -5160,65 +4432,6 @@ components:
               pe: { oneOf: [{ $ref: "#/components/schemas/ChainLeg" }, { type: "null" }] }
         freshness: { $ref: "#/components/schemas/Freshness" }
         pricing: { $ref: "#/components/schemas/ChainPricing" }
-    VolUnavailable:
-      type: object
-      required: [available, reason]
-      properties:
-        underlying: { type: string }
-        available: { type: boolean, const: false }
-        reason: { type: string, description: "Open enum: NOT_TRACKED, NO_HISTORY, COLLECTING, SOURCE_OFF, NO_CHAIN, NO_DATA_ACCOUNT, NOT_LISTED_IN_DEMO." }
-    VolData:
-      type: object
-      description: Volatility data. Open shape; the fields are described by the volatility routes.
-      additionalProperties: true
-    VolClockPart:
-      type: object
-      properties:
-        date: { type: string, format: date }
-        kind: { type: string, enum: [gap, session] }
-        units: { type: number }
-    VolClockResult:
-      type: object
-      properties:
-        expiry: { type: string, format: date }
-        T: { type: [number, "null"], description: "Years on the configured clock." }
-        units: { type: [number, "null"], description: "Trading-day units (calendar days in calendar mode)." }
-        Tcal: { type: [number, "null"], description: "Calendar years (ACT/365) to the expiry close." }
-        Ttd: { type: [number, "null"], description: "Trading-day years (/252)." }
-        parts: { type: array, items: { $ref: "#/components/schemas/VolClockPart" } }
-    VolClock:
-      type: object
-      properties:
-        underlying: { type: string }
-        exchange: { type: string }
-        at: { type: string, format: date-time }
-        settings: { type: object, additionalProperties: true }
-        rate: { type: object, additionalProperties: true }
-        holidays:
-          type: array
-          description: Holidays in [at, at + 400 days] for the underlying's exchange; the dashboard builds its client clock from them.
-          items:
-            type: object
-            required: [date, label, verified]
-            properties:
-              date: { type: string, format: date }
-              label: { type: [string, "null"] }
-              verified: { type: boolean }
-        expiries: { type: array, items: { $ref: "#/components/schemas/VolClockResult" } }
-    VolCaptureRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        underlyings: { type: array, maxItems: 50, items: { type: string, maxLength: 30 } }
-        replace: { type: boolean, default: false }
-    VolBackfillRequest:
-      type: object
-      additionalProperties: false
-      properties:
-        sources: { type: array, items: { type: string, enum: [nse, bse, vix] } }
-        from: { type: string, format: date }
-        to: { type: string, format: date }
-        underlyings: { type: array, maxItems: 50, items: { type: string, maxLength: 30 } }
     ChainPricing:
       type: object
       description: How every leg's IV and Greeks were computed (present with ivModel=b76-forward).
@@ -5479,37 +4692,6 @@ components:
         ordersToday: { type: integer }
         funds: { $ref: "#/components/schemas/Funds" }
         fillModel: { type: string, description: "Short description of how paper fills are simulated." }
-
-    Source:
-      type: object
-      description: One market-data source. Never holds an API key.
-      required: [id, name, kind, tier, enabled, configured, class, delaySec, official, capabilities, limits, usage, health, needsKey, consent]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        kind: { type: string, enum: [broker, free, plugin] }
-        tier: { type: string, enum: [builtin, byok, opt-in, plugin], description: "builtin = your own broker accounts; byok = you hold the vendor key; opt-in = unofficial or terms-sensitive, needs an acknowledgement; plugin = third-party code you granted." }
-        enabled: { type: boolean, description: "On now: configured, acknowledged where needed, and switched on." }
-        configured: { type: boolean, description: "A BYOK source has its key." }
-        class: { type: string, enum: [realtime, delayed, eod] }
-        delaySec: { type: [integer, "null"] }
-        official: { type: boolean }
-        capabilities: { type: array, items: { type: string, enum: [quotes, history, expiries, optionChain] } }
-        limits: { type: object, properties: { perSecond: { type: number }, perMinute: { type: number }, perDay: { type: number } } }
-        usage: { type: object, required: [lastMinute, today], properties: { lastMinute: { type: integer }, today: { type: integer } } }
-        health:
-          type: object
-          required: [state, errorRate, p50Ms, lastError, nextTryAt]
-          properties:
-            state: { type: string, enum: [ok, degraded, open, disabled] }
-            errorRate: { type: number }
-            p50Ms: { type: [number, "null"] }
-            lastError: { type: [string, "null"] }
-            nextTryAt: { type: [string, "null"], format: date-time }
-        terms: { type: [object, "null"], properties: { url: { type: string }, note: { type: string } } }
-        noticeVersion: { type: string, description: "Opt-in sources: send this as `acknowledge` to switch the source on." }
-        needsKey: { type: boolean }
-        consent: { type: [object, "null"], properties: { acceptedAt: { type: string, format: date-time }, noticeVersion: { type: string } } }
 
     LimitsReport:
       type: object
@@ -5914,68 +5096,6 @@ components:
             dailyLoss: { $ref: "#/components/schemas/ReadinessCheck" }
             killSwitch: { $ref: "#/components/schemas/ReadinessCheck" }
         automations: { type: array, items: { $ref: "#/components/schemas/ReadinessAutomation" } }
-    HolderTag:
-      type: object
-      additionalProperties: false
-      required: [relationship]
-      properties:
-        relationship: { type: string, enum: [self, spouse, dependent-child, dependent-parent, huf, other], description: "Closed in this version; read it as open (new values may be added)." }
-        label: { type: string, maxLength: 40 }
-    BookHolder:
-      type: object
-      required: [holder, label, relationship, inFamily, accounts]
-      properties:
-        holder: { type: string }
-        label: { type: string }
-        relationship: { type: [string, "null"], description: "null: no tag (outside the family until tagged)" }
-        inFamily: { type: boolean }
-        source: { type: [string, "null"], enum: [config, file, default, null] }
-        locked: { type: boolean, description: "Set in bridge.config.json (book.holders); read-only here." }
-        accounts: { type: array, items: { type: string }, description: "Account ids this key may see." }
-        accountCount: { type: integer }
-    BookHolders:
-      type: object
-      required: [family, relationships, holders]
-      properties:
-        family: { type: object, properties: { name: { type: string }, relationships: { type: array, items: { type: string } } } }
-        relationships: { type: array, items: { type: object, properties: { value: { type: string }, label: { type: string }, inFamily: { type: boolean } } } }
-        untaggedHolder: { type: string }
-        holders: { type: array, items: { $ref: "#/components/schemas/BookHolder" } }
-        note: { type: string }
-    BookLeg:
-      type: object
-      required: [account, symbol, q]
-      properties:
-        account: { type: string, description: "The leg's own account; every exit goes here." }
-        symbol: { type: string }
-        kind: { type: string, enum: [OPT, FUT] }
-        q: { type: number, description: "Signed units (negative = short)." }
-        avg: { type: [number, "null"] }
-        mark: { type: [number, "null"] }
-        markSource: { type: [string, "null"], description: "mid | ltp | position" }
-        pnl: { type: [number, "null"] }
-        iv: { type: [number, "null"], description: "Percent, solved from the mark on the forward." }
-        greeks: { type: [object, "null"], description: "Per unit: delta, gamma, theta (₹ per day), vega (₹ per vol point)." }
-        guarded: { type: array, items: { type: string }, description: "Guard ids watching this leg." }
-    Book:
-      type: object
-      required: [view, asOf, holders, outsideFamily, method, disclaimer]
-      description: >-
-        holders[]: { holder, label, relationship, inFamily, priceSource,
-        accounts[] (account, broker, label, mode, tags, positions, pnl, margin { used, available, asOf, source }, error),
-        underlyings[] (underlying, spot, lot, greeks { delta, deltaLots, rupeeDelta, gamma, theta, vega, missing } | null,
-        legs[] BookLeg), totals { pnl, theta, vega, rupeeDelta, marginUsed, marginAvailable } }. family (view=family):
-        { name, relationships, holders, totals { pnl, realised, unrealised, theta, vega, rupeeDelta, marginUsed,
-        marginAvailable, accounts, partial }, notes }.
-      properties:
-        view: { type: string, enum: [holders, family] }
-        asOf: { type: string, format: date-time }
-        family: { type: [object, "null"] }
-        holders: { type: array, items: { type: object } }
-        outsideFamily: { type: array, items: { type: object, properties: { holder: { type: string }, label: { type: string }, relationship: { type: [string, "null"] }, accounts: { type: integer }, note: { type: string } } } }
-        partial: { type: boolean }
-        method: { type: string }
-        disclaimer: { type: string }
     Readiness:
       type: object
       required: [overall, summary, accounts, paperOnly, method]
@@ -6079,401 +5199,3 @@ components:
         side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
         allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist of sender IP addresses or IPv4 CIDR blocks." }
         acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
-    RefMeta:
-      type: object
-      properties:
-        source: { type: [string, "null"] }
-        asOf: { type: [string, "null"] }
-        quality: { type: string, enum: [exchange, master, curated, user, config, default, inferred, demo] }
-        verified: { type: boolean }
-        stale: { type: boolean }
-        staleTradingDays: { type: [integer, "null"] }
-    RefUnavailable:
-      type: object
-      description: A dataset that is unavailable is not an error. reason is open-ended (SOURCE_OFF, NEVER_FETCHED, NOT_RECORDED, PARSE_FAILED, NO_MASTER, INDEX_CASH_SETTLED).
-      properties:
-        available: { type: boolean, enum: [false] }
-        reason: { type: string }
-    RefSession:
-      type: object
-      properties:
-        date: { type: string, format: date }
-        exchange: { type: string }
-        state: { type: string, enum: [CLOSED, PRE_OPEN, OPEN, SPECIAL, HOLIDAY] }
-        label: { type: string }
-        preOpen: { type: string, description: "HH:MM IST" }
-        open: { type: string }
-        close: { type: string }
-        holiday: { type: [object, "null"], properties: { label: { type: string }, verified: { type: boolean } } }
-        special: { type: [object, "null"], properties: { label: { type: string }, open: { type: [string, "null"] }, close: { type: [string, "null"] }, verified: { type: boolean } } }
-        tradingDay: { type: boolean }
-        source: { type: string }
-        asOf: { type: string }
-    RefHoliday:
-      type: object
-      properties:
-        date: { type: string, format: date }
-        label: { type: string }
-        exchanges: { type: array, items: { type: string, enum: [NSE, BSE] } }
-        verified: { type: boolean }
-        origin: { type: string, enum: [shipped, config] }
-    RefHolidays:
-      type: object
-      properties:
-        items: { type: array, items: { $ref: "#/components/schemas/RefHoliday" } }
-        specialSessions:
-          type: array
-          description: Special sessions (for example Muhurat trading) in the same range; open/close are null when not announced.
-          items:
-            type: object
-            properties:
-              date: { type: string, format: date }
-              label: { type: string }
-              open: { type: [string, "null"] }
-              close: { type: [string, "null"] }
-              verified: { type: boolean }
-              origin: { type: string }
-        source: { type: string }
-        asOf: { type: string }
-    RefExpiry:
-      type: object
-      properties:
-        date: { type: string, format: date }
-        kind: { type: string, enum: [weekly, monthly] }
-        lot: { type: [integer, "null"], description: "Units per lot (the master's contract lot)." }
-        shifted: { type: boolean }
-        ruleDate: { type: string, format: date }
-        reason: { type: string }
-        source: { type: string }
-    RefExpiries:
-      type: object
-      properties:
-        underlying: { type: string }
-        exchange: { type: string }
-        kind: { type: [string, "null"], enum: [index, stock, null] }
-        expiries: { type: array, items: { $ref: "#/components/schemas/RefExpiry" } }
-        source: { type: string }
-        asOf: { type: [string, "null"] }
-    RefLotRow:
-      type: object
-      properties:
-        expiryMonth: { type: string, description: "YYYY-MM" }
-        lot: { type: integer }
-        effectiveFrom: { type: [string, "null"], format: date }
-        lastOldExpiry: { type: [string, "null"], format: date }
-        source: { type: string }
-    RefFreeze:
-      type: object
-      properties:
-        freezeQty: { type: [integer, "null"], description: "Units; null means unknown (slicing is not checked)." }
-        source: { type: [string, "null"], enum: [master, exchange-list, config, null] }
-        verified: { type: boolean }
-    RefLots:
-      type: object
-      properties:
-        underlying: { type: string }
-        exchange: { type: string }
-        history: { type: array, items: { $ref: "#/components/schemas/RefLotRow" } }
-        current: { type: [integer, "null"] }
-        next: { type: object, properties: { lot: { type: [integer, "null"] }, from: { type: [string, "null"] } } }
-        freeze: { $ref: "#/components/schemas/RefFreeze" }
-        source: { type: [string, "null"] }
-        asOf: { type: [string, "null"] }
-        stale: { type: boolean }
-        staleTradingDays: { type: [integer, "null"] }
-        conflict: { type: [object, "null"], properties: { master: { type: integer }, reference: { type: integer } } }
-    RefBanItem:
-      type: object
-      properties:
-        symbol: { type: string }
-        mwplPct: { type: [number, "null"] }
-    RefBan:
-      type: object
-      properties:
-        forDate: { type: string, format: date }
-        items: { type: array, items: { $ref: "#/components/schemas/RefBanItem" } }
-        available: { type: boolean }
-        reason: { type: string }
-        asOf: { type: [string, "null"] }
-        source: { type: [string, "null"] }
-    RefMwplItem:
-      type: object
-      properties:
-        symbol: { type: string }
-        mwpl: { type: number, description: "Shares." }
-        oi: { type: number, description: "Combined open interest, shares." }
-        mwplPct: { type: [number, "null"] }
-        band: { type: [string, "null"], enum: [ban, high, normal, null], description: "ban: on the ban list (the authority); high: 80 % or more (a display band, not an exchange status)." }
-        limitNextDay: { type: [number, "null"] }
-    RefMwpl:
-      type: object
-      properties:
-        forDate: { type: string, format: date }
-        items: { type: array, items: { $ref: "#/components/schemas/RefMwplItem" } }
-        available: { type: boolean }
-        reason: { type: string }
-        asOf: { type: [string, "null"] }
-        source: { type: [string, "null"] }
-    RefUniverseItem:
-      type: object
-      properties:
-        symbol: { type: string }
-        kind: { type: string, enum: [index, stock] }
-        exchange: { type: string }
-        since: { type: string, format: date }
-        sinceIsFirstFetch: { type: boolean, description: "A member on the first fetch: the true entry date is earlier and unknown." }
-    RefUniverse:
-      type: object
-      properties:
-        date: { type: string, format: date }
-        coverage: { type: string, enum: [recorded, not-recorded] }
-        knownSince: { type: [string, "null"], format: date }
-        items: { type: array, items: { $ref: "#/components/schemas/RefUniverseItem" } }
-        count: { type: integer }
-        changes: { type: array, items: { type: object, properties: { date: { type: string }, symbol: { type: string }, change: { type: string, enum: [added, removed] } } } }
-        source: { type: string }
-        available: { type: boolean }
-        reason: { type: string }
-    CorporateAction:
-      type: object
-      properties:
-        id: { type: string }
-        symbol: { type: string }
-        exchange: { type: string, enum: [NSE, BSE] }
-        type: { type: string, enum: [bonus, split, consolidation, rights, dividend, other] }
-        ratio: { type: [object, "null"], properties: { new: { type: integer }, held: { type: integer } } }
-        exDate: { type: [string, "null"], format: date }
-        subscriptionPrice: { type: [number, "null"] }
-        cumPrice: { type: [number, "null"] }
-        dividend: { type: [number, "null"] }
-        fv: { type: [object, "null"], properties: { from: { type: number }, to: { type: number } } }
-        factor: { type: [number, "null"], description: "Computed by the Bridge (never taken from input)." }
-        lotRule: { type: string }
-        strikeTick: { type: number }
-        source: { type: string }
-        verified: { type: boolean }
-        illustrative: { type: boolean }
-        origin: { type: string, enum: [shipped, user, inferred] }
-        quality: { type: string }
-        nonStandard: { type: boolean }
-        text: { type: string }
-        contract: { type: object }
-        adjusted: { type: object, properties: { exampleStrikes: { type: array, items: { type: object } }, lotBefore: { type: [integer, "null"] }, lotAfter: { type: [integer, "null"] } } }
-        exampleStrikes: { type: array, items: { type: number }, description: "Pre-action example strikes stored with a user entry (the ones its preview showed)." }
-        addedAt: { type: string }
-    CorporateActionInput:
-      type: object
-      required: [symbol, type, exDate]
-      additionalProperties: false
-      properties:
-        symbol: { type: string, maxLength: 30 }
-        exchange: { type: string, enum: [NSE, BSE] }
-        type: { type: string, enum: [bonus, split, consolidation, rights, dividend, other] }
-        ratio: { type: object, properties: { new: { type: integer, minimum: 1 }, held: { type: integer, minimum: 1 } } }
-        exDate: { type: string, format: date }
-        subscriptionPrice: { type: number, exclusiveMinimum: 0 }
-        cumPrice: { type: number, exclusiveMinimum: 0 }
-        dividend: { type: number, exclusiveMinimum: 0 }
-        fv: { type: object, properties: { from: { type: number, exclusiveMinimum: 0 }, to: { type: number, exclusiveMinimum: 0 } } }
-        strikeTick: { type: number, exclusiveMinimum: 0 }
-        source: { type: string, maxLength: 200 }
-        lotRule: { type: string, enum: [round] }
-        exampleStrikes: { type: array, maxItems: 9, items: { type: number, exclusiveMinimum: 0 }, description: "Pre-action strikes the add form previewed; the stored row's adjusted.exampleStrikes uses the same ones." }
-    RefCorporateActions:
-      type: object
-      properties:
-        items: { type: array, items: { $ref: "#/components/schemas/CorporateAction" } }
-    CorporateActionPreviewRequest:
-      type: object
-      required: [type]
-      properties:
-        type: { type: string, enum: [bonus, split, consolidation, rights, dividend] }
-        ratio: { type: object, properties: { new: { type: integer, minimum: 1 }, held: { type: integer, minimum: 1 } } }
-        fv: { type: object, properties: { from: { type: number }, to: { type: number } } }
-        subscriptionPrice: { type: number }
-        cumPrice: { type: number }
-        dividend: { type: number }
-        lot: { type: integer, minimum: 1 }
-        strikes: { type: array, maxItems: 50, items: { type: number } }
-        strikeTick: { type: number, default: 0.05 }
-    CorporateActionPreview:
-      type: object
-      properties:
-        factor: { type: [number, "null"] }
-        terp: { type: [number, "null"] }
-        lotAfter: { type: [integer, "null"] }
-        lotExact: { type: [number, "null"] }
-        nonStandardLot: { type: boolean }
-        strikes: { type: array, items: { type: object, properties: { before: { type: number }, after: { type: number } } } }
-        method: { type: string }
-        adjusted: { type: boolean }
-        dividendPct: { type: number }
-    RefRate:
-      type: object
-      properties:
-        value: { type: number, description: "Decimal, e.g. 0.065." }
-        asOf: { type: [string, "null"], format: date }
-        source: { type: string }
-        quality: { type: string, enum: [user, config, default, demo] }
-        stale: { type: boolean }
-        setBy: { type: string, enum: [dashboard, config, default, demo] }
-    RefRateInput:
-      type: object
-      required: [value, source]
-      additionalProperties: false
-      properties:
-        value: { type: number, minimum: 0, maximum: 0.25 }
-        asOf: { type: string, format: date }
-        source: { type: string, minLength: 3, maxLength: 120 }
-    RefCharges:
-      type: object
-      properties:
-        asOf: { type: string }
-        source: { type: string }
-        verified: { type: boolean }
-        opt: { type: object }
-        fut: { type: object }
-        sebiPerCrore: { type: number }
-        ipftPerCrore: { type: number }
-        gst: { type: number }
-        notes: { type: object }
-        brokerage: { type: object, properties: { kind: { type: string }, perOrder: { type: number }, source: { type: string } } }
-    RefDeliveryMarginItem:
-      type: object
-      properties:
-        day: { type: string, description: "E-n: the n-th trading day before the expiry." }
-        date: { type: string, format: date }
-        pct: { type: number }
-    RefDeliveryMargin:
-      type: object
-      properties:
-        expiry: { type: string, format: date }
-        items: { type: array, items: { $ref: "#/components/schemas/RefDeliveryMarginItem" } }
-        verified: { type: boolean }
-        source: { type: [string, "null"] }
-        asOf: { type: string }
-        appliesTo: { type: string }
-        available: { type: boolean }
-        reason: { type: string }
-    RefEvent:
-      type: object
-      properties:
-        kind: { type: string, enum: [lot-revision, corporate-action, holiday-expiry-shift] }
-        underlying: { type: string }
-        effectiveOn: { type: string, format: date }
-        daysAway: { type: integer }
-        text: { type: string }
-        ref: { type: object }
-    RefDatasetStatus:
-      type: object
-      properties:
-        available: { type: boolean }
-        reason: { type: string }
-        asOf: { type: [string, "null"] }
-        source: { type: [string, "null"] }
-        quality: { type: string }
-        lastSuccessAt: { type: [string, "null"] }
-        lastAttemptAt: { type: [string, "null"] }
-        nextRunAt: { type: [string, "null"] }
-        stale: { type: boolean }
-        staleTradingDays: { type: [integer, "null"] }
-        error: { type: [object, "null"], properties: { code: { type: string }, detail: { type: string } } }
-        rows: { type: integer }
-        verified: { type: boolean }
-    RefStatus:
-      type: object
-      properties:
-        demo: { type: boolean }
-        demoLotsStale: { type: boolean, description: "Demo Bridge only: true while PUT /v1/demo/reference has the lot data reported as two trading days old" }
-        sources: { type: object, properties: { nseArchives: { type: object, properties: { enabled: { type: boolean }, setBy: { type: string }, setAt: { type: [string, "null"] } } } } }
-        datasets: { type: object, additionalProperties: { $ref: "#/components/schemas/RefDatasetStatus" } }
-        knownSince: { type: [string, "null"] }
-        requestsToday: { type: integer }
-        syncing: { type: [object, "null"] }
-    RefBundle:
-      type: object
-      properties:
-        underlying: { type: string }
-        exchange: { type: string }
-        kind: { type: [string, "null"], enum: [index, stock, null] }
-        now: { type: string }
-        session: { $ref: "#/components/schemas/RefSession" }
-        nextTradingDay: { type: string, format: date }
-        prevTradingDay: { type: string, format: date }
-        holidays: { type: array, items: { $ref: "#/components/schemas/RefHoliday" } }
-        rate: { $ref: "#/components/schemas/RefRate" }
-        expiries: { type: array, items: { $ref: "#/components/schemas/RefExpiry" } }
-        lots: { type: object, properties: { current: { type: [integer, "null"] }, next: { type: object }, source: { type: [string, "null"] }, asOf: { type: [string, "null"] }, quality: { type: string }, stale: { type: boolean }, staleTradingDays: { type: [integer, "null"] }, conflict: { type: [object, "null"] } } }
-        freeze: { $ref: "#/components/schemas/RefFreeze" }
-        ban: { type: [object, "null"], properties: { inBan: { type: [boolean, "null"] }, mwplPct: { type: [number, "null"] }, band: { type: [string, "null"] }, forDate: { type: string }, asOf: { type: [string, "null"] }, source: { type: [string, "null"] }, stale: { type: boolean, description: "Ban / MWPL data older than reference.staleAfterTradingDays" }, staleTradingDays: { type: [integer, "null"] } } }
-        events: { type: array, items: { $ref: "#/components/schemas/RefEvent" } }
-        deliveryMargin: { oneOf: [{ $ref: "#/components/schemas/RefDeliveryMargin" }, { type: "null" }] }
-        charges: { $ref: "#/components/schemas/RefCharges" }
-        warnings: { type: array, items: { type: string } }
-    ParticipantDay:
-      type: object
-      description: "One published day. rows: { CLIENT|DII|FII|PRO|TOTAL: { IDX_FUT|IDX_CE|IDX_PE|STK_FUT|STK_CE|STK_PE: [long, short] } } in contracts."
-      properties:
-        date: { type: string, format: date }
-        exchange: { type: string, enum: [NSE] }
-        unit: { type: string, enum: [contracts] }
-        quality: { type: string, description: "ok | totals-mismatch | partial (open)" }
-        lotRegime: { type: [string, "null"], description: "Contract-size regime in force; counts are not like for like across a change" }
-        source: { type: string }
-        rows: { type: object, additionalProperties: { type: object, additionalProperties: { type: array, minItems: 2, maxItems: 2, items: { type: integer } } } }
-    ParticipantRow:
-      type: object
-      properties:
-        participant: { type: string }
-        instrument: { type: string }
-        long: { type: integer }
-        short: { type: integer }
-        net: { type: integer }
-        netChange: { type: [integer, "null"] }
-        longPct: { type: [number, "null"] }
-        longPctChange: { type: [number, "null"] }
-        shareOfLong: { type: [number, "null"] }
-        shareOfShort: { type: [number, "null"] }
-    ParticipantSummary:
-      type: object
-      description: "When available is false only reason, detail, exchange, unit and demo are set."
-      properties:
-        available: { type: boolean }
-        reason: { type: string, description: "NO_PARTICIPANT_DATA | PARTICIPANT_STALE | SOURCE_OFF (when available is false)" }
-        detail: { type: string }
-        date: { type: string, format: date }
-        previousDate: { type: [string, "null"], format: date }
-        exchange: { type: string }
-        unit: { type: string }
-        quality: { type: string }
-        mismatches: { type: array, items: { type: string } }
-        lotRegime: { type: [string, "null"] }
-        publishedNote: { type: string }
-        table: { type: array, items: { $ref: "#/components/schemas/ParticipantRow" } }
-        headline: { type: object, description: "fiiIndexFutLongPct, fiiIndexFutLongPctChange, fiiIndexFutNet, fiiIndexFutNetChange, clientIndexCall, clientIndexPut, proIndexCall, proIndexPut ({ net, netChange }), formula" }
-        history: { type: object, properties: { fiiIndexFutLongPct: { type: array, items: { type: object, properties: { date: { type: string }, value: { type: number } } } }, days: { type: integer } } }
-        revisions: { type: array, items: { type: object, properties: { date: { type: string }, text: { type: string } } } }
-        source: { type: string }
-        fetchedAt: { type: [string, "null"] }
-        demo: { type: boolean }
-    ParticipantStatus:
-      type: object
-      properties:
-        enabled: { type: boolean }
-        demo: { type: boolean }
-        source: { type: object, properties: { nseArchives: { type: string, description: "on | off | demo | unavailable" }, setBy: { type: [string, "null"] }, verified: { type: boolean } } }
-        latestDate: { type: [string, "null"] }
-        lastAttemptAt: { type: [string, "null"] }
-        lastError: { type: [object, "null"], properties: { code: { type: string }, detail: { type: string }, date: { type: string }, at: { type: string } } }
-        nextRunAt: { type: [string, "null"] }
-        backfill: { type: object, properties: { enabled: { type: boolean }, target: { type: integer }, have: { type: integer }, noFile: { type: integer }, failed: { type: integer }, running: { type: boolean }, cursor: { type: [string, "null"] }, done: { type: boolean }, pausedUntil: { type: [string, "null"], description: "Set while the back-fill is paused after NSE refused or did not answer (30 min, doubling to 6 h)" }, lastErrorCode: { type: [string, "null"] } } }
-        rows: { type: integer }
-        diskBytes: { type: integer }
-    ParticipantSyncResult:
-      type: object
-      properties:
-        started: { type: boolean }
-        done: { type: boolean }
-        fetched: { type: array, items: { type: string, format: date } }
-        noFile: { type: array, items: { type: string, format: date } }
-        failed: { type: array, items: { type: object, properties: { date: { type: string }, code: { type: string } } } }

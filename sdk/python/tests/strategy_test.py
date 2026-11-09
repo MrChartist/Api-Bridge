@@ -490,6 +490,14 @@ def test_oi_walls_follows_the_pcr_and_buys_back_on_a_break(bridge):
     assert any("broke the 25850 support" in m for m in logs(out))
 
 
+def test_oi_analytics_is_worked_out_from_the_option_chain(bridge):
+    s, _ = make(load("oi_walls.py"), bridge, sid="oi_calc")
+    oi = s.oi_analytics("NIFTY", EXPIRY, strikes=15)
+    assert oi["support"][0]["strike"] == 25850 and oi["resistance"][0]["strike"] == 26200
+    assert oi["underlyingLtp"] == 26000.0 and oi["pcrOi"] == pytest.approx(1.0, abs=0.05) and oi["maxPain"] is not None
+    assert bridge.find("GET", "/v1/optionchain") and not bridge.find("GET", "/v1/analytics/oi")
+
+
 def test_a_refusal_that_a_restart_cannot_fix_exits_4(bridge):
     class S(Strategy):
         def on_start(self):

@@ -19,7 +19,6 @@ let legs = 0;
 const seed = new Promise((r) => (finish = r)).then(() => (legs = 9));
 const seedModule = defineModule({
   name: "seedmod",
-  stream: "S10",
   register(app, deps) {
     app.get("/t/book", async () => {
       await startupReady(deps);

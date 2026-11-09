@@ -1,6 +1,6 @@
-"""Python trading strategies for the Mr. Chartist API Bridge (docs/STRATEGIES-PYTHON.md).
+"""Python trading strategies for the Mr. Chartist API Bridge.
 
-A strategy is a small class in a ``.py`` file in your Bridge's ``strategies`` folder::
+A strategy is a small class in a ``.py`` file (see ``examples/strategies/``)::
 
     from mrchartist_bridge.strategy import Strategy, Param
 
@@ -14,11 +14,14 @@ A strategy is a small class in a ``.py`` file in your Bridge's ``strategies`` fo
             if bar.close > bar.open and not self.position("NFO:NIFTY-2026-11-23-FUT"):
                 self.buy("NFO:NIFTY-2026-11-23-FUT", lots=self.p.lots)
 
-The Bridge starts it as a child process (``python3 -m mrchartist_bridge strategy run <file>``) with an API key made
-for this one run, limited to the account you chose. Every order goes through the Bridge's REST order API, so the
-kill switch, per-order limits, daily limits and the paper/live gates apply exactly as they do to any other script.
-Orders are paper unless the Bridge started the strategy in live mode after its live checks and your second
-confirmation.
+You start it yourself, on any computer that can reach your Bridge::
+
+    MCB_API_KEY=mcb_... MCB_STRATEGY_ACCOUNT=paper python3 -m mrchartist_bridge strategy run breakout.py
+
+(``MCB_BRIDGE_URL`` if the Bridge is not on 127.0.0.1:4300; ``MCB_STRATEGY_MODE=live`` for live orders, otherwise
+paper; ``MCB_STRATEGY_PARAMS`` takes the parameters as JSON.) The key needs the ``paper`` scope, or ``live`` for live
+orders. Every order goes through the Bridge's REST order API, so the kill switch, per-order limits, daily limits and
+the paper/live gates apply exactly as they do to any other script.
 
 Standard library only (Python 3.9+), like the rest of the SDK.
 """
@@ -61,7 +64,7 @@ __all__ = [
     "run_file",
 ]
 
-#: A line on stdout that starts with this is a message for the Bridge's runner (logs, heartbeats), not plain output.
+#: A line on stdout that starts with this is a message for a supervisor that started the strategy with MCB_STRATEGY_RUNNER=1 (logs, heartbeats), not plain output.
 PROTOCOL_PREFIX = "@@mcb "
 IST = timezone(timedelta(hours=5, minutes=30))
 #: Bar sizes on_bar can be asked for, in seconds.
@@ -72,7 +75,7 @@ EXIT_OK, EXIT_CRASH, EXIT_CONFIG = 0, 1, 3
 #: Exit code 4: the Bridge refused the strategy for a reason a restart cannot fix (kill switch, a daily limit, the key's
 #: scope or account), so the runner does not restart it.
 EXIT_REFUSED = 4
-REFUSALS_THAT_STOP = frozenset({"KILL_SWITCH_ACTIVE", "DAILY_LIMIT_REACHED", "PAPER_ONLY", "SCOPE_REQUIRED", "ACCOUNT_FORBIDDEN", "UNAUTHENTICATED", "CANNOT_TRADE", "AUTOMATION_NOT_ALLOWED"})
+REFUSALS_THAT_STOP = frozenset({"KILL_SWITCH_ACTIVE", "DAILY_LIMIT_REACHED", "PAPER_ONLY", "SCOPE_REQUIRED", "ACCOUNT_FORBIDDEN", "UNAUTHENTICATED", "CANNOT_TRADE"})
 _ID_CHARS = string.ascii_lowercase + string.digits
 
 
@@ -297,8 +300,7 @@ def chain_legs(chain: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 
 def build_book(orders: Iterable[Mapping[str, Any]], ltps: Optional[Mapping[str, float]] = None) -> Dict[str, Any]:
-    """Net position and P&L per symbol from filled quantities, average cost method. The same rule as the Bridge's
-    runner (server/bridge/strategies/book.mjs), so the dashboard and the strategy agree.
+    """Net position and P&L per symbol from filled quantities, average cost method.
 
     Returns ``{"positions": {symbol: {"qty", "avg", "realised", "unrealised", "ltp"}}, "realised", "unrealised", "total"}``.
     """
@@ -350,7 +352,7 @@ class StrategyLogger:
         self._lock = threading.Lock()
 
     def emit(self, kind: str, **fields: Any) -> None:
-        """A protocol message for the runner (no-op outside it)."""
+        """A protocol message for a supervisor (no-op unless MCB_STRATEGY_RUNNER=1)."""
         if not self._runner:
             return
         self._write(PROTOCOL_PREFIX + json.dumps(dict({"t": kind}, **fields), default=str, separators=(",", ":")))
@@ -430,7 +432,7 @@ class Strategy:
         self.bridge = bridge if bridge is not None else BridgeClient()
         self.account = account or env.get("MCB_STRATEGY_ACCOUNT") or ""
         if not self.account:
-            raise ValueError("No account: the Bridge sets MCB_STRATEGY_ACCOUNT, or pass account=...")
+            raise ValueError("No account: set MCB_STRATEGY_ACCOUNT, or pass account=...")
         self.mode = (mode or env.get("MCB_STRATEGY_MODE") or "paper").lower()
         if self.mode not in ("paper", "live"):
             raise ValueError("mode must be paper or live")
@@ -701,8 +703,25 @@ class Strategy:
         return self.bridge.option_chain(underlying, expiry, strikes=strikes, greeks=greeks)["data"]
 
     def oi_analytics(self, underlying: str, expiry: str, *, strikes: int = 15) -> Dict[str, Any]:
-        """The Bridge's OI analytics: PCR (OI, volume, OI change), max pain, support and resistance by OI."""
-        return self.bridge.request("GET", "/v1/analytics/oi", query={"underlying": underlying, "expiry": expiry, "strikes": strikes}).body["data"]
+        """Open-interest walls, worked out here from the Bridge's option chain (``GET /v1/optionchain``).
+
+        Returns ``pcrOi`` (put OI over call OI), ``maxPain``, ``support`` (put strikes by OI, largest first),
+        ``resistance`` (call strikes by OI, largest first) and ``strikes`` (``strike``, ``ceOi``, ``peOi`` per row).
+        """
+        chain = self.option_chain(underlying, expiry, strikes=strikes, greeks=False)
+        rows = [{"strike": r["strike"], "ceOi": (r.get("ce") or {}).get("oi") or 0, "peOi": (r.get("pe") or {}).get("oi") or 0} for r in chain.get("rows") or []]
+        ce_total = sum(r["ceOi"] for r in rows)
+        pe_total = sum(r["peOi"] for r in rows)
+        pain = {k["strike"]: sum(r["ceOi"] * max(0, k["strike"] - r["strike"]) + r["peOi"] * max(0, r["strike"] - k["strike"]) for r in rows) for k in rows}
+        return {
+            "underlyingLtp": chain.get("underlyingLtp"),
+            "atmStrike": chain.get("atmStrike"),
+            "pcrOi": (pe_total / ce_total) if ce_total else None,
+            "maxPain": min(pain, key=lambda k: (pain[k], k)) if pain else None,
+            "support": [{"strike": r["strike"], "value": r["peOi"]} for r in sorted(rows, key=lambda r: -r["peOi"])[:3] if r["peOi"]],
+            "resistance": [{"strike": r["strike"], "value": r["ceOi"]} for r in sorted(rows, key=lambda r: -r["ceOi"])[:3] if r["ceOi"]],
+            "strikes": rows,
+        }
 
     def near_future(self, underlying: str, exchange: str = "NFO") -> str:
         """The nearest future of an index or stock, e.g. NFO:NIFTY-2026-11-23-FUT."""
@@ -865,7 +884,7 @@ class Strategy:
             events.put({"type": "_stream_end", "why": why})
 
     def _watch_parent(self) -> None:
-        """The runner keeps stdin open; end of input means the Bridge went away, so stop."""
+        """A supervisor keeps stdin open; end of input means it went away, so stop."""
         try:
             while sys.stdin.readline():
                 pass
@@ -1017,7 +1036,7 @@ def _params_from_ast(node: ast.AST) -> List[Dict[str, Any]]:
     return out
 
 
-# ───────────────────────────── command line (the Bridge's runner calls this) ─────────────────────────────
+# ───────────────────────────── command line ─────────────────────────────
 
 
 def run_file(path: str, *, params: Optional[Mapping[str, Any]] = None) -> int:

@@ -3,7 +3,7 @@
  * engine can say which tool, page or background job used the budget ("Top consumers" on the Sources page).
  *
  * The HTTP pipeline runs each request as its consumer (core/app.mjs: the dashboard page, else the API key's label);
- * background jobs wrap their work in runAsConsumer("Data recorder", fn). Work started inside a run (timers, promises,
+ * background jobs wrap their work in runAsConsumer("<job name>", fn). Work started inside a run (timers, promises,
  * the market-data batcher's flush) keeps the name of the run that started it, so a batched or coalesced call is
  * credited to the caller that opened it and the callers that joined it are counted as saved calls.
  *
@@ -78,33 +78,22 @@ export function consumerIdentity(name, ctx = null) {
 
 /** Dashboard page ids a request may name in X-MCB-Page (anything else is just "Dashboard"). */
 const PAGE_NAMES = Object.freeze({
-  home: "Home",
-  chain: "Option Chain",
-  strategy: "Strategy",
-  positions: "Positions",
-  orders: "Orders",
-  safety: "Safety",
-  oi: "OI Analysis",
-  participants: "OI Analysis",
-  vol: "Volatility",
-  screener: "Screeners",
-  arb: "Screeners",
-  events: "Live events",
-  scanner: "Stock scanner",
-  calendar: "Market calendar",
   accounts: "Accounts",
+  orders: "Orders",
+  trades: "Trades",
+  safety: "Safety",
+  sources: "Sources",
+  providers: "Sources",
+  quotas: "Sources",
   keys: "API",
   integrations: "API",
   console: "API",
-  limits: "API",
-  sources: "Sources",
   activity: "API",
-  recorder: "Data recorder",
   prefetch: "prefetch",
 });
 
 /**
- * The consumer of one HTTP request (pure): "Dashboard · Option Chain" for the dashboard, "MCP" and "Excel / compat"
+ * The consumer of one HTTP request (pure): "Dashboard · Orders" for the dashboard, "MCP" and "Excel / compat"
  * by path, else "Key: <label>" for an API key, "This computer" for the local CLI.
  * @param {{ headers: Record<string, any>, path: string, principal?: { kind?: string, label?: string } | null }} r
  */

@@ -23,27 +23,8 @@
  *  key.revoked         { keyId }                    StreamHub closes WS/SSE connections opened with this key
  *  ticket.confirmed    { ticketId, accountId, principal }   a person confirmed an order ticket (no token in the payload)
  *  ticket.rejected     { ticketId, accountId, principal }   a person declined an order ticket (principal: who prepared it)
- *  position.converted  { accountId, mode, symbol, from, to, quantity, at }   units moved between products (the trigger
- *                        engine carries a position's stops and targets with them)
- *  scan.progress       { keyId, jobId, savedId, status, progress: { total, done, matched, errors } }   scanner, at most 1/s per job
- *  scan.completed      { keyId, jobId, savedId, status, matched: string[], progress }
- *  scan.alert          { keyId, savedId, name, jobId, newMatches: string[], at }   a saved scan found symbols its last run did not
- *
- * Options-platform topics (each owning module defines its payload):
- *  recorder.status       recorder state change, at most 1/s
- *  recorder.snapshot     a recorded chain snapshot was written
- *  reference.updated     { dataset, asOf, source, changed: boolean }
- *  vol.captured          one per underlying per daily capture run
- *  trading.readiness     account readiness change; notify only when `notify: true`
- *  fno.sweep.progress    { jobId, status, progress }, at most 1/s
- *  fno.sweep.completed   { jobId, status, chains, failed, durationMs }
- *  exposure.levels       gamma levels, emitted only on change
- *  settlement.update     running / final settlement estimate
- *  charges.plan_changed  { accountId }
- *  option.alert          an alert rule fired
- *  strategy.guard        guard state change
- *  participants.updated  { date, source, changed }
- *  market.event          { type: "new" | "update", event }   a live event record or a repeat inside its cool-down
+ *  position.converted  { accountId, mode, symbol, from, to, quantity, at }   units moved between products
+ *  trading.readiness   account readiness change; notify only when `notify: true`
  */
 export const TOPICS = Object.freeze([
   "tick",
@@ -61,24 +42,7 @@ export const TOPICS = Object.freeze([
   "ticket.confirmed",
   "ticket.rejected",
   "position.converted",
-  "scan.progress",
-  "scan.completed",
-  "scan.alert",
-  "recorder.status",
-  "recorder.snapshot",
-  "reference.updated",
-  "vol.captured",
   "trading.readiness",
-  "fno.sweep.progress",
-  "fno.sweep.completed",
-  "exposure.levels",
-  "settlement.update",
-  "charges.plan_changed",
-  "option.alert",
-  "strategy.guard",
-  "participants.updated",
-  "market.event",
-  "analytics.alert",
 ]);
 
 /**

@@ -1,7 +1,7 @@
 """A small in-process fake of the Bridge REST API for the strategy tests (standard library only).
 
 It serves what strategies call: orders (paper fills at the price table, with the Bridge's limits on lots), positions,
-LTP, expiries, an option chain, OI analytics and instrument search. Every request is recorded so tests can check the
+LTP, expiries, an option chain (with open interest) and instrument search. Every request is recorded so tests can check the
 key, the Idempotency-Key and the body. No stream: tests feed ticks to Strategy.dispatch() directly.
 """
 
@@ -18,7 +18,9 @@ KEY = "mcb_test_strategy_key"
 EXPIRY = "2026-11-03"
 
 
-def chain_rows(spot: float, step: int = 50, n: int = 20) -> List[Dict[str, Any]]:
+def chain_rows(spot: float, step: int = 50, n: int = 20, pcr: float = 1.0) -> List[Dict[str, Any]]:
+    """Open interest is flat, with a put wall 150 points below the ATM strike and a call wall 200 above it; ``pcr``
+    scales the put side."""
     atm = round(spot / step) * step
     rows = []
     for i in range(-n, n + 1):
@@ -26,8 +28,8 @@ def chain_rows(spot: float, step: int = 50, n: int = 20) -> List[Dict[str, Any]]
         d = 1 / (1 + math.exp((k - spot) / 150.0))  # call delta, a smooth S curve
         rows.append({
             "strike": k,
-            "ce": {"symbol": "NFO:NIFTY-%s-%d-CE" % (EXPIRY, k), "ltp": max(1.0, spot - k + 120), "delta": round(d, 3), "oi": 1000 + i * 10},
-            "pe": {"symbol": "NFO:NIFTY-%s-%d-PE" % (EXPIRY, k), "ltp": max(1.0, k - spot + 120), "delta": round(d - 1, 3), "oi": 1000 - i * 10},
+            "ce": {"symbol": "NFO:NIFTY-%s-%d-CE" % (EXPIRY, k), "ltp": max(1.0, spot - k + 120), "delta": round(d, 3), "oi": 1000 + (3000 if i == 4 else 0)},
+            "pe": {"symbol": "NFO:NIFTY-%s-%d-PE" % (EXPIRY, k), "ltp": max(1.0, k - spot + 120), "delta": round(d - 1, 3), "oi": round(1000 * pcr) + (3000 if i == -3 else 0)},
         })
     return rows
 
@@ -126,13 +128,8 @@ class FakeBridge:
             if method == "GET" and path == "/v1/expiries":
                 return 200, {"data": {"underlying": q.get("underlying"), "expiries": ["2026-10-27", EXPIRY, "2026-11-09"]}, "meta": {}}
             if method == "GET" and path == "/v1/optionchain":
-                rows = chain_rows(self.spot)
+                rows = chain_rows(self.spot, pcr=self.pcr)
                 return 200, {"data": {"underlying": "NIFTY", "expiry": q.get("expiry"), "underlyingLtp": self.spot, "atmStrike": round(self.spot / 50) * 50, "lotSize": self.lot, "rows": rows}, "meta": {}}
-            if method == "GET" and path == "/v1/analytics/oi":
-                atm = round(self.spot / 50) * 50
-                return 200, {"data": {"underlyingLtp": self.spot, "atmStrike": atm, "pcrOi": self.pcr, "maxPain": atm,
-                                      "support": [{"strike": atm + 100, "value": 9}, {"strike": atm - 150, "value": 8}], "resistance": [{"strike": atm + 200, "value": 9}],
-                                      "strikes": []}, "meta": {}}
             if method == "GET" and path == "/v1/instruments/search":
                 return 200, {"data": [{"symbol": "NFO:NIFTY-2026-12-29-FUT", "underlying": "NIFTY", "expiry": "2026-12-29"}, {"symbol": "NFO:NIFTY-2026-11-23-FUT", "underlying": "NIFTY", "expiry": "2026-11-23"}], "meta": {}}
             if method == "GET" and path == "/v1/history":

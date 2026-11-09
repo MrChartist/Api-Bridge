@@ -8,7 +8,7 @@
  *     "streamFirst": true,
  *     "quietLegMaxAgeMs": 60000,   // stream-first chains: trust a quiet leg on a live feed this long (0 = off)
  *     "history":   { "maxChunks": 40, "maxSpanDays": { "intraday": 60, "daily": 2000 }, "brokers": { "dhan": { "intraday": 90 } } },
- *     "chain":     { "source": "auto", "ivModelDefault": "legacy-bs-spot" },   // riskFreeRate: deprecated override of reference.rate
+ *     "chain":     { "source": "auto", "ivModelDefault": "legacy-bs-spot" },   // riskFreeRate: pins the rate used for computed Greeks
  *     "cache":     { "maxEntries": 20000 }
  *   }
  *
@@ -110,9 +110,8 @@ export const MARKET_CONFIG_SCHEMA = z
         /** auto: the broker's chain where the account declares one, else built from the master plus quotes. */
         source: z.enum(["auto", "broker", "built"]).default("auto"),
         /**
-         * DEPRECATED (use reference.rate or the Market calendar page): risk-free rate for computed Greeks (annual,
-         * decimal). When set it overrides the reference rate and a warning is logged once. No default: unset means
-         * "use deps.reference.rate()".
+         * Risk-free rate for computed Greeks (annual, decimal). When set it overrides the rate of an optional
+         * reference service; unset means that service's rate, else the built-in default.
          */
         riskFreeRate: z.number().min(0).max(0.25).optional(),
         /**

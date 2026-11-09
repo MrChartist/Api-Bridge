@@ -29,7 +29,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "accounts",
-  stream: "S1",
   services: { accounts: (deps) => createAccountManager(deps) },
   async register(app, deps) {
     const policies = await loadRoutePolicies(app.logger);

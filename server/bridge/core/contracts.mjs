@@ -140,7 +140,7 @@ export const PRIORITIES = Object.freeze(["order", "live", "interactive", "backgr
 // ───────────────────────────── Service contracts ─────────────────────────────
 
 /**
- * deps key -> { iface, stream, requires, methods }. `requires` lists the deps keys the factory may use (besides the
+ * deps key -> { iface, requires, methods }. `requires` lists the deps keys the factory may use (besides the
  * core deps config, logger, bus, clock, paths). The method docs are the contract; see each stub file for detail.
  */
 export const SERVICE_CONTRACTS = Object.freeze({
@@ -153,7 +153,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  list() -> Promise<string[]>                      names only
    *  status() -> { keySource: "env"|"file"|"none", path: string, entries: number }
    */
-  secrets: { iface: "SecretStore", stream: "S2", requires: [], methods: ["get", "set", "delete", "list", "status"] },
+  secrets: { iface: "SecretStore", requires: [], methods: ["get", "set", "delete", "list", "status"] },
 
   /**
    * KeyStore. API keys "mcb_<keyId>_<secret>"; only a scrypt hash is stored (dataDir/keys.json).
@@ -170,7 +170,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   keyStore: {
     iface: "KeyStore",
-    stream: "S2",
     requires: [],
     methods: ["create", "list", "get", "revoke", "authenticate", "issueStreamToken", "verifyStreamToken"],
   },
@@ -181,7 +180,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  query({ from?, to?, type?, accountId?, limit?, cursor? }) -> Promise<Page>
    *  verify({ day? }) -> Promise<{ ok: boolean, checked: number, brokenAt: number | null }>
    */
-  audit: { iface: "AuditLog", stream: "S9", requires: [], methods: ["append", "query", "verify"] },
+  audit: { iface: "AuditLog", requires: [], methods: ["append", "query", "verify"] },
 
   /**
    * AccountManager. The user's broker accounts from config.accounts, their sessions and adapters.
@@ -206,7 +205,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   accounts: {
     iface: "AccountManager",
-    stream: "S1",
     requires: ["secrets"],
     methods: ["list", "get", "adapter", "creds", "status", "connect", "disconnect", "testConnection", "capabilities", "marketDataCandidates"],
   },
@@ -237,7 +235,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   scheduler: {
     iface: "Scheduler",
-    stream: "S3",
     requires: ["accounts"],
     methods: ["schedule", "tryAcquire", "headroom", "pickAccount", "noteUpstreamThrottle", "policyFor", "usage", "checkClient"],
   },
@@ -259,7 +256,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   symbols: {
     iface: "SymbolService",
-    stream: "S4",
     requires: ["accounts", "scheduler"],
     methods: ["parse", "format", "resolve", "toBroker", "fromBroker", "search", "convert", "refresh", "status"],
   },
@@ -289,71 +285,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  sync({ datasets, reason }) -> Promise<{ jobId, results }>   (CAPABILITY_UNSUPPORTED in demo mode)
    *  archives() -> { enabled: boolean, setBy: "config"|"user"|"demo"|null, client: NseArchiveClient | null }
    *      (the NSE archive switch and the shared, rate-limited archive client; client is null while the switch is off.
-   *      Other modules that fetch NSE archive files, such as participants, fetch through this client only.)
+   *      Any module that fetches NSE archive files goes through this client only.)
    */
   reference: {
     iface: "ReferenceData",
-    stream: "S16",
     requires: ["symbols"],
     methods: ["session", "calendar", "rate", "lotFor", "freezeFor", "banStatus", "universe", "corporateActions", "events", "charges", "deliveryMargin", "status", "bundle", "sync", "archives"],
-  },
-
-  /**
-   * ParticipantOI. NSE participant-wise open interest:
-   * one file a day from the NSE archives (behind the reference service's archive switch), a resumable back-fill and a
-   * deterministic demo history. No broker calls. NSE only.
-   *  latest({ exchange: "NSE"|"BSE" }) -> { available: true, asOfDate, source: "nse-participant-oi"|"demo", unit: "contracts",
-   *      quality, rows: [{ participant: "CLIENT"|"DII"|"FII"|"PRO", instrument: "IDX_FUT"|"IDX_CE"|"IDX_PE"|"STK_FUT"|"STK_CE"|"STK_PE", long, short }] }
-   *    | { available: false, reason: "NO_PARTICIPANT_DATA"|"PARTICIPANT_STALE"|"NOT_FOR_BSE"|"SOURCE_OFF", detail }
-   *      (stale = asOfDate older than the previous trading day)
-   *  series({ from, to, participants?, instruments? }) -> Array<ParticipantDay>
-   *  status() -> ParticipantStatus
-   *  sync({ date?, backfill? }) -> Promise<{ fetched: string[], noFile: string[], failed: Array<{ date, code }> }>
-   * `reference` may be a stub: the service then reports SOURCE_UNAVAILABLE in real mode instead of failing.
-   */
-  participants: { iface: "ParticipantOI", stream: "S26", requires: ["reference"], methods: ["latest", "series", "status", "sync"] },
-
-  /**
-   * VolService. The vol-time clock, the daily vol store, IV rank and
-   * percentile, IV history, VIX and the prediction log. IVs in vol points; every row carries quality and source.
-   *  clock({ underlying, expiries?, at? }) -> { settings, holidays, expiries: ClockResult[] }
-   *  snapshot({ underlying, expiries? }, opts?) -> live daily-store-shaped rows + cm30 + quick rank (cached snapshotTtlSeconds)
-   *  history({ underlying, basis, expiry?, from, to, series, quality, clock, cursor, limit }) -> { items, gaps, coverage, nextCursor, method }
-   *  rank({ underlying, basis, lookbacks, quality, clock, expiry? }) -> { current, lookbacks, sameDte, vix, definitions }
-   *  summary({ underlyings, lookback }) -> memory-only rank lines for the screener
-   *  status() -> capture state, coverage, capacity, sources, back-fill job, disk
-   *  capture({ underlyings, replace, trigger }) -> per-underlying results of a capture run
-   *  backfill({ sources, from, to, underlyings }) -> { jobId, days, files, estimateMinutes }
-   *  cancelBackfill() -> stops after the current file
-   *  predictions({ from, to, underlying, metric }) -> prediction-log rows
-   *  logPredictions(rows) -> { ids }   validates metric against an open list
-   */
-  vol: {
-    iface: "VolService",
-    stream: "S18",
-    requires: ["marketData", "reference", "symbols", "scheduler", "recorder"],
-    methods: ["clock", "snapshot", "history", "rank", "summary", "status", "capture", "backfill", "cancelBackfill", "predictions", "logPredictions"],
-  },
-
-  /**
-   * OptionsRecorder. Records configured option chains every minute
-   * (indices) or every 5 minutes (opted-in stocks) in session from ONE data account, stream first, REST inside a hard
-   * 50 % slice of the broker budget; snapshots and gaps on disk, daily rows. Never places orders.
-   *  status() -> RecorderStatus (state, account, session, plan, budget, today, disk, coverage, sources, warnings)
-   *  plan(section?) -> { ok, message, plan, budget, capacity }      dry run over the current config merged with section
-   *  snapshots({ underlying, expiry, fromMs?, toMs?, fields?, strikes?, every?, includeSuspect?, limit?, cursor? })
-   *      -> { underlying, expiry, exchange, units, fields, snapshots, gaps, coverage, unavailable, method, nextCursor }
-   *      (stored records; slots and ts as epoch ms; routes render IST ISO strings)
-   *  latest({ underlying, expiry, fields?, strikes? }) -> snapshot | null   from memory
-   *  daily({ underlying, from, to, expiry? }) -> daily rows, oldest first
-   *  configure(section, { persist }) -> Promise<{ persisted, status }>   CAPACITY_EXCEEDED / CONFIRMATION_REQUIRED
-   *  Extras: start(), stop(), demo(), events for "recorder.status" and "recorder.snapshot".
-   */
-  recorder: {
-    iface: "OptionsRecorder",
-    stream: "S17",
-    requires: ["marketData", "streamHub", "accounts", "scheduler", "symbols", "reference", "backupData"],
-    methods: ["status", "plan", "snapshots", "latest", "daily", "configure"],
   },
 
   /**
@@ -371,7 +308,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   streamHub: {
     iface: "StreamHub",
-    stream: "S6",
     requires: ["accounts", "symbols"],
     methods: ["subscribe", "unsubscribe", "dropClient", "lastTick", "isLive", "stats"],
   },
@@ -394,7 +330,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  status() -> { enabled, autoFallback, providers: [...], order, cacheMs }
    *  autoFallback() -> boolean
    */
-  backupData: { iface: "BackupDataService", stream: "S12", requires: ["secrets"], methods: ["quotes", "history", "expiries", "optionChain", "status", "autoFallback"] },
+  backupData: { iface: "BackupDataService", requires: ["secrets"], methods: ["quotes", "history", "expiries", "optionChain", "status", "autoFallback"] },
 
   /**
    * MarketDataService. Streaming-first, then freshness cache, then a scheduled broker call (batched per consumer and
@@ -411,7 +347,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   marketData: {
     iface: "MarketDataService",
-    stream: "S5",
     requires: ["accounts", "scheduler", "symbols", "streamHub", "backupData", "reference"],
     methods: ["ltp", "quotes", "depth", "history", "expiries", "optionChain"],
   },
@@ -435,7 +370,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   safety: {
     iface: "SafetyGuard",
-    stream: "S9",
     requires: ["audit", "accounts", "reference"],
     methods: ["check", "acquireOrderSlot", "recordOrderEvent", "killSwitchStatus", "engageKillSwitch", "releaseKillSwitch", "limits"],
   },
@@ -456,7 +390,6 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   paper: {
     iface: "PaperEngine",
-    stream: "S8",
     requires: ["marketData", "symbols", "reference"],
     methods: ["place", "modify", "cancel", "order", "orders", "trades", "positions", "funds", "account", "reset"],
   },
@@ -500,14 +433,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   readiness: {
     iface: "Readiness",
-    stream: "S20",
     requires: ["accounts", "scheduler", "safety", "audit", "reference"],
     methods: ["status", "canTrade", "ensureFresh", "check", "registerAutomation"],
   },
 
   orders: {
     iface: "OrderService",
-    stream: "S7",
     requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference", "readiness"],
     methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket", "rejectTicket", "ticketStatus"],
   },
@@ -515,10 +446,11 @@ export const SERVICE_CONTRACTS = Object.freeze({
 
 /** Core deps every factory receives in addition to its `requires`. */
 /**
- * API Bridge v2 has no provider for these contract services (they are not part of v2). Kept code may still list
- * them in `requires`; they resolve to stubs. Health, doctor and the module tests skip them.
+ * API Bridge v2 has no provider for these contract services. Kept code may still list them in `requires` and reads
+ * them as an optional extra (the order, paper, safety and readiness services all work without them); they resolve to
+ * stubs. Health, doctor and the module tests skip them.
  */
-export const SERVICES_NOT_IN_V2 = Object.freeze(["reference", "participants", "vol", "recorder"]);
+export const SERVICES_NOT_IN_V2 = Object.freeze(["reference"]);
 
 export const CORE_DEPS = Object.freeze(["config", "logger", "bus", "clock", "paths", "brokers"]);
 
@@ -534,7 +466,7 @@ export function notImplementedService(name) {
   const svc = {};
   for (const m of spec.methods) {
     svc[m] = () => {
-      throw new NotImplementedError(`${spec.iface}.${m}() (stream ${spec.stream})`);
+      throw new NotImplementedError(`${spec.iface}.${m}()`);
     };
   }
   Object.defineProperty(svc, STUB, { value: true });

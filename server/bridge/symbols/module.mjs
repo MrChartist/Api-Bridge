@@ -22,7 +22,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "symbols",
-  stream: "S4",
   configKey: "symbols",
   configSchema: SYMBOLS_CONFIG_SCHEMA,
   services: { symbols: (deps) => createSymbolService(deps) },

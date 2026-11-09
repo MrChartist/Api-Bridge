@@ -21,7 +21,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "safety",
-  stream: "S9",
   services: { safety: (deps) => createSafetyGuard(deps), audit: (deps) => createAuditLog(deps) },
   register(app, deps) {
     const handlers = createSafetyRoutes(deps);

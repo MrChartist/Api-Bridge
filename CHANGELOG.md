@@ -52,6 +52,26 @@
   vendor limit is not shown as working, and the response `meta` carries `autoFallback`. The Sources page says when a free
   source on will actually be asked, switches show their new state at once, and the dashboard's counted words, motion, touch
   targets and sheets were tidied across pages.
+- Removed what v2 does not serve, so the public project matches the routes that exist (each item was checked against
+  the registered routes or for a reader before it was deleted):
+  - API spec: 17 unused tags (Alerts, Triggers, Watchlists, Journal, Strategies, Book, Events, Scanner, Notifications,
+    Backup data, Reference data, Volatility, Options desk, Participant OI, Options data, Studies, Analytics), 84 unused
+    schemas, parameters and responses, the error codes `ALERT_LIMIT`, `COMPUTE_LIMIT`, `COMPUTE_TIMEOUT`,
+    `CAPACITY_EXCEEDED` and `AUTOMATION_NOT_ALLOWED`, the chain-leg fields `oiChangeBasis` and `oiChangeSince`, and the key
+    `purpose` field. Operations now carry `x-module` (the module that registers them) instead of `x-stream`.
+  - SDKs: the backup and scanner methods of the Node SDK (`backupQuotes`, `scan`, `saveScan`, ...) and the Python SDK
+    (`backup_quotes`, `scan`, `save_scan`, ...); they called routes that answer 404. The Python strategy runner stays (you run it yourself); `oi_walls.py` now works
+    out its open-interest walls from the option chain instead of calling a route that does not exist.
+  - Streams: the WebSocket ops `subscribe_scans`, `unsubscribe_scans`, `subscribe_events` and `unsubscribe_events`, the SSE
+    switches `scans=1` and `events=1`, the `scan` and `market_event` messages, and the always-empty `jobs` list of the
+    `budget` message. Nothing ever sent them.
+  - Settings: `stream.candles` and the MCP toolset `options` (no reader, no tools), and the old top-level sections
+    `alerts`, `triggers`, `watchlists`, `journal`, `strategies`, `scanner`, `analytics`, `studies`, `vol`, `recorder`,
+    `reference`, `participants`, `notify` and `backup`. A config file that still has one is refused with a friendly
+    message naming it ("this setting was removed in v2"), not a crash. `readiness` status no longer says that no
+    notification target listens (there are none).
+  - Internal: the service contracts `participants`, `vol` and `recorder`, the build-stream tags in modules, contracts and
+    docs, unused event-bus topics, and the unused dashboard page names of the request log.
 
 ## 2.0.0
 

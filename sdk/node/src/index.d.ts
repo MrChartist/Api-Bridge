@@ -369,25 +369,6 @@ export declare class BridgeClient {
   optionChain(p: { underlying: string; expiry: string; strikes?: number; greeks?: boolean } & ReadOpts): Promise<Envelope<OptionChain>>;
   streamStats(): Promise<Envelope<Record<string, unknown>>>;
 
-  // Backup data (freshness.source "backup")
-  backupStatus(): Promise<Envelope<Record<string, unknown>>>;
-  backupQuotes(symbols: string | string[], o?: { fields?: "ltp" | "quote" }): Promise<Envelope<Record<string, unknown>[]>>;
-  backupHistory(p: { symbol: string; interval: string; from?: string; to?: string; countback?: number }): Promise<Envelope<Record<string, unknown>>>;
-
-  // Scanner
-  scannerLanguage(): Promise<Envelope<Record<string, unknown>>>;
-  scannerUniverses(): Promise<Envelope<Array<{ name: string; description: string; size: number | null; source: string }>>>;
-  scannerUniverse(name: string): Promise<Envelope<{ name: string; symbols: string[] }>>;
-  planScan(scan: ScanRequest, o?: { signal?: AbortSignal }): Promise<Envelope<Record<string, unknown>>>;
-  scan(scan: ScanRequest, o?: { waitMs?: number; signal?: AbortSignal }): Promise<Envelope<ScanJob>>;
-  scans(): Promise<Envelope<ScanJob[]>>;
-  scanJob(jobId: string): Promise<Envelope<ScanJob>>;
-  cancelScan(jobId: string): Promise<Envelope<ScanJob>>;
-  savedScans(): Promise<Envelope<Record<string, unknown>[]>>;
-  saveScan(p: { name: string; request: ScanRequest; everyMinutes?: number; marketHoursOnly?: boolean }): Promise<Envelope<Record<string, unknown>>>;
-  deleteSavedScan(savedId: string): Promise<Envelope<{ id: string; deleted: boolean }>>;
-  runSavedScan(savedId: string, o?: { waitMs?: number }): Promise<Envelope<ScanJob>>;
-
   positions(account: string, o?: { mode?: Mode }): Promise<Envelope<Position[]>>;
   holdings(account: string): Promise<Envelope<Holding[]>>;
   funds(account: string, o?: { mode?: Mode }): Promise<Envelope<Funds>>;
@@ -412,29 +393,4 @@ export declare class BridgeClient {
   streamToken(): Promise<{ token: string; expiresAt: string }>;
   streamUrl(): Promise<string>;
   stream(opts?: StreamOptions): BridgeStream;
-}
-
-export interface ScanRequest {
-  name?: string;
-  universe?: string;
-  symbols?: string[];
-  interval?: "1m" | "3m" | "5m" | "10m" | "15m" | "30m" | "60m" | "1d" | "1w" | "1M";
-  lookback?: number;
-  condition: string;
-  columns?: string[];
-  sort?: { by: string; order?: "asc" | "desc" };
-  limit?: number;
-  source?: "auto" | "broker" | "backup";
-}
-
-export interface ScanJob {
-  id: string;
-  name: string | null;
-  savedId: string | null;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
-  progress: { total: number; done: number; matched: number; errors: number };
-  results?: Array<{ symbol: string; values: Record<string, number | null>; barTime: number; source: string; accountId: string | null; provider?: string; sortValue?: number | null }>;
-  errors?: Array<{ symbol: string; code: string; message: string }>;
-  newMatches?: string[];
-  [k: string]: unknown;
 }
