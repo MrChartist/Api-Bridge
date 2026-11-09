@@ -3,6 +3,7 @@
  * Pure functions: the same spec always gives the same text.
  */
 import { ERROR_CODES } from "../../server/bridge/core/errors.mjs";
+import { errorCatalogue } from "../../server/bridge/core/errorCatalogue.mjs";
 import { BASE_URL, deref, refName, slug } from "./openapi-model.mjs";
 import { queryString, requestExample } from "./examples.mjs";
 import { noteBlock } from "./notes.mjs";
@@ -343,14 +344,12 @@ export function apiIndexPage(spec, ops, groups) {
   return `${out.join("\n").trimEnd()}\n`;
 }
 
-const MEANING = Object.freeze({});
-
 export function errorsPage() {
   const out = ["# Error codes", "", "Every error is `application/problem+json` with `code`, `status`, `detail`, `retryable` and `requestId`. The `code` is stable (codes are added, never renamed); `detail` is for people. `retryable` answers one question: is it safe to send exactly this request again? A write whose outcome is unknown is never retryable: check the order book first.", ""];
   out.push("Rate-limit refusals (429) also say whose limit was hit: `scope` (`client`, `upstream`, `queue`, `consumer-cap`), `retryAfterMs` and `limit`. Read those fields, not `detail`. See [rate-limits.md](../guides/rate-limits.md).", "");
-  out.push("Generated from `server/bridge/core/errors.mjs`.", "", "| Code | HTTP | Retryable | Meaning |", "|---|---|---|---|");
-  for (const [c, e] of Object.entries(ERROR_CODES).sort((a, b) => a[1].status - b[1].status || a[0].localeCompare(b[0]))) {
-    out.push(`| ${code(c)} | ${e.status} | ${e.retryable ? "yes" : "no"} | ${esc(MEANING[c] ?? e.title)} |`);
+  out.push("Generated from `server/bridge/core/errors.mjs` and `server/bridge/core/errorCatalogue.mjs`. The running Bridge serves the same list at `GET /v1/errors`, and the dashboard shows it under Developers.", "", "| Code | HTTP | Retry | What it means | What to do |", "|---|---|---|---|---|");
+  for (const e of errorCatalogue()) {
+    out.push(`| ${code(e.code)} | ${e.status} | ${e.retryable ? "yes" : "no"} | ${esc(e.means)} | ${esc(e.fix)} |`);
   }
   return `${out.join("\n")}\n`;
 }

@@ -139,7 +139,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "150 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "151 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -1429,6 +1429,15 @@
     },
     {
       "headings": [
+        "GET /v1/errors"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/listErrorCodes.md",
+      "text": "GET /v1/errors. The catalogue of every problem code the Bridge can return, with its HTTP status, whether sending the same request again is safe, a plain explanation and the fix.",
+      "title": "Every error code, what it means and how to fix it"
+    },
+    {
+      "headings": [
         "GET /v1/requests"
       ],
       "kind": "endpoint",
@@ -1539,7 +1548,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 146 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 147 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {

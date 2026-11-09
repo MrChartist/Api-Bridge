@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-150 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+151 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -18,6 +18,7 @@ Health, versions and this document.
 | [GET /dashboard/{file}](system/getDashboardAsset.md) | Dashboard scripts, stylesheet and logo | no key |
 | [GET /v1/meta](system/getMeta.md) | Versions, brokers, modules and routes | `read` |
 | [GET /v1/requests](system/listRecentRequests.md) | Recent requests to this Bridge (newest first) | `admin`, this computer only |
+| [GET /v1/errors](system/listErrorCodes.md) | Every error code, what it means and how to fix it | `read` |
 | [GET /v1/expose](system/getExposure.md) | What is set up to be reached from outside this computer | `admin`, this computer only |
 | [POST /v1/expose/check](system/checkExposure.md) | Check that only the intended routes answer on the public listeners | `admin`, this computer only |
 | [GET /openapi.yaml](system/getOpenApi.md) | This document | no key |
