@@ -30,6 +30,7 @@ export const FAILURE_TEXT = Object.freeze({
   blocked_credentials: "The URL has a user name or password.",
   host_not_listed: "This host is not on the allowed list.",
   bad_url: "The URL is not valid.",
+  secret_missing: "The signing secret is missing from the secrets store (it was lost, or this Bridge runs in demo mode, which keeps secrets in memory only). Send it again with PATCH, then send the dead letters again.",
 });
 
 const PERMANENT_TARGET_CODES = new Set(["blocked_scheme", "blocked_host", "blocked_address", "blocked_credentials", "host_not_listed", "bad_url"]);

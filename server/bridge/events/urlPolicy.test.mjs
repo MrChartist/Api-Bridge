@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressAllowed, checkTargetUrl, displayTarget, isMetadataAddress, resolveAllowed } from "./urlPolicy.mjs";
+import { addressAllowed, checkTargetUrl, displayTarget, isMetadataAddress, isPrivateAddress, resolveAllowed } from "./urlPolicy.mjs";
 import { createFakeDns } from "./testkit.mjs";
 
 const code = (u, p) => {
@@ -65,6 +65,20 @@ describe("checkTargetUrl (as written, no lookup)", () => {
     expect(displayTarget(url("https://hooks.example.com/in/abcSECRET?token=1"))).toBe("https://hooks.example.com/…");
     expect(displayTarget(url("https://hooks.example.com:8443/"))).toBe("https://hooks.example.com:8443");
     expect(displayTarget(url("https://hooks.example.com/"))).not.toContain("…");
+  });
+});
+
+describe("isPrivateAddress", () => {
+  it("refuses everything that is not the public internet, in IPv4 and IPv6, however it is wrapped", () => {
+    for (const a of [
+      "0.0.0.0", "0.1.2.3", "10.0.0.1", "10.255.255.255", "100.64.0.1", "100.127.255.255", "127.0.0.1", "127.255.0.9", "169.254.0.1", "172.16.0.1", "172.31.0.1", "192.0.0.5", "192.0.2.9", "192.168.0.1", "198.18.0.1", "198.19.255.1",
+      "198.51.100.5", "203.0.113.5", "224.0.0.1", "239.1.1.1", "240.0.0.1", "255.255.255.255",
+      "::", "::1", "fe80::1", "febf::1", "fc00::1", "fd12:3456::1", "ff02::1", "2001:db8::1", "2001::1", "100::1", "::ffff:10.0.0.1", "::ffff:7f00:1", "::ffff:c0a8:1", "64:ff9b::a00:1", "2002:a00:1::", "::10.0.0.1", "[::1]", "fe80::1%eth0",
+      "not an ip", "", "1.2.3", "1.2.3.4.5", "999.1.1.1", "12345::",
+    ]) expect(isPrivateAddress(a), a).toBe(true);
+  });
+  it("lets public addresses through", () => {
+    for (const a of ["8.8.8.8", "1.1.1.1", "93.184.216.34", "100.63.255.255", "100.128.0.1", "172.15.255.255", "172.32.0.1", "169.253.1.1", "192.169.0.1", "198.17.0.1", "223.255.255.255", "2606:4700:4700::1111", "2a00:1450:4001:81b::200e", "::ffff:8.8.8.8", "64:ff9b::808:808", "[2606:4700::1]"]) expect(isPrivateAddress(a), a).toBe(false);
   });
 });
 

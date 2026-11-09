@@ -96,7 +96,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       createdAt: new Date(s.createdAt).toISOString(),
       updatedAt: new Date(s.updatedAt).toISOString(),
       health: {
-        state: !s.active ? "paused" : s.consecutiveFailures >= 3 ? "failing" : s.lastDeliveredAt || s.lastTestOkAt ? "ok" : "unverified",
+        state: !s.active ? "paused" : s.needsSecret ? "needs-secret" : s.consecutiveFailures >= 3 ? "failing" : s.lastDeliveredAt || s.lastTestOkAt ? "ok" : "unverified",
         delivered: s.delivered ?? 0,
         failed: s.failed ?? 0,
         deadLettered: s.deadLettered ?? 0,
@@ -191,6 +191,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
         await secrets.set(`${SECRET_PREFIX}${id}`, { url: nextCreds.url, secret: nextCreds.secret });
         remember(id, nextCreds);
         next.consecutiveFailures = 0;
+        next.needsSecret = false;
       }
       if (patch.active === true && !cur.active) next.consecutiveFailures = 0;
       subs.patch(id, next);
@@ -296,6 +297,8 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     start() {
       stopped = false;
       schedule();
+      // A secret that is gone (demo mode keeps secrets in memory only) is found now, not at the first delivery.
+      void checkCredentials();
     },
     stop() {
       stopped = true;
@@ -355,7 +358,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       deadAt: new Date(d.deadAt).toISOString(),
       reason: d.reason,
       status: d.lastStatus ?? null,
-      message: FAILURE_TEXT[d.reason] ?? (d.reason === "overflow" ? "The queue for this subscription was full, so the oldest event was set aside." : d.reason === "expired" ? "The event was too old to deliver any more." : d.reason === "no_credentials" ? "The signing secret is missing." : "The delivery failed."),
+      message: FAILURE_TEXT[d.reason] ?? (d.reason === "overflow" ? "The queue for this subscription was full, so the oldest event was set aside." : d.reason === "expired" ? "The event was too old to deliver any more." : "The delivery failed."),
     };
   }
 
@@ -386,8 +389,10 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     const c = await credsOf(item.subId).catch(() => null);
     const n = item.attempts + 1;
     if (!c) {
-      record({ subId: item.subId, deliveryId: item.id, eventId: item.eventId, topic: item.topic, attempt: n, result: { ok: false, code: "request_failed" }, outcome: "dead" });
-      moveToDead({ ...item, attempts: n }, "no_credentials");
+      const r = { ok: false, code: "secret_missing" };
+      record({ subId: item.subId, deliveryId: item.id, eventId: item.eventId, topic: item.topic, attempt: n, result: r, outcome: "dead" });
+      subs.patch(item.subId, { needsSecret: true, failed: (subs.get(item.subId).failed ?? 0) + 1, lastFailureAt: now(), lastFailureCode: "secret_missing", lastFailureStatus: null, consecutiveFailures: (subs.get(item.subId).consecutiveFailures ?? 0) + 1 });
+      moveToDead({ ...item, attempts: n }, "secret_missing");
       return;
     }
     const r = await sender.send({ url: c.url, secret: c.secret, body: item.body, headers: headersFor({ eventId: item.eventId, topic: item.topic, deliveryId: item.id, attempt: n }) });
@@ -411,6 +416,20 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     const nextAttemptAt = t + wait;
     outbox.patch(item.id, { attempts: n, nextAttemptAt });
     record({ subId: item.subId, deliveryId: item.id, eventId: item.eventId, topic: item.topic, attempt: n, result: r, outcome: "retry", nextAttemptAt });
+  }
+
+  async function checkCredentials() {
+    try {
+      let missing = 0;
+      for (const s of subs.list()) {
+        const has = Boolean(await credsOf(s.id));
+        if (!has) missing += 1;
+        if (!has !== Boolean(s.needsSecret)) subs.patch(s.id, { needsSecret: !has });
+      }
+      if (missing) logger.warn?.("webhook subscriptions have no stored signing secret and will not deliver until it is set again", { count: missing });
+    } catch (err) {
+      logger.warn?.("the stored webhook secrets could not be checked", { code: err?.code });
+    }
   }
 
   function schedule() {

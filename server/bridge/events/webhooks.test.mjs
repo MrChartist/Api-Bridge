@@ -373,6 +373,36 @@ describe("durability", () => {
     expect(text).not.toContain(SECRET);
   });
 
+  it("notices a lost secret at start and says so in plain words; delivery waits in the dead letters until it is set again", async () => {
+    const dir = tmpDir();
+    const secrets = createFakeSecretStore();
+    const a = bootWebhooks({ dir, secrets });
+    const s = await a.svc.create(SUB);
+    // the Bridge restarts and the secrets store has lost the entry (demo mode keeps secrets in memory only)
+    const b = bootWebhooks({ dir, secrets: createFakeSecretStore() });
+    b.svc.start();
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    expect(b.svc.get(s.id).health.state).toBe("needs-secret");
+    expect(b.logLines.join("\n")).toMatch(/no stored signing secret/);
+    order(b);
+    await b.svc.pump();
+    expect(b.receiver.calls).toEqual([]);
+    const [d] = b.svc.deadLetters(s.id);
+    expect(d).toMatchObject({ reason: "secret_missing" });
+    expect(d.message).toMatch(/signing secret is missing/);
+    expect(b.svc.deliveries(s.id)[0]).toMatchObject({ outcome: "dead", code: "secret_missing" });
+    await expect(b.svc.test(s.id)).rejects.toMatchObject({ code: "STATE_CONFLICT" });
+    // set it again, send the dead letter again
+    await b.svc.update(s.id, { secret: SECRET, url: URL_OK });
+    expect(b.svc.get(s.id).health.state).not.toBe("needs-secret");
+    await b.svc.retryDead(s.id, d.id);
+    await b.svc.pump();
+    expect(b.receiver.calls).toHaveLength(1);
+    expect(b.receiver.calls[0].signatureOk).toBe(true);
+    b.svc.stop();
+  });
+
   it("starts empty and works when its files are damaged", async () => {
     const dir = tmpDir();
     const secrets = createFakeSecretStore();

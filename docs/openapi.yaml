@@ -6464,7 +6464,7 @@ components:
         health:
           type: object
           properties:
-            state: { type: string, enum: [unverified, ok, failing, paused] }
+            state: { type: string, enum: [unverified, ok, failing, paused, needs-secret], description: "needs-secret: the stored signing secret is missing (set it again with PATCH)." }
             delivered: { type: integer }
             failed: { type: integer, description: "Failed attempts (a retried event counts each time)." }
             deadLettered: { type: integer }

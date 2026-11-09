@@ -346,4 +346,5 @@ and the snippets above check each one).
 | The webhook test says `blocked_address` | The host resolves to a private or metadata address. Use a public host, or `allowPrivateTargets` for a receiver of your own |
 | `http_4xx` | Your server refused it: check the signature check, the URL and that you read the **raw** body |
 | Signatures never match | The body was parsed and re-written before checking; the secret has a trailing newline; or the two clocks differ by more than 5 minutes |
+| A subscription says `needs-secret` | Its stored URL and signing secret are gone (demo mode keeps secrets in memory only, so a restart loses them). Send both again with `PATCH /v1/subscriptions/{id}` (`url` and `secret`), then `subscriptions dead-letters <id> --retry-all`; or remove it and add it again |
 | Events stopped for a subscription | `mc-bridge subscriptions list`: is it `paused` or `failing`? Look at `deliveries` and `dead-letters` |

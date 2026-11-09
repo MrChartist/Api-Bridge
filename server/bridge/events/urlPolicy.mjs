@@ -18,7 +18,6 @@
  * receiver on the same computer or LAN.
  */
 import net from "node:net";
-import { isPrivateAddress } from "../sources/plugin/netpolicy.mjs";
 
 export const MAX_URL_LENGTH = 2048;
 
@@ -77,6 +76,51 @@ export function isMetadataAddress(ip) {
   if (inner && METADATA_ADDRESSES.has(inner)) return true;
   const g = groupsV6(a);
   return Boolean(g && g[0] === 0xfd00 && g[1] === 0x0ec2 && g.slice(2, 7).every((x) => x === 0) && g[7] === 0x254);
+}
+
+const dottedV4 = (ip) => {
+  const p = ip.split(".").map(Number);
+  return p.length === 4 && p.every((n) => Number.isInteger(n) && n >= 0 && n <= 255) ? p : null;
+};
+
+/** IPv4 ranges that are not the public internet: this host, private, loopback, shared (CGNAT), link-local, benchmark, documentation, multicast, reserved. */
+function privateV4(p) {
+  const [a, b, c] = p;
+  return (
+    a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113)
+  );
+}
+
+/**
+ * True when an address is not a public one: any of the IPv4 ranges above, IPv6 loopback, unspecified, link-local, unique-local,
+ * multicast, documentation and discard ranges, an IPv4 address wrapped in IPv6 (mapped, NAT64, 6to4), and anything that does not
+ * parse (an address we cannot read is never called).
+ * @param {string} address
+ */
+export function isPrivateAddress(address) {
+  const ip = String(address).replace(/^\[|\]$/g, "").split("%")[0];
+  if (net.isIPv4(ip)) return privateV4(dottedV4(ip));
+  if (!net.isIPv6(ip)) return true;
+  const g = groupsV6(ip.toLowerCase());
+  if (!g) return true;
+  if (g.every((x) => x === 0) || (g.slice(0, 7).every((x) => x === 0) && g[7] === 1)) return true; // :: and ::1
+  const inner = embeddedV4(ip.toLowerCase());
+  if (inner) return privateV4(dottedV4(inner));
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0) return privateV4(dottedV4(`${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`)); // ::a.b.c.d
+  if ((g[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((g[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
+  if ((g[0] & 0xff00) === 0xff00) return true; // multicast
+  if (g[0] === 0x2001 && (g[1] === 0x0db8 || g[1] === 0)) return true; // documentation, Teredo
+  if (g[0] === 0x0100 && g.slice(1, 4).every((x) => x === 0)) return true; // discard
+  return false;
 }
 
 /** @param {string} address  @param {boolean} allowPrivate  @returns {boolean} true when the address may be called */

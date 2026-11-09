@@ -32,7 +32,7 @@ const SAFE_WRITES = new Set([
 /** Examples that need an order: created in the test, then looked up, changed or cancelled. */
 const NEEDS_ORDER = new Set(["getOrder", "getOrderByClientId", "modifyOrder", "cancelOrder", "compatOrderstatus", "compatCancelorder", "compatModifyorder"]);
 /** GETs that are not plain requests: a WebSocket upgrade, and an event stream that needs a one-time token. */
-const NOT_PLAIN = new Set(["openStream", "openSse"]);
+const NOT_PLAIN = new Set(["openStream", "openSse", "openEventStream"]);
 /** Run last: they cancel every open paper order and close the paper positions. */
 const LAST = new Set(["cancelAllOrders", "compatCancelallorder", "compatCloseposition"]);
 
