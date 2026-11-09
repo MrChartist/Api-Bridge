@@ -1,0 +1,23 @@
+meta {
+  name: Every event with its plain label and whether it is on
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/v1/notify/events
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Every event with its plain label and whether it is on
+
+  - An API key with the `admin` scope.
+
+  Reference: docs/api/notifications/getNotifyEvents.md in the repository.
+}

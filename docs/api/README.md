@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-133 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+144 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -176,6 +176,24 @@ Per-key request quotas and fair-queue weights.
 | [GET /v1/quotas](quotas/getQuotas.md) | Each API key's share of the Bridge | `read` |
 | [PUT /v1/quotas/{keyId}](quotas/setQuota.md) | Override one key's quota or weight | `admin`, this computer only |
 | [DELETE /v1/quotas/{keyId}](quotas/clearQuota.md) | Remove a key's override | `admin`, this computer only |
+
+## Notifications
+
+Events to Telegram and a few read-only Telegram commands. Setup is on this computer only; nothing here returns a bot token or a chat id.
+
+| Call | What it does | Needs |
+|---|---|---|
+| [GET /v1/notify/status](notifications/getNotifyStatus.md) | Notification health: queue, last delivery, last error per target | `admin` |
+| [GET /v1/notify/targets](notifications/listNotifyTargets.md) | List Telegram bots and their chats (masked) | `admin` |
+| [POST /v1/notify/targets](notifications/createNotifyTarget.md) | Add a Telegram bot (or replace the token of the same bot) | `admin`, this computer only |
+| [DELETE /v1/notify/targets/{targetId}](notifications/deleteNotifyTarget.md) | Remove a bot and forget its token and chats | `admin`, this computer only |
+| [POST /v1/notify/targets/{targetId}/test](notifications/testNotifyTarget.md) | Send a test message and report delivery per chat | `admin`, this computer only |
+| [POST /v1/notify/targets/{targetId}/find-chat](notifications/findNotifyChat.md) | Find chats that recently wrote to the bot | `admin`, this computer only |
+| [POST /v1/notify/targets/{targetId}/chats](notifications/addNotifyChat.md) | Put a chat on the list (alerts, and optionally commands) | `admin`, this computer only |
+| [PATCH /v1/notify/targets/{targetId}/chats/{chatKey}](notifications/updateNotifyChat.md) | Allow or stop commands from a chat | `admin`, this computer only |
+| [DELETE /v1/notify/targets/{targetId}/chats/{chatKey}](notifications/deleteNotifyChat.md) | Remove a chat from the list | `admin`, this computer only |
+| [GET /v1/notify/events](notifications/getNotifyEvents.md) | Every event with its plain label and whether it is on | `admin` |
+| [PUT /v1/notify/events](notifications/putNotifyEvents.md) | Choose which events are sent, quiet hours and the morning reminder | `admin`, this computer only |
 
 ## Safety
 

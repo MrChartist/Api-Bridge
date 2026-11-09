@@ -57,6 +57,9 @@ Usage:
   mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE [--purpose display] [--max-age <ms>]
   mc-bridge sources plugins pin <folder>     print the sha256 to put in the config. First read mc-source.json and the entry file
   mc-bridge sources plugins check <folder>   run the conformance checks offline. This RUNS the plugin's code: pin it first
+  mc-bridge notify telegram setup   connect a Telegram bot: the token is read from a hidden prompt, never from the command line
+  mc-bridge notify telegram remove <id>
+  mc-bridge notify status | test [<id>]
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -180,6 +183,10 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
     } catch {
       /* sources service not available */
     }
+  }
+  if (deps && !isStub(deps.notify)) {
+    const { notifyDoctorChecks } = await import("../notify/doctor.mjs");
+    for (const c of await notifyDoctorChecks(deps, { env })) add(c.level, c.check, c.message);
   }
   if (portCheck) {
     const free = await new Promise((r) => {
@@ -572,6 +579,11 @@ export async function runCli(positionals, flags, io) {
       }
       case "sources":
         return await sourcesCommand(positionals.slice(1), flags, io);
+      case "notify": {
+        const { notifyCommand } = await import("../notify/cli.mjs");
+        warnKeyOnArgv(flags, io);
+        return await notifyCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), prompt: terminalPrompt, cli: cliCommand(io.env), usage: USAGE });
+      }
       case "kill":
         return await killCommand(sub, flags, io);
       case "backup":

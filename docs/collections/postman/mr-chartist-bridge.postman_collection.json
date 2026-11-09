@@ -2701,6 +2701,364 @@
       "name": "Quotas"
     },
     {
+      "description": "Events to Telegram and a few read-only Telegram commands. Setup is on this computer only; nothing here returns a bot token or a chat id.",
+      "item": [
+        {
+          "name": "Notification health: queue, last delivery, last error per target",
+          "request": {
+            "description": "Notification health: queue, last delivery, last error per target\n\n- An API key with the `admin` scope.\n\nPlain-words state for the dashboard and `mc-bridge doctor`. No secrets.\n\nReference: docs/api/notifications/getNotifyStatus.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "status"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/status"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Telegram bots and their chats (masked)",
+          "request": {
+            "description": "List Telegram bots and their chats (masked)\n\n- An API key with the `admin` scope.\n\nThe bot token and chat ids are never returned: only a token hint, the bot name, a chat name and the last four digits of each chat id.\n\nReference: docs/api/notifications/listNotifyTargets.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add a Telegram bot (or replace the token of the same bot)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"token\": \"<hook token>\"\n}"
+            },
+            "description": "Add a Telegram bot (or replace the token of the same bot)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe token is checked with Telegram (getMe) and stored encrypted in the secrets store. It is never returned, logged or audited.\n\nReference: docs/api/notifications/createNotifyTarget.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove a bot and forget its token and chats",
+          "request": {
+            "description": "Remove a bot and forget its token and chats\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/notifications/deleteNotifyTarget.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets",
+                ":targetId"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets/:targetId",
+              "variable": [
+                {
+                  "key": "targetId",
+                  "value": "<targetId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send a test message and report delivery per chat",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Send a test message and report delivery per chat\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/notifications/testNotifyTarget.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets",
+                ":targetId",
+                "test"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets/:targetId/test",
+              "variable": [
+                {
+                  "key": "targetId",
+                  "value": "<targetId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Find chats that recently wrote to the bot",
+          "request": {
+            "description": "Find chats that recently wrote to the bot\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe person sends the bot a message (for example /start); the Bridge reads it and offers the chat to confirm. Messages from chats that are not on the list are never answered.\n\nReference: docs/api/notifications/findNotifyChat.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets",
+                ":targetId",
+                "find-chat"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets/:targetId/find-chat",
+              "variable": [
+                {
+                  "key": "targetId",
+                  "value": "<targetId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Put a chat on the list (alerts, and optionally commands)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Put a chat on the list (alerts, and optionally commands)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/notifications/addNotifyChat.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets",
+                ":targetId",
+                "chats"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets/:targetId/chats",
+              "variable": [
+                {
+                  "key": "targetId",
+                  "value": "<targetId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Allow or stop commands from a chat",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"commands\": false\n}"
+            },
+            "description": "Allow or stop commands from a chat\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/notifications/updateNotifyChat.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets",
+                ":targetId",
+                "chats",
+                ":chatKey"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets/:targetId/chats/:chatKey",
+              "variable": [
+                {
+                  "key": "targetId",
+                  "value": "<targetId>"
+                },
+                {
+                  "key": "chatKey",
+                  "value": "<chatKey>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove a chat from the list",
+          "request": {
+            "description": "Remove a chat from the list\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/notifications/deleteNotifyChat.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "targets",
+                ":targetId",
+                "chats",
+                ":chatKey"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/targets/:targetId/chats/:chatKey",
+              "variable": [
+                {
+                  "key": "targetId",
+                  "value": "<targetId>"
+                },
+                {
+                  "key": "chatKey",
+                  "value": "<chatKey>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Every event with its plain label and whether it is on",
+          "request": {
+            "description": "Every event with its plain label and whether it is on\n\n- An API key with the `admin` scope.\n\nReference: docs/api/notifications/getNotifyEvents.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "events"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/events"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Choose which events are sent, quiet hours and the morning reminder",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Choose which events are sent, quiet hours and the morning reminder\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOnly the fields sent change.\n\nReference: docs/api/notifications/putNotifyEvents.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "notify",
+                "events"
+              ],
+              "raw": "{{baseUrl}}/v1/notify/events"
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Notifications"
+    },
+    {
       "description": "Kill switch, safety counters and the audit log.",
       "item": [
         {

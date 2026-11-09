@@ -1,0 +1,30 @@
+meta {
+  name: Find chats that recently wrote to the bot
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/notify/targets/:targetId/find-chat
+  body: none
+  auth: bearer
+}
+
+params:path {
+  targetId: <targetId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Find chats that recently wrote to the bot
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The person sends the bot a message (for example /start); the Bridge reads it and offers the chat to confirm. Messages from chats that are not on the list are never answered.
+
+  Reference: docs/api/notifications/findNotifyChat.md in the repository.
+}

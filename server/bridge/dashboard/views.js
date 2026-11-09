@@ -10,6 +10,7 @@ import { backupSection } from "./backup-card.js";
 import "./sources-ui.js";
 import { onReconnected } from "./connection.js";
 import { createGetStarted } from "./getstarted.js";
+import { createTelegramCard } from "./telegram-card.js";
 import { keyStepLink } from "./getstarted-core.js";
 import * as live from "./live.js";
 import { KEY_PRESETS, countsLine, finalHookUrl, outcomeView, silentHint, snippets } from "./snippets.js";
@@ -183,6 +184,7 @@ const INTEGRATION_TOOLS = [
   ["node", "Node"],
   ["excel", "Excel and Sheets"],
   ["amibroker", "AmiBroker"],
+  ["telegram", "Telegram"],
   ["claude", "Claude (MCP)"],
   ["chatgpt", "ChatGPT / OpenAI"],
   ["rest", "REST / curl"],
@@ -2485,6 +2487,7 @@ const API_TILE = Object.freeze({
   node: ["bolt", "green"],
   excel: ["chart", "orange"],
   amibroker: ["activity", "indigo"],
+  telegram: ["inbox", "blue"],
   claude: ["plug", "purple"],
   chatgpt: ["inbox", "pink"],
   rest: ["arrow", "gray"],
@@ -2881,12 +2884,13 @@ const INTRO = {
   node: "The Node client (ESM). Streaming on Node 20 needs the ws package; Node 22 has a WebSocket built in.",
   excel: "Live prices in cells with WEBSERVICE. The key goes in the address, so use a read-only key with an expiry.",
   amibroker: "Live values in AFL from the Bridge's cache and stream. History imports use /xl/history with the shipped .format files.",
+  telegram: "Alerts on your phone, and read-only prices and status from Telegram. The bot token is typed on this computer only.",
   claude: "The Bridge is an MCP server. An assistant can read prices, chains and your positions; it can only prepare orders for you to confirm.",
   chatgpt: "ChatGPT connectors cannot reach a server on your computer. Use the same tools from your own script with OpenAI function calling.",
   rest: "Every route answers { data, meta } JSON with freshness labels. Errors are problem+json with a stable code.",
 };
-const TOOL_BLURB = { webhooks: "Alerts place paper orders", python: "Scripts and notebooks", node: "Scripts and services", excel: "Live prices in cells", amibroker: "Live values in your charts", claude: "MCP server for assistants", chatgpt: "Function calling", rest: "Plain HTTP and JSON" };
-const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+const TOOL_BLURB = { webhooks: "Alerts place paper orders", python: "Scripts and notebooks", node: "Scripts and services", excel: "Live prices in cells", amibroker: "Live values in your charts", telegram: "Alerts and prices on your phone", claude: "MCP server for assistants", chatgpt: "Function calling", rest: "Plain HTTP and JSON" };
+const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", telegram: "telegram", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
 /** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] ?? "");
@@ -2919,6 +2923,12 @@ async function renderIntegrations() {
       const [, name] = INTEGRATION_TOOLS.find(([id]) => id === active);
       const [glyph, tint] = API_TILE[active] ?? ["keys", "gray"];
       panel.setAttribute("aria-labelledby", picker.querySelector(`[data-id="${active}"]`)?.id ?? "");
+      if (active === "telegram") {
+        // Its own card (telegram-card.js): no key, no snippets. The token is typed here, on this computer.
+        const guideUrl = `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${GUIDES.telegram}.md`;
+        panel.replaceChildren(h("header", { class: "card-head" }, iconTile(glyph, tint, "lg"), h("div", { class: "card-titles" }, h("h2", {}, name), h("p", {}, INTRO.telegram))), h("div", { class: "card-body ai-body" }, createTelegramCard({ guideHref: guideUrl })));
+        return;
+      }
       const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active] ?? [];
       const preset = KEY_PRESETS[active];
       const keyBtn = preset && h("button", { type: "button", class: "small tinted" }, icon("keys"), createdKeys[active] ? "Key created" : `Create a ${preset.scopes.join(" + ")} key for this`);

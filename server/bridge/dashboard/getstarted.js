@@ -72,6 +72,7 @@ export function createGetStarted({ accounts = [], keyLink, addBroker, every }) {
       h("header", { class: "gs-head" }, h("div", { class: "gs-titles" }, h("h2", { id: "gs-h" }, demo ? "Get started (demo)" : "Get started"), h("p", {}, "Five short steps from nothing to your first working call.")), h("div", { class: "gs-side" }, count, hide)),
       bar,
       h("ol", { class: "gs-steps" }, steps.map((s) => s.li)),
+      h("p", { class: "gs-more hint" }, "Optional: ", h("a", { href: "#/api/integrations?tool=telegram" }, "get alerts and prices on your phone with Telegram"), "."),
       live,
     );
     nodes = { card, count, fill, bar, steps };

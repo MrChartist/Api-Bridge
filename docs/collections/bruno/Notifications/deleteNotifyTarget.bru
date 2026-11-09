@@ -1,0 +1,28 @@
+meta {
+  name: Remove a bot and forget its token and chats
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/v1/notify/targets/:targetId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  targetId: <targetId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Remove a bot and forget its token and chats
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/notifications/deleteNotifyTarget.md in the repository.
+}

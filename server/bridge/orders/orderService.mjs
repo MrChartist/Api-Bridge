@@ -1901,6 +1901,12 @@ export function createOrderService(deps) {
         estimatedValue: p.estimatedValue,
       });
       ticketId = t.ticketId;
+      try {
+        // A person must approve this on this computer. The announcement carries no confirm token.
+        bus.emit("ticket.prepared", { ticketId, accountId: p.summary.id, mode: p.decision.requested, symbol: body.symbol, side: body.side, quantity: p.quantity, estimatedValue: p.estimatedValue, source: effectiveSource(ctx), client: ctx.key?.label ?? ctx.principal?.label ?? ctx.principal?.id ?? "unknown", expiresAt: t.expiresAt });
+      } catch (err) {
+        log.warn("ticket.prepared could not be announced", { code: err?.code ?? "ERROR" });
+      }
       await audit(ctx, "ticket.created", { accountId: p.summary.id, data: { ticketId, order: { symbol: body.symbol, side: body.side, quantity: p.quantity, mode: p.decision.requested }, estimatedValue: p.estimatedValue } });
     }
     return {

@@ -126,6 +126,7 @@
         "Sources",
         "Pooling",
         "Quotas",
+        "Notifications",
         "Safety",
         "Readiness",
         "Backup",
@@ -136,7 +137,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "133 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "144 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -712,6 +713,105 @@
       "path": "docs/api/market-data/getQuotes.md",
       "text": "GET /v1/quotes.",
       "title": "Full quotes for up to 200 symbols"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets/{targetId}/chats"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/addNotifyChat.md",
+      "text": "POST /v1/notify/targets/{targetId}/chats.",
+      "title": "Put a chat on the list (alerts, and optionally commands)"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/createNotifyTarget.md",
+      "text": "POST /v1/notify/targets. The token is checked with Telegram (getMe) and stored encrypted in the secrets store.",
+      "title": "Add a Telegram bot (or replace the token of the same bot)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/notify/targets/{targetId}/chats/{chatKey}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/deleteNotifyChat.md",
+      "text": "DELETE /v1/notify/targets/{targetId}/chats/{chatKey}.",
+      "title": "Remove a chat from the list"
+    },
+    {
+      "headings": [
+        "DELETE /v1/notify/targets/{targetId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/deleteNotifyTarget.md",
+      "text": "DELETE /v1/notify/targets/{targetId}.",
+      "title": "Remove a bot and forget its token and chats"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets/{targetId}/find-chat"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/findNotifyChat.md",
+      "text": "POST /v1/notify/targets/{targetId}/find-chat. The person sends the bot a message (for example /start); the Bridge reads it and offers the chat to confirm.",
+      "title": "Find chats that recently wrote to the bot"
+    },
+    {
+      "headings": [
+        "GET /v1/notify/events"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/getNotifyEvents.md",
+      "text": "GET /v1/notify/events.",
+      "title": "Every event with its plain label and whether it is on"
+    },
+    {
+      "headings": [
+        "GET /v1/notify/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/getNotifyStatus.md",
+      "text": "GET /v1/notify/status. Plain-words state for the dashboard and mc-bridge doctor.",
+      "title": "Notification health: queue, last delivery, last error per target"
+    },
+    {
+      "headings": [
+        "GET /v1/notify/targets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/listNotifyTargets.md",
+      "text": "GET /v1/notify/targets. The bot token and chat ids are never returned: only a token hint, the bot name, a chat name and the last four digits of each chat id.",
+      "title": "List Telegram bots and their chats (masked)"
+    },
+    {
+      "headings": [
+        "PUT /v1/notify/events"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/putNotifyEvents.md",
+      "text": "PUT /v1/notify/events. Only the fields sent change.",
+      "title": "Choose which events are sent, quiet hours and the morning reminder"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets/{targetId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/testNotifyTarget.md",
+      "text": "POST /v1/notify/targets/{targetId}/test.",
+      "title": "Send a test message and report delivery per chat"
+    },
+    {
+      "headings": [
+        "PATCH /v1/notify/targets/{targetId}/chats/{chatKey}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/updateNotifyChat.md",
+      "text": "PATCH /v1/notify/targets/{targetId}/chats/{chatKey}.",
+      "title": "Allow or stop commands from a chat"
     },
     {
       "headings": [
@@ -1370,7 +1470,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 129 requests in 20 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 140 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1591,6 +1691,19 @@
     },
     {
       "headings": [
+        "How a message travels",
+        "Settings",
+        "Files",
+        "Routes",
+        "For module authors: events the notify module listens to"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/notifications.md",
+      "text": "The Bridge listens to its own events (orders, tickets, the kill switch, broker sessions, webhook alerts, safety limits, data sources) and turns the ones you chose into short plain messages. Today the way to receive them is Telegram: see the step-by-step Telegram guide. This page...",
+      "title": "Notifications: how the Bridge tells you things"
+    },
+    {
+      "headings": [
         "What it does",
         "Examples (NIFTY at 26344, lot 65, 3 November expiry, demo prices)",
         "Where you see it",
@@ -1702,6 +1815,28 @@
       "path": "docs/guides/streaming.md",
       "text": "One port serves both. Messages are described in asyncapi.yaml. The token is single use and must be used within 60 seconds; the connection then lives on with the key's scopes. A client that can send headers may use Authorization: Bearer on the upgrade request instead. Revoking...",
       "title": "Live streaming: WebSocket and SSE"
+    },
+    {
+      "headings": [
+        "What it does, and what it never does",
+        "Set it up",
+        "1. Make a bot with BotFather",
+        "2. Give the token to the Bridge, on this computer",
+        "3. Find your chat",
+        "4. Choose what you get, and send a test",
+        "Which events",
+        "Reminders and quiet hours",
+        "Commands",
+        "The safety stance, in one place",
+        "When Telegram is slow or down",
+        "Telegram's limits (from Telegram's own documentation)",
+        "Troubleshooting",
+        "Settings"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/telegram.md",
+      "text": "The Bridge can send you a short Telegram message when something needs you (an order was rejected, a broker is logged out, the kill switch went on) and can answer a few read-only questions: prices, positions, orders, funds, status. It needs a Telegram account and a bot you make...",
+      "title": "Telegram: alerts on your phone, and prices when you ask"
     },
     {
       "headings": [

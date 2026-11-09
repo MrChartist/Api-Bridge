@@ -1,0 +1,32 @@
+meta {
+  name: Add a Telegram bot (or replace the token of the same bot)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/notify/targets
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "token": "<hook token>"
+  }
+}
+
+docs {
+  Add a Telegram bot (or replace the token of the same bot)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The token is checked with Telegram (getMe) and stored encrypted in the secrets store. It is never returned, logged or audited.
+
+  Reference: docs/api/notifications/createNotifyTarget.md in the repository.
+}

@@ -17,6 +17,8 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [webhooks.md](webhooks.md) | TradingView, signed generic, ChartInk and GoCharting alerts |
 | [webhooks.md](webhooks.md) | Signed generic, ChartInk and GoCharting alerts |
 | [alert-orders.md](alert-orders.md) | Target-size and basket orders, MIS/NRML words, symbol check, basket margin, market calendar |
+| [telegram.md](telegram.md) | Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting |
+| [notifications.md](notifications.md) | How a message travels (outbox, retries, pacing, quiet hours), the `notify` settings and routes |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |

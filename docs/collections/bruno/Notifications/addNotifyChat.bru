@@ -1,0 +1,32 @@
+meta {
+  name: Put a chat on the list (alerts, and optionally commands)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/notify/targets/:targetId/chats
+  body: json
+  auth: bearer
+}
+
+params:path {
+  targetId: <targetId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Put a chat on the list (alerts, and optionally commands)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/notifications/addNotifyChat.md in the repository.
+}
