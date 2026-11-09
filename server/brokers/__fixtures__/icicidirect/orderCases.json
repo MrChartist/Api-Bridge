@@ -1,0 +1,28 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "Error field",
+      "source": "https://api.icicidirect.com/breezeapi/documents/index.html",
+      "reply": {
+        "status": 200,
+        "json": {
+          "Success": null,
+          "Status": 500,
+          "Error": "Order rejected"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://api.icicidirect.com/breezeapi/documents/index.html",
+    "reply": {
+      "status": 401,
+      "json": {
+        "Success": null,
+        "Status": 401,
+        "Error": "Invalid session token"
+      }
+    }
+  }
+}

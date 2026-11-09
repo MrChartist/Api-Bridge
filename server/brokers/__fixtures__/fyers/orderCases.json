@@ -1,0 +1,71 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "s error on HTTP 400",
+      "source": "https://fyers.in/api-docs/v3/api/api-standards/",
+      "reply": {
+        "status": 400,
+        "json": {
+          "s": "error",
+          "code": -50,
+          "message": "Invalid input"
+        }
+      }
+    },
+    {
+      "name": "s error on HTTP 200",
+      "source": "https://fyers.in/api-docs/v3/api/api-standards/",
+      "reply": {
+        "status": 200,
+        "json": {
+          "s": "error",
+          "code": -99,
+          "message": "Order rejected"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://fyers.in/api-docs/v3/api/api-standards/",
+    "reply": {
+      "status": 401,
+      "json": {
+        "s": "error",
+        "code": -16,
+        "message": "Could not authenticate the user"
+      }
+    }
+  },
+  "stopLoss": {
+    "source": "https://fyers.in/api-docs/v3/api/api-standards/",
+    "order": {
+      "symbol": "NSE:NIFTY26O2025000CE",
+      "side": "BUY",
+      "productType": "MARGIN",
+      "validity": "DAY",
+      "lots": 2,
+      "orderType": "STOPLIMIT",
+      "limitPrice": 247.35,
+      "stopPrice": 241.8
+    },
+    "slmOrder": {
+      "symbol": "NSE:NIFTY26O2025000CE",
+      "side": "BUY",
+      "productType": "MARGIN",
+      "validity": "DAY",
+      "lots": 2,
+      "orderType": "STOP",
+      "stopPrice": 241.8
+    },
+    "expectBody": {
+      "type": 4,
+      "limitPrice": 247.35,
+      "stopPrice": 241.8
+    },
+    "slmExpectBody": {
+      "type": 3,
+      "stopPrice": 241.8
+    }
+  }
+}

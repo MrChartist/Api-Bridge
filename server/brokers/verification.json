@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "levels": [
+    {
+      "id": "beta",
+      "label": "Beta",
+      "meaning": "Recorded samples only. The adapter was written from the broker's documentation and tested against recorded sample replies; it has not touched a real broker, and at least one contract case is still missing."
+    },
+    {
+      "id": "contract",
+      "label": "Contract-tested",
+      "meaning": "Every contract case passes with none missing: the shared adapter harness and the order-safety cases (refusals, lost replies, stop-loss mapping, session-ended replies) on recorded replies. Still no real broker."
+    },
+    {
+      "id": "sandbox",
+      "label": "Sandbox-verified",
+      "meaning": "Checked against the broker's own sandbox or paper environment, with the evidence recorded. Needs a complete contract level first."
+    },
+    {
+      "id": "live-verified",
+      "label": "Live-verified",
+      "meaning": "Checked end to end with a real account, with the date and who did it recorded. Needs a complete contract level first."
+    }
+  ],
+  "brokers": {
+    "aliceblue": {
+      "level": "beta"
+    },
+    "anandrathi": {
+      "level": "contract"
+    },
+    "angelone": {
+      "level": "contract"
+    },
+    "arrow": {
+      "level": "contract"
+    },
+    "axisdirect": {
+      "level": "contract"
+    },
+    "bigul": {
+      "level": "contract"
+    },
+    "compositedge": {
+      "level": "contract"
+    },
+    "definedge": {
+      "level": "contract"
+    },
+    "dhan": {
+      "level": "live-verified",
+      "verifiedOn": null,
+      "verifiedBy": "project maintainer",
+      "evidence": "Checked with a live Dhan account before this ladder existed.",
+      "note": "The calendar date was not recorded at the time. The maintainer should replace null with the date of the next live re-check."
+    },
+    "firstock": {
+      "level": "contract"
+    },
+    "fivepaisa": {
+      "level": "contract"
+    },
+    "fivepaisaxts": {
+      "level": "contract"
+    },
+    "flattrade": {
+      "level": "contract"
+    },
+    "fyers": {
+      "level": "contract"
+    },
+    "goodwill": {
+      "level": "contract"
+    },
+    "groww": {
+      "level": "beta"
+    },
+    "hdfcsecurities": {
+      "level": "beta"
+    },
+    "hdfcsky": {
+      "level": "contract"
+    },
+    "ibulls": {
+      "level": "contract"
+    },
+    "icicidirect": {
+      "level": "contract"
+    },
+    "iifl": {
+      "level": "contract"
+    },
+    "iiflcapital": {
+      "level": "contract"
+    },
+    "indmoney": {
+      "level": "contract"
+    },
+    "jainamxts": {
+      "level": "contract"
+    },
+    "kotak": {
+      "level": "beta"
+    },
+    "motilal": {
+      "level": "contract"
+    },
+    "mstock": {
+      "level": "contract"
+    },
+    "nubra": {
+      "level": "contract"
+    },
+    "paytm": {
+      "level": "contract"
+    },
+    "pocketful": {
+      "level": "contract"
+    },
+    "profitmart": {
+      "level": "contract"
+    },
+    "rmoney": {
+      "level": "contract"
+    },
+    "rupeezy": {
+      "level": "contract"
+    },
+    "samco": {
+      "level": "contract"
+    },
+    "shoonya": {
+      "level": "contract"
+    },
+    "tradejini": {
+      "level": "contract"
+    },
+    "tradesmart": {
+      "level": "contract"
+    },
+    "upstox": {
+      "level": "contract"
+    },
+    "wisdom": {
+      "level": "contract"
+    },
+    "zebu": {
+      "level": "contract"
+    },
+    "zerodha": {
+      "level": "contract"
+    }
+  }
+}

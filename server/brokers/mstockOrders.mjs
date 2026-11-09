@@ -18,7 +18,7 @@
  * proves the request was accepted, so orderStatus is UNKNOWN until the order book is read.
  */
 
-import { BrokerInputError, ORDER_BOOK_HINT, withOrderGate } from "./contract.mjs";
+import { BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { authRequest } from "./mstockAuth.mjs";
 
 const PRODUCT_CODE = { CNC: "DELIVERY", INTRADAY: "INTRADAY", MARGIN: "CARRYFORWARD" };
@@ -137,7 +137,7 @@ async function placeOrderImpl(creds, order, resolvedLotSize) {
   const body = buildOrderBody(order, resolvedLotSize);
   const json = await authRequest(creds, "/orders/regular", { method: "POST", body });
   const orderId = String(json?.data?.orderid ?? "").trim();
-  if (!orderId) throw new Error(`mStock accepted the request but returned no order id. ${ORDER_BOOK_HINT}`);
+  if (!orderId) throw new OrderIdMissingError("mStock accepted the request but returned no order id.");
   return { orderId, orderStatus: "UNKNOWN" };
 }
 
@@ -151,9 +151,22 @@ async function modifyOrderImpl(creds, orderId, changes) {
   return { orderId: String(json?.data?.orderid ?? id).trim(), orderStatus: "UNKNOWN" };
 }
 
-async function cancelOrderImpl(creds, orderId, { variety = "NORMAL" } = {}) {
+/**
+ * Cancel. The glossary's variety (NORMAL | AMO | STOPLOSS) belongs to the resting order, so a stop-loss order is cancelled
+ * with STOPLOSS: the variety is read from the order's own book row (its `variety`, else its stop-loss order type) instead
+ * of assuming NORMAL. A caller may pass { variety } explicitly; an order missing from the book keeps NORMAL (the broker
+ * then refuses it by id).
+ */
+async function cancelOrderImpl(creds, orderId, opts) {
   const id = String(orderId ?? "").trim();
   if (!ORDER_ID_RE.test(id)) throw bad("Invalid mStock order id");
+  let variety = opts && typeof opts === "object" ? opts.variety : undefined;
+  if (variety === undefined) {
+    const book = await authRequest(creds, "/orders");
+    const row = (Array.isArray(book?.data) ? book.data : []).find((r) => String(r?.orderid ?? "").trim() === id);
+    const own = String(row?.variety ?? "").toUpperCase();
+    variety = ["NORMAL", "STOPLOSS", "AMO"].includes(own) ? own : /^(SL|STOPLOSS)/i.test(String(row?.ordertype ?? "")) ? "STOPLOSS" : "NORMAL";
+  }
   if (!["NORMAL", "STOPLOSS", "AMO"].includes(variety)) throw bad(`Invalid variety: ${variety}`);
   const json = await authRequest(creds, `/orders/regular/${encodeURIComponent(id)}`, { method: "DELETE", body: { variety, orderid: id } });
   // A cancel request is not proof of cancellation; panic flows re-read the book.

@@ -1,0 +1,28 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "Not_Ok",
+      "source": "https://developers.iiflcapital.com/apidocs/introduction",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "Not_Ok",
+          "message": "Order rejected",
+          "result": null
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://developers.iiflcapital.com/apidocs/introduction",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "Not_Ok",
+        "message": "Invalid or expired token",
+        "result": null
+      }
+    }
+  }
+}

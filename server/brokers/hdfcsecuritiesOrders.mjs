@@ -19,7 +19,7 @@
  * never from the client.
  */
 
-import { BrokerInputError, withOrderGate } from "./contract.mjs";
+import { BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { irRequest } from "./hdfcsecuritiesAuth.mjs";
 import { contractExchangeOf, findRow } from "./hdfcsecuritiesInstruments.mjs";
 import { fetchRawOrders, orderStatusOf } from "./hdfcsecuritiesPortfolio.mjs";
@@ -130,7 +130,7 @@ async function placeOrderImpl(creds, order, resolvedLotSize) {
   const body = buildOrderBody(row, order, resolvedLotSize);
   const json = await irRequest(creds, "POST", "/oapi/v1/orders/regular", { body });
   const orderId = String(json?.data?.order_id ?? "");
-  if (!orderId) throw new BrokerInputError("HDFC Securities did not return an order id.");
+  if (!orderId) throw new OrderIdMissingError("HDFC Securities did not return an order id.");
   return { orderId, orderStatus: "OPEN" };
 }
 

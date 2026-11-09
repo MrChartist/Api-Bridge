@@ -37,6 +37,7 @@ import { statSync, watch } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { SessionRequiredError, normaliseError as contractNormaliseError, redactSecrets } from "../../brokers/contract.mjs";
 import { checkLoginResult } from "../../brokers/contractShapes.mjs";
+import { guardAdapterErrors } from "../../brokers/errorGuard.mjs";
 import { createLoginRateLimiter } from "../../brokers/sessionLogin.mjs";
 import { liveAllowedByConfig } from "../core/config.mjs";
 import { createPoolingService } from "../sources/pooling.mjs";
@@ -378,7 +379,9 @@ export async function createAccountManager(deps, options = {}) {
       if (account.broker === PAPER_BROKER) throw new BridgeError("CAPABILITY_UNSUPPORTED", "The paper account has no broker adapter.");
       const adapter = adapterOf(account);
       if (!adapter) throw new BridgeError("CAPABILITY_UNSUPPORTED", `Unknown broker ${account.broker}.`);
-      return adapter;
+      // Every read, feed and order call goes through this view, which tags an adapter's own "session ended" wording with a
+      // session code (brokers/errorGuard.mjs), so the scheduler marks the account logged out instead of retrying.
+      return guardAdapterErrors(adapter);
     },
 
     /**

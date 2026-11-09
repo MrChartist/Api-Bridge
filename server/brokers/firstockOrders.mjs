@@ -17,7 +17,7 @@
  * Every call is wrapped with withOrderGate(); no route mints Firstock gates today.
  */
 
-import { BrokerError, BrokerInputError, ORDER_BOOK_HINT, withOrderGate } from "./contract.mjs";
+import { BrokerError, BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { callApi } from "./firstockAuth.mjs";
 
 const PRODUCT_CODE = { CNC: "C", INTRADAY: "I", MARGIN: "M" };
@@ -133,7 +133,7 @@ async function placeOrderImpl(creds, order, resolvedLotSize) {
   const json = await callApi(creds, "/placeOrder", buildOrderBody(order, resolvedLotSize));
   const slices = Array.isArray(json?.data) ? json.data : [json?.data];
   const ids = slices.map((s) => String(s?.orderNumber ?? "").trim()).filter(Boolean);
-  if (!ids.length) throw new Error(`Firstock accepted the request but returned no order number. ${ORDER_BOOK_HINT}`);
+  if (!ids.length) throw new OrderIdMissingError("Firstock accepted the request but returned no order number.");
   const ack = { orderId: ids[0], orderStatus: "UNKNOWN" };
   if (ids.length > 1) ack.orderIds = ids; // sliced above the freeze quantity
   return ack;

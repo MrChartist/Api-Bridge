@@ -1,0 +1,28 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "status error",
+      "source": "https://developer.gwcindia.in/api/",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "error",
+          "error_msg": "Order rejected",
+          "error_type": "OrderException"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://developer.gwcindia.in/api/",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "error",
+        "error_msg": "Invalid API key or API key expired",
+        "error_type": "TokenException"
+      }
+    }
+  }
+}

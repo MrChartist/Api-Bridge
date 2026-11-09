@@ -19,6 +19,12 @@
 
 export const CONTRACT_VERSION = 1;
 
+/**
+ * The error codes that mean "the broker session is gone, log in again". The Bridge's scheduler marks the account logged out
+ * on any of them (ratelimit/scheduler.mjs); errorGuard.mjs tags an adapter's own wording of an expired session with one.
+ */
+export const SESSION_ERROR_CODES = Object.freeze(["SESSION_LOGIN_REQUIRED", "UPSTREAM_AUTH", "SESSION_EXPIRED"]);
+
 /** Index underlyings every adapter maps its own names onto. */
 export const CANONICAL_UNDERLYINGS = Object.freeze(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]);
 
@@ -157,6 +163,18 @@ export class SessionRequiredError extends BrokerError {
   constructor(message = "Your broker session has expired. Log in again from the account settings.") {
     super(message, { code: "SESSION_LOGIN_REQUIRED", statusCode: 422 });
     this.name = "SessionRequiredError";
+  }
+}
+
+/**
+ * The broker answered an order call but no order id came back (an empty reply, an HTML error page, `{}`, a refusal that
+ * the adapter did not recognise). Whether the order reached the exchange is unknown, so the Bridge reads this as
+ * OUTCOME_UNKNOWN and looks for the order in the broker's order book. It is never returned as a placed order.
+ */
+export class OrderIdMissingError extends BrokerError {
+  constructor(message = "The broker answered without an order id, so the order may or may not have been placed.") {
+    super(`${message} ${ORDER_BOOK_HINT}`, { code: "ORDER_ID_MISSING", statusCode: 502 });
+    this.name = "OrderIdMissingError";
   }
 }
 

@@ -1,0 +1,30 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "XTS error envelope",
+      "source": "https://ttblaze.iifl.com/doc/apimarketdata/ (official XTS v2 Binary Market Data API, IIFL deployment): Login, ClientConfig, Master, Quote, GetIndexList, Intraday Candle OHLC",
+      "reply": {
+        "status": 400,
+        "json": {
+          "type": "error",
+          "code": "e-orders-0005",
+          "description": "Order quantity is not a multiple of the lot size",
+          "result": {}
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://ttblaze.iifl.com/doc/apimarketdata/ (official XTS v2 Binary Market Data API, IIFL deployment): Login, ClientConfig, Master, Quote, GetIndexList, Intraday Candle OHLC",
+    "reply": {
+      "status": 401,
+      "json": {
+        "type": "error",
+        "code": "e-token-0005",
+        "description": "Invalid Token",
+        "result": {}
+      }
+    }
+  }
+}

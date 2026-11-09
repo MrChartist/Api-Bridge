@@ -1015,7 +1015,7 @@ export function createXtsFamilyBroker(cfg) {
 /** Capability descriptor shared by the three adapters (only the auth kind differs). */
 export function xtsFamilyCapabilities(authKind) {
   return Object.freeze({
-    auth: { kind: authKind },
+    auth: { kind: authKind, singleSession: true }, // XTS allows one session per app key pair: a second login ends the first (header)
     testConnection: true,
     instruments: true,
     expiries: true,

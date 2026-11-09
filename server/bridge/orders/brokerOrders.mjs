@@ -13,12 +13,13 @@
  *
  * liveVerified: whether the mapping has been checked against a REAL account (not only fixtures). Unverified mappers
  * still work, but every live preview and place carries a SAFETY_WARNING saying so (OrderService), so nobody sends real
- * money through a fixture-only mapping without being told. Today only Dhan has been verified live.
+ * money through a fixture-only mapping without being told. Read from server/brokers/verification.json (isLiveVerified), the one record of who is verified.
  *
  * Quantities: the adapter computes units = lots × resolvedLotSize itself, so place() passes whole lots per leg and
  * the instrument master's lot size; modify() passes units, as each adapter's modify builder documents.
  */
 import { BridgeError } from "../core/errors.mjs";
+import { isLiveVerified } from "../../brokers/verification.mjs";
 
 /**
  * @typedef {{ side: "BUY"|"SELL", orderType: "LIMIT"|"MARKET"|"SL"|"SL-M", product: string, validity?: "DAY"|"IOC",
@@ -42,7 +43,7 @@ const triggered = (t) => t === "SL" || t === "SL-M";
 export const LIVE_ORDER_MAPPERS = Object.freeze({
   dhan: Object.freeze({
     brokerId: "dhan",
-    liveVerified: true,
+    liveVerified: isLiveVerified("dhan"),
     source: "server/lib/dhanOrders.mjs buildOrderBody, server/lib/dhanPortfolio.mjs buildModifyOrderBody",
     nativeMarketProtection: false,
     disclosedQuantity: false,
@@ -73,7 +74,7 @@ export const LIVE_ORDER_MAPPERS = Object.freeze({
   }),
   zerodha: Object.freeze({
     brokerId: "zerodha",
-    liveVerified: false,
+    liveVerified: isLiveVerified("zerodha"),
     source: "server/brokers/zerodhaOrders.mjs buildOrderBody / buildModifyBody",
     nativeMarketProtection: true,
     disclosedQuantity: false,
@@ -105,7 +106,7 @@ export const LIVE_ORDER_MAPPERS = Object.freeze({
   }),
   upstox: Object.freeze({
     brokerId: "upstox",
-    liveVerified: false,
+    liveVerified: isLiveVerified("upstox"),
     source: "server/brokers/upstoxOrders.mjs buildOrderBody / buildModifyBody",
     nativeMarketProtection: true,
     disclosedQuantity: false,

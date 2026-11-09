@@ -1,0 +1,40 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error envelope on HTTP 200",
+      "source": "https://docs.arrow.trade/rest-api/authentication/",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "error",
+          "message": "Order rejected",
+          "errorCode": "ERR"
+        }
+      }
+    },
+    {
+      "name": "failure envelope on HTTP 400",
+      "source": "https://docs.arrow.trade/rest-api/authentication/",
+      "reply": {
+        "status": 400,
+        "json": {
+          "status": "failure",
+          "message": "Order rejected",
+          "errorCode": "ERR"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://docs.arrow.trade/rest-api/authentication/",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "error",
+        "message": "Token expired",
+        "errorCode": "UNAUTHORIZED"
+      }
+    }
+  }
+}

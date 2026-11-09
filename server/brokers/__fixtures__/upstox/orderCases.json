@@ -1,0 +1,52 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error envelope",
+      "source": "https://upstox.com/developer/api-documentation/authentication",
+      "reply": {
+        "status": 400,
+        "json": {
+          "status": "error",
+          "errors": [
+            {
+              "errorCode": "UDAPI100060",
+              "message": "Order rejected",
+              "propertyPath": null,
+              "invalidValue": null
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://upstox.com/developer/api-documentation/authentication",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "error",
+        "errors": [
+          {
+            "errorCode": "UDAPI100050",
+            "message": "Invalid token used to access API",
+            "propertyPath": null,
+            "invalidValue": null
+          }
+        ]
+      }
+    }
+  },
+  "stopLoss": {
+    "source": "https://upstox.com/developer/api-documentation/authentication",
+    "expectBody": {
+      "order_type": "SL",
+      "price": 247.35,
+      "trigger_price": 241.8
+    },
+    "slmExpectBody": {
+      "order_type": "SL-M",
+      "trigger_price": 241.8
+    }
+  }
+}

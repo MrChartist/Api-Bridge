@@ -6,6 +6,7 @@
  * "unknown", which the Bridge treats as "not allowed" (one user's reads are never spread over accounts).
  */
 import { declaredCapabilities } from "../../brokers/contract.mjs";
+import { liveVerifiedBrokers } from "../../brokers/verification.mjs";
 
 /** Display names, matching docs/BROKERS.md. Unknown ids fall back to the id. */
 export const BROKER_NAMES = Object.freeze({
@@ -52,8 +53,8 @@ export const BROKER_NAMES = Object.freeze({
   axisdirect: "Axis Direct (RAPID APIs)",
 });
 
-/** Brokers checked end to end against a live account (docs/BROKERS.md). Only Dhan today. */
-export const VERIFIED_BROKERS = Object.freeze(["dhan"]);
+/** Brokers checked end to end against a live account: the live-verified entries of server/brokers/verification.json. */
+export const VERIFIED_BROKERS = Object.freeze(liveVerifiedBrokers());
 
 export const PAPER_BROKER = "paper";
 

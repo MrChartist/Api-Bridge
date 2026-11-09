@@ -23,7 +23,7 @@ More: [Sources, providers](docs/screenshots/sources-providers-light.webp) · [AP
 
 ## What you get
 
-- **One API over 41 brokers.** REST and a WebSocket stream for quotes, option chains, history, positions, funds and orders, the same shape whichever broker is behind it. Only Dhan is verified with a live account; the other 40 are beta, written from official documentation and tested against recorded responses ([BROKERS.md](docs/BROKERS.md)).
+- **One API over 41 brokers.** REST and a WebSocket stream for quotes, option chains, history, positions, funds and orders, the same shape whichever broker is behind it. Each broker is ranked on a published ladder (beta, contract-tested, sandbox, live-verified), so you can see which ones have been proven with a real account; the adapters are written from official documentation and tested against recorded responses ([BROKERS.md](docs/BROKERS.md)).
 - **Shared limits.** The Bridge keeps every broker inside its documented limits and splits the room fairly between your tools. Each API key has its own quota, and a refused request says whose limit it hit and when to retry.
 - **Honest data sources.** Real-time prices come from your own broker. You can switch on free delayed or end-of-day sources, or write a plugin; every answer is labelled with its class, delay and whether the source is official, and such data is never used for orders or alerts.
 - **Paper trading by default.** Every order is a paper order unless you go out of your way to make it live.

@@ -1,0 +1,30 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "XTS error envelope",
+      "source": "https://symphonyfintech.com/marketdata/doc/ (official XTS Market Data API spec, data.json): /auth/login, /config/clientConfig, /instruments/master, /instruments/indexlist, /instruments/quotes (1502, 1510), /instruments/ohlc, Rate Limit",
+      "reply": {
+        "status": 400,
+        "json": {
+          "type": "error",
+          "code": "e-orders-0005",
+          "description": "Order quantity is not a multiple of the lot size",
+          "result": {}
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://symphonyfintech.com/marketdata/doc/ (official XTS Market Data API spec, data.json): /auth/login, /config/clientConfig, /instruments/master, /instruments/indexlist, /instruments/quotes (1502, 1510), /instruments/ohlc, Rate Limit",
+    "reply": {
+      "status": 401,
+      "json": {
+        "type": "error",
+        "code": "e-token-0005",
+        "description": "Invalid Token",
+        "result": {}
+      }
+    }
+  }
+}

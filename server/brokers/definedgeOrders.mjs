@@ -15,7 +15,7 @@
  * mints Definedge gates today.
  */
 
-import { BrokerInputError, ORDER_BOOK_HINT, withOrderGate } from "./contract.mjs";
+import { BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { definedgeFetch } from "./definedgeAuth.mjs";
 import { getLimits } from "./definedgeQuotes.mjs";
 
@@ -88,7 +88,7 @@ async function placeOrderImpl(creds, order, resolvedLotSize) {
   const algoId = /^[A-Za-z0-9]{1,20}$/.test(String(creds?.algoId ?? "")) ? creds.algoId : undefined;
   const json = await definedgeFetch(creds, "/placeorder", { method: "POST", body: buildOrderBody(order, resolvedLotSize, algoId), what: "place order" });
   const orderId = String(json?.order_id ?? "");
-  if (!orderId) throw new BrokerInputError(`Definedge accepted the request but returned no order id. ${ORDER_BOOK_HINT}`);
+  if (!orderId) throw new OrderIdMissingError("Definedge accepted the request but returned no order id.");
   return { orderId, orderStatus: "UNKNOWN" };
 }
 
