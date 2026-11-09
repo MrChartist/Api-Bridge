@@ -25,6 +25,11 @@
  *  ticket.rejected     { ticketId, accountId, principal }   a person declined an order ticket (principal: who prepared it)
  *  position.converted  { accountId, mode, symbol, from, to, quantity, at }   units moved between products
  *  trading.readiness   account readiness change; notify only when `notify: true`
+ *  ticket.prepared     { ticketId, accountId, mode, symbol, side, quantity, estimatedValue, source, client, expiresAt }   an order waits for a
+ *                      person to approve it (never carries a confirm token)
+ *  hook.rejected       { hookId?, label?, source?, reason, code?, symbol?, side? }   a webhook alert did not become an order (after the 202)
+ *  hook.stale          { hookId?, label?, source?, reason?, symbol?, side? }          an alert was too old to trade on
+ *  hook.failed         { hookId?, label?, source?, reason, code?, symbol?, side? }    an accepted alert's order could not be made
  */
 export const TOPICS = Object.freeze([
   "tick",
@@ -43,6 +48,10 @@ export const TOPICS = Object.freeze([
   "ticket.rejected",
   "position.converted",
   "trading.readiness",
+  "ticket.prepared",
+  "hook.rejected",
+  "hook.stale",
+  "hook.failed",
 ]);
 
 /**

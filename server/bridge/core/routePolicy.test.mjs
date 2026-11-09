@@ -3,7 +3,7 @@
  *  - every route authenticates with a key AND names a scope, or is on an explicit allowlist (auth "none": health,
  *    the OpenAPI file, the dashboard pages, and the loopback-only sign-in; auth "custom": webhooks, the compat REST
  *    API and the SSE stream). A new `auth: "none"` write route fails here.
- *  - no non-GET route accepts ?key=; every admin route is this-computer-only except GET /v1/notify (read-only);
+ *  - no non-GET route accepts ?key=; every admin route is this-computer-only except the read-only GET /v1/notify/* routes;
  *  - no route authenticates from a cookie: a request carrying only Cookie gets 401 on a route of every module, and no
  *    file under server/bridge reads headers.cookie.
  */
@@ -14,7 +14,7 @@ import { bootSecurityApp, samplePath } from "./__fixtures__/securityApp.mjs";
 
 const NONE_ALLOWED = new Set(["GET /v1/health", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in"]);
 const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/];
-const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify"]);
+const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify/status", "GET /v1/notify/targets", "GET /v1/notify/events"]);
 
 let b;
 let routes;
@@ -55,7 +55,7 @@ describe("T-sec-2: route policy", () => {
     expect(routes.filter((r) => r.method !== "GET" && r.options.allowQueryKey).map((r) => `${r.method} ${r.pattern}`)).toEqual([]);
   });
 
-  it("every admin route is this-computer-only, except GET /v1/notify (read-only)", () => {
+  it("every admin route is this-computer-only, except the read-only GET /v1/notify/* routes", () => {
     const bad = routes.filter((r) => r.options.scope === "admin" && !r.options.loopbackOnly && !ADMIN_NOT_LOOPBACK.has(`${r.method} ${r.pattern}`));
     expect(bad.map((r) => `${r.method} ${r.pattern}`)).toEqual([]);
   });

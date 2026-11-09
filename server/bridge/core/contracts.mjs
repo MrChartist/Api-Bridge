@@ -442,6 +442,24 @@ export const SERVICE_CONTRACTS = Object.freeze({
     requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference", "readiness"],
     methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket", "rejectTicket", "ticketStatus"],
   },
+
+  /**
+   * NotifyService. Bridge events to Telegram (a durable outbox, retries, pacing, digests, quiet hours) and a few
+   * read-only commands back. Nothing depends on it: it listens to the event bus. Tokens and chat ids live in the secret
+   * store and never leave it (responses carry masked hints and a short chat key).
+   *  status() -> Promise<{ enabled, targets, queue: { depth, held, dropped, oldestAt }, lastDeliveryAt, counters, quietHours, reminders }>
+   *  listTargets() -> Promise<Target[]>                       masked
+   *  events() -> { events: Array<{ key, label, help, enabled, default, critical }>, quietHours, morning }
+   *  publish({ key, text, group?, dedupe? }, { critical?, bypassQuiet?, noCoalesce? }) -> Promise<{ queued: number, reason?: string }>
+   *      queue a ready-made message through the same switches (a module that wants to say something)
+   *  testTarget(targetId, { chatKey? }) -> Promise<{ ok, delivered, results, message }>
+   *  Extras: addTarget, removeTarget, findChats, addChat, removeChat, setChatCommands, setEvents, pump, start, stop.
+   */
+  notify: {
+    iface: "NotifyService",
+    requires: ["secrets", "audit", "accounts", "safety", "marketData", "orders", "readiness", "backupData"],
+    methods: ["status", "listTargets", "events", "publish", "testTarget"],
+  },
 });
 
 /** Core deps every factory receives in addition to its `requires`. */

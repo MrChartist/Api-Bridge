@@ -123,6 +123,8 @@ tags:
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
     description: Inbound alerts from ChartInk, GoCharting and signed senders.
+  - name: Notifications
+    description: Events to Telegram and a few read-only Telegram commands. Setup is on this computer only; nothing here returns a bot token or a chat id.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
   - name: Compat REST
@@ -2701,6 +2703,282 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/notify/status:
+    get:
+      tags: [Notifications]
+      operationId: getNotifyStatus
+      summary: Notification health: queue, last delivery, last error per target
+      description: Plain-words state for the dashboard and `mc-bridge doctor`. No secrets.
+      x-module: notify
+      x-scope: admin
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/NotifyStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/targets:
+    get:
+      tags: [Notifications]
+      operationId: listNotifyTargets
+      summary: List Telegram bots and their chats (masked)
+      description: The bot token and chat ids are never returned: only a token hint, the bot name, a chat name and the last four digits of each chat id.
+      x-module: notify
+      x-scope: admin
+      responses:
+        "200":
+          description: Targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/NotifyTarget" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Notifications]
+      operationId: createNotifyTarget
+      summary: Add a Telegram bot (or replace the token of the same bot)
+      description: The token is checked with Telegram (getMe) and stored encrypted in the secrets store. It is never returned, logged or audited.
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotifyTargetCreate" }
+      responses:
+        "201":
+          description: Created. 200 when the same bot already existed and its token was replaced.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/NotifyTarget" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/targets/{targetId}:
+    parameters:
+      - name: targetId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^tg_[a-z2-7]{8}$' }
+    delete:
+      tags: [Notifications]
+      operationId: deleteNotifyTarget
+      summary: Remove a bot and forget its token and chats
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204":
+          description: Removed.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/targets/{targetId}/test:
+    parameters:
+      - name: targetId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^tg_[a-z2-7]{8}$' }
+    post:
+      tags: [Notifications]
+      operationId: testNotifyTarget
+      summary: Send a test message and report delivery per chat
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotifyTestRequest" }
+      responses:
+        "200":
+          description: Result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/NotifyTestResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/targets/{targetId}/find-chat:
+    parameters:
+      - name: targetId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^tg_[a-z2-7]{8}$' }
+    post:
+      tags: [Notifications]
+      operationId: findNotifyChat
+      summary: Find chats that recently wrote to the bot
+      description: The person sends the bot a message (for example /start); the Bridge reads it and offers the chat to confirm. Messages from chats that are not on the list are never answered.
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Chats waiting to be confirmed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/NotifyFoundChat" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/targets/{targetId}/chats:
+    parameters:
+      - name: targetId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^tg_[a-z2-7]{8}$' }
+    post:
+      tags: [Notifications]
+      operationId: addNotifyChat
+      summary: Put a chat on the list (alerts, and optionally commands)
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotifyChatAdd" }
+      responses:
+        "201":
+          description: Added.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/NotifyChat" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/targets/{targetId}/chats/{chatKey}:
+    parameters:
+      - name: targetId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^tg_[a-z2-7]{8}$' }
+      - name: chatKey
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[0-9a-f]{10}$' }
+    patch:
+      tags: [Notifications]
+      operationId: updateNotifyChat
+      summary: Allow or stop commands from a chat
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotifyChatPatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/NotifyChat" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Notifications]
+      operationId: deleteNotifyChat
+      summary: Remove a chat from the list
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204":
+          description: Removed.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/notify/events:
+    get:
+      tags: [Notifications]
+      operationId: getNotifyEvents
+      summary: Every event with its plain label and whether it is on
+      x-module: notify
+      x-scope: admin
+      responses:
+        "200":
+          description: Events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/NotifyEvents" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [Notifications]
+      operationId: putNotifyEvents
+      summary: Choose which events are sent, quiet hours and the morning reminder
+      description: Only the fields sent change.
+      x-module: notify
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotifyEventsUpdate" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/NotifyEvents" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /mcp:
     post:
       tags: [AI (MCP)]
@@ -5208,6 +5486,129 @@ components:
         prevHash: { type: string }
         hash: { type: string }
 
+    NotifyChat:
+      type: object
+      required: [key, name, type, idHint, commands]
+      properties:
+        key: { type: string, description: "Short stable key of the chat (a hash of its id). Used instead of the id." }
+        name: { type: string }
+        type: { type: string, enum: [private, group, supergroup, channel, unknown] }
+        idHint: { type: string, description: "Only the last four digits of the chat id." }
+        commands: { type: boolean, description: "On the allow-list for the read-only commands. Off by default for groups." }
+        state: { type: object, additionalProperties: true, description: "Present when Telegram refused this chat: kind and a plain message." }
+    NotifyTarget:
+      type: object
+      required: [id, kind, label, bot, chats, createdAt, health]
+      properties:
+        id: { type: string, pattern: '^tg_[a-z2-7]{8}$' }
+        kind: { type: string, enum: [telegram] }
+        label: { type: string }
+        bot: { type: object, required: [username, tokenHint], properties: { username: { type: string }, tokenHint: { type: string, description: "Four characters, never the token." } } }
+        chats: { type: array, items: { $ref: "#/components/schemas/NotifyChat" } }
+        createdAt: { type: string, format: date-time }
+        replaced: { type: boolean, description: "Only on POST: the same bot was already set up and its token was replaced." }
+        health:
+          type: object
+          required: [state, message]
+          properties:
+            state: { type: string, description: "unverified, ok, or the kind of the last failure (token_invalid, blocked, chat_not_found, rate_limited, network, ...)." }
+            message: { type: string, description: A plain sentence for a person. }
+            lastOkAt: { type: [string, "null"], format: date-time }
+            lastError: { type: [object, "null"], additionalProperties: true }
+    NotifyTargetCreate:
+      type: object
+      required: [token]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [telegram], default: telegram }
+        token: { type: string, minLength: 10, maxLength: 120, writeOnly: true, description: "From BotFather. Accepted only from this computer." }
+        label: { type: string, maxLength: 40 }
+    NotifyTestRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        chat: { type: string, pattern: '^[0-9a-f]{10}$', description: "A chat key; omit to test every chat of the target." }
+    NotifyTestResult:
+      type: object
+      required: [ok, delivered, results]
+      properties:
+        ok: { type: boolean }
+        delivered: { type: integer }
+        message: { type: string, description: What went wrong, in plain words. }
+        results:
+          type: array
+          items:
+            type: object
+            required: [chat, ok]
+            properties:
+              chat: { type: object, properties: { key: { type: string }, name: { type: string }, idHint: { type: string } } }
+              ok: { type: boolean }
+              error: { type: object, properties: { kind: { type: string }, message: { type: string }, retryAfterSeconds: { type: integer } } }
+    NotifyFoundChat:
+      type: object
+      required: [ref, name, type, idHint, seenAt]
+      properties:
+        ref: { type: string, pattern: '^[0-9a-f]{10}$', description: Pass this to POST .../chats to confirm the chat. }
+        name: { type: string }
+        type: { type: string }
+        idHint: { type: string }
+        seenAt: { type: string, format: date-time }
+    NotifyChatAdd:
+      type: object
+      additionalProperties: false
+      properties:
+        ref: { type: string, pattern: '^[0-9a-f]{10}$', description: "From find-chat. Send either ref or chatId." }
+        chatId: { type: string, description: "A chat id typed by hand (accepted only from this computer)." }
+        name: { type: string, maxLength: 60 }
+        commands: { type: boolean, description: "Allow the read-only commands from this chat. Default: on for a private chat, off for a group." }
+    NotifyChatPatch:
+      type: object
+      required: [commands]
+      additionalProperties: false
+      properties:
+        commands: { type: boolean }
+    NotifyEvents:
+      type: object
+      required: [events, quietHours, morning]
+      properties:
+        events:
+          type: array
+          items:
+            type: object
+            required: [key, label, enabled, default, critical]
+            properties:
+              key: { type: string, example: order.rejected }
+              label: { type: string }
+              help: { type: string }
+              enabled: { type: boolean }
+              default: { type: boolean }
+              critical: { type: boolean, description: Sent even during quiet hours. }
+        quietHours: { type: object, properties: { enabled: { type: boolean }, start: { type: string, example: "22:00" }, end: { type: string, example: "07:00" } } }
+        morning:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            at: { type: string, example: "08:45" }
+            secondAt: { type: string, example: "09:10" }
+            endOfDay: { type: object, properties: { enabled: { type: boolean }, at: { type: string, example: "15:45" } } }
+    NotifyEventsUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        events: { type: object, additionalProperties: { type: boolean }, description: "Event key to on/off. Unknown keys are refused." }
+        quietHours: { type: object, additionalProperties: false, properties: { enabled: { type: boolean }, start: { type: string }, end: { type: string } } }
+        morning: { type: object, additionalProperties: false, properties: { enabled: { type: boolean }, at: { type: string }, secondAt: { type: string }, endOfDay: { type: object, additionalProperties: false, properties: { enabled: { type: boolean }, at: { type: string } } } } }
+    NotifyStatus:
+      type: object
+      required: [enabled, targets, queue, counters]
+      properties:
+        enabled: { type: boolean }
+        targets: { type: array, items: { type: object, additionalProperties: true, description: "id, label, bot, chats, state, message, lastOkAt, lastError, inbound." } }
+        queue: { type: object, properties: { depth: { type: integer }, held: { type: integer }, dropped: { type: integer }, oldestAt: { type: [string, "null"] } } }
+        lastDeliveryAt: { type: [string, "null"], format: date-time }
+        counters: { type: object, properties: { delivered: { type: integer }, failed: { type: integer }, suppressed: { type: integer }, ignoredMessages: { type: integer, description: "Messages from chats that are not on the list. Counted, never answered." }, commands: { type: integer } } }
+        quietHours: { type: object, additionalProperties: true }
+        reminders: { type: object, additionalProperties: true }
     Hook:
       type: object
       required: [id, source, label, account, mode, createdAt]
