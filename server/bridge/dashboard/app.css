@@ -2680,13 +2680,13 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .cn-cannot-line { padding-inline-start: 2px; }
 .cn-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-inline: -8px; }
 .alert-fix { margin-top: 8px; }
+.row.nowrap:has(> .acct-connect) { flex-wrap: wrap; justify-content: flex-end; }
+.cn-status button { white-space: normal; text-align: left; line-height: 1.3; padding-block: 6px; }
 @container (max-width: 480px) { .cn-go > .primary, .cn-go > button.lg { width: 100%; } }
 
 /* The glossary "?" after a technical word: a small round button, a 44px target on touch. */
 .gl { white-space: normal; }
 button.gl-btn { --btn-h: 18px; --btn-px: 0; --btn-fs: 11px; --btn-r: 50%; --btn-fw: 700; --btn-bg: hsl(var(--accent) / 0.14); --btn-bg-h: hsl(var(--accent) / 0.26); --btn-fg: hsl(var(--accent-ink)); --press: 0.9; display: inline-flex; width: 18px; min-height: 18px; margin-inline: 4px 2px; vertical-align: 1px; flex: none; }
-button.gl-btn::after { content: ""; position: absolute; inset: -4px; }
-@media (pointer: coarse) { button.gl-btn::after { inset: -13px; } }
 .gl-pop .gl-text, .help-popover .help-lead { margin: 0; padding: 4px 16px 16px; max-width: 320px; font: var(--t-callout); color: var(--label-2); }
 .help-popover .help-lead { max-width: 360px; padding-bottom: 8px; }
 .help-sheet .list { margin: 0 8px 8px; }

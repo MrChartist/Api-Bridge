@@ -128,9 +128,10 @@ export function ordersChoice(toolId) {
 }
 
 /** The ready-to-paste setups for a tool, with the real address and the new key filled in (snippets.js). */
-export function connectSetup(toolId, { base, key, account = "demo-paper", folder } = {}) {
+export function connectSetup(toolId, { base, key, account = "demo-paper", folder, orders = false } = {}) {
   const tool = connectTool(toolId);
-  const all = snippets({ base, key, account, symbol: "NSE:NIFTY", folder });
+  // A read-only key gets examples it can run: no order lines.
+  const all = snippets({ base, key, account, symbol: "NSE:NIFTY", folder, orders });
   return (tool?.tabs ?? []).map((id) => ({ id, blocks: all[id] ?? [] })).filter((g) => g.blocks.length);
 }
 

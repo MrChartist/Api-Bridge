@@ -172,6 +172,15 @@ describe("Connect a tool: the key each tool gets", () => {
     expect(connectSetup("excel", { base: "http://127.0.0.1:4446", key: "k" })[0].blocks[0].code).toContain("http://127.0.0.1:4446/xl/ltp");
   });
 
+  it("leaves the order lines out of the examples for a read-only key", () => {
+    const code = (id, orders) => connectSetup(id, { base: "http://h", key: "mcb_a_b", orders }).flatMap((g) => g.blocks.map((b) => b.code)).join("\n");
+    for (const id of ["python", "node"]) {
+      expect(code(id, false), id).not.toMatch(/place_?order/i);
+      expect(code(id, true), id).toMatch(/place_?order/i);
+      expect(code(id, false), id).toMatch(/ltp/);
+    }
+  });
+
   it("tests the way the tool really asks", () => {
     expect(testRequest("excel", "mcb_a b")).toEqual({ url: "/xl/ltp?symbol=NSE%3ARELIANCE&key=mcb_a%20b", headers: {}, kind: "sheet" });
     expect(testRequest("python", "mcb_x")).toMatchObject({ url: "/v1/ltp?symbols=NSE%3ARELIANCE", headers: { authorization: "Bearer mcb_x" }, kind: "api" });

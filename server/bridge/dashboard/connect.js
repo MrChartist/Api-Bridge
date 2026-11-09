@@ -92,7 +92,7 @@ export async function renderConnect() {
   // Step 3: the key (once), the setup to paste, and Test it.
   function ready(toolId, key, body, orders) {
     const tool = connectTool(toolId);
-    const groups = connectSetup(toolId, { base: location.origin, key, account: paperAcc, folder: app.state.meta?.installDir || undefined });
+    const groups = connectSetup(toolId, { base: location.origin, key, account: paperAcc, folder: app.state.meta?.installDir || undefined, orders });
     const blocks = h("div", { class: "stack cn-blocks" });
     const seg = groups.length > 1 && deps.segmented ? deps.segmented("Paste it into", groups.map((g) => [g.id, SETUP_NAME[g.id] ?? g.id]), groups[0].id) : null;
     const draw = () => blocks.replaceChildren(...(groups.find((g) => g.id === (seg?.value ?? groups[0].id))?.blocks ?? []).map((b) => deps.snippetBlock(b)));
