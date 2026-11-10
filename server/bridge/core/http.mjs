@@ -38,15 +38,31 @@ export function noContent(headers = {}) {
   return new Reply(204, "", headers);
 }
 
-/** RFC 4180 CSV with formula-injection guarding (=, +, -, @ at the start of a text cell get a leading quote). */
+/**
+ * Formula-injection guard for one text cell: a value starting with = + - @ tab or CR would be run as a formula when the
+ * file is opened in a spreadsheet, so it gets a leading apostrophe. Plain numbers written as text ("-5", "12.5") stay as they are.
+ * @param {string} s
+ */
+export function guardFormulaText(s) {
+  return /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
+}
+
+/** Undo guardFormulaText for a value read back from one of our own CSV files (only the apostrophe we put there). */
+export function unguardFormulaText(s) {
+  return /^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s;
+}
+
+/** One RFC 4180 CSV cell (no separator): guarded when it is text, quoted when needed. null and undefined are empty. */
+export function csvCell(v) {
+  if (v === null || v === undefined) return "";
+  let s = String(v);
+  if (typeof v === "string") s = guardFormulaText(s);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** RFC 4180 CSV with formula-injection guarding (=, +, -, @, tab, CR at the start of a text cell get a leading quote). */
 export function toCsv(rows) {
-  const cell = (v) => {
-    if (v === null || v === undefined) return "";
-    let s = typeof v === "number" ? String(v) : String(v);
-    if (typeof v === "string" && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
-    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  return rows.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
+  return rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
 
 /**

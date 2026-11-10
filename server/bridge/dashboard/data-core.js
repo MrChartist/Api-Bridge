@@ -490,12 +490,10 @@ export function collectionView(c, resolvedCount = null) {
 }
 
 /** A collection as CSV text (one symbol per line under a header) or, for an option universe, its rule. */
+const csvGuard = (s) => (typeof s === "string" && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s);
 export function collectionToCsv(c, resolved = null) {
-  if (c?.kind === "option-universe") {
-    const rows = ["symbol", ...(resolved?.symbols ?? [])];
-    return `${rows.join("\n")}\n`;
-  }
-  return `${["symbol", ...(c?.symbols ?? [])].join("\n")}\n`;
+  const list = c?.kind === "option-universe" ? (resolved?.symbols ?? []) : (c?.symbols ?? []);
+  return `${["symbol", ...list.map(csvGuard)].join("\n")}\n`;
 }
 export function collectionToJson(c) {
   const { name, description = "", tags = [], kind = "static", symbols, universe } = c ?? {};
