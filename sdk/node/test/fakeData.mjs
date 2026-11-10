@@ -25,7 +25,7 @@ export function createDataRoutes(problem) {
   d.reset = () => {
     Object.assign(d, {
       jobs: new Map(), jobFiles: new Map(), jobGets: new Map(), datasets: new Map(), recordings: new Map(), rules: new Map(), collections: new Map(), subs: new Map(),
-      events: [], seq: 0, jobPolls: 2, jobFail: null, tamper: new Map(), sseDropAfter: null, sseFailFirst: 0, historySeries: new Map(), historyMaxDays: null, localRange: null,
+      events: [], eventsOldest: 1, dead: new Map(), seq: 0, jobPolls: 2, jobFail: null, tamper: new Map(), sseDropAfter: null, sseFailFirst: 0, historySeries: new Map(), historyMaxDays: null, localRange: null,
       historyLog: [], atmDelayed: false,
     });
   };
@@ -33,7 +33,7 @@ export function createDataRoutes(problem) {
 
   const nextId = (p) => `${p}_${String((d.seq += 1)).padStart(4, "0")}`;
   d.emit = (topic, data) => {
-    const ev = { cursor: String(d.events.length + 1), topic, time: "2026-11-09T10:00:00+05:30", data };
+    const ev = { id: String(d.events.length + 1), topic, time: "2026-11-09T04:30:00.000Z", apiVersion: "v1", data };
     d.events.push(ev);
     return ev;
   };
@@ -290,7 +290,7 @@ export function createDataRoutes(problem) {
     if (!parts.length) {
       if (method === "POST") {
         const id = nextId("sub");
-        const s = { id, url: body.url, topics: body.topics, active: body.active ?? true };
+        const s = { id, url: body.url, topics: body.topics, active: body.active ?? true, label: body.label ?? null, host: "example.org", state: "unverified" };
         d.subs.set(id, { ...s, secret: body.secret });
         return ok(s, 201);
       }
@@ -298,17 +298,40 @@ export function createDataRoutes(problem) {
     }
     const s = d.subs.get(parts[0]);
     if (!s) return pr(404, "NOT_FOUND", "No subscription.");
-    if (method === "PATCH") {
+    if (method === "PATCH" && parts.length === 1) {
       Object.assign(s, body);
       const { secret, ...pub } = s;
       return ok(pub);
     }
-    if (method === "DELETE") {
+    if (method === "DELETE" && parts.length === 1) {
       d.subs.delete(parts[0]);
       return ok({ deleted: parts[0] });
     }
+    if (method === "GET" && parts.length === 1) {
+      const { secret, ...pub } = s;
+      return ok(pub);
+    }
     if (method === "POST" && parts[1] === "test") return ok({ delivered: true, status: 200 });
-    if (method === "GET" && parts[1] === "deliveries") return ok([{ id: "d1", status: "delivered", attempts: 1, responseStatus: 200 }]);
+    if (method === "GET" && parts[1] === "deliveries") {
+      const rows = [{ id: "d1", outcome: "delivered", attempts: 1, status: 200 }, { id: "d2", outcome: "dead", attempts: 8, status: 503 }];
+      return ok(rows.filter((r) => !q.outcome || r.outcome === q.outcome));
+    }
+    if (parts[1] === "dead-letters") {
+      if (!d.dead.has(parts[0])) d.dead.set(parts[0], [{ id: "del_1", eventId: "7", topic: "download.done", reason: "http_5xx" }, { id: "del_2", eventId: "8", topic: "download.failed", reason: "timeout" }]);
+      const dead = d.dead.get(parts[0]);
+      if (method === "GET" && parts.length === 2) return ok([...dead]);
+      if (method === "DELETE" && parts.length === 2) {
+        const n = dead.length;
+        dead.length = 0;
+        return ok({ removed: n });
+      }
+      if (method === "POST" && parts.length === 4 && parts[3] === "retry") {
+        const i = dead.findIndex((x) => x.id === parts[2]);
+        if (i < 0) return pr(404, "NOT_FOUND", "No such dead letter.");
+        dead.splice(i, 1);
+        return ok({ id: parts[2], queued: true }, 202);
+      }
+    }
     return pr(404, "NOT_FOUND", "No such route.");
   }
 
@@ -319,17 +342,30 @@ export function createDataRoutes(problem) {
     }
     const since = q.since ?? headers["last-event-id"];
     const topics = (q.topics ?? "").split(",").filter(Boolean);
-    const frames = [": connected\n\n"];
+    const latest = d.events.length;
+    let gap = false;
+    let gapReason = null;
+    if (since !== undefined && Number(since) > latest) [gap, gapReason] = [true, "cursor_ahead"];
+    if (since !== undefined && d.eventsOldest > 1 && Number(since) < d.eventsOldest - 1) [gap, gapReason] = [true, "retention"];
+    const frames = [`event: ready\ndata: ${JSON.stringify({ cursor: String(latest), oldest: String(d.eventsOldest), replayed: 0, gap, gapReason, topics: topics.length ? topics : ["*"] })}\n\n`];
     let sent = 0;
     for (const ev of d.events) {
-      if (since !== undefined && Number(ev.cursor) <= Number(since)) continue;
+      if (since !== undefined && Number(ev.id) <= Number(since)) continue;
       if (topics.length && !topics.some((t) => t === "*" || t === ev.topic || (t.endsWith(".*") && ev.topic.startsWith(t.slice(0, -1))))) continue;
-      frames.push(`id: ${ev.cursor}\nevent: ${ev.topic}\ndata: ${JSON.stringify(ev)}\n\n`);
+      frames.push(`id: ${ev.id}\nevent: ${ev.topic}\ndata: ${JSON.stringify(ev)}\n\n`);
       sent += 1;
       if (d.sseDropAfter !== null && sent >= d.sseDropAfter) break;
       frames.push(": heartbeat\n\n");
     }
     return { status: 200, frames };
+  }
+
+  function eventsPoll(q) {
+    const topics = (q.topics ?? "").split(",").filter(Boolean);
+    let rows = d.events.filter((e) => (q.since === undefined || Number(e.id) > Number(q.since)) && (!topics.length || topics.some((t) => t === "*" || t === e.topic || (t.endsWith(".*") && e.topic.startsWith(t.slice(0, -1))))));
+    rows = rows.slice(0, Number(q.limit ?? 100));
+    const gap = q.since !== undefined && Number(q.since) > d.events.length;
+    return ok(rows, 200, { cursor: rows.at(-1)?.id ?? q.since ?? String(d.events.length), latest: String(d.events.length), gap, gapReason: gap ? "cursor_ahead" : null, hasMore: false });
   }
 
   function history(q) {
@@ -364,7 +400,12 @@ export function createDataRoutes(problem) {
       case "recordings": return recordings(method, parts.slice(1), q, body);
       case "collections": return collections(method, parts.slice(1), q, body);
       case "subscriptions": return subs(method, parts.slice(1), q, body);
-      case "events": return parts[1] === "stream" && method === "GET" ? eventStream(q, headers) : null;
+      case "events":
+        if (method !== "GET") return null;
+        if (parts[1] === "stream") return eventStream(q, headers);
+        if (parts[1] === "topics") return ok([{ topic: "download.done", scope: "read", accountScoped: false, description: "A data download finished" }]);
+        if (parts.length === 1) return eventsPoll(q);
+        return null;
       case "instruments":
         return parts[1] === "export" && method === "GET" ? { status: 200, body: Buffer.from("symbol,exchange,kind\nNSE:RELIANCE,NSE,EQ\nNSE:TCS,NSE,EQ\n"), headers: { "Content-Type": "text/csv" } } : null;
       case "history": return method === "GET" && d.historySeries.has(q.symbol) ? history(q) : null;

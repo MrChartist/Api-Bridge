@@ -449,19 +449,38 @@ def test_collection_usage_and_estimate(bridge, fake):
 
 
 def test_subscriptions_never_show_the_secret(bridge, fake):
-    s = bridge.subscriptions.create("https://example.org/hook", ["download.*"], secret="s3cret-s3cret-s3cret")
-    assert last_body(fake, "POST", "/v1/subscriptions")["secret"] == "s3cret-s3cret-s3cret"
-    assert "secret" not in s.raw and s.topics == ("download.*",) and s.active
-    assert "secret" not in bridge.subscriptions.list()[0].raw
+    s = bridge.subscriptions.create("https://example.org/hook", ["download.*"], secret="s3cret-s3cret-s3cret", label="my server")
+    assert last_body(fake, "POST", "/v1/subscriptions") == {"url": "https://example.org/hook", "topics": ["download.*"], "secret": "s3cret-s3cret-s3cret", "active": True, "label": "my server"}
+    assert "secret" not in s.raw and s.topics == ("download.*",) and s.active and s.label == "my server" and s.host == "example.org"
+    assert "secret" not in bridge.subscriptions.list()[0].raw and bridge.subscriptions.get(s.id).id == s.id
     assert bridge.subscriptions.update(s.id, active=False).active is False
     assert bridge.subscriptions.test(s.id)["delivered"] is True
-    assert bridge.subscriptions.deliveries(s.id)[0]["status"] == "delivered"
+    assert len(bridge.subscriptions.deliveries(s.id)) == 2
+    assert [d["id"] for d in bridge.subscriptions.deliveries(s.id, outcome="dead")] == ["d2"]
+    assert fake.find("GET", "/v1/subscriptions/%s/deliveries" % s.id)[-1]["query"] == {"outcome": "dead"}
+    with pytest.raises(ValueError):
+        bridge.subscriptions.deliveries(s.id, outcome="bogus")
     bridge.subscriptions.delete(s.id)
     assert len(bridge.subscriptions.list()) == 0
     with pytest.raises(ValueError):
         bridge.subscriptions.create("https://example.org/h", [], secret="x" * 20)
     with pytest.raises(ValueError):
         bridge.subscriptions.update(s.id)
+
+
+def test_dead_letters_list_retry_and_clear(bridge, fake):
+    s = bridge.subscriptions.create("https://example.org/hook", ["download.*"], secret="s3cret-s3cret-s3cret")
+    dead = bridge.subscriptions.dead_letters(s.id)
+    assert [d["id"] for d in dead] == ["del_1", "del_2"]
+    r = bridge.subscriptions.retry_dead_letter(s.id, dead[0])  # the dead-letter dict or its id
+    assert r["queued"] is True and fake.find("POST", "/v1/subscriptions/%s/dead-letters/del_1/retry" % s.id)
+    assert [d["id"] for d in bridge.subscriptions.dead_letters(s.id)] == ["del_2"]
+    assert len(bridge.subscriptions.retry_all_dead_letters(s.id)) == 1 and len(bridge.subscriptions.dead_letters(s.id)) == 0
+    fake.data.dead.clear()
+    assert bridge.subscriptions.clear_dead_letters(s.id) == 2
+    assert fake.find("DELETE", "/v1/subscriptions/%s/dead-letters" % s.id)
+    with pytest.raises(NotFound):
+        bridge.subscriptions.retry_dead_letter(s.id, "del_999")
 
 
 # ── async ──

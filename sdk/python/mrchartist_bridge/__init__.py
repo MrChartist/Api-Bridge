@@ -102,7 +102,7 @@ from .errors import (
     WaitTimeout,
     error_from_problem,
 )
-from .events import Event, EventSubscription, Events, sign_payload, verify_request, verify_signature
+from .events import Event, EventPage, EventSubscription, Events, sign_payload, verify_request, verify_signature
 from .longhistory import HistoryIter
 from .orders import BatchItem, BatchResult, Orders, TargetResult, Tickets
 from .records import (
@@ -135,7 +135,7 @@ from .stream import BridgeStream, FeedStatus, GoAway, Heartbeat, OrderUpdate, Sn
 
 __all__ = [
     "ChecksumMismatch", "Collection", "Collections", "DataFile", "Dataset", "Datasets", "DownloadFailed", "DownloadItem", "DownloadJob", "DownloadProgress", "Downloads", "Event", "EventSubscription",
-    "Events", "HistoryIter", "Recording", "RecordingRule", "RecordingRules", "Recordings", "Resolution", "SavedFile", "SignatureInvalid", "Subscription", "Subscriptions", "option_universe",
+    "EventPage", "Events", "HistoryIter", "Recording", "RecordingRule", "RecordingRules", "Recordings", "Resolution", "SavedFile", "SignatureInvalid", "Subscription", "Subscriptions", "option_universe",
     "sign_payload", "verify_request", "verify_signature",
     "Account", "AccountForbidden", "AccountNotFound", "AsyncBridge", "AsyncStream", "BatchItem", "BatchResult", "Bridge", "BridgeApiError", "BridgeClient", "BridgeConnectionError",
     "BridgeError", "BridgeNotRunning", "BridgeStream", "Candle", "CannotTrade", "CapabilityUnsupported", "Check", "ConfigurationError", "ConfirmationRequired", "DEFAULT_BASE_URL",

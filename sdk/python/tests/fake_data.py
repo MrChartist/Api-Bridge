@@ -57,6 +57,7 @@ class DataRoutes:
         self.rules: Dict[str, Dict[str, Any]] = {}
         self.collections: Dict[str, Dict[str, Any]] = {}
         self.subs: Dict[str, Dict[str, Any]] = {}
+        self.dead: Dict[str, List[Dict[str, Any]]] = {}
         self.events: List[Dict[str, Any]] = []
         self.seq = 0
         self.job_polls = 2
@@ -64,6 +65,7 @@ class DataRoutes:
         self.tamper: Dict[str, bytes] = {}
         self.sse_drop_after: Optional[int] = None
         self.sse_fail_first = 0
+        self.events_oldest = 1
         self.history_series: Dict[str, List[Dict[str, Any]]] = {}
         self.history_max_days: Optional[float] = None
         self.local_range: Optional[Tuple[int, int]] = None
@@ -77,7 +79,7 @@ class DataRoutes:
         return "%s_%04d" % (prefix, self.seq)
 
     def emit(self, topic: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        ev = {"cursor": str(len(self.events) + 1), "topic": topic, "time": "2026-11-09T10:00:00+05:30", "data": data}
+        ev = {"id": str(len(self.events) + 1), "topic": topic, "time": "2026-11-09T04:30:00.000Z", "apiVersion": "v1", "data": data}
         self.events.append(ev)
         return ev
 
@@ -119,6 +121,10 @@ class DataRoutes:
             return self.subs_route(method, parts[1:], q, body)
         if head == "events" and parts[1:] == ["stream"] and method == "GET":
             return self.event_stream(q, headers)
+        if head == "events" and parts[1:] == ["topics"] and method == "GET":
+            return self.ok([{"topic": "download.done", "scope": "read", "accountScoped": False, "description": "A data download finished"}])
+        if head == "events" and len(parts) == 1 and method == "GET":
+            return self.events_poll(q)
         if path == "/v1/instruments/export" and method == "GET":
             rows = "symbol,exchange,kind\nNSE:RELIANCE,NSE,EQ\nNSE:TCS,NSE,EQ\n"
             return 200, Raw(rows.encode())
@@ -404,23 +410,40 @@ class DataRoutes:
             if method == "POST":
                 b = dict(body or {})
                 sid = self._id("sub")
-                s = {"id": sid, "url": b["url"], "topics": b["topics"], "active": b.get("active", True)}
+                s = {"id": sid, "url": b["url"], "topics": b["topics"], "active": b.get("active", True), "label": b.get("label"), "host": "example.org", "state": "unverified"}
                 self.subs[sid] = dict(s, secret=b.get("secret"))
                 return self.ok(s, 201)
             return self.ok([{k: v for k, v in s.items() if k != "secret"} for s in self.subs.values()])
         s = self.subs.get(parts[0])
         if s is None:
             return self.fake.problem(404, "NOT_FOUND", "No subscription.")
-        if method == "PATCH":
+        if method == "PATCH" and len(parts) == 1:
             s.update(body or {})
             return self.ok({k: v for k, v in s.items() if k != "secret"})
-        if method == "DELETE":
+        if method == "DELETE" and len(parts) == 1:
             self.subs.pop(parts[0])
             return self.ok({"deleted": parts[0]})
         if method == "POST" and parts[1:] == ["test"]:
             return self.ok({"delivered": True, "status": 200})
         if method == "GET" and parts[1:] == ["deliveries"]:
-            return self.ok([{"id": "d1", "status": "delivered", "attempts": 1, "responseStatus": 200}])
+            rows = [{"id": "d1", "outcome": "delivered", "attempts": 1, "status": 200}, {"id": "d2", "outcome": "dead", "attempts": 8, "status": 503}]
+            return self.ok([r for r in rows if not q.get("outcome") or r["outcome"] == q["outcome"]])
+        if method == "GET" and len(parts) == 1:
+            return self.ok({k: v for k, v in s.items() if k != "secret"})
+        if parts[1:2] == ["dead-letters"]:
+            dead = self.dead.setdefault(parts[0], [{"id": "del_1", "eventId": "7", "topic": "download.done", "reason": "http_5xx"}, {"id": "del_2", "eventId": "8", "topic": "download.failed", "reason": "timeout"}])
+            if method == "GET" and len(parts) == 2:
+                return self.ok(list(dead))
+            if method == "DELETE" and len(parts) == 2:
+                n = len(dead)
+                dead.clear()
+                return self.ok({"removed": n})
+            if method == "POST" and len(parts) == 4 and parts[3] == "retry":
+                hit = [d for d in dead if d["id"] == parts[2]]
+                if not hit:
+                    return self.fake.problem(404, "NOT_FOUND", "No such dead letter.")
+                dead.remove(hit[0])
+                return self.ok({"id": parts[2], "queued": True}, 202)
         return self.nf("route")
 
     # ── events ──
@@ -431,19 +454,34 @@ class DataRoutes:
             return self.fake.problem(503, "BROKER_UNAVAILABLE", "events are starting up")
         since = q.get("since") or (headers.get("Last-Event-ID") if headers else None)
         topics = [t for t in (q.get("topics") or "").split(",") if t]
-        out: List[bytes] = [b": connected\n\n"]
+        latest = len(self.events)
+        gap, reason = False, None
+        if since is not None and int(since) > latest:
+            gap, reason = True, "cursor_ahead"
+        if since is not None and self.events_oldest > 1 and int(since) < self.events_oldest - 1:
+            gap, reason = True, "retention"
+        ready = {"cursor": str(latest), "oldest": str(self.events_oldest), "replayed": 0, "gap": gap, "gapReason": reason, "topics": topics or ["*"]}
+        out: List[bytes] = [("event: ready\ndata: %s\n\n" % json.dumps(ready)).encode()]
         sent = 0
         for ev in self.events:
-            if since is not None and int(ev["cursor"]) <= int(since):
+            if since is not None and int(ev["id"]) <= int(since):
                 continue
             if topics and not any(t == ev["topic"] or (t.endswith(".*") and ev["topic"].startswith(t[:-1])) or t == "*" for t in topics):
                 continue
-            out.append(("id: %s\nevent: %s\ndata: %s\n\n" % (ev["cursor"], ev["topic"], json.dumps(ev))).encode())
+            out.append(("id: %s\nevent: %s\ndata: %s\n\n" % (ev["id"], ev["topic"], json.dumps(ev))).encode())
             sent += 1
             if self.sse_drop_after is not None and sent >= self.sse_drop_after:
                 break
             out.append(b": heartbeat\n\n")
         return 200, Frames(out)
+
+    def events_poll(self, q: Dict[str, str]) -> Tuple[int, Any]:
+        since = q.get("since")
+        topics = [t for t in (q.get("topics") or "").split(",") if t]
+        rows = [e for e in self.events if (since is None or int(e["id"]) > int(since)) and (not topics or any(t == "*" or t == e["topic"] or (t.endswith(".*") and e["topic"].startswith(t[:-1])) for t in topics))]
+        rows = rows[: int(q.get("limit") or 100)]
+        gap = since is not None and int(since) > len(self.events)
+        return self.ok(rows, cursor=rows[-1]["id"] if rows else (since or str(len(self.events))), latest=str(len(self.events)), gap=gap, gapReason="cursor_ahead" if gap else None, hasMore=False)
 
     # ── history ──
 

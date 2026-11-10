@@ -369,18 +369,38 @@ describe("collections", () => {
 
 describe("subscriptions", () => {
   it("never show the secret again", async () => {
-    const s = await bridge.subscriptions.create({ url: "https://example.org/hook", topics: ["download.*"], secret: "s3cret-s3cret-s3cret" });
-    assert.equal(lastBody("POST", "/v1/subscriptions").secret, "s3cret-s3cret-s3cret");
+    const s = await bridge.subscriptions.create({ url: "https://example.org/hook", topics: ["download.*"], secret: "s3cret-s3cret-s3cret", label: "my server" });
+    assert.deepEqual(lastBody("POST", "/v1/subscriptions"), { url: "https://example.org/hook", topics: ["download.*"], secret: "s3cret-s3cret-s3cret", active: true, label: "my server" });
     assert.equal(s.secret, undefined);
-    assert.deepEqual([s.topics, s.active], [["download.*"], true]);
+    assert.deepEqual([s.topics, s.active, s.label, s.host], [["download.*"], true, "my server", "example.org"]);
     assert.equal((await bridge.subscriptions.list())[0].secret, undefined);
+    assert.equal((await bridge.subscriptions.get(s.id)).id, s.id);
     assert.equal((await bridge.subscriptions.update(s.id, { active: false })).active, false);
     assert.equal((await bridge.subscriptions.test(s.id)).delivered, true);
-    assert.equal((await bridge.subscriptions.deliveries(s.id))[0].status, "delivered");
+    assert.equal((await bridge.subscriptions.deliveries(s.id)).length, 2);
+    assert.deepEqual((await bridge.subscriptions.deliveries(s.id, { outcome: "dead" })).map((x) => x.id), ["d2"]);
+    assert.deepEqual(fake.requests().filter((r) => r.path === `/v1/subscriptions/${s.id}/deliveries`).at(-1).query, { outcome: "dead" });
+    await assert.rejects(() => bridge.subscriptions.deliveries(s.id, { outcome: "bogus" }), TypeError);
     await bridge.subscriptions.delete(s.id);
     assert.equal((await bridge.subscriptions.list()).length, 0);
     await assert.rejects(() => bridge.subscriptions.create({ url: "https://example.org/h", topics: [], secret: "x".repeat(20) }), TypeError);
     await assert.rejects(() => bridge.subscriptions.update(s.id), TypeError);
+  });
+
+  it("dead letters: list, retry one or all, clear", async () => {
+    const s = await bridge.subscriptions.create({ url: "https://example.org/hook", topics: ["download.*"], secret: "s3cret-s3cret-s3cret" });
+    const dead = await bridge.subscriptions.deadLetters(s.id);
+    assert.deepEqual(dead.map((x) => x.id), ["del_1", "del_2"]);
+    const r = await bridge.subscriptions.retryDeadLetter(s.id, dead[0]); // the object or its id
+    assert.equal(r.queued, true);
+    assert.ok(fake.requests().some((x) => x.method === "POST" && x.path === `/v1/subscriptions/${s.id}/dead-letters/del_1/retry`));
+    assert.deepEqual((await bridge.subscriptions.deadLetters(s.id)).map((x) => x.id), ["del_2"]);
+    assert.equal((await bridge.subscriptions.retryAllDeadLetters(s.id)).length, 1);
+    assert.equal((await bridge.subscriptions.deadLetters(s.id)).length, 0);
+    fake.data.dead.clear();
+    assert.equal(await bridge.subscriptions.clearDeadLetters(s.id), 2);
+    assert.ok(fake.requests().some((x) => x.method === "DELETE" && x.path === `/v1/subscriptions/${s.id}/dead-letters`));
+    await assert.rejects(() => bridge.subscriptions.retryDeadLetter(s.id, "del_999"), (e) => e.status === 404);
   });
 });
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { BridgeApiError, BridgeClient, SignatureInvalidError, eventFrom, explainSignature, parseSse, signPayload, topicMatches, verifyRequest, verifySignature } from "../src/index.mjs";
+import { ATTEMPT_HEADER, DELIVERY_HEADER, EVENT_ID_HEADER, SIGNATURE_HEADER, TIMESTAMP_HEADER } from "../src/events.mjs";
 import { eventFrom as eventFromDirect, parseSse as parseSseDirect } from "../src/events.mjs";
 import { DAY, bars } from "./fakeData.mjs";
 import { TEST_KEY, createFakeBridge } from "./fakeServer.mjs";
@@ -39,14 +40,17 @@ async function* chunks(...parts) {
   for (const p of parts) yield p;
 }
 
+// The Bridge signs "<timestamp>." + raw body with HMAC-SHA256 and sends X-Bridge-Timestamp and X-Bridge-Signature: v1=<hex>.
 describe("signatures", () => {
   it("a signature made by the sender verifies, with the documented construction", () => {
-    const body = Buffer.from('{"topic":"download.done","data":{"id":"dl_1"}}');
-    const header = signPayload(SECRET, body, 1_800_000_000);
-    assert.match(header, /^t=1800000000,v1=[0-9a-f]{64}$/);
-    assert.ok(header.endsWith(createHmac("sha256", SECRET).update("1800000000.").update(body).digest("hex")));
-    assert.equal(verifySignature(SECRET, body, header, { now: 1_800_000_100 }), true);
-    assert.equal(verifySignature(Buffer.from(SECRET), body.toString(), header, { now: 1_800_000_100 }), true); // text or bytes
+    const body = Buffer.from('{"id":"1043","topic":"download.done","data":{"id":"dl_1"}}');
+    const h = signPayload(SECRET, body, 1_800_000_000);
+    assert.equal(h["X-Bridge-Timestamp"], "1800000000");
+    assert.match(h["X-Bridge-Signature"], /^v1=[0-9a-f]{64}$/);
+    assert.equal(h["X-Bridge-Signature"], `v1=${createHmac("sha256", SECRET).update("1800000000.").update(body).digest("hex")}`);
+    assert.equal(verifySignature(SECRET, body, h, { now: 1_800_000_100 }), true);
+    assert.equal(verifySignature(SECRET, body, { timestamp: "1800000000", signature: h["X-Bridge-Signature"] }, { now: 1_800_000_100 }), true);
+    assert.equal(verifySignature(Buffer.from(SECRET), body.toString(), h, { now: 1_800_000_100 }), true); // text or bytes
   });
 
   it("a changed body, secret or timestamp fails", () => {
@@ -54,7 +58,7 @@ describe("signatures", () => {
     const h = signPayload(SECRET, body, 1_800_000_000);
     assert.equal(verifySignature(SECRET, '{"x":2}', h, { now: 1_800_000_000 }), false);
     assert.equal(verifySignature("another-secret-value", body, h, { now: 1_800_000_000 }), false);
-    assert.equal(verifySignature(SECRET, body, h.replace("t=1800000000", "t=1800000001"), { now: 1_800_000_001 }), false);
+    assert.equal(verifySignature(SECRET, body, { ...h, "X-Bridge-Timestamp": "1800000001" }, { now: 1_800_000_001 }), false);
     assert.equal(verifySignature(SECRET, '{"x": 1}', h, { now: 1_800_000_000 }), false); // re-serialised JSON changes the bytes
   });
 
@@ -67,32 +71,46 @@ describe("signatures", () => {
   });
 
   it("missing or malformed headers, and the reason", () => {
-    const cases = [[undefined, "missing_header"], ["", "missing_header"], ["garbage", "malformed_header"], [`t=abc,v1=${"0".repeat(64)}`, "malformed_header"], ["t=1800000000", "malformed_header"],
-      ["t=1800000000,v1=short", "malformed_header"], [`t=1800000000,v1=${"0".repeat(64)}`, "signature_mismatch"]];
-    for (const [header, reason] of cases) {
-      assert.equal(verifySignature(SECRET, "{}", header, { now: 1_800_000_000 }), false);
-      assert.equal(explainSignature(SECRET, "{}", header, { now: 1_800_000_000 }).reason, reason);
-      assert.throws(() => verifySignature(SECRET, "{}", header, { now: 1_800_000_000, throwOnFail: true }), (e) => e instanceof SignatureInvalidError && e.reason === reason);
+    const zero = `v1=${"0".repeat(64)}`;
+    const cases = [
+      [{}, "missing_header"],
+      [{ "X-Bridge-Timestamp": "1800000000" }, "missing_header"],
+      [{ "X-Bridge-Signature": zero }, "missing_header"],
+      [{ "X-Bridge-Timestamp": "abc", "X-Bridge-Signature": zero }, "malformed_header"],
+      [{ "X-Bridge-Timestamp": "1800000000", "X-Bridge-Signature": "garbage" }, "malformed_header"],
+      [{ "X-Bridge-Timestamp": "1800000000", "X-Bridge-Signature": "v1=short" }, "malformed_header"],
+      [{ "X-Bridge-Timestamp": "1800000000", "X-Bridge-Signature": zero }, "signature_mismatch"],
+    ];
+    for (const [headers, reason] of cases) {
+      assert.equal(verifySignature(SECRET, "{}", headers, { now: 1_800_000_000 }), false);
+      assert.equal(explainSignature(SECRET, "{}", headers, { now: 1_800_000_000 }).reason, reason);
+      assert.throws(() => verifySignature(SECRET, "{}", headers, { now: 1_800_000_000, throwOnFail: true }), (e) => e instanceof SignatureInvalidError && e.reason === reason);
     }
     assert.equal(explainSignature(SECRET, "{}", signPayload(SECRET, "{}", 1), { now: 1_800_000_000 }).reason, "timestamp_out_of_range");
   });
 
-  it("secret rotation on either side", () => {
+  it("secret rotation on either side, header values separated by space or comma", () => {
     const [old, next] = ["old-secret-old-secret", "new-secret-new-secret"];
     const mac = (s) => createHmac("sha256", s).update("1800000000.{}").digest("hex");
-    const both = `t=1800000000,v1=${mac(old)},v1=${mac(next)}`;
-    assert.ok(verifySignature(next, "{}", both, { now: 1_800_000_000 }) && verifySignature(old, "{}", both, { now: 1_800_000_000 }));
+    for (const sep of [" ", ","]) {
+      const both = { "X-Bridge-Timestamp": "1800000000", "X-Bridge-Signature": `v1=${mac(old)}${sep}v1=${mac(next)}` };
+      assert.ok(verifySignature(next, "{}", both, { now: 1_800_000_000 }) && verifySignature(old, "{}", both, { now: 1_800_000_000 }));
+    }
     assert.ok(verifySignature([next, old], "{}", signPayload(old, "{}", 1_800_000_000), { now: 1_800_000_000 }));
     assert.equal(verifySignature([next], "{}", signPayload(old, "{}", 1_800_000_000), { now: 1_800_000_000 }), false);
   });
 
-  it("verifyRequest reads the header from an object or Headers in any case", () => {
+  it("verifyRequest reads the headers from an object or Headers in any case", () => {
     const body = '{"a":1}';
     const h = signPayload(SECRET, body);
-    assert.ok(verifyRequest(SECRET, { "x-mcb-signature": h }, body));
-    assert.ok(verifyRequest(SECRET, { "X-MCB-SIGNATURE": h }, body));
-    assert.ok(verifyRequest(SECRET, new Headers({ "X-MCB-Signature": h }), body));
+    const lower = Object.fromEntries(Object.entries(h).map(([k, v]) => [k.toLowerCase(), v]));
+    assert.ok(verifyRequest(SECRET, { ...lower, "content-type": "application/json" }, body));
+    assert.ok(verifyRequest(SECRET, new Headers(h), body));
     assert.equal(verifyRequest(SECRET, { "content-type": "application/json" }, body), false);
+  });
+
+  it("the header names are the Bridge's", () => {
+    assert.deepEqual([SIGNATURE_HEADER, TIMESTAMP_HEADER, EVENT_ID_HEADER, DELIVERY_HEADER, ATTEMPT_HEADER], ["X-Bridge-Signature", "X-Bridge-Timestamp", "X-Bridge-Event-Id", "X-Bridge-Delivery", "X-Bridge-Attempt"]);
   });
 });
 
@@ -109,6 +127,8 @@ describe("parsing", () => {
   it("event shapes", () => {
     const full = eventFrom("9", "download.done", '{"cursor":"9","topic":"download.done","time":"2026-11-09T10:00:00+05:30","data":{"id":"dl_1"}}');
     assert.deepEqual([full.cursor, full.topic, full.data.id, full.time], ["9", "download.done", "dl_1", "2026-11-09T10:00:00+05:30"]);
+    const real = eventFrom("1043", "order.updated", '{"id":"1043","topic":"order.updated","time":"2026-11-09T04:01:02.000Z","apiVersion":"v1","data":{"orderId":"P1"}}');
+    assert.deepEqual([real.cursor, real.topic, real.data.orderId, real.time], ["1043", "order.updated", "P1", "2026-11-09T04:01:02.000Z"]);
     const bare = eventFrom("3", "order.update", '{"orderId":"o1"}');
     assert.deepEqual([bare.cursor, bare.topic, bare.data], ["3", "order.update", { orderId: "o1" }]);
     assert.equal(eventFrom(undefined, undefined, '{"type":"tick"}').topic, "tick");
@@ -203,6 +223,31 @@ describe("subscribe", () => {
     fake.data.emit("download.done", { id: "b" });
     assert.equal((await bridge.events.waitFor("download.done", undefined, { timeoutMs: 5000 })).data.id, "b");
     assert.equal(await bridge.events.waitFor("download.done", (e) => e.data.id === "zzz", { timeoutMs: 300 }), undefined);
+  });
+});
+
+describe("gap, poll and topics", () => {
+  it("the ready message reports a gap and is not an event", async () => {
+    for (let i = 1; i <= 3; i += 1) fake.data.emit("download.done", { n: i });
+    const seen = [];
+    const sub = bridge.events.subscribe({ since: "99", maxReconnects: 0, onGap: (r) => seen.push(r) });
+    const got = [];
+    for await (const ev of sub) got.push(ev);
+    assert.deepEqual(got, []);
+    assert.deepEqual([sub.gap, sub.gapReason, seen, sub.ready.cursor], [true, "cursor_ahead", ["cursor_ahead"], "3"]);
+    const ok = bridge.events.subscribe({ since: "1", maxReconnects: 0 });
+    const evs = [];
+    for await (const ev of ok) evs.push(ev.data.n);
+    assert.deepEqual([evs, ok.gap, ok.gapReason], [[2, 3], false, undefined]);
+  });
+
+  it("poll and topics", async () => {
+    for (let i = 1; i <= 5; i += 1) fake.data.emit(i % 2 ? "download.done" : "recording.gap", { n: i });
+    const page = await bridge.events.poll({ since: "1", topics: "download.*", limit: 10 });
+    assert.deepEqual([page.events.map((e) => e.data.n), page.cursor, page.gap], [[3, 5], "5", false]);
+    assert.deepEqual(fake.requests().filter((r) => r.path === "/v1/events").at(-1).query, { since: "1", topics: "download.*", limit: "10" });
+    assert.equal((await bridge.events.poll({ since: "50" })).gap, true);
+    assert.equal((await bridge.events.topics())[0].topic, "download.done");
   });
 });
 

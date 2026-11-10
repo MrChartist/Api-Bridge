@@ -533,9 +533,21 @@ export interface Resolution {
 }
 export interface Subscription {
   id: string;
-  url: string;
+  /** The target as the Bridge shows it (without its path). */
+  url?: string;
+  host?: string;
+  label?: string | null;
   topics: string[];
   active: boolean;
+  /** ok, unverified, failing, paused or needs-secret. */
+  state?: string;
+}
+export interface DeadLetter {
+  id: string;
+  eventId?: string;
+  topic?: string;
+  reason?: string;
+  [k: string]: unknown;
 }
 export type SignatureFailure = "missing_header" | "malformed_header" | "timestamp_out_of_range" | "signature_mismatch";
 export interface BridgeEvent {
@@ -554,12 +566,19 @@ export interface SubscribeOptions {
   maxBackoffMs?: number;
   idleTimeoutMs?: number;
   maxReconnects?: number;
+  /** Called when the Bridge says events were lost between your cursor and what it still keeps. */
+  onGap?: (reason?: string) => void;
 }
 export declare class EventSubscription implements AsyncIterable<BridgeEvent> {
   cursor?: string;
   reconnects: number;
   connected: boolean;
   closed: boolean;
+  /** The Bridge's last `ready` message (cursor, oldest, replayed, gap, gapReason, topics). */
+  ready?: { cursor: string; oldest: string | null; replayed: number; gap: boolean; gapReason: string | null; topics: string[] };
+  /** true when events were lost: read the current state from the API again, then carry on. */
+  gap: boolean;
+  gapReason?: string;
   close(): void;
   [Symbol.asyncIterator](): AsyncIterator<BridgeEvent>;
 }
@@ -571,13 +590,21 @@ export interface VerifyOptions {
   throwOnFail?: boolean;
 }
 type Bytes = string | Uint8Array;
-export declare const SIGNATURE_HEADER: "X-MCB-Signature";
+/** The request headers of a delivery (plain object or Headers), or the two values themselves. */
+type SignedHeaders = Headers | Record<string, string | string[] | undefined> | { timestamp?: string | number; signature?: string };
+export declare const SIGNATURE_HEADER: "X-Bridge-Signature";
+export declare const TIMESTAMP_HEADER: "X-Bridge-Timestamp";
+export declare const EVENT_ID_HEADER: "X-Bridge-Event-Id";
+export declare const EVENT_TOPIC_HEADER: "X-Bridge-Event-Topic";
+export declare const DELIVERY_HEADER: "X-Bridge-Delivery";
+export declare const ATTEMPT_HEADER: "X-Bridge-Attempt";
 export declare function computeSignature(secret: Bytes, timestamp: number, body: Bytes): string;
-export declare function signPayload(secret: Bytes, body: Bytes, timestamp?: number): string;
-export declare function explainSignature(secret: Bytes | Bytes[], body: Bytes, header: string | null | undefined, o?: { toleranceSec?: number; now?: number }): { ok: boolean; reason: "ok" | SignatureFailure };
-/** True when `header` (X-MCB-Signature) is a valid signature of the exact raw `body`. */
-export declare function verifySignature(secret: Bytes | Bytes[], body: Bytes, header: string | null | undefined, o?: VerifyOptions): boolean;
-export declare function verifyRequest(secret: Bytes | Bytes[], headers: Headers | Record<string, string | string[] | undefined>, body: Bytes, o?: VerifyOptions): boolean;
+/** The two headers the Bridge sends with a delivery, for sending your own test deliveries to a receiver. */
+export declare function signPayload(secret: Bytes, body: Bytes, timestamp?: number): { "X-Bridge-Timestamp": string; "X-Bridge-Signature": string };
+export declare function explainSignature(secret: Bytes | Bytes[], body: Bytes, headers: SignedHeaders, o?: { toleranceSec?: number; now?: number }): { ok: boolean; reason: "ok" | SignatureFailure };
+/** True when X-Bridge-Signature (`v1=<hex>`) is the HMAC-SHA256 of `"<X-Bridge-Timestamp>." + the exact raw body`, within the replay window. */
+export declare function verifySignature(secret: Bytes | Bytes[], body: Bytes, headers: SignedHeaders, o?: VerifyOptions): boolean;
+export declare function verifyRequest(secret: Bytes | Bytes[], headers: SignedHeaders, body: Bytes, o?: VerifyOptions): boolean;
 export declare function topicMatches(pattern: string, topic: string): boolean;
 export declare function eventFrom(sseId: string | undefined, sseEvent: string | undefined, payload: string): BridgeEvent;
 export declare function parseSse(chunks: AsyncIterable<string>): AsyncGenerator<{ id?: string; event?: string; data: string; retry?: number }>;
@@ -661,14 +688,22 @@ export declare class Collections {
 }
 export declare class Subscriptions {
   list(): Promise<Subscription[]>;
-  create(p: { url: string; topics: string[]; secret: string; active?: boolean }): Promise<Subscription>;
-  update(id: string, p: { url?: string; topics?: string[]; secret?: string; active?: boolean }): Promise<Subscription>;
+  get(id: string): Promise<Subscription>;
+  create(p: { url: string; topics: string[]; secret: string; active?: boolean; label?: string; accounts?: string | string[] }): Promise<Subscription>;
+  update(id: string, p: { url?: string; topics?: string[]; secret?: string; active?: boolean; label?: string }): Promise<Subscription>;
   delete(id: string): Promise<void>;
   test(id: string): Promise<Record<string, unknown>>;
-  deliveries(id: string, o?: { limit?: number; cursor?: string }): Promise<Array<Record<string, unknown>>>;
+  deliveries(id: string, o?: { limit?: number; outcome?: "delivered" | "retry" | "dead" | "failed" }): Promise<Array<Record<string, unknown>>>;
+  deadLetters(id: string): Promise<DeadLetter[]>;
+  retryDeadLetter(id: string, letter: string | DeadLetter): Promise<Record<string, unknown>>;
+  retryAllDeadLetters(id: string): Promise<Array<Record<string, unknown>>>;
+  /** Returns how many were removed. */
+  clearDeadLetters(id: string): Promise<number>;
 }
 export declare class Events {
   subscribe(o?: SubscribeOptions): EventSubscription;
+  topics(): Promise<Array<{ topic: string; scope: string; accountScoped: boolean; description: string }>>;
+  poll(o?: { since?: string; topics?: string | string[]; limit?: number }): Promise<{ events: BridgeEvent[]; cursor?: string; gap: boolean; gapReason?: string; hasMore: boolean }>;
   waitFor(topic: string, predicate?: (ev: BridgeEvent) => boolean, o?: { timeoutMs?: number; since?: string }): Promise<BridgeEvent | undefined>;
   verifySignature: typeof verifySignature;
   signPayload: typeof signPayload;
@@ -856,9 +891,13 @@ export declare class BridgeClient {
   collectionUsage(name: string): Promise<Envelope<Record<string, unknown>>>;
   collectionEstimate(name: string, o?: { intervals?: string | string[]; days?: number }): Promise<Envelope<Record<string, unknown>>>;
   listSubscriptions(): Promise<Envelope<Subscription[]>>;
-  createSubscription(subscription: { url: string; topics: string[]; secret: string; active?: boolean }): Promise<Envelope<Subscription>>;
+  createSubscription(subscription: { url: string; topics: string[]; secret: string; active?: boolean; label?: string; accounts?: string | string[] }): Promise<Envelope<Subscription>>;
   updateSubscription(id: string, changes: Record<string, unknown>): Promise<Envelope<Subscription>>;
   deleteSubscription(id: string): Promise<unknown>;
   testSubscription(id: string): Promise<Envelope<Record<string, unknown>>>;
-  subscriptionDeliveries(id: string, o?: { limit?: number; cursor?: string }): Promise<Envelope<Array<Record<string, unknown>>>>;
+  subscription(id: string): Promise<Envelope<Subscription>>;
+  subscriptionDeliveries(id: string, o?: { limit?: number; outcome?: string }): Promise<Envelope<Array<Record<string, unknown>>>>;
+  subscriptionDeadLetters(id: string): Promise<Envelope<DeadLetter[]>>;
+  retryDeadLetter(id: string, deliveryId: string): Promise<Envelope<Record<string, unknown>>>;
+  clearDeadLetters(id: string): Promise<Envelope<{ removed: number }>>;
 }

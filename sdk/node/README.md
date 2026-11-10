@@ -102,12 +102,12 @@ for await (const c of bridge.historyAll({ symbol: "NSE:RELIANCE", interval: "5m"
 for await (const ev of bridge.events.subscribe({ topics: ["download.*"], since: savedCursor })) console.log(ev.cursor, ev.topic, ev.data);
 
 // A webhook receiver: check the signature on the raw body before trusting it
-const ok = verifySignature(SECRET, rawBodyBuffer, req.headers["x-mcb-signature"]);   // false: answer 401
+const ok = verifySignature(SECRET, rawBodyBuffer, req.headers);   // X-Bridge-Signature + X-Bridge-Timestamp; false: answer 401
 ```
 
 Every job, dataset and recording carries `dataClass`, `source` and `delaySec`, and `save()` keeps them in `manifest.json`;
 delayed and end-of-day files are for analysis only. Errors: `DownloadFailedError` (with `job.reason`), `WaitTimeoutError`,
-`ChecksumMismatchError`, `SignatureInvalidError`. Examples: `sdk/node/examples/`.
+`ChecksumMismatchError`, `SignatureInvalidError`. `bridge.events.poll()` and `.topics()` read the event log without a stream; `sub.gap` says events were lost; `bridge.subscriptions.deadLetters(id)`, `retryDeadLetter`, `retryAllDeadLetters` and `clearDeadLetters` handle deliveries that kept failing. Examples: `sdk/node/examples/`.
 
 ## Methods
 
@@ -122,7 +122,7 @@ instruments `searchInstruments`, `instrument`, `convertSymbol`, `convertSymbols`
 `recordingRules`, `createRecordingRule`, `updateRecordingRule`, `deleteRecordingRule`, `listCollections`, `collection`,
 `createCollection`, `updateCollection`, `deleteCollection`, `resolveCollection`, `collectionUsage`, `collectionEstimate`,
 `listSubscriptions`, `createSubscription`, `updateSubscription`, `deleteSubscription`, `testSubscription`,
-`subscriptionDeliveries` · helpers `paginate`, `streamToken`, `streamUrl`, `stream`, `historyAll`, `openStream`, `request`.
+`subscription`, `subscriptionDeliveries`, `subscriptionDeadLetters`, `retryDeadLetter`, `clearDeadLetters` · helpers `paginate`, `streamToken`, `streamUrl`, `stream`, `historyAll`, `openStream`, `request`.
 
 Admin actions (API keys, broker sessions, the audit log, confirming AI-prepared tickets, releasing the kill switch)
 are deliberately not in the SDK: use `mc-bridge` or the dashboard on the same computer.

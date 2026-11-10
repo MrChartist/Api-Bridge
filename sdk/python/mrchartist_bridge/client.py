@@ -553,8 +553,21 @@ class BridgeClient:
     def test_subscription(self, subscription_id: str) -> Dict[str, Any]:
         return self._post("/v1/subscriptions/%s/test" % _seg(subscription_id))
 
-    def subscription_deliveries(self, subscription_id: str, *, limit: Optional[int] = None, cursor: Optional[str] = None) -> Dict[str, Any]:
-        return self._get("/v1/subscriptions/%s/deliveries" % _seg(subscription_id), {"limit": limit, "cursor": cursor})
+    def subscription(self, subscription_id: str) -> Dict[str, Any]:
+        return self._get("/v1/subscriptions/" + _seg(subscription_id))
+
+    def subscription_deliveries(self, subscription_id: str, *, limit: Optional[int] = None, outcome: Optional[str] = None) -> Dict[str, Any]:
+        """Every delivery attempt, newest first. ``outcome`` is delivered, retry, dead or failed."""
+        return self._get("/v1/subscriptions/%s/deliveries" % _seg(subscription_id), {"limit": limit, "outcome": outcome})
+
+    def subscription_dead_letters(self, subscription_id: str) -> Dict[str, Any]:
+        return self._get("/v1/subscriptions/%s/dead-letters" % _seg(subscription_id))
+
+    def retry_dead_letter(self, subscription_id: str, delivery_id: str) -> Dict[str, Any]:
+        return self._post("/v1/subscriptions/%s/dead-letters/%s/retry" % (_seg(subscription_id), _seg(delivery_id)))
+
+    def clear_dead_letters(self, subscription_id: str) -> Dict[str, Any]:
+        return self.request("DELETE", "/v1/subscriptions/%s/dead-letters" % _seg(subscription_id)).body
 
     def paginate(self, fn: Callable[..., Dict[str, Any]], **params: Any) -> Iterator[Any]:
         """Yield every item of a paginated list, e.g. ``for o in bridge.paginate(bridge.orders, account="x")``."""

@@ -11,20 +11,26 @@
  * continue after your own program restarts: `subscribe({ since: savedCursor })`. A read key sees only the events a read key
  * may see; admin events need an admin key.
  *
- * Webhooks (the Bridge posts to your URL) are managed with `bridge.subscriptions`. Every delivery carries
- * `X-MCB-Signature: t=<unix seconds>,v1=<hex>`: the hex is HMAC-SHA256 of `"<t>." + the exact raw body` with your secret.
- * Check it with `verifySignature` before you trust the body, and answer 401 when it fails:
+ * Webhooks (the Bridge posts to your URL) are managed with `bridge.subscriptions`. Every delivery carries the headers
+ * `X-Bridge-Signature: v1=<hex>` and `X-Bridge-Timestamp: <unix seconds>` (also `X-Bridge-Event-Id`, `X-Bridge-Delivery`,
+ * `X-Bridge-Attempt`): the hex is HMAC-SHA256 of `"<timestamp>." + the exact raw body` with your secret. Check it with
+ * `verifySignature` before you trust the body, and answer 401 when it fails:
  *
- *   const ok = verifySignature(SECRET, rawBodyBuffer, req.headers["x-mcb-signature"]);
+ *   const ok = verifySignature(SECRET, rawBodyBuffer, req.headers);      // or { timestamp, signature } explicitly
  *
  * Use the raw bytes as received: re-serialising parsed JSON changes them. A timestamp more than 5 minutes from your clock
- * fails (replay protection; this helper keeps no memory, so remember delivery ids yourself if duplicates matter). A sender
- * rotating its secret may send several `v1=` values: any one may match, and you may pass an array of secrets.
+ * fails (replay protection; this helper keeps no memory: de-duplicate on `X-Bridge-Event-Id`, delivery is at least once). A
+ * secret being replaced makes the Bridge send several `v1=` values: any one may match, and you may pass an array of secrets.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { BridgeApiError, BridgeConnectionError, SignatureInvalidError } from "./errors.mjs";
 
-export const SIGNATURE_HEADER = "X-MCB-Signature";
+export const SIGNATURE_HEADER = "X-Bridge-Signature";
+export const TIMESTAMP_HEADER = "X-Bridge-Timestamp";
+export const EVENT_ID_HEADER = "X-Bridge-Event-Id";
+export const EVENT_TOPIC_HEADER = "X-Bridge-Event-Topic";
+export const DELIVERY_HEADER = "X-Bridge-Delivery";
+export const ATTEMPT_HEADER = "X-Bridge-Attempt";
 export const DEFAULT_TOLERANCE_SEC = 300;
 export const EVENTS_PATH = "/v1/events/stream";
 
@@ -35,61 +41,59 @@ export function computeSignature(secret, timestamp, body) {
   return createHmac("sha256", bytes(secret)).update(`${Math.trunc(timestamp)}.`, "utf8").update(bytes(body)).digest("hex");
 }
 
-/** A signature header value (`t=...,v1=...`) for `body`: for sending your own test deliveries to a receiver. */
+/** The two headers the Bridge sends with a delivery (`X-Bridge-Timestamp`, `X-Bridge-Signature: v1=<hex>`) for `body`: for sending your own test deliveries to a receiver. */
 export function signPayload(secret, body, timestamp = Math.floor(Date.now() / 1000)) {
-  return `t=${Math.trunc(timestamp)},v1=${computeSignature(secret, timestamp, body)}`;
+  const t = Math.trunc(timestamp);
+  return { [TIMESTAMP_HEADER]: String(t), [SIGNATURE_HEADER]: `v1=${computeSignature(secret, t, body)}` };
 }
 
-function parseHeader(header) {
-  let t;
-  const sigs = [];
-  for (const part of String(header).split(",")) {
-    const i = part.indexOf("=");
-    const k = part.slice(0, i).trim();
-    const v = part.slice(i + 1).trim();
-    if (k === "t" && /^\d+$/.test(v)) t = Number(v);
-    else if (k === "v1" && /^[0-9a-fA-F]{64}$/.test(v)) sigs.push(v.toLowerCase());
-  }
-  return { t, sigs };
+function headerValue(headers, name) {
+  if (!headers) return undefined;
+  const v = typeof headers.get === "function" ? headers.get(name) : Object.entries(headers).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+  return Array.isArray(v) ? v[0] : v ?? undefined;
 }
 
 /**
- * `{ ok, reason }`: `reason` is ok, missing_header, malformed_header, timestamp_out_of_range or signature_mismatch. Log the
+ * `{ ok, reason }`: `reason` is ok, missing_header, malformed_header, timestamp_out_of_range or signature_mismatch. Give the
+ * request `headers` (a plain object or a Headers instance, any letter case) or `timestamp` and `signature` yourself. Log the
  * reason; answer the caller with a plain 401.
  * @param {string|Buffer|Array<string|Buffer>} secret
  * @param {string|Buffer|Uint8Array} body  the exact raw request body
- * @param {string|null|undefined} header
+ * @param {Headers|Record<string, any>|{ timestamp?: string|number, signature?: string }} headersOrParts
  * @param {{ toleranceSec?: number, now?: number }} [o]  `now` is epoch seconds (tests)
  */
-export function explainSignature(secret, body, header, { toleranceSec = DEFAULT_TOLERANCE_SEC, now = Date.now() / 1000 } = {}) {
-  if (!header) return { ok: false, reason: "missing_header" };
-  const { t, sigs } = parseHeader(header);
-  if (t === undefined || !sigs.length) return { ok: false, reason: "malformed_header" };
-  if (Math.abs(now - t) > toleranceSec) return { ok: false, reason: "timestamp_out_of_range" };
-  for (const s of Array.isArray(secret) ? secret : [secret]) {
-    const want = Buffer.from(computeSignature(s, t, body), "hex");
+export function explainSignature(secret, body, headersOrParts, { toleranceSec = DEFAULT_TOLERANCE_SEC, now = Date.now() / 1000 } = {}) {
+  const x = headersOrParts ?? {};
+  const explicit = "timestamp" in x || "signature" in x;
+  const timestamp = explicit ? x.timestamp : headerValue(x, TIMESTAMP_HEADER);
+  const signature = explicit ? x.signature : headerValue(x, SIGNATURE_HEADER);
+  if (timestamp === undefined || timestamp === null || timestamp === "" || !signature) return { ok: false, reason: "missing_header" };
+  const ts = String(timestamp);
+  const sigs = String(signature).trim().split(/[\s,]+/).map((p) => /^v1=([0-9a-fA-F]{64})$/.exec(p)?.[1]?.toLowerCase()).filter(Boolean);
+  if (!/^\d{1,12}$/.test(ts) || !sigs.length) return { ok: false, reason: "malformed_header" };
+  if (Math.abs(now - Number(ts)) > toleranceSec) return { ok: false, reason: "timestamp_out_of_range" };
+  for (const sec of Array.isArray(secret) ? secret : [secret]) {
+    const want = Buffer.from(computeSignature(sec, Number(ts), body), "hex");
     for (const got of sigs) if (timingSafeEqual(want, Buffer.from(got, "hex"))) return { ok: true, reason: "ok" };
   }
   return { ok: false, reason: "signature_mismatch" };
 }
 
 /**
- * True when `header` is a valid signature of the raw `body` made with `secret` (or any of several secrets), made within
- * `toleranceSec` of now. Compared in constant time. With `throwOnFail: true` a failure throws SignatureInvalidError (its
- * `reason` says which check failed) instead of returning false.
+ * True when the delivery is genuine: `X-Bridge-Signature` (`v1=<hex>`) is the HMAC-SHA256 of `"<timestamp>." + raw body` made
+ * with `secret` (or any of several secrets), and `X-Bridge-Timestamp` is within `toleranceSec` of now. Pass the request headers
+ * (object or Headers), or `{ timestamp, signature }`. Compared in constant time. With `throwOnFail: true` a failure throws
+ * SignatureInvalidError (its `reason` says which check failed) instead of returning false.
  */
-export function verifySignature(secret, body, header, { toleranceSec, now, throwOnFail = false } = {}) {
-  const { ok, reason } = explainSignature(secret, body, header, { toleranceSec, now });
+export function verifySignature(secret, body, headersOrParts, { toleranceSec, now, throwOnFail = false } = {}) {
+  const { ok, reason } = explainSignature(secret, body, headersOrParts, { toleranceSec, now });
   if (!ok && throwOnFail) throw new SignatureInvalidError(`The webhook signature was not accepted (${reason}). Do not process this request.`, reason);
   return ok;
 }
 
-/** verifySignature reading the header from request headers (a plain object or a Headers instance, any letter case). */
+/** verifySignature with the arguments in the order a request handler has them (headers, then raw body). */
 export function verifyRequest(secret, headers, body, o) {
-  let h;
-  if (typeof headers?.get === "function") h = headers.get(SIGNATURE_HEADER);
-  else h = Object.entries(headers ?? {}).find(([k]) => k.toLowerCase() === SIGNATURE_HEADER.toLowerCase())?.[1];
-  return verifySignature(secret, body, Array.isArray(h) ? h[0] : h, o);
+  return verifySignature(secret, body, headers, o);
 }
 
 /** `download.*` matches `download.done`; `*` matches everything. */
@@ -110,9 +114,9 @@ export function eventFrom(sseId, sseEvent, payload) {
   } catch {
     d = { text: payload };
   }
-  if (d && typeof d === "object" && typeof d.topic === "string" && ("data" in d || "payload" in d || "cursor" in d)) {
+  if (d && typeof d === "object" && typeof d.topic === "string" && ("data" in d || "payload" in d || "cursor" in d || "id" in d)) {
     const body = "data" in d ? d.data : d.payload;
-    return { topic: d.topic, data: body && typeof body === "object" ? body : { value: body }, cursor: d.cursor !== undefined ? String(d.cursor) : sseId, time: d.time ?? d.at ?? d.ts, raw: d };
+    return { topic: d.topic, data: body && typeof body === "object" ? body : { value: body }, cursor: d.cursor !== undefined ? String(d.cursor) : d.id !== undefined ? String(d.id) : sseId, time: d.time ?? d.at ?? d.ts, raw: d };
   }
   const obj = d && typeof d === "object" && !Array.isArray(d) ? d : { value: d };
   return { topic: sseEvent ?? (typeof obj.type === "string" ? obj.type : "message"), data: obj, cursor: sseId, time: obj.time ?? obj.at, raw: obj };
@@ -206,6 +210,13 @@ export class EventSubscription {
     this.closed = false;
     this._life = new AbortController();
     this._attempt = 0;
+    /** The Bridge's last `ready` message: cursor, oldest, replayed, gap, gapReason, topics. */
+    this.ready = undefined;
+    /** True when events were lost between your cursor and what the Bridge still keeps (`gapReason`: retention or cursor_ahead): read the current state from the API again, then carry on. */
+    this.gap = false;
+    this.gapReason = undefined;
+    /** Called with the reason when the Bridge reports a gap. */
+    this.onGap = o.onGap;
   }
 
   close() {
@@ -249,6 +260,18 @@ export class EventSubscription {
         for await (const f of parseSse(readText(res, this.idleTimeoutMs))) {
           this._attempt = 0;
           if (f.retry !== undefined) floorMs = f.retry;
+          if (f.event === "ready") {
+            try {
+              this.ready = JSON.parse(f.data || "{}");
+            } catch {
+              this.ready = {};
+            }
+            this.gap = Boolean(this.ready.gap);
+            this.gapReason = this.gap ? this.ready.gapReason : undefined;
+            if (this.gap) this.onGap?.(this.gapReason);
+            continue;
+          }
+          if (f.event === "go_away") break; // the Bridge is closing this connection: reconnect with the cursor
           const ev = eventFrom(f.id, f.event, f.data);
           if (ev.cursor) this.cursor = ev.cursor;
           yield ev;
@@ -280,10 +303,27 @@ export class Events {
   /**
    * Events as they happen (see the file comment). `topics` filters (`"download.*"`, `["recording.gap", "order.*"]`); none means
    * every topic your key may see. `since` is a cursor saved from an earlier `ev.cursor`.
-   * @param {{ topics?: string|string[], since?: string, reconnect?: boolean, maxBackoffMs?: number, idleTimeoutMs?: number, maxReconnects?: number }} [o]
+   * @param {{ topics?: string|string[], since?: string, reconnect?: boolean, maxBackoffMs?: number, idleTimeoutMs?: number, maxReconnects?: number, onGap?: (reason?: string) => void }} [o]
    */
   subscribe(o = {}) {
     return new EventSubscription(this.client, o);
+  }
+
+  /** The topics this key may receive (GET /v1/events/topics): topic, scope, accountScoped, description. */
+  async topics() {
+    return (await this.client._get("/v1/events/topics")).data ?? [];
+  }
+
+  /**
+   * The same events as one JSON answer (GET /v1/events), for a script that runs now and then. Pass the returned `cursor` as
+   * `since` next time. Without `since` it returns the newest events. `gap` is true when events were lost.
+   * @param {{ since?: string, topics?: string|string[], limit?: number }} [o]
+   * @returns {Promise<{ events: BridgeEvent[], cursor?: string, gap: boolean, gapReason?: string, hasMore: boolean }>}
+   */
+  async poll({ since, topics, limit } = {}) {
+    const r = await this.client._get("/v1/events", { since, topics: topics === undefined ? undefined : [].concat(topics), limit });
+    const meta = r.meta ?? {};
+    return { events: (r.data ?? []).map((e) => eventFrom(undefined, undefined, JSON.stringify(e))), cursor: meta.cursor !== undefined ? String(meta.cursor) : since, gap: Boolean(meta.gap), gapReason: meta.gapReason ?? undefined, hasMore: Boolean(meta.hasMore) };
   }
 
   /**

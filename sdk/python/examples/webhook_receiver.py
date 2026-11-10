@@ -3,7 +3,7 @@
     MCB_WEBHOOK_SECRET=... python webhook_receiver.py [PORT]
 
 Register it (from the Bridge's computer, with an admin key; the URL must be https unless the Bridge allows a local target):
-    bridge.subscriptions.create("https://your.host/hook", ["download.done"], secret=SECRET)
+    bridge.subscriptions.create("https://your-server.example/hook", ["download.done"], secret=SECRET)
 """
 
 import json
@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from mrchartist_bridge import verify_request
 
 SECRET = os.environ["MCB_WEBHOOK_SECRET"]
+seen = set()  # event ids already handled: delivery is at least once
 
 
 class Hook(BaseHTTPRequestHandler):
@@ -23,8 +24,11 @@ class Hook(BaseHTTPRequestHandler):
             self.send_response(401)
             self.end_headers()
             return
-        event = json.loads(raw)
-        print("verified:", event.get("topic"), event.get("data"))
+        event_id = self.headers.get("X-Bridge-Event-Id")
+        if event_id not in seen:
+            seen.add(event_id)
+            event = json.loads(raw)
+            print("verified:", event.get("topic"), event.get("data"))
         self.send_response(204)
         self.end_headers()
 

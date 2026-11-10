@@ -69,8 +69,13 @@ for await (const ev of bridge.events.subscribe({ topics: ["download.*"], since: 
   rest: `candles.localWindows` and `candles.brokerWindows` show the split, and `candles.freshness` is the least current label.
 - `events.subscribe` reconnects with growing waits and resumes after the last cursor, so a restart loses nothing the Bridge
   still keeps. For a URL on your side, `bridge.subscriptions.create({ url, topics, secret })` (admin key, from the Bridge's
-  computer) and check every delivery on the raw body: `verifySignature(secret, rawBody, req.headers["x-mcb-signature"])`
-  (header `t=<unix seconds>,v1=<hex>`, HMAC-SHA256 of `"<t>." + raw body`, 5-minute window).
+  computer) and check every delivery on the raw body: `verifySignature(secret, rawBody, req.headers)`. The Bridge sends
+  `X-Bridge-Signature: v1=<hex>` and `X-Bridge-Timestamp: <unix seconds>` (plus `X-Bridge-Event-Id`, `X-Bridge-Delivery`,
+  `X-Bridge-Attempt`); the hex is the HMAC-SHA256 of `"<timestamp>." + raw body`, with a 5-minute window. Delivery is at least
+  once: de-duplicate on `X-Bridge-Event-Id`. A delivery that keeps failing becomes a dead letter:
+  `bridge.subscriptions.deadLetters(id)`, `retryDeadLetter`, `retryAllDeadLetters`, `clearDeadLetters`.
+- If the cursor you pass is older than what the Bridge kept, `sub.gap` is true (`onGap` is called): read the current state from the
+  API again, then carry on. `bridge.events.poll({ since })` is the same replay as one JSON answer.
 - Reading collections needs a `read` key; changing them needs the `paper` scope.
 - There is no Parquet or DataFrame in Node: `candles.records()`, `candles.toCsv()` and plain arrays. Python has both.
 

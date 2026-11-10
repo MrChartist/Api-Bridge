@@ -159,16 +159,25 @@ for ev in bridge.events.subscribe(["download.*", "recording.gap"], since=saved_c
 ```
 
 `subscribe` reads `GET /v1/events/stream`, reconnects with growing waits and resumes from the last cursor, so a restart loses
-nothing the Bridge still keeps. For a URL on your side use `bridge.subscriptions.create(url, topics, secret=...)` (admin key,
-from the Bridge's computer) and check every delivery before you trust it:
+nothing the Bridge still keeps. If the cursor you ask for is older than what the Bridge kept (or newer than it has), `sub.gap`
+is true (`sub.gap_reason` is `retention` or `cursor_ahead`; `sub.on_gap` is called): read the current state from the API
+again, then carry on. `bridge.events.poll(since=cursor)` is the same as one JSON answer for a script that runs now and then, and
+`bridge.events.topics()` lists what your key may receive.
+
+For a URL on your own server use `bridge.subscriptions.create(url, topics, secret=...)` (admin key, from the Bridge's
+computer) and check every delivery before you trust it:
 
 ```python
 from mrchartist_bridge import verify_signature
-ok = verify_signature(SECRET, raw_body_bytes, request.headers["X-MCB-Signature"])   # False: answer 401
+ok = verify_signature(SECRET, raw_body_bytes, request.headers)        # False: answer 401 and do not process it
 ```
 
-The header is `t=<unix seconds>,v1=<hex>`, the HMAC-SHA256 of `"<t>." + the exact raw body`; a timestamp more than 5 minutes
-off fails. Use the raw bytes as received.
+The Bridge sends `X-Bridge-Signature: v1=<hex>` and `X-Bridge-Timestamp: <unix seconds>` (and `X-Bridge-Event-Id`,
+`X-Bridge-Delivery`, `X-Bridge-Attempt`). The hex is the HMAC-SHA256 of `"<timestamp>." + the exact raw body`; a timestamp more
+than 5 minutes off fails. Use the raw bytes as received. Delivery is at least once: de-duplicate on `X-Bridge-Event-Id`.
+`raise_on_fail=True` raises `SignatureInvalid` with a `reason`. A delivery that keeps failing becomes a dead letter:
+`bridge.subscriptions.dead_letters(id)`, `retry_dead_letter(id, letter)`, `retry_all_dead_letters(id)`, `clear_dead_letters(id)`;
+`deliveries(id, outcome="dead")` is the attempt log.
 
 ## Rate limits and many symbols
 

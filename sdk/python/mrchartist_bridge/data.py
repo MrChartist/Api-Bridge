@@ -462,17 +462,22 @@ class Resolution:
 
 @dataclass(frozen=True)
 class Subscription:
-    """An outbound webhook subscription (the secret is never returned)."""
+    """An outbound webhook subscription. The secret is never returned, and the Bridge shows the target without its path
+    (``url`` is that display form; ``host`` is the host alone)."""
 
     id: str
     url: str
     topics: Tuple[str, ...]
     active: bool
+    label: Optional[str] = None
+    host: Optional[str] = None
+    state: Optional[str] = None
+    """``ok``, ``unverified``, ``failing``, ``paused`` or ``needs-secret``, as the Bridge reports it."""
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Subscription":
-        return cls(str(d.get("id")), str(d.get("url")), tuple(str(t) for t in d.get("topics") or ()), bool(d.get("active", True)), dict(d))
+        return cls(str(d.get("id")), str(d.get("url") or d.get("target") or d.get("host") or ""), tuple(str(t) for t in d.get("topics") or ()), bool(d.get("active", True)), d.get("label"), d.get("host"), d.get("state"), dict(d))
 
 
 def option_universe(
@@ -1037,19 +1042,25 @@ class Collections(_Ns):
 
 class Subscriptions(_Ns):
     """``bridge.subscriptions``: signed outbound webhooks (the Bridge posts events to your URL). Needs an admin key from
-    the Bridge's computer. Verify each delivery with ``mrchartist_bridge.verify_signature``."""
+    the Bridge's computer. Verify each delivery with ``mrchartist_bridge.verify_signature``. Delivery is at least once:
+    de-duplicate on the ``X-Bridge-Event-Id`` header."""
 
     def list(self) -> Result[Subscription]:
         return _result(self._c.subscriptions(), Subscription.from_dict)
 
-    def create(self, url: str, topics: Sequence[str], *, secret: str, active: bool = True) -> Subscription:
-        """Add a subscription. ``secret`` (at least 16 characters) is write-only: the Bridge never shows it again."""
+    def get(self, subscription_id: str) -> Subscription:
+        return Subscription.from_dict(_data(self._c.subscription(subscription_id)))
+
+    def create(self, url: str, topics: Sequence[str], *, secret: str, active: bool = True, label: Optional[str] = None, accounts: Union[str, Sequence[str], None] = None) -> Subscription:
+        """Add a subscription. ``secret`` (16 to 256 characters) is write-only: the Bridge never shows it again. The URL
+        must be https unless the Bridge's config allows a private target. ``accounts`` limits the events to some accounts."""
         if not topics:
             raise ValueError("topics is required, for example [\"download.done\"]")
-        return Subscription.from_dict(_data(self._c.create_subscription({"url": url, "topics": list(topics), "secret": secret, "active": active})))
+        body = {"url": url, "topics": list(topics), "secret": secret, "active": active, "label": label, "accounts": accounts if isinstance(accounts, str) or accounts is None else list(accounts)}
+        return Subscription.from_dict(_data(self._c.create_subscription({k: v for k, v in body.items() if v is not None})))
 
-    def update(self, subscription_id: str, *, url: Optional[str] = None, topics: Optional[Sequence[str]] = None, secret: Optional[str] = None, active: Optional[bool] = None) -> Subscription:
-        ch = {k: v for k, v in {"url": url, "topics": list(topics) if topics is not None else None, "secret": secret, "active": active}.items() if v is not None}
+    def update(self, subscription_id: str, *, url: Optional[str] = None, topics: Optional[Sequence[str]] = None, secret: Optional[str] = None, active: Optional[bool] = None, label: Optional[str] = None) -> Subscription:
+        ch = {k: v for k, v in {"url": url, "topics": list(topics) if topics is not None else None, "secret": secret, "active": active, "label": label}.items() if v is not None}
         if not ch:
             raise ValueError("nothing to change")
         return Subscription.from_dict(_data(self._c.update_subscription(subscription_id, ch)))
@@ -1058,10 +1069,33 @@ class Subscriptions(_Ns):
         self._c.delete_subscription(subscription_id)
 
     def test(self, subscription_id: str) -> Dict[str, Any]:
-        """Send a test delivery to the subscription's URL and return the outcome."""
+        """Send one signed ``subscription.test`` event to the URL now and return the outcome (not queued, not retried)."""
         return dict(_data(self._c.test_subscription(subscription_id)) or {})
 
-    def deliveries(self, subscription_id: str, *, limit: Optional[int] = None) -> Result[Dict[str, Any]]:
-        """The delivery log (status, attempts, response code)."""
-        r = self._c.subscription_deliveries(subscription_id, limit=limit)
+    def deliveries(self, subscription_id: str, *, limit: Optional[int] = None, outcome: Optional[str] = None) -> Result[Dict[str, Any]]:
+        """The delivery log, newest first (time, outcome, HTTP status, a short code, duration). ``outcome`` filters:
+        delivered, retry, dead or failed."""
+        if outcome is not None and outcome not in ("delivered", "retry", "dead", "failed"):
+            raise ValueError("outcome is delivered, retry, dead or failed")
+        r = self._c.subscription_deliveries(subscription_id, limit=limit, outcome=outcome)
         return Result([dict(i) for i in (r.get("data") or []) if isinstance(i, Mapping)], r.get("meta"), problems_from(r.get("errors")))
+
+    def dead_letters(self, subscription_id: str) -> Result[Dict[str, Any]]:
+        """Events that could not be delivered (a refused target, or up to 8 failed attempts). Fix the cause, then
+        ``retry_dead_letter`` or ``clear_dead_letters``."""
+        r = self._c.subscription_dead_letters(subscription_id)
+        return Result([dict(i) for i in (r.get("data") or []) if isinstance(i, Mapping)], r.get("meta"), problems_from(r.get("errors")))
+
+    def retry_dead_letter(self, subscription_id: str, delivery_id: Union[str, Mapping[str, Any]]) -> Dict[str, Any]:
+        """Send one dead letter again (``delivery_id`` is its ``id``, or the dead-letter dict itself)."""
+        did = delivery_id.get("id") or delivery_id.get("deliveryId") if isinstance(delivery_id, Mapping) else delivery_id
+        return dict(_data(self._c.retry_dead_letter(subscription_id, str(did))) or {})
+
+    def retry_all_dead_letters(self, subscription_id: str) -> List[Dict[str, Any]]:
+        """Send every waiting dead letter again; returns the answers."""
+        return [self.retry_dead_letter(subscription_id, d) for d in self.dead_letters(subscription_id)]
+
+    def clear_dead_letters(self, subscription_id: str) -> int:
+        """Forget the dead letters; returns how many were removed."""
+        d = _data(self._c.clear_dead_letters(subscription_id)) or {}
+        return int(d.get("removed") or 0) if isinstance(d, Mapping) else 0

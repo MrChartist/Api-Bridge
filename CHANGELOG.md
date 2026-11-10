@@ -54,7 +54,7 @@
   `Retry-After`, provisional alert helpers. `BridgeClient` is unchanged. See [docs/guides/python.md](docs/guides/python.md).
 - Python library 0.3 and Node client 0.2: `bridge.downloads` (create, wait, save with SHA-256 check, read), `datasets`,
   `recordings` (+ auto-record `rules`), `collections` (option universes, resolve), `subscriptions`, `events.subscribe`
-  (reconnects, resumes from a cursor), `verify_signature` / `verifySignature`, and `history_all` / `historyAll` with
+  (reconnects, resumes from a cursor, reports gaps), `subscriptions` with dead-letter calls, `verify_signature` / `verifySignature` (X-Bridge-Signature), and `history_all` / `historyAll` with
   `local_first`. Python adds records and optional Parquet (only when `pyarrow` is installed); both stay dependency-free.
 - Spreadsheets: `GET /xl/quotes` gives a whole sheet of prices in one request (`csv`, `tsv` or `json`, one row per symbol,
   a bad symbol is a blank row with an `error`), every row labelled with `as_of`, `age_s`, `class`, `source`, `stale`

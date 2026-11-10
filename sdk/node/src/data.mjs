@@ -563,30 +563,55 @@ export class Collections {
   }
 }
 
-/** Signed outbound webhooks (the Bridge posts events to your URL). Needs an admin key from the Bridge's computer. Verify each delivery with `verifySignature`. */
+/**
+ * Signed outbound webhooks (the Bridge posts events to your URL). Needs an admin key from the Bridge's computer. Verify each
+ * delivery with `verifySignature`. Delivery is at least once: de-duplicate on the `X-Bridge-Event-Id` header.
+ */
 export class Subscriptions {
   constructor(client) {
     this.client = client;
   }
 
   async list() { return dataOf(await this.client.listSubscriptions()) ?? []; }
-  /** `secret` (at least 16 characters) is write-only: the Bridge never shows it again. */
-  async create({ url, topics, secret, active = true } = {}) {
+  async get(id) { return dataOf(await this.client.subscription(id)); }
+
+  /**
+   * `secret` (16 to 256 characters) is write-only: the Bridge never shows it again. The URL must be https unless the Bridge's
+   * config allows a private target. `accounts` limits the events to some accounts.
+   * @param {{ url: string, topics: string[], secret: string, active?: boolean, label?: string, accounts?: string|string[] }} p
+   */
+  async create({ url, topics, secret, active = true, label, accounts } = {}) {
     need(url, "url is required");
     need(Array.isArray(topics) && topics.length > 0, 'topics is required, for example ["download.done"]');
     need(secret, "secret is required (it signs every delivery)");
-    return dataOf(await this.client.createSubscription({ url, topics, secret, active }));
+    return dataOf(await this.client.createSubscription(clean({ url, topics, secret, active, label, accounts })));
   }
 
-  async update(id, { url, topics, secret, active } = {}) {
-    const ch = clean({ url, topics, secret, active });
+  async update(id, { url, topics, secret, active, label } = {}) {
+    const ch = clean({ url, topics, secret, active, label });
     need(Object.keys(ch).length > 0, "nothing to change");
     return dataOf(await this.client.updateSubscription(id, ch));
   }
 
   async delete(id) { await this.client.deleteSubscription(id); }
-  /** Send a test delivery to the subscription's URL and return the outcome. */
+  /** Send one signed `subscription.test` event to the URL now and return the outcome (not queued, not retried). */
   async test(id) { return dataOf(await this.client.testSubscription(id)) ?? {}; }
-  /** The delivery log (status, attempts, response code). */
-  async deliveries(id, o = {}) { return dataOf(await this.client.subscriptionDeliveries(id, o)) ?? []; }
+  /** The delivery log, newest first (time, outcome, HTTP status, a short code, duration). `outcome` filters: delivered, retry, dead or failed. */
+  async deliveries(id, { limit, outcome } = {}) {
+    need(outcome === undefined || ["delivered", "retry", "dead", "failed"].includes(outcome), "outcome is delivered, retry, dead or failed");
+    return dataOf(await this.client.subscriptionDeliveries(id, { limit, outcome })) ?? [];
+  }
+
+  /** Events that could not be delivered (a refused target, or up to 8 failed attempts). Fix the cause, then retry or clear them. */
+  async deadLetters(id) { return dataOf(await this.client.subscriptionDeadLetters(id)) ?? []; }
+  /** Send one dead letter again (`letter` is its `id`, or the dead-letter object itself). */
+  async retryDeadLetter(id, letter) { return dataOf(await this.client.retryDeadLetter(id, typeof letter === "object" ? (letter.id ?? letter.deliveryId) : letter)) ?? {}; }
+  /** Send every waiting dead letter again; returns the answers. */
+  async retryAllDeadLetters(id) {
+    const out = [];
+    for (const d of await this.deadLetters(id)) out.push(await this.retryDeadLetter(id, d));
+    return out;
+  }
+  /** Forget the dead letters; returns how many were removed. */
+  async clearDeadLetters(id) { return Number(dataOf(await this.client.clearDeadLetters(id))?.removed ?? 0); }
 }

@@ -9,15 +9,16 @@ with growing waits after a drop and asks for everything after the last event it 
 ``ev.cursor`` somewhere if you want to continue after your own program restarts: ``subscribe(since=saved_cursor)``.
 A read key sees only the events a read key may see; admin events need an admin key.
 
-Webhooks (the Bridge posts to your URL) are managed with ``bridge.subscriptions``. Every delivery carries a signature
-header ``X-MCB-Signature: t=<unix seconds>,v1=<hex>``: the hex is HMAC-SHA256 of ``"<t>." + the exact raw body`` with
-your secret. Check it with ``verify_signature`` before you trust the body, and answer 401 when it fails::
+Webhooks (the Bridge posts to your URL) are managed with ``bridge.subscriptions``. Every delivery carries the headers
+``X-Bridge-Signature: v1=<hex>`` and ``X-Bridge-Timestamp: <unix seconds>`` (also ``X-Bridge-Event-Id``, ``X-Bridge-Delivery``,
+``X-Bridge-Attempt``): the hex is HMAC-SHA256 of ``"<timestamp>." + the exact raw body`` with your secret. Check it with
+``verify_signature`` before you trust the body, and answer 401 when it fails::
 
-    ok = verify_signature(SECRET, raw_body_bytes, request.headers["X-MCB-Signature"])
+    ok = verify_signature(SECRET, raw_body_bytes, request.headers)        # or timestamp=..., signature=...
 
 Use the raw bytes as received: re-serialising parsed JSON changes them. A timestamp more than 5 minutes from your clock
-fails (replay protection; this helper keeps no memory, so remember delivery ids yourself if duplicates matter). A
-sender rotating its secret may send several ``v1=`` values: any one may match, and you may pass a list of secrets.
+fails (replay protection; this helper keeps no memory: de-duplicate on ``X-Bridge-Event-Id``, delivery is at least once). A
+secret being replaced makes the Bridge send several ``v1=`` values: any one may match, and you may pass a list of secrets.
 Standard library only.
 """
 
@@ -28,6 +29,7 @@ import hmac
 import http.client
 import json
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -39,7 +41,12 @@ from .records import parse_time
 if TYPE_CHECKING:  # pragma: no cover
     from .bridge import Bridge
 
-SIGNATURE_HEADER = "X-MCB-Signature"
+SIGNATURE_HEADER = "X-Bridge-Signature"
+TIMESTAMP_HEADER = "X-Bridge-Timestamp"
+EVENT_ID_HEADER = "X-Bridge-Event-Id"
+EVENT_TOPIC_HEADER = "X-Bridge-Event-Topic"
+DELIVERY_HEADER = "X-Bridge-Delivery"
+ATTEMPT_HEADER = "X-Bridge-Attempt"
 DEFAULT_TOLERANCE_SEC = 300
 EVENTS_PATH = "/v1/events/stream"
 
@@ -62,59 +69,88 @@ def compute_signature(secret: _Secret, timestamp: int, body: Union[str, bytes]) 
     return hmac.new(_b(secret), str(int(timestamp)).encode("ascii") + b"." + _b(body), hashlib.sha256).hexdigest()
 
 
-def sign_payload(secret: _Secret, body: Union[str, bytes], timestamp: Optional[int] = None) -> str:
-    """A signature header value (``t=...,v1=...``) for ``body``: for sending your own test deliveries to a receiver."""
+def sign_payload(secret: _Secret, body: Union[str, bytes], timestamp: Optional[int] = None) -> Dict[str, str]:
+    """The two headers the Bridge sends with a delivery (``X-Bridge-Timestamp`` and ``X-Bridge-Signature: v1=<hex>``) for
+    ``body``: for sending your own test deliveries to a receiver."""
     t = int(time.time() if timestamp is None else timestamp)
-    return "t=%d,v1=%s" % (t, compute_signature(secret, t, body))
+    return {TIMESTAMP_HEADER: str(t), SIGNATURE_HEADER: "v1=" + compute_signature(secret, t, body)}
 
 
-def _parse_header(header: str) -> Tuple[Optional[int], List[str]]:
-    t: Optional[int] = None
-    sigs: List[str] = []
-    for part in header.split(","):
-        k, _, v = part.strip().partition("=")
-        if k == "t" and v.isdigit():
-            t = int(v)
-        elif k == "v1" and len(v) == 64:
-            sigs.append(v.lower())
-    return t, sigs
+def _signatures(header: str) -> List[str]:
+    out: List[str] = []
+    for part in re.split(r"[\s,]+", header.strip()):
+        m = re.fullmatch(r"v1=([0-9a-fA-F]{64})", part)
+        if m:
+            out.append(m.group(1).lower())
+    return out
 
 
-def explain_signature(secret: Union[_Secret, Sequence[_Secret]], body: Union[str, bytes], header: Optional[str], *, tolerance_sec: float = DEFAULT_TOLERANCE_SEC, now: Optional[float] = None) -> Tuple[bool, str]:
+def _from_headers(headers: Mapping[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    low = {str(k).lower(): v for k, v in headers.items()}
+    ts, sig = low.get(TIMESTAMP_HEADER.lower()), low.get(SIGNATURE_HEADER.lower())
+    return (None if ts is None else str(ts)), (None if sig is None else str(sig))
+
+
+def explain_signature(
+    secret: Union[_Secret, Sequence[_Secret]],
+    body: Union[str, bytes],
+    headers: Optional[Mapping[str, Any]] = None,
+    *,
+    timestamp: Optional[Union[str, int]] = None,
+    signature: Optional[str] = None,
+    tolerance_sec: float = DEFAULT_TOLERANCE_SEC,
+    now: Optional[float] = None,
+) -> Tuple[bool, str]:
     """``(ok, reason)``: ``reason`` is ``ok``, ``missing_header``, ``malformed_header``, ``timestamp_out_of_range`` or
-    ``signature_mismatch``. Log the reason; answer the caller with a plain 401."""
-    if not header:
+    ``signature_mismatch``. Give the request ``headers`` (any mapping, any letter case) or ``timestamp`` and ``signature``
+    yourself. Log the reason; answer the caller with a plain 401."""
+    if headers is not None:
+        h_ts, h_sig = _from_headers(headers)
+        timestamp = h_ts if timestamp is None else timestamp
+        signature = h_sig if signature is None else signature
+    if timestamp in (None, "") or not signature:
         return False, "missing_header"
-    t, sigs = _parse_header(header)
-    if t is None or not sigs:
+    ts = str(timestamp)
+    sigs = _signatures(str(signature))
+    if not re.fullmatch(r"\d{1,12}", ts) or not sigs:
         return False, "malformed_header"
     clock = time.time() if now is None else now
-    if abs(clock - t) > tolerance_sec:
+    if abs(clock - int(ts)) > tolerance_sec:
         return False, "timestamp_out_of_range"
     secrets = [secret] if isinstance(secret, (str, bytes, bytearray)) else list(secret)
-    for s in secrets:
-        want = compute_signature(s, t, body)
+    for sec in secrets:
+        want = compute_signature(sec, int(ts), body)
         for got in sigs:
             if hmac.compare_digest(want, got):
                 return True, "ok"
     return False, "signature_mismatch"
 
 
-def verify_signature(secret: Union[_Secret, Sequence[_Secret]], body: Union[str, bytes], header: Optional[str], *, tolerance_sec: float = DEFAULT_TOLERANCE_SEC, now: Optional[float] = None, raise_on_fail: bool = False) -> bool:
-    """True when ``header`` is a valid signature of the raw ``body`` made with ``secret`` (or any of several secrets), made
-    within ``tolerance_sec`` of now. Compared in constant time. With ``raise_on_fail=True`` a failure raises
+def verify_signature(
+    secret: Union[_Secret, Sequence[_Secret]],
+    body: Union[str, bytes],
+    headers: Optional[Mapping[str, Any]] = None,
+    *,
+    timestamp: Optional[Union[str, int]] = None,
+    signature: Optional[str] = None,
+    tolerance_sec: float = DEFAULT_TOLERANCE_SEC,
+    now: Optional[float] = None,
+    raise_on_fail: bool = False,
+) -> bool:
+    """True when the delivery is genuine: ``signature`` (``X-Bridge-Signature``, ``v1=<hex>``) is the HMAC-SHA256 of
+    ``"<timestamp>." + raw body`` made with ``secret`` (or any of several secrets), and ``timestamp``
+    (``X-Bridge-Timestamp``) is within ``tolerance_sec`` of now. Pass the request ``headers`` mapping, or the two values
+    as ``timestamp=`` and ``signature=``. Compared in constant time. With ``raise_on_fail=True`` a failure raises
     ``SignatureInvalid`` (its ``reason`` says which check failed) instead of returning False."""
-    ok, reason = explain_signature(secret, body, header, tolerance_sec=tolerance_sec, now=now)
+    ok, reason = explain_signature(secret, body, headers, timestamp=timestamp, signature=signature, tolerance_sec=tolerance_sec, now=now)
     if not ok and raise_on_fail:
         raise SignatureInvalid("The webhook signature was not accepted (%s). Do not process this request." % reason, reason)
     return ok
 
 
-def verify_request(secret: Union[_Secret, Sequence[_Secret]], headers: Mapping[str, str], body: Union[str, bytes], **kw: Any) -> bool:
-    """``verify_signature`` reading the header from a mapping of request headers (any letter case)."""
-    want = SIGNATURE_HEADER.lower()
-    header = next((v for k, v in headers.items() if k.lower() == want), None)
-    return verify_signature(secret, body, header, **kw)
+def verify_request(secret: Union[_Secret, Sequence[_Secret]], headers: Mapping[str, Any], body: Union[str, bytes], **kw: Any) -> bool:
+    """``verify_signature`` with the arguments in the order a request handler has them (headers, then raw body)."""
+    return verify_signature(secret, body, headers, **kw)
 
 
 # ── events ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -146,9 +182,9 @@ def _event_from(sse_id: Optional[str], sse_event: Optional[str], payload: str) -
         d: Any = json.loads(payload) if payload else {}
     except ValueError:
         d = {"text": payload}
-    if isinstance(d, dict) and isinstance(d.get("topic"), str) and ("data" in d or "payload" in d or "cursor" in d):
+    if isinstance(d, dict) and isinstance(d.get("topic"), str) and ("data" in d or "payload" in d or "cursor" in d or "id" in d):
         body = d.get("data") if "data" in d else d.get("payload")
-        return Event(d["topic"], body if isinstance(body, Mapping) else {"value": body}, str(d["cursor"]) if d.get("cursor") is not None else sse_id, parse_time(d.get("time") or d.get("at") or d.get("ts")), dict(d))
+        return Event(d["topic"], body if isinstance(body, Mapping) else {"value": body}, str(d["cursor"] if d.get("cursor") is not None else d["id"]) if (d.get("cursor") is not None or d.get("id") is not None) else sse_id, parse_time(d.get("time") or d.get("at") or d.get("ts")), dict(d))
     topic = sse_event or (d.get("type") if isinstance(d, dict) and isinstance(d.get("type"), str) else None) or "message"
     return Event(topic, d if isinstance(d, Mapping) else {"value": d}, sse_id, parse_time(d.get("time") or d.get("at")) if isinstance(d, dict) else None, d if isinstance(d, dict) else {"value": d})
 
@@ -212,6 +248,13 @@ class EventSubscription:
         self.closed = False
         self._res: Any = None
         self._attempt = 0
+        self.ready: Optional[Dict[str, Any]] = None
+        """The Bridge's last ``ready`` message: ``cursor``, ``oldest``, ``replayed``, ``gap``, ``gapReason``, ``topics``."""
+        self.gap = False
+        """True when the Bridge said events were lost between your cursor and what it still keeps (``gap_reason`` is
+        ``retention`` or ``cursor_ahead``). Read the current state from the API again (orders, positions), then carry on."""
+        self.gap_reason: Optional[str] = None
+        self.on_gap: Optional[Callable[[Optional[str]], Any]] = None
 
     def __enter__(self) -> "EventSubscription":
         return self
@@ -267,6 +310,18 @@ class EventSubscription:
                     self._attempt = 0
                     if retry is not None:
                         retry_floor = retry / 1000.0
+                    if name == "ready":
+                        try:
+                            self.ready = dict(json.loads(payload or "{}"))
+                        except (ValueError, TypeError):
+                            self.ready = {}
+                        self.gap = bool(self.ready.get("gap"))
+                        self.gap_reason = self.ready.get("gapReason") if self.gap else None
+                        if self.gap and self.on_gap is not None:
+                            self.on_gap(self.gap_reason)
+                        continue
+                    if name == "go_away":  # the Bridge is closing this connection: reconnect with the cursor
+                        break
                     ev = _event_from(sid, name, payload)
                     if ev.cursor:
                         self.cursor = ev.cursor
@@ -297,6 +352,23 @@ class EventSubscription:
         return not self.closed
 
 
+@dataclass(frozen=True)
+class EventPage:
+    """One answer of ``events.poll``. ``gap`` is True when events between your cursor and the oldest kept one were lost."""
+
+    events: List[Event]
+    cursor: Optional[str]
+    gap: bool = False
+    gap_reason: Optional[str] = None
+    has_more: bool = False
+
+    def __iter__(self) -> Iterator[Event]:
+        return iter(self.events)
+
+    def __len__(self) -> int:
+        return len(self.events)
+
+
 class Events:
     """``bridge.events``: subscribe to the event stream; verify webhook signatures."""
 
@@ -306,7 +378,8 @@ class Events:
     def subscribe(self, topics: Union[str, Sequence[str], None] = None, since: Optional[str] = None, **kw: Any) -> EventSubscription:
         """Events as they happen (see the module text). ``topics`` filters (``"download.*"``, ``["recording.gap", "order.*"]``);
         none means every topic your key may see. ``since`` is a cursor saved from an earlier ``ev.cursor``. Other
-        keyword arguments: ``reconnect``, ``max_backoff``, ``idle_timeout``, ``max_reconnects``."""
+        keyword arguments: ``reconnect``, ``max_backoff``, ``idle_timeout``, ``max_reconnects``. After the first message
+        ``sub.gap`` says whether events were lost (``sub.on_gap`` is called too)."""
         return EventSubscription(self._b, topics, since, **kw)
 
     def wait_for(self, topic: str, predicate: Optional[Callable[[Event], bool]] = None, *, timeout: float = 60.0, since: Optional[str] = None) -> Optional[Event]:
@@ -320,6 +393,18 @@ class Events:
                 if self._b._clock() >= deadline:
                     return None
         return None
+
+    def topics(self) -> List[Dict[str, Any]]:
+        """The topics this key may receive (``GET /v1/events/topics``): ``topic``, ``scope``, ``accountScoped``, ``description``."""
+        return list((self._b.client._get("/v1/events/topics").get("data")) or [])
+
+    def poll(self, since: Optional[str] = None, topics: Union[str, Sequence[str], None] = None, *, limit: Optional[int] = None) -> "EventPage":
+        """The same events as one JSON answer (``GET /v1/events``), for a script that runs now and then. Pass the returned
+        ``page.cursor`` as ``since`` next time. Without ``since`` it returns the newest events."""
+        r = self._b.client._get("/v1/events", {"since": since, "topics": [topics] if isinstance(topics, str) else (list(topics) if topics else None), "limit": limit})
+        meta = r.get("meta") or {}
+        evs = [_event_from(None, None, json.dumps(e)) for e in (r.get("data") or [])]
+        return EventPage(evs, str(meta["cursor"]) if meta.get("cursor") is not None else since, bool(meta.get("gap")), meta.get("gapReason"), bool(meta.get("hasMore")))
 
     verify_signature = staticmethod(verify_signature)
     sign_payload = staticmethod(sign_payload)

@@ -288,7 +288,12 @@ export class BridgeClient {
   updateSubscription(id, changes) { return this._send("PATCH", `/v1/subscriptions/${seg(id)}`, changes); }
   deleteSubscription(id) { return this._send("DELETE", `/v1/subscriptions/${seg(id)}`); }
   testSubscription(id) { return this._send("POST", `/v1/subscriptions/${seg(id)}/test`); }
-  subscriptionDeliveries(id, { limit, cursor } = {}) { return this._get(`/v1/subscriptions/${seg(id)}/deliveries`, { limit, cursor }); }
+  subscription(id) { return this._get(`/v1/subscriptions/${seg(id)}`); }
+  /** Every delivery attempt, newest first. `outcome` is delivered, retry, dead or failed. */
+  subscriptionDeliveries(id, { limit, outcome } = {}) { return this._get(`/v1/subscriptions/${seg(id)}/deliveries`, { limit, outcome }); }
+  subscriptionDeadLetters(id) { return this._get(`/v1/subscriptions/${seg(id)}/dead-letters`); }
+  retryDeadLetter(id, deliveryId) { return this._send("POST", `/v1/subscriptions/${seg(id)}/dead-letters/${seg(deliveryId)}/retry`); }
+  clearDeadLetters(id) { return this._send("DELETE", `/v1/subscriptions/${seg(id)}/dead-letters`); }
 
   /** A write that is not an order: JSON in, body out, no Idempotency-Key (a lost reply is never retried). */
   async _send(method, path, body, o = {}) {
