@@ -776,7 +776,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         name.addEventListener("input", () => (st.name = name.value));
         const keep = h("input", { type: "checkbox", id: "dt-keep", checked: st.keep });
         const ds = input({ id: "dt-dataset", value: st.dataset, placeholder: "nifty-5m", maxlength: 40, "aria-describedby": "dt-ds-hint" });
-        const dsBox = h("div", { class: "dt-ds", hidden: !st.keep }, field("Dataset name", ds, "Lower case letters, numbers and dashes. Next time, Update now fetches only what is new."));
+        const dsBox = h("div", { class: "dt-ds", hidden: !st.keep }, field("Name to find it by", ds, "Lower case letters, numbers and dashes. Next time, Update now fetches only what is new."));
         keep.addEventListener("change", () => {
           st.keep = keep.checked;
           dsBox.hidden = !st.keep;
@@ -788,7 +788,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         });
         ds.addEventListener("input", () => ((st.dataset = ds.value.trim().toLowerCase()), refresh()));
         const what = h("details", { class: "dt-what" }, h("summary", {}, "What do the data labels mean?"), h("ul", { class: "dt-guide" }, CLASS_GUIDE.map((c) => h("li", {}, h("strong", {}, c.label), h("span", {}, c.note)))));
-        return h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "Format"), fmt, fmtNote), h("div", { class: "field" }, h("span", { class: "dt-label" }, "Files"), lay, layNote), field("Name", name), h("label", { class: "check" }, keep, "Keep this up to date as a dataset"), dsBox, what);
+        return h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "Format"), fmt, fmtNote), h("div", { class: "field" }, h("span", { class: "dt-label" }, "Files"), lay, layNote), field("Name", name), h("label", { class: "check" }, keep, "Keep updating this download later"), dsBox, what);
       };
 
       const builders = [stepSymbols, stepBars, stepSave];

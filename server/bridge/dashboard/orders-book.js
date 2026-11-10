@@ -681,7 +681,7 @@ function fundCard({ a, f, v, error, open }) {
               ),
           h("dl", { class: "ob-fstats" }, stat("Realised", signedRupee(f?.realisedPnl)), stat("Unrealised", signedRupee(f?.unrealisedPnl)), stat("Open positions", formatInt(open)), v.collateral === null ? null : stat("Collateral", formatRupeeGrouped(v.collateral, 0))),
         ),
-    error ? null : h("footer", { class: "ob-fund-foot" }, h("button", { type: "button", class: "plain small", "aria-label": `Positions in the console, for ${a.label}`, onclick: () => (location.hash = "#/api/console?endpoint=positions") }, "Positions in the console", icon("chevron"))),
+    error ? null : h("footer", { class: "ob-fund-foot" }, h("button", { type: "button", class: "plain small", "aria-label": `Positions in the test console, for ${a.label}`, onclick: () => (location.hash = "#/api/console?endpoint=positions") }, "Positions in the test console", icon("chevron"))),
   );
 }
 

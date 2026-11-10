@@ -57,7 +57,8 @@ describe("dashboard helpers", async () => {
 
   it("explains errors in plain words", () => {
     expect(friendlyError({ network: true }).title).toMatch(/Cannot reach the Bridge/);
-    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/keys create/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/npm run bridge -- open/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail.split("\n")).toHaveLength(3); // one remedy per line
     expect(friendlyError({ code: "SESSION_EXPIRED", message: "dhan-main: expired" }).detail).toMatch(/Accounts page, Log in/);
     expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/Accounts page.*demo mode/);
     expect(friendlyError({ code: "UPSTREAM_ERROR", message: "Dhan: invalid token" })).toEqual({ title: "The broker did not accept this", detail: "Dhan: invalid token" });

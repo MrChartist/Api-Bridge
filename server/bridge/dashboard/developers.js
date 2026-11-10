@@ -67,7 +67,7 @@ export async function renderDevelopers() {
   const params = deps.hashParams();
   let view = VIEWS.some(([id]) => id === params.get("view")) ? params.get("view") : state.apps.some((a) => a.usable) ? "apps" : "start";
   const seg = deps.segmented("Developers", VIEWS, view);
-  const createBtn = h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create app");
+  const createBtn = h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create key");
   const body = h("div", { class: "dev-body" });
   root.append(h("div", { class: "dev-head" }, h("h2", { class: "sr-only" }, "Developers"), seg, createBtn), body);
 
@@ -94,7 +94,7 @@ export async function renderDevelopers() {
   // ── Create app (a sheet): pick what it is for, name it, get the key once with its setup ──
   function openCreate(startPreset = null) {
     return modal({
-      title: "Create an app",
+      title: "Create a key",
       body: (close) => createForm(close, startPreset),
       buttons: [],
     });
@@ -144,12 +144,12 @@ export async function renderDevelopers() {
       );
     }
     choose(presetId, false);
-    const make = h("button", { type: "button", class: "primary lg", onclick: submit }, icon("keys"), "Create app");
+    const make = h("button", { type: "button", class: "primary lg", onclick: submit }, icon("keys"), "Create key");
     const cancel = h("button", { type: "button", class: "quiet lg", onclick: () => close(undefined) }, "Cancel");
     const form = h(
       "div",
       { class: "stack dev-form" },
-      h("p", { class: "dev-lead" }, "An app is one key with only the access its job needs. Pick what it is for."),
+      h("p", { class: "dev-lead" }, "A key gives one program only the access its job needs. Pick what it is for."),
       pick,
       h("label", { class: "field", for: "dev-app-name" }, h("span", {}, "Name"), name, h("span", { class: "hint" }, "So you can tell apps apart later.")),
       h("div", { class: "field seg-field" }, h("span", { id: "dev-exp-l" }, "Expires"), expiry),
@@ -690,7 +690,7 @@ export async function renderDevelopers() {
     const callsN = h("strong", { class: "dev-calls" }, "0");
     const summary = h("p", { class: "dev-summary" }, appsN, " ", h("span", {}, "apps"), " · ", callsN, " ", h("span", { class: "dev-calls-word" }, "requests today"));
     const gone = h("details", { class: "dev-gone" });
-    const emptyHost = h("div", { class: "card" }, emptyState("keys", "No apps yet", "An app is one key with only the access its job needs. Make one, then copy its setup.", h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create app")));
+    const emptyHost = h("div", { class: "card" }, emptyState("keys", "No keys yet", "A key (the Bridge calls one for a program an app) has only the access its job needs. Make one, then copy its setup.", h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create app")));
     const paint = () => {
       const now = state.apps.filter((a) => a.usable);
       const old = state.apps.filter((a) => !a.usable);

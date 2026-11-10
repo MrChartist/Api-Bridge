@@ -947,7 +947,7 @@ td strong { font-weight: 600; }
 .alert.ok { background: hsl(var(--success) / 0.1); box-shadow: inset 0 0 0 1px hsl(var(--success) / 0.26); }
 .alert.ok svg, .alert.ok strong { color: hsl(var(--success-ink)); }
 .alert.info svg, .alert.info strong { color: hsl(var(--accent-ink)); }
-.alert .detail { display: block; margin-top: 2px; color: var(--label-2); }
+.alert .detail { display: block; margin-top: 2px; color: var(--label-2); white-space: pre-line; }
 .alert .alert-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
 /* Code. */
@@ -2469,7 +2469,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .dev-step-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dev-health:empty { display: none; }
 .dev-cmd { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 6px 6px 12px; border-radius: var(--r-md); background: var(--fill-1); box-shadow: inset 0 0 0 1px var(--separator); }
-.dev-cmd > code { flex: 1 1 auto; min-width: 0; padding: 4px 0; font: 500 13px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: break-word; }
+.dev-cmd > code { flex: 1 1 auto; min-width: 0; padding: 4px 0; font: 500 13px/1.5 var(--font-mono); white-space: nowrap; overflow-x: auto; }
 .dev-cmd > code:focus-visible { outline-offset: 4px; border-radius: 4px; }
 .dev-cmd > button { flex: none; }
 .dev-blocks { min-width: 0; }
