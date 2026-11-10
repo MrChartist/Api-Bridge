@@ -3929,7 +3929,12 @@ Retry only what is safe. A read can always be repeated. A write can be repeated 
 Every error is `application/problem+json` with a stable `code`, `status`, `detail`, `retryable` and `requestId`. Switch on
 `code`, never on `detail`. The full list, with what each means and what to do, is in the dashboard (Developers > Errors),
 at `GET /v1/errors` (the list of this Bridge's own codes) and in [the error codes page](../api/errors.md). A test fails when a
-code has no entry there. When you report a problem, quote the `requestId`.
+code has no entry there. When you report a problem, quote the `requestId`. The problem's `type` is a stable identifier of the form `https://bridge.mrchartist.local/errors/<code-in-lower-case-with-dashes>`;
+it is a name, not an address you can open. A `401` also carries `WWW-Authenticate: Bearer`, and every answer carries `X-API-Version: v1`.
+
+Ids come in a few styles, each stable once made: downloads `dl_...`, recordings `rec_...`, subscriptions `sub_...`, hooks `hk_...`,
+collections `col_...` (the name also works), keys a short random id, recording rules the slug of their name, paper orders
+`PAPER-<date>-<number>`. Treat every id as an opaque string.
 
 ## Pagination
 

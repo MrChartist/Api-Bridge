@@ -6884,7 +6884,7 @@ components:
       type: object
       required: [type, title, status, code, retryable]
       properties:
-        type: { type: string, format: uri }
+        type: { type: string, format: uri, description: "A stable name for the problem, `https://bridge.mrchartist.local/errors/<code in lower case, words joined by dashes>` (VALIDATION_FAILED is `.../validation-failed`). It is an identifier, not a page: the explanation for each code is in docs/api/errors.md and `GET /v1/errors`. Switch on `code`." }
         title: { type: string }
         status: { type: integer }
         detail: { type: string, description: "Human text. Do not parse it." }

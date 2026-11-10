@@ -294,10 +294,11 @@ export class Datasets {
     return wait ? this.client.downloads.wait(job, waitOpts) : job;
   }
 
-  /** Rename a dataset (`newName`), or change its tags or description. */
-  async edit(name, { newName, tags, description } = {}) {
-    need(newName !== undefined || tags !== undefined || description !== undefined, "give newName, tags or description");
-    return dataOf(await this.client.editDataset(name, clean({ name: newName, tags, description })));
+  /** Rename a dataset (`newName`), or change its tags or title (`description` is an older name for `title`). */
+  async edit(name, { newName, tags, title, description } = {}) {
+    const label = title !== undefined ? title : description;
+    need(newName !== undefined || tags !== undefined || label !== undefined, "give newName, tags or title");
+    return dataOf(await this.client.editDataset(name, clean({ name: newName, tags, title: label })));
   }
 
   _pairs(ds) {
@@ -321,9 +322,11 @@ export class Datasets {
       need(cand.length === 1, `dataset ${JSON.stringify(name)} holds ${pairs.length} symbol/interval pairs; say which one: symbol and interval (${pairs.slice(0, 8).map((p) => p.join(" ")).join(", ")})`);
       pair = cand[0];
     }
-    const start = from ?? ds.firstBar;
+    // The Bridge keeps the first and last bar per file, not on the dataset: take the pair's own file.
+    const mine = (ds.files ?? []).filter((f) => f.symbol === pair[0] && f.interval === pair[1]);
+    const start = from ?? ds.firstBar ?? mine.map((f) => f.firstBar).filter(Boolean).sort()[0];
     need(start, `dataset ${JSON.stringify(name)} has no bars yet: run an update first`);
-    return new HistoryAll(this.client, { symbol: pair[0], interval: pair[1], from: start, to: to ?? ds.lastBar, localFirst: true, dataset: name, account }).toHistory();
+    return new HistoryAll(this.client, { symbol: pair[0], interval: pair[1], from: start, to: to ?? ds.lastBar ?? mine.map((f) => f.lastBar).filter(Boolean).sort().at(-1), localFirst: true, dataset: name, account }).toHistory();
   }
 
   /** Every symbol and interval of a dataset as [{ symbol, interval, candles, freshness, partial }]. */

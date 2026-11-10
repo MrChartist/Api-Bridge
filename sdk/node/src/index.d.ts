@@ -407,7 +407,9 @@ export interface SaveOptions {
 }
 export interface Dataset {
   name: string;
-  description: string | null;
+  /** The Bridge's free-text label (the older name is `description`). */
+  title?: string | null;
+  description?: string | null;
   tags: string[];
   dataClass: DataClass;
   source: string | null;
@@ -417,6 +419,7 @@ export interface Dataset {
   intervals?: string[];
   rows?: number;
   bytes?: number;
+  /** Not sent by the Bridge on the dataset itself: read them from `files[]`. */
   firstBar?: string;
   lastBar?: string;
   updatedAt?: string;
@@ -642,7 +645,7 @@ export declare class Datasets {
   list(o?: { tag?: string }): Promise<Dataset[]>;
   get(name: string): Promise<Dataset>;
   update(name: string, o?: { wait?: boolean } & WaitOptions): Promise<DownloadJob>;
-  edit(name: string, p: { newName?: string; tags?: string[]; description?: string }): Promise<Dataset>;
+  edit(name: string, p: { newName?: string; tags?: string[]; title?: string; /** An older name for `title`. */ description?: string }): Promise<Dataset>;
   read(name: string, o?: { symbol?: string; interval?: string; from?: string | number | Date; to?: string | number | Date; account?: string }): Promise<HistoryAllResult>;
   readAll(name: string, o?: { from?: string | number | Date; to?: string | number | Date }): Promise<HistoryAllResult[]>;
 }
