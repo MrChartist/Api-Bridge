@@ -19,10 +19,18 @@ http
         res.writeHead(401).end();
         return;
       }
-      const id = req.headers["x-bridge-event-id"]; // delivery is at least once: handle each event id once
-      if (!seen.has(id)) {
-        seen.add(id);
-        const event = JSON.parse(raw.toString("utf8"));
+      // Delivery is at least once: handle each event once. Use the id INSIDE the verified body: the X-Bridge-Event-Id header
+      // is not signed, so a captured delivery could be replayed with another header value and be handled twice.
+      let event;
+      try {
+        event = JSON.parse(raw.toString("utf8"));
+      } catch {
+        res.writeHead(400).end();
+        return;
+      }
+      const id = event?.id === undefined || event?.id === null ? undefined : String(event.id);
+      if (id === undefined || !seen.has(id)) {
+        if (id !== undefined) seen.add(id);
         console.log("verified:", event.topic, event.data);
       }
       res.writeHead(204).end();
