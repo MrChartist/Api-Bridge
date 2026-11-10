@@ -8,8 +8,9 @@
  *   backups/status.json                                       last success, last failure, last scheduled day
  *   last-version.json                                         the Bridge version that last ran on this data folder
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { backupSettings } from "./config.mjs";
 import { backupFileName, parseBackupName, writeBackup } from "./archive.mjs";
 import { BACKUPS_DIR, collectDataFiles } from "./paths.mjs";
@@ -18,7 +19,6 @@ export const STATUS_FILE = "status.json";
 export const LAST_VERSION_FILE = "last-version.json";
 /** Always leave this much free after the copy, so a snapshot never takes the last space on the disk. */
 export const FREE_MARGIN_BYTES = 50 * 1024 * 1024;
-const MANUAL_KEEP = 20;
 const RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000;
 
 /** The master key file this setup uses (never included in a backup), for excluding it by name or path. */
@@ -27,15 +27,7 @@ export function masterKeyPath({ config, dataDir, env = process.env }) {
 }
 
 function writeJsonAtomic(file, obj) {
-  mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
-  try {
-    chmodSync(file, 0o600);
-  } catch {
-    /* best effort (Windows) */
-  }
+  writeFileAtomic(file, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
 function readJson(file) {
@@ -123,13 +115,16 @@ export function createBackupManager(o) {
     return rows.map(({ stamp: _s, ...r }) => r);
   }
 
-  const keepFor = (kind) => (kind === "scheduled" ? settings().schedule.keep : kind === "manual" ? MANUAL_KEEP : settings().keep);
+  const keepFor = (kind) => (kind === "scheduled" ? settings().schedule.keep : kind === "manual" ? settings().manualKeep : settings().keep);
 
   /**
    * Make a backup now. Serialised: two at once wait for each other.
-   * @param {{ kind?: string, includeSecrets?: boolean, out?: string, quiet?: boolean }} [opts]
+   * `includeData`: also downloads/ and recordings/ (default: the backup.includeData setting for manual and daily backups;
+   * never for the copy before an upgrade or a restore, which must stay small and fast).
+   * @param {{ kind?: string, includeSecrets?: boolean, includeData?: boolean, out?: string, quiet?: boolean }} [opts]
    */
-  function run({ kind = "manual", includeSecrets = false, out, quiet = false } = {}) {
+  function run({ kind = "manual", includeSecrets = false, includeData, out, quiet = false } = {}) {
+    const withData = kind === "manual" || kind === "scheduled" ? (includeData ?? settings().includeData) : false;
     const job = chain.then(async () => {
       let now = new Date(clock.now());
       let target = out ?? join(folder, backupFileName(kind, now));
@@ -146,6 +141,8 @@ export function createBackupManager(o) {
           out: target,
           kind,
           includeSecrets,
+          includeData: withData,
+          maxDataFiles: settings().maxDataFiles,
           masterKeyFile,
           bridgeVersion,
           now,
@@ -153,7 +150,7 @@ export function createBackupManager(o) {
           minFreeBytes: FREE_MARGIN_BYTES,
           freeBytesFn,
         });
-        const row = { at: now.toISOString(), name: res.path.split(/[\\/]/).pop(), path: res.path, bytes: res.bytes, files: res.files, kind, includesSecrets: res.includesSecrets };
+        const row = { at: now.toISOString(), name: res.path.split(/[\\/]/).pop(), path: res.path, bytes: res.bytes, files: res.files, kind, includesSecrets: res.includesSecrets, includesData: res.includesData === true };
         // A success clears a failure of the same kind only (a manual backup does not hide a failing schedule).
         const prior = status().lastFailure;
         saveStatus({ lastOk: row, lastFailure: prior && prior.kind !== kind ? prior : null });

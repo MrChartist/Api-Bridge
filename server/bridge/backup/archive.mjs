@@ -92,18 +92,22 @@ function readStable(abs) {
 
 /**
  * Write a backup archive.
- * @param {{ dataDir: string, configFile?: string | null, out: string, kind?: string, includeSecrets?: boolean, masterKeyFile?: string | null,
- *   bridgeVersion: string, now?: Date, maxBytes?: number, minFreeBytes?: number, freeBytesFn?: (dir: string) => number | null }} o
+ * State files are read whole (small, replaced atomically). With `includeData` the bulk folders (downloads/, recordings/) are
+ * added too, streamed in chunks and hashed on the way, so memory stays small however large they are. `maxBytes` limits the
+ * state files only; the bulk tier is limited by `maxDataFiles` and by the free space.
+ * @param {{ dataDir: string, configFile?: string | null, out: string, kind?: string, includeSecrets?: boolean, includeData?: boolean, masterKeyFile?: string | null,
+ *   bridgeVersion: string, now?: Date, maxBytes?: number, maxDataFiles?: number, minFreeBytes?: number, freeBytesFn?: (dir: string) => number | null }} o
  * @returns {Promise<{ path: string, bytes: number, files: number, includesSecrets: boolean, excluded: Array<{ path: string, reason: string }>, manifest: object }>}
  */
 export async function writeBackup(o) {
-  const { dataDir, configFile = null, out, kind = "manual", includeSecrets = false, masterKeyFile = null, bridgeVersion, now = new Date(), maxBytes = Infinity } = o;
+  const { dataDir, configFile = null, out, kind = "manual", includeSecrets = false, includeData = false, masterKeyFile = null, bridgeVersion, now = new Date(), maxBytes = Infinity } = o;
   if (existsSync(out)) throw new BridgeError("VALIDATION_FAILED", `${out} already exists. A backup never overwrites a file; choose another name with --out.`);
-  const { files, excluded } = collectDataFiles(dataDir, { includeSecrets, masterKeyFile });
+  const { files, excluded } = collectDataFiles(dataDir, { includeSecrets, includeData, masterKeyFile, ...(o.maxDataFiles ? { maxDataFiles: o.maxDataFiles } : {}) });
   const configPresent = Boolean(configFile && existsSync(configFile) && statSync(configFile).isFile());
-  const total = files.reduce((n, f) => n + f.size, 0) + (configPresent ? statSync(configFile).size : 0);
-  if (total > maxBytes) {
-    throw new BridgeError("VALIDATION_FAILED", `The data folder holds ${(total / 1048576).toFixed(0)} MB, more than the ${(maxBytes / 1048576).toFixed(0)} MB limit for a backup (backup.maxSizeMb in the settings).`);
+  const stateBytes = files.reduce((n, f) => (f.bulk ? n : n + f.size), 0) + (configPresent ? statSync(configFile).size : 0);
+  const total = stateBytes + files.reduce((n, f) => (f.bulk ? n + f.size : n), 0);
+  if (stateBytes > maxBytes) {
+    throw new BridgeError("VALIDATION_FAILED", `The data folder holds ${(stateBytes / 1048576).toFixed(0)} MB of settings and state (downloads and recordings are not counted), more than the ${(maxBytes / 1048576).toFixed(0)} MB limit for a backup (backup.maxSizeMb in the settings).`);
   }
   const free = (o.freeBytesFn ?? freeBytes)(dirname(out));
   const need = total + (o.minFreeBytes ?? 0);
@@ -122,6 +126,25 @@ export async function writeBackup(o) {
   const manifestFiles = [];
   try {
     for (const f of files) {
+      if (f.bulk) {
+        // A large file: streamed (and cut at the size seen now, because a recording may still be growing).
+        let st;
+        try {
+          st = statSync(f.abs);
+        } catch (err) {
+          if (err?.code === "ENOENT") continue;
+          throw err;
+        }
+        const hash = createHash("sha256");
+        try {
+          await tar.addStream(DATA_PREFIX + f.rel, st.size, createReadStream(f.abs, { start: 0, end: Math.max(0, st.size - 1) }), { mtime: st.mtimeMs / 1000, onChunk: (c) => hash.update(c) });
+        } catch (err) {
+          if (err?.code === "ENOENT") throw new Error(`${f.rel} was removed while it was being copied; try again`);
+          throw err;
+        }
+        manifestFiles.push({ path: DATA_PREFIX + f.rel, size: st.size, sha256: hash.digest("hex") });
+        continue;
+      }
       let read;
       try {
         read = readStable(f.abs);
@@ -145,6 +168,7 @@ export async function writeBackup(o) {
       kind,
       includesSecrets: manifestFiles.some((f) => f.path === DATA_PREFIX + SECRETS_FILE_NAME),
       includesConfig: configPresent,
+      includesData: files.some((f) => f.bulk),
       platform: process.platform,
       note: "The master key is never part of a backup. Restoring secrets.enc needs the original master key.",
       files: manifestFiles,
@@ -158,7 +182,7 @@ export async function writeBackup(o) {
     const check = await inspectArchive(partial);
     if (check.manifest.files.length !== manifestFiles.length) throw new Error("the finished backup does not list the files it was given");
     publish(partial, out);
-    return { path: out, bytes: statSync(out).size, files: manifestFiles.length, includesSecrets: manifest.includesSecrets, excluded, manifest };
+    return { path: out, bytes: statSync(out).size, files: manifestFiles.length, includesSecrets: manifest.includesSecrets, includesData: manifest.includesData, excluded, manifest };
   } catch (err) {
     gz.destroy();
     await done.catch(() => {});

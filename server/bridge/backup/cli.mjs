@@ -2,7 +2,8 @@
  * `mc-bridge backup` and `mc-bridge restore`. The command line in core/cli.mjs delegates here with a small context
  * (the loaded config, the Bridge probe it already uses to detect a running Bridge) so this file has no import cycle.
  *
- *   mc-bridge backup [--out FILE] [--include-secrets]    write one archive; never overwrites; never holds the master key
+ *   mc-bridge backup [--out FILE] [--include-secrets] [--include-data]   write one archive; never overwrites; never holds the master key;
+ *                                                        downloads and recordings only with --include-data
  *   mc-bridge backup list                                the copies in <data>/backups and the last backup
  *   mc-bridge backup verify FILE                         check an archive without restoring it
  *   mc-bridge restore FILE [--dry-run] [--yes] [--skip-config]
@@ -12,6 +13,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
 import { checkCompatibility, inspectArchive, backupFileName } from "./archive.mjs";
 import { createBackupManager, masterKeyPath, readBackupStatus } from "./manager.mjs";
+import { describeBulk, measureBulk } from "./paths.mjs";
 import { restoreBackup } from "./restore.mjs";
 
 const mb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
@@ -49,6 +51,7 @@ export async function backupCommand(args, flags, io, ctx) {
     const compat = checkCompatibility(manifest, { bridgeVersion });
     io.out(`OK: ${file}`);
     io.out(`Made by Bridge ${manifest.bridgeVersion} at ${manifest.createdAt}: ${entries.length} files, every checksum matches.`);
+    io.out(manifest.includesData ? "Includes the downloads and recordings folders." : "Does not include downloads and recordings (saved data; download or record it again, or copy those folders yourself).");
     io.out(manifest.includesSecrets ? "Includes secrets.enc (needs the original master key to be of any use)." : "Does not include secrets.enc.");
     if (!compat.ok) io.out(`Cannot be restored by this Bridge: ${compat.message}`);
     return compat.ok ? 0 : 1;
@@ -63,14 +66,21 @@ export async function backupCommand(args, flags, io, ctx) {
     throw new BridgeError("VALIDATION_FAILED", "--out needs a file name, for example: --out my-backup.tar.gz");
   }
   const includeSecrets = flags["include-secrets"] === true;
-  const res = await mgr.run({ kind: "manual", includeSecrets, ...(out ? { out } : {}), quiet: true });
+  // Downloads and recordings are left out unless asked for (--include-data, or backup.includeData in the settings).
+  const includeData = flags["include-data"] === true ? true : flags["no-data"] === true ? false : undefined;
+  const res = await mgr.run({ kind: "manual", includeSecrets, ...(includeData === undefined ? {} : { includeData }), ...(out ? { out } : {}), quiet: true });
+  const leftOut = res.includesData ? [] : measureBulk(dataDir);
   if (flags.json) {
-    io.out(JSON.stringify({ path: res.path, bytes: res.bytes, files: res.files, includesSecrets: res.includesSecrets, masterKeyIncluded: false }, null, 2));
+    io.out(JSON.stringify({ path: res.path, bytes: res.bytes, files: res.files, includesSecrets: res.includesSecrets, includesData: res.includesData === true, notIncluded: leftOut, masterKeyIncluded: false }, null, 2));
     return 0;
   }
   io.out(`Backup written: ${res.path}`);
   io.out(`${res.files} files, ${mb(res.bytes)}. Every file was read back and matched its checksum.`);
-  io.out(`Included: ${WHAT}.`);
+  io.out(`Included: ${WHAT}${res.includesData ? ", and the downloads and recordings folders" : ""}.`);
+  if (!res.includesData) {
+    if (leftOut.length) io.out(`NOT included: ${describeBulk(leftOut)}. They can be downloaded or recorded again, or copy those folders yourself. Add --include-data to put them in the backup (large; may take a while).`);
+    else io.out("NOT included: downloads and recordings (none yet). They can be downloaded or recorded again; --include-data would add them.");
+  }
   io.out(`NOT included: the master key (${masterKeyPath({ config, dataDir, env: io.env })}). It is never copied into a backup, so the archive alone cannot unlock anything.`);
   if (res.includesSecrets) io.out("secrets.enc IS included (saved broker logins). Restoring them needs your ORIGINAL master key; keep a copy of that key somewhere safe, separate from this file.");
   else io.out(`secrets.enc (saved broker logins) is not included. Without it you log in to your brokers again after a restore. Add --include-secrets to include it (it is of use only together with your master key).`);
@@ -108,6 +118,7 @@ export async function restoreCommand(args, flags, io, ctx) {
   const base = { archive: file, dataDir, configFile, bridgeVersion, masterKeyFile, config, env: io.env, applyConfig: flags["skip-config"] !== true };
   const preview = await restoreBackup({ ...base, dryRun: true });
   const { manifest, plan } = preview;
+  const hasData = manifest.includesData === true || manifest.files.some((f) => /^data\/(downloads|recordings)\//.test(f.path));
   io.out(`Backup: ${file}`);
   io.out(`Made by Bridge ${manifest.bridgeVersion} at ${manifest.createdAt} (${manifest.files.length} files, all checksums match).`);
   for (const w of preview.warnings) io.out(`Note: ${w}`);
@@ -129,6 +140,11 @@ export async function restoreCommand(args, flags, io, ctx) {
         : "  secrets.enc: none in the backup and none here; you will log in to your brokers again.",
   );
   io.out("  The master key is not touched.");
+  if (hasData) io.out("  downloads and recordings: restored from the backup. The ones here now are kept next to them as downloads.before-restore-... and recordings.before-restore-...; delete them when you have checked.");
+  else {
+    const here = measureBulk(dataDir);
+    io.out(`  downloads and recordings: not part of this backup, so the ones on this computer are left as they are${here.length ? ` (${describeBulk(here)})` : ""}.`);
+  }
   if (dryRun) {
     io.out("Dry run only: nothing was changed.");
     return 0;
@@ -146,11 +162,19 @@ export async function restoreCommand(args, flags, io, ctx) {
   io.out("");
   io.out("Restored.");
   if (res.safetyBackup) io.out(`A copy of what was here before is saved in: ${res.safetyBackup}`);
+  if (res.keptBulk?.length) io.out(`The downloads and recordings that were here before were kept: ${res.keptBulk.join(", ")} (inside ${dataDir}). Delete them when you have checked the restored ones.`);
   io.out("Next steps:");
   io.out(`  1. Start the Bridge:  ${ctx.cli} start --open`);
   io.out(`  2. Check it:  ${ctx.cli} doctor`);
   if (plan.secrets === "restored") io.out(`  3. If saved broker logins do not open, the master key is not the one that locked them. Put the original key at ${masterKeyFile} (or set MCB_MASTER_KEY), or log in to each broker again.`);
   else io.out("  3. Log in to each broker again from the dashboard (saved logins are not part of this backup).");
   io.out("  4. Check Safety: orders stay in paper unless you switched live trading on in your settings.");
+  try {
+    const { webhookSecretsNeeded } = await import("../events/restoreNote.mjs");
+    const n = webhookSecretsNeeded(dataDir);
+    if (n > 0) io.out(`  5. ${n} webhook subscription${n === 1 ? " needs" : "s need"} its signing secret again (secrets are not in a backup unless --include-secrets and the same master key): ${ctx.cli} subscriptions rotate-secret <id>. Deliveries wait until you do.`);
+  } catch {
+    /* the note is a courtesy */
+  }
   return 0;
 }

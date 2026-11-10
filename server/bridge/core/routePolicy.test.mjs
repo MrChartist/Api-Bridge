@@ -12,7 +12,7 @@ import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootSecurityApp, samplePath } from "./__fixtures__/securityApp.mjs";
 
-const NONE_ALLOWED = new Set(["GET /v1/health", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in"]);
+const NONE_ALLOWED = new Set(["GET /v1/health", "GET /v1/ready", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in"]);
 const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/, /^GET \/v1\/events\/stream$/];
 const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify/status", "GET /v1/notify/targets", "GET /v1/notify/events"]);
 // Events out: reading webhook subscriptions is admin-only but not this-computer-only; adding, changing or removing one (or its dead letters) is.

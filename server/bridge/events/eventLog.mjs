@@ -17,6 +17,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { appendLineSync, compact, quarantine, readLinesSync } from "../../lib/jsonl.mjs";
+import { noteCorruptLines } from "../../lib/safeStore.mjs";
 import { isOfferedTopic, topicInfo } from "./catalog.mjs";
 import { sanitizePayload } from "./sanitize.mjs";
 
@@ -46,7 +47,10 @@ export function createEventLog({ dir, retain = 5000, maxEventBytes = 16_384, now
   try {
     const { items, corrupt, tornTail } = readLinesSync(file);
     const ok = items.filter(valid).sort((a, b) => a.seq - b.seq);
-    if (corrupt > 0 && ok.length === 0 && existsSync(file)) quarantine(file, { now: now() });
+    if (corrupt > 0 && ok.length === 0 && existsSync(file)) {
+      const to = quarantine(file, { now: now(), what: "event log", reason: "had no readable lines" });
+      logger?.warn?.(`event log: ${file} had no readable lines and was moved aside to ${to}. Starting with an empty event log.`, { file, movedTo: to });
+    } else if (corrupt > 0) noteCorruptLines(file, { what: "event log", corrupt, log: logger, now: now() });
     ring = ok.slice(-retain);
     seq = ring.at(-1)?.seq ?? 0;
     linesOnDisk = items.length + corrupt + (tornTail ? 1 : 0);

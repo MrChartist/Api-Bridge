@@ -162,6 +162,46 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
 
+  /v1/ready:
+    get:
+      tags: [System]
+      operationId: getReady
+      summary: Ready to take work (503 while starting or when the disk is full)
+      description: No key needed. 200 when the Bridge has finished starting and can save; 503 otherwise. Callers on this computer also see the reasons. For a Docker health check, a load balancer or a script that waits for the Bridge.
+      x-module: core
+      security: []
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ready" }
+        "503":
+          description: Not ready yet, or the disk is too full to save changes safely.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ready" }
+
+  /v1/metrics:
+    get:
+      tags: [System]
+      operationId: getMetrics
+      summary: The Bridge's own numbers (Prometheus text)
+      description: >-
+        This computer only, admin key. Counters and gauges as plain Prometheus text: uptime, memory, open file handles,
+        event-loop delay, requests by status class, free disk space, failed writes, damaged files set aside, the age of the
+        last backup, webhook queue sizes, download and recording figures. No symbol, key, account id or file name appears in it.
+      x-module: core
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Prometheus text exposition format.
+          content:
+            text/plain:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
   /:
     get:
       tags: [System]
@@ -3550,6 +3590,36 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/orders/state/acknowledge:
+    post:
+      tags: [Orders]
+      operationId: acknowledgeOrderState
+      summary: Allow live orders again after the order records were damaged
+      description: |
+        When the Bridge's record of sent orders (orders/state.json) is damaged it is set aside and live orders are refused
+        (`ORDER_STATE_DAMAGED`); paper orders keep working. Check the broker's order book, then call this. Only from this computer.
+      x-module: orders
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Done. `acknowledged` is false when nothing was waiting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [acknowledged, liveOrders]
+                    properties:
+                      acknowledged: { type: boolean }
+                      liveOrders: { type: string, enum: [allowed] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/orders/by-client-id/{clientOrderId}:
     parameters:
       - name: clientOrderId
@@ -4237,6 +4307,8 @@ paths:
         and quota state, source settings, pooling consent, paper books, order records and the audit log. It never holds the
         master key. `secrets.enc` (saved broker logins) is included only with `includeSecrets`, and is useful only with the
         original master key. Emits the bus events `backup.completed` or `backup.failed`.
+        Downloads and recordings are left out by default (they are large and can be downloaded or recorded again); send
+        `includeData: true` (or set `backup.includeData`) to add them, streamed.
       x-module: backup
       x-scope: admin
       x-loopback-only: true
@@ -4249,6 +4321,7 @@ paths:
               additionalProperties: false
               properties:
                 includeSecrets: { type: boolean, default: false }
+                includeData: { type: boolean, description: "Also put the downloads and recordings folders in the backup. Default: the `backup.includeData` setting (false)." }
       responses:
         "200":
           description: The backup was written.
@@ -7076,6 +7149,8 @@ components:
         - ORDER_RATE_LIMITED
         - UPSTREAM_RATE_LIMITED
         - SUBSCRIPTION_LIMIT
+        - DISK_FULL
+        - ORDER_STATE_DAMAGED
         - INTERNAL
         - NOT_IMPLEMENTED
         - UPSTREAM_ERROR
@@ -7112,13 +7187,53 @@ components:
         input: { type: string }
         code: { $ref: "#/components/schemas/ErrorCode" }
         message: { type: string }
+    Ready:
+      type: object
+      required: [ready]
+      properties:
+        ready: { type: boolean }
+        reasons:
+          type: array
+          description: For callers on this computer.
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string, enum: [starting, storage_critical] }
+              message: { type: string }
+              jobs: { type: array, items: { type: object } }
     Health:
       type: object
       required: [status, version, apiVersion]
       properties:
-        status: { type: string, enum: [ok] }
+        status: { type: string, enum: [ok, degraded], description: "`degraded` when something needs attention: little free disk space, a file that could not be saved, a damaged file set aside, the order records damaged, or the kill switch on. The HTTP status stays 200; callers on this computer see `problems`." }
         version: { type: string }
         apiVersion: { type: string }
+        problems:
+          type: array
+          description: For callers on this computer. What is wrong, in plain words. Empty when status is ok.
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string, enum: [storage_low, storage_critical, write_errors, data_quarantined, order_state_damaged, kill_switch_on] }
+              message: { type: string }
+        storage:
+          type: object
+          description: For callers on this computer. Free space on the data folder's disk and how many files could not be saved.
+          properties:
+            level: { type: string, enum: [ok, low, critical] }
+            freeMb: { type: [integer, "null"] }
+            totalMb: { type: [integer, "null"] }
+            minFreeMb: { type: integer }
+            hardFreeMb: { type: integer }
+            checkedAt: { type: [string, "null"], format: date-time }
+            writeErrors:
+              type: object
+              properties:
+                open: { type: integer, description: "Files that could not be written and have not been written since." }
+                total: { type: integer, description: "Failed writes since the Bridge started." }
+                last: { type: [object, "null"] }
         startedAt: { type: string, format: date-time }
         uptimeSeconds: { type: integer }
         demo: { type: boolean, description: "Present and true only in demo mode (sample data, no real broker)." }
@@ -7206,6 +7321,7 @@ components:
         createdAt: { type: string, format: date-time }
         kind: { type: string, enum: [manual] }
         includesSecrets: { type: boolean }
+        includesData: { type: boolean, description: "True when the downloads and recordings folders are in the archive (includeData)." }
         masterKeyIncluded: { type: boolean, enum: [false], description: "Always false: the master key is never part of a backup." }
         restoreCommand: { type: string }
     MetaInfo:
@@ -9483,7 +9599,7 @@ components:
         state: { type: string, enum: [open, closed] }
         from: { type: string }
         to: { type: [string, "null"] }
-        reason: { type: string, enum: [login-missing, feed-down, feed-silent, budget, delayed-source, universe-unresolved, bridge-stopped, disk-full, error] }
+        reason: { type: string, enum: [login-missing, feed-down, feed-silent, budget, delayed-source, universe-unresolved, bridge-stopped, computer-asleep, disk-full, error] }
         detail: { type: [string, "null"] }
         seconds: { type: [integer, "null"] }
     RecordingFile:

@@ -25,7 +25,7 @@ const MAX_HOLES = 200;
 /** Validate a dataset name; returns it. */
 export function checkDatasetName(name) {
   if (typeof name !== "string" || !DATASET_NAME_RE.test(name)) {
-    throw new BridgeError("VALIDATION_FAILED", "A dataset name is 1 to 64 lowercase letters, digits, dashes or underscores, starting with a letter or digit (for example nifty-5m).", { errors: [{ path: "dataset", message: "not a valid dataset name" }] });
+    throw new BridgeError("VALIDATION_FAILED", "A dataset name is 1 to 64 lowercase letters, digits, dashes or underscores, starting with a letter or digit (for example nifty-5m). Windows device names such as con, nul, aux or com1 are not allowed.", { errors: [{ path: "dataset", message: "not a valid dataset name" }] });
   }
   return name;
 }

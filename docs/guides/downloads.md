@@ -158,3 +158,6 @@ mc-bridge download list | show <id> | pause <id> | resume <id> | cancel <id> | d
 mc-bridge download files <id> [--out folder]     saves the files and checks every checksum
 mc-bridge download datasets | update <dataset>
 ```
+
+Line endings: CSV files from downloads end their lines with CRLF (`\r\n`), recordings use LF (`\n`). Both open in Excel; mention it if
+you join the two kinds of file with a tool that cares.

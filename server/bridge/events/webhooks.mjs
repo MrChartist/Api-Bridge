@@ -2,7 +2,12 @@
  * Webhook subscriptions and their delivery.
  *
  *   event (from the event log)  ->  one outbox item per matching subscription (durable, written to disk first)
- *   pump: due items, at most `concurrency` at once  ->  sender.mjs (signed, checked, no redirects)
+ *   pump: due items  ->  sender.mjs (signed, checked, no redirects). Scheduled PER SUBSCRIPTION: each subscription has its
+ *         own few slots (`perSubscription`), so a receiver that never answers holds only its own slot for `timeoutMs`;
+ *         `concurrency` is a generous cap on all of them together. Slots are refilled as each attempt ends (no waiting
+ *         for the slowest of a batch), starting with the subscription that has the fewest attempts running.
+ *         A subscription that failed `breakerAfter` times in a row is held: it gets one attempt per backoff period
+ *         instead of one per event, until an attempt succeeds.
  *     2xx         delivered: the item leaves the outbox
  *     retryable   (5xx, 408, 425, 429, timeout, no connection): waits, doubling from baseMs up to maxMs with jitter
  *                 (a Retry-After longer than that is honoured, up to maxMs); after maxAttempts or maxAgeSec it becomes a
@@ -36,6 +41,8 @@ const SECRET_PREFIX = "subscription:";
 const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const ADMIN_ALL = { admin: true, accounts: "*" };
 const TEST_MIN_GAP_MS = 2000;
+/** Failure codes where the receiver gave no answer, so an attempt held its slot until the timeout. */
+const UNREACHABLE = new Set(["timeout", "connect_failed", "dns_failed", "tls_failed"]);
 
 const newSubId = () => `sub_${[...randomBytes(8)].map((b) => B32[b % 32]).join("")}`;
 const newDeliveryId = () => `dlv_${randomBytes(6).toString("hex")}`;
@@ -57,12 +64,41 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
   const dead = createJournal({ file: join(dir, "deadletter.jsonl"), logger });
   const deliveries = createJournal({ file: join(dir, "deliveries.jsonl"), logger });
   const inflight = new Set();
+  /** subscription id -> number of its attempts running now */
+  const inflightBySub = new Map();
+  /** subscription id -> ids of its queued items, oldest first (so offering an event never scans the whole outbox) */
+  const queuedBySub = new Map();
+  /** subscription id -> time before which no attempt starts (the circuit breaker); memory only */
+  const heldUntil = new Map();
+  /** subscription id -> failures in a row where the receiver did not answer at all (memory only) */
+  const unreachableStreak = new Map();
+  /** subscription id -> { count: failures not yet reported, lastReportAt } (one summary line a minute, not one per failure) */
+  const failureReports = new Map();
+  /** Attempts started by pump() that have not ended yet (so pump() can wait for them). */
+  const running = new Set();
+  const perSub = w.perSubscription ?? 2;
+  const breakerAfter = w.breakerAfter ?? 3;
   /** @type {Map<string, { url: string, secret: string }>} */
   const creds = new Map();
   let logSeq = deliveries.list().reduce((m, r) => Math.max(m, Number(String(r.id).slice(4)) || 0), 0);
   let timer = null;
   let stopped = false;
   const lastTest = new Map();
+
+  for (const i of outbox.list()) queued(i.subId).add(i.id);
+  function queued(subId) {
+    let set = queuedBySub.get(subId);
+    if (!set) queuedBySub.set(subId, (set = new Set()));
+    return set;
+  }
+  const qPut = (item) => {
+    outbox.put(item);
+    queued(item.subId).add(item.id);
+  };
+  const qDelete = (item) => {
+    outbox.delete(item.id);
+    queuedBySub.get(item.subId)?.delete(item.id);
+  };
 
   // A secret and a URL that were saved before this start must be masked in every log line from the first one.
   const remember = (id, c) => {
@@ -82,7 +118,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
 
   // ── what a person sees ──
   function publicView(s) {
-    const pending = outbox.list().filter((i) => i.subId === s.id).length;
+    const pending = queuedBySub.get(s.id)?.size ?? 0;
     const deadN = dead.list().filter((i) => i.subId === s.id).length;
     return {
       id: s.id,
@@ -203,6 +239,11 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       mustGet(id);
       subs.delete(id);
       for (const i of outbox.list()) if (i.subId === id) outbox.delete(i.id);
+      queuedBySub.delete(id);
+      heldUntil.delete(id);
+      unreachableStreak.delete(id);
+      failureReports.delete(id);
+      inflightBySub.delete(id);
       for (const i of dead.list()) if (i.subId === id) dead.delete(i.id);
       for (const i of deliveries.list()) if (i.subId === id) deliveries.delete(i.id);
       creds.delete(id);
@@ -229,7 +270,9 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       const d = DELIVERY_ID_RE.test(String(deliveryId)) ? dead.get(deliveryId) : null;
       if (!d || d.subId !== id) throw new BridgeError("NOT_FOUND", "No dead letter with this id on this subscription.");
       dead.delete(deliveryId);
-      outbox.put({ id: d.id, subId: id, eventId: d.eventId, topic: d.topic, body: d.body, createdAt: now(), firstAt: now(), attempts: 0, nextAttemptAt: now() });
+      qPut({ id: d.id, subId: id, eventId: d.eventId, topic: d.topic, body: d.body, createdAt: now(), firstAt: now(), attempts: 0, nextAttemptAt: now() });
+      heldUntil.delete(id); // a person asked for it: try now
+      unreachableStreak.delete(id);
       schedule();
       return { id: d.id, status: "queued" };
     },
@@ -266,31 +309,27 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
         if (!s.active || !webhookMatches(s.topics, evt.topic)) continue;
         if (!canSee({ ...ADMIN_ALL, accounts: s.accounts === "*" ? "*" : new Set(s.accounts) }, evt)) continue;
         body ??= JSON.stringify(toEnvelope(evt));
-        const pending = outbox.list().filter((i) => i.subId === s.id);
-        if (pending.length >= w.maxPendingPerSubscription) moveToDead(pending[0], "overflow");
+        const pending = queued(s.id);
+        if (pending.size >= w.maxPendingPerSubscription) {
+          const oldest = outbox.get(pending.values().next().value);
+          if (oldest) moveToDead(oldest, "overflow");
+          else pending.delete(pending.values().next().value);
+        }
         const id = newDeliveryId();
         const t = now();
-        outbox.put({ id, subId: s.id, eventId: String(evt.seq), topic: evt.topic, body, createdAt: t, firstAt: t, attempts: 0, nextAttemptAt: t });
+        qPut({ id, subId: s.id, eventId: String(evt.seq), topic: evt.topic, body, createdAt: t, firstAt: t, attempts: 0, nextAttemptAt: t });
       }
       if (body) schedule();
     },
 
-    /** Start every due delivery (up to the concurrency limit). Resolves when those attempts are done. */
+    /**
+     * Start due deliveries (per-subscription slots, then the global cap). A slot that frees up is refilled at once, so
+     * a receiver that never answers delays only itself. Resolves when nothing is running any more.
+     */
     async pump() {
       if (stopped) return;
-      const t = now();
-      const free = w.concurrency - inflight.size;
-      if (free <= 0) return;
-      const subActive = new Map(subs.list().map((s) => [s.id, s.active]));
-      const due = outbox
-        .list()
-        .filter((i) => !inflight.has(i.id) && i.nextAttemptAt <= t && subActive.get(i.subId) === true)
-        .slice(0, free);
-      const runs = due.map((item) => {
-        inflight.add(item.id);
-        return attempt(item).finally(() => inflight.delete(item.id));
-      });
-      await Promise.all(runs);
+      fill();
+      while (running.size) await Promise.allSettled([...running]);
       schedule();
     },
 
@@ -300,10 +339,26 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       // A secret that is gone (demo mode keeps secrets in memory only) is found now, not at the first delivery.
       void checkCredentials();
     },
-    stop() {
+    /** The computer woke from sleep: timers may be late, and a subscription held by the breaker deserves a fresh look. */
+    wake() {
+      heldUntil.clear();
+      schedule();
+    },
+    /** Stop starting deliveries; wait up to `graceMs` for the ones in flight (the queue is on disk, so the rest is sent again after a restart). */
+    async stop(graceMs = w.stopGraceMs ?? 3000) {
       stopped = true;
       if (timer) clearTimer(timer);
       timer = null;
+      if (!running.size) return;
+      let t;
+      await Promise.race([
+        Promise.allSettled([...running]),
+        new Promise((resolve) => {
+          t = setTimeout(resolve, graceMs);
+          t.unref?.();
+        }),
+      ]);
+      clearTimeout(t);
     },
 
     status() {
@@ -372,7 +427,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
   }
 
   function moveToDead(item, reason, lastStatus) {
-    outbox.delete(item.id);
+    qDelete(item);
     dead.put({ id: item.id, subId: item.subId, eventId: item.eventId, topic: item.topic, body: item.body, createdAt: item.createdAt, deadAt: now(), attempts: item.attempts, reason, lastStatus });
     const all = dead.list();
     for (let i = 0; i < all.length - w.deadLetterMax; i += 1) dead.delete(all[i].id);
@@ -380,25 +435,40 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     if (s) subs.patch(item.subId, { deadLettered: (s.deadLettered ?? 0) + 1 });
   }
 
+  /** A failed delivery is reported on the first failure of a run and then once a minute with how many there were. */
+  function reportFailure(subId, code) {
+    const t = now();
+    const f = failureReports.get(subId) ?? { count: 0, lastReportAt: 0 };
+    f.count += 1;
+    failureReports.set(subId, f);
+    if (f.lastReportAt === 0 || t - f.lastReportAt >= 60_000) {
+      logger.warn?.(`webhook subscription ${subId} failed ${f.count} time${f.count === 1 ? "" : "s"}${f.lastReportAt === 0 ? "" : " in the last minute"}: ${code}`, { subscriptionId: subId, failures: f.count, code });
+      f.count = 0;
+      f.lastReportAt = t;
+    }
+  }
+
   async function attempt(item) {
     const s = subs.get(item.subId);
     if (!s) {
-      outbox.delete(item.id);
+      qDelete(item);
       return;
     }
     const c = await credsOf(item.subId).catch(() => null);
     const n = item.attempts + 1;
     if (!c) {
-      const r = { ok: false, code: "secret_missing" };
-      record({ subId: item.subId, deliveryId: item.id, eventId: item.eventId, topic: item.topic, attempt: n, result: r, outcome: "dead" });
-      subs.patch(item.subId, { needsSecret: true, failed: (subs.get(item.subId).failed ?? 0) + 1, lastFailureAt: now(), lastFailureCode: "secret_missing", lastFailureStatus: null, consecutiveFailures: (subs.get(item.subId).consecutiveFailures ?? 0) + 1 });
-      moveToDead({ ...item, attempts: n }, "secret_missing");
+      // The signing secret is not in the secrets store (a restored backup, a new computer). The deliveries WAIT for it
+      // (they stay queued, not dead-lettered) and go out once the secret is set again.
+      subs.patch(item.subId, { needsSecret: true });
       return;
     }
     const r = await sender.send({ url: c.url, secret: c.secret, body: item.body, headers: headersFor({ eventId: item.eventId, topic: item.topic, deliveryId: item.id, attempt: n }) });
     if (!subs.get(item.subId)) return; // removed while the call was running
     if (r.ok) {
-      outbox.delete(item.id);
+      qDelete(item);
+      heldUntil.delete(item.subId);
+      unreachableStreak.delete(item.subId);
+      if (failureReports.delete(item.subId)) logger.info?.(`webhook subscription ${item.subId} is delivering again`, { subscriptionId: item.subId });
       record({ subId: item.subId, deliveryId: item.id, eventId: item.eventId, topic: item.topic, attempt: n, result: r, outcome: "delivered" });
       subs.patch(item.subId, { delivered: (subs.get(item.subId).delivered ?? 0) + 1, lastDeliveredAt: now(), consecutiveFailures: 0 });
       return;
@@ -406,6 +476,15 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     const t = now();
     const failure = { failed: (subs.get(item.subId).failed ?? 0) + 1, lastFailureAt: t, lastFailureCode: r.code, lastFailureStatus: r.status ?? null, consecutiveFailures: (subs.get(item.subId).consecutiveFailures ?? 0) + 1 };
     subs.patch(item.subId, failure);
+    reportFailure(item.subId, r.code);
+    // The circuit breaker: after a few failures in a row, start no new attempt for this subscription until a backoff
+    // period has passed, however many events arrive. One attempt then probes the receiver.
+    // Only failures that tie up a slot (no answer, no connection) count; an answer such as 400 or 500 frees it at once.
+    if (UNREACHABLE.has(r.code)) {
+      const streak = (unreachableStreak.get(item.subId) ?? 0) + 1;
+      unreachableStreak.set(item.subId, streak);
+      if (streak >= breakerAfter) heldUntil.set(item.subId, t + backoffMs(streak - breakerAfter + 1, w.retry, random));
+    } else unreachableStreak.delete(item.subId);
     const tooOld = t - item.firstAt > w.retry.maxAgeSec * 1000;
     if (!r.retryable || n >= w.retry.maxAttempts || tooOld) {
       record({ subId: item.subId, deliveryId: item.id, eventId: item.eventId, topic: item.topic, attempt: n, result: r, outcome: "dead" });
@@ -432,15 +511,75 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     }
   }
 
+  /**
+   * Start every attempt that is due and has a free slot; each one that ends starts the next. Returns the promises it started.
+   */
+  function fill() {
+    const started = [];
+    if (stopped) return started;
+    const t = now();
+    const active = subs.list().filter((s) => s.active && !s.needsSecret && (heldUntil.get(s.id) ?? 0) <= t);
+    // The subscription with the fewest attempts running goes first, so one busy subscription cannot take every slot.
+    const order = active.map((s) => ({ s, running: inflightBySub.get(s.id) ?? 0 })).sort((a, b) => a.running - b.running);
+    const take = (s) => {
+      for (const id of queuedBySub.get(s.id) ?? []) {
+        if (inflight.has(id)) continue;
+        const item = outbox.get(id);
+        if (item && item.nextAttemptAt <= t) return item;
+      }
+      return null;
+    };
+    // Round after round: each round gives every subscription that has room and work one more slot.
+    for (let progress = true; progress && inflight.size < w.concurrency; ) {
+      progress = false;
+      for (const o of order) {
+        if (inflight.size >= w.concurrency) break;
+        // A subscription that keeps failing (the breaker's hold has ended) gets one probe at a time.
+        const slots = (unreachableStreak.get(o.s.id) ?? 0) >= breakerAfter ? 1 : perSub;
+        if ((inflightBySub.get(o.s.id) ?? 0) >= slots) continue;
+        const item = take(o.s);
+        if (!item) continue;
+        progress = true;
+        inflight.add(item.id);
+        inflightBySub.set(item.subId, (inflightBySub.get(item.subId) ?? 0) + 1);
+        const p = attempt(item)
+          .catch((err) => logger.error?.("webhook delivery failed unexpectedly", { code: err?.code }))
+          .finally(() => {
+            inflight.delete(item.id);
+            const left = (inflightBySub.get(item.subId) ?? 1) - 1;
+            if (left <= 0) inflightBySub.delete(item.subId);
+            else inflightBySub.set(item.subId, left);
+            running.delete(p);
+            if (!stopped) {
+              fill();
+              schedule();
+            }
+          });
+        running.add(p);
+        started.push(p);
+      }
+    }
+    return started;
+  }
+
   function schedule() {
     if (stopped) return;
     if (timer) clearTimer(timer);
     timer = null;
-    const active = new Set(subs.list().filter((s) => s.active).map((s) => s.id));
+    const t = now();
+    const active = new Set(subs.list().filter((s) => s.active && !s.needsSecret).map((s) => s.id));
     let next = Infinity;
-    for (const i of outbox.list()) if (!inflight.has(i.id) && active.has(i.subId)) next = Math.min(next, i.nextAttemptAt);
+    for (const [subId, ids] of queuedBySub) {
+      if (!active.has(subId)) continue;
+      const hold = heldUntil.get(subId) ?? 0;
+      for (const id of ids) {
+        if (inflight.has(id)) continue;
+        const item = outbox.get(id);
+        if (item) next = Math.min(next, Math.max(item.nextAttemptAt, hold));
+      }
+    }
     if (next === Infinity) return;
-    const delay = Math.min(Math.max(0, next - now()), 2_147_000_000);
+    const delay = Math.min(Math.max(0, next - t), 2_147_000_000);
     timer = setTimer(() => {
       timer = null;
       api.pump().catch((err) => logger.error?.("webhook delivery failed unexpectedly", { code: err?.code }));

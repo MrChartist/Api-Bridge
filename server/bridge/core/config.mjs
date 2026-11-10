@@ -150,7 +150,18 @@ export const coreSchema = z
     /** Demo mode: sample market data, no real broker, live trading off (see server/bridge/demo/demoMode.mjs). */
     demo: z.boolean().default(false),
     logging: z
-      .object({ level: z.enum(["debug", "info", "warn", "error", "silent"]).default("info") })
+      .object({
+        level: z.enum(["debug", "info", "warn", "error", "silent"]).default("info"),
+        /**
+         * Which requests get an access line: "errors" (default: status 400 and above, and requests slower than 1 s),
+         * "all" (every request: about 3.7 KB/s at 20 requests/s) or "off".
+         */
+        requests: z.enum(["all", "errors", "off"]).default("errors"),
+        /** Also write <data folder>/logs/bridge.log, rotated (see core/logFile.mjs). Default: on for `mc-bridge start`, off in Docker (use `docker logs`). */
+        file: z.boolean().optional(),
+        maxFileMb: z.number().int().min(1).max(1024).default(10),
+        keepFiles: z.number().int().min(1).max(50).default(5),
+      })
       .strict()
       .prefault({}),
     accounts: z.array(accountSchema).default([]),

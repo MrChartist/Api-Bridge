@@ -14,7 +14,11 @@
  *       "allowPrivateTargets": false,      // true: http:// and loopback / private addresses may be targets (cloud
  *                                          //   metadata addresses are refused even then)
  *       "allowedHosts": [],                // when not empty, a target host must match one: "example.com" or "*.example.com"
- *       "timeoutMs": 10000, "maxResponseBytes": 4096, "concurrency": 4,
+ *       "timeoutMs": 10000, "maxResponseBytes": 4096,
+ *       "concurrency": 16,                 // attempts running at once, all subscriptions together
+ *       "perSubscription": 2,              // attempts running at once for ONE subscription: a receiver that never
+ *                                          //   answers holds only its own slots
+ *       "breakerAfter": 3,                 // failures in a row after which a subscription gets one attempt per backoff period
  *       "replayWindowSec": 300,            // what the docs tell receivers to accept; sent in a header too
  *       "retry": { "maxAttempts": 8, "baseMs": 5000, "maxMs": 3600000, "jitter": 0.2, "maxAgeSec": 86400 },
  *       "maxPendingPerSubscription": 500, "deadLetterMax": 200, "deliveryLogMax": 500
@@ -48,7 +52,9 @@ export const EVENTS_CONFIG_SCHEMA = z
         allowedHosts: z.array(hostPattern).max(100).default([]),
         timeoutMs: z.number().int().min(1000).max(60_000).default(10_000),
         maxResponseBytes: z.number().int().min(256).max(65_536).default(4096),
-        concurrency: z.number().int().min(1).max(32).default(4),
+        concurrency: z.number().int().min(1).max(64).default(16),
+        perSubscription: z.number().int().min(1).max(8).default(2),
+        breakerAfter: z.number().int().min(1).max(20).default(3),
         replayWindowSec: z.number().int().min(30).max(3600).default(300),
         retry: z
           .object({

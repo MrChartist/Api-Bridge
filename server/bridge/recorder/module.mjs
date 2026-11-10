@@ -9,6 +9,7 @@
  */
 import { isStub } from "../core/contracts.mjs";
 import { defineModule } from "../core/modules.mjs";
+import { addMetrics } from "../core/metrics.mjs";
 import { RECORDER_CONFIG_SCHEMA } from "./config.mjs";
 import { createRecorderRoutes } from "./routes.mjs";
 import { createRecorderService } from "./service.mjs";
@@ -52,6 +53,16 @@ export function createRecorderModule(opts = {}) {
     configSchema: RECORDER_CONFIG_SCHEMA,
     services: { recorder: (deps) => createRecorderService(deps, opts) },
     register(app, deps) {
+      addMetrics(deps, () => {
+        const s = deps.recorder.status?.();
+        if (!s) return [];
+        return [
+          { name: "bridge_recorder_rows_today", help: "Rows saved by recordings today.", value: s.today?.rows ?? 0 },
+          { name: "bridge_recorder_gaps_today", help: "Stretches today with no data saved.", value: s.today?.gaps ?? 0 },
+          { name: "bridge_recorder_disk_bytes", help: "Disk used by recordings.", value: s.disk?.usedBytes ?? 0 },
+          { name: "bridge_recorder_recordings_running", help: "Recordings writing now.", value: s.recordings?.running ?? 0 },
+        ];
+      });
       const handlers = createRecorderRoutes(deps);
       for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], { ...options });
     },

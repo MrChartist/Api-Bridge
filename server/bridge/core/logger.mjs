@@ -65,13 +65,26 @@ export function redact(value, exactSecrets = []) {
  *   child(bindings: object): Logger, addSecret(value: string): void, redact(value: unknown): any, level: string }} Logger
  */
 
+let stderrGuarded = false;
+/**
+ * The default sink. A failed write to stderr (a full disk, a closed pipe, a vanished console) must never take the Bridge
+ * down: the stream's own error event is swallowed, so logging can fail silently while everything else keeps working.
+ */
+function stderrSink(line) {
+  if (!stderrGuarded) {
+    stderrGuarded = true;
+    process.stderr.on?.("error", () => {});
+  }
+  process.stderr.write(`${line}\n`);
+}
+
 /**
  * @param {{ level?: keyof LEVELS, write?: (line: string) => void, bindings?: object, now?: () => number }} [opts]
  * @returns {Logger}
  */
 export function createLogger({ level = "info", write, bindings = {}, now = () => Date.now() } = {}) {
   const secrets = new Set();
-  const sink = write ?? ((line) => process.stderr.write(line + "\n"));
+  const sink = write ?? stderrSink;
   const threshold = LEVELS[level] ?? LEVELS.info;
   const make = (base) => {
     const emit = (lvl, msg, fields) => {

@@ -66,6 +66,26 @@ export function createTarWriter(stream) {
       const pad = (BLOCK - (data.length % BLOCK)) % BLOCK;
       if (pad) await write(stream, Buffer.alloc(pad));
     },
+    /**
+     * Add a regular file of known `size` whose content arrives as chunks (a large file is never held whole in memory).
+     * `source` must yield exactly `size` bytes: a file that grew is cut at `size`, one that shrank throws.
+     * @param {string} name @param {number} size @param {AsyncIterable<Buffer>} source
+     * @param {{ mode?: number, mtime?: number, onChunk?: (c: Buffer) => void }} [opts]
+     */
+    async addStream(name, size, source, opts = {}) {
+      await write(stream, tarHeader(name, size, opts));
+      let left = size;
+      for await (const chunk of source) {
+        if (left <= 0) break;
+        const part = chunk.length > left ? chunk.subarray(0, left) : chunk;
+        left -= part.length;
+        opts.onChunk?.(part);
+        await write(stream, part);
+      }
+      if (left > 0) throw new Error(`${name} became shorter while it was being copied`);
+      const pad = (BLOCK - (size % BLOCK)) % BLOCK;
+      if (pad) await write(stream, Buffer.alloc(pad));
+    },
     /** Write the end marker and close the stream. */
     end() {
       return new Promise((resolve, reject) => {

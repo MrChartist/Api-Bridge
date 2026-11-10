@@ -18,6 +18,7 @@ import { createLogger } from "./logger.mjs";
 import { exposureChecks, readHooksQuietly } from "./expose.mjs";
 import { poolingDoctorChecks } from "../sources/pooling.mjs";
 import { PLUGIN_TRUST_NOTICE } from "../sources/plugin/notice.mjs";
+import { SCOPES } from "./context.mjs";
 
 export const USAGE = `Mr. Chartist API Bridge
 
@@ -49,6 +50,7 @@ Usage:
   mc-bridge restore FILE [--dry-run] [--yes]          put a backup back (the Bridge must be stopped; makes a safety copy first)
   mc-bridge kill [--reason <text>] [--cancel-open] [--key <key>]
   mc-bridge kill release [--key <admin key>]
+  mc-bridge orders acknowledge-state   after a damaged order-records file was set aside: you checked the broker's order book, live orders may go again
   mc-bridge mcp --key <key> [--url http://127.0.0.1:4300] [--config <file>]
   mc-bridge openai-tools [--scope read|paper] [--format responses|chat]
   mc-bridge sources list [--json]
@@ -163,6 +165,8 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   add(config.accounts.length ? "ok" : "warn", "accounts", config.accounts.length ? `${config.accounts.length} account(s): ${config.accounts.map((a) => `${a.id} (${a.broker})`).join(", ")}` : "No accounts configured yet");
   for (const c of poolingDoctorChecks({ config })) add(c.level, c.check, c.message);
   for (const c of (await import("../backup/doctor.mjs")).backupDoctorChecks({ config, env })) add(c.level, c.check, c.message);
+  // The data folder and the newer parts (lock, disk, files set aside, downloads, recordings, webhooks, collections).
+  for (const c of (await import("../storage/doctor.mjs")).opsDoctorChecks({ config, env })) add(c.level, c.check, c.message, { ...(c.fix ? { fix: c.fix } : {}), ...(c.blocking ? { blocking: true } : {}) });
   try {
     new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata" }).format(new Date());
     add("ok", "timezone", "Asia/Kolkata time zone data available");
@@ -238,12 +242,24 @@ export function readinessDoctorChecks(config) {
   return out;
 }
 
-async function bootServices(flags, io, { server = false } = {}) {
+async function bootServices(flags, io, { server = false, instanceLock = null } = {}) {
   const { config, warnings, source } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true });
   const { createApp } = await import("./app.mjs");
   // The server logs at the configured level; one-shot commands only show warnings and errors.
-  const logger = createLogger({ level: server || config.logging.level === "debug" ? config.logging.level : "warn" });
-  const app = await createApp({ config, logger, warnings, configFile: configFileForWrites(source, io.env) });
+  const level = server || config.logging.level === "debug" ? config.logging.level : "warn";
+  // The running Bridge also keeps a rotated log file in its data folder (a double-clicked Bridge loses its console
+  // history when the window closes); Docker logs to the console only, unless the config says otherwise.
+  const toFile = server && (config.logging.file ?? io.env.MCB_DOCKER !== "1");
+  let logger;
+  if (toFile) {
+    const { createLogFile } = await import("./logFile.mjs");
+    const file = createLogFile({ dir: join(config.dataDir, "logs"), maxBytes: config.logging.maxFileMb * 1024 * 1024, keep: config.logging.keepFiles });
+    logger = createLogger({ level, write: (line) => {
+      process.stderr.write(`${line}\n`);
+      file.write(line);
+    } });
+  } else logger = createLogger({ level });
+  const app = await createApp({ config, logger, warnings, configFile: configFileForWrites(source, io.env), ...(instanceLock ? { instanceLock } : {}) });
   return { app, config: app.config, warnings, source, logger };
 }
 
@@ -329,7 +345,7 @@ export async function probeBridge(baseUrl) {
     const res = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
     if (!res.ok) return null;
     const body = await res.json();
-    return body?.status === "ok" && typeof body.apiVersion === "string" ? body : null;
+    return (body?.status === "ok" || body?.status === "degraded") && typeof body.apiVersion === "string" ? body : null;
   } catch {
     return null;
   }
@@ -454,6 +470,23 @@ export async function runCli(positionals, flags, io) {
           await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
           return 0;
         }
+        // One Bridge per data folder: take the lock before reading any file, so a second Bridge is refused with the
+        // other one's process id and port (core/instanceLock.mjs).
+        const { acquireInstanceLock } = await import("./instanceLock.mjs");
+        const instanceLock = acquireInstanceLock({ dataDir: planned.dataDir, port: planned.server.port || null, version: (await import("./app.mjs")).BRIDGE_VERSION });
+        // The port first: a busy port is found before any module is built, so no account connects (and no broker login is
+        // used) for a Bridge that cannot listen anyway.
+        if (planned.server.port !== 0) {
+          const free = await new Promise((resolveFree) => {
+            const probe = net.createServer();
+            probe.once("error", (e) => resolveFree(e?.code !== "EADDRINUSE"));
+            probe.listen(planned.server.port, planned.server.host, () => probe.close(() => resolveFree(true)));
+          });
+          if (!free) {
+            instanceLock.release();
+            throw new BridgeError("VALIDATION_FAILED", `Port ${planned.server.port} is already in use by another program (not this Bridge). Close that program, or choose another port under "server" in bridge.config.json (for example "port": 4301).`);
+          }
+        }
         // A new Bridge version may change how files are stored: copy the data first (never stops the start).
         const snapshot = await (await import("../backup/manager.mjs")).createBackupManager({
           dataDir: planned.dataDir,
@@ -463,7 +496,13 @@ export async function runCli(positionals, flags, io) {
           env: io.env,
         }).snapshotBeforeStart();
         if (snapshot.message) io.err(snapshot.message);
-        const { app } = await bootServices(flags, io, { server: true });
+        let app;
+        try {
+          ({ app } = await bootServices(flags, io, { server: true, instanceLock }));
+        } catch (err) {
+          instanceLock.release();
+          throw err;
+        }
         let port;
         let publicPort;
         let sheetsPort;
@@ -494,12 +533,9 @@ export async function runCli(positionals, flags, io) {
           io.onListening(app);
           return null;
         }
-        const stop = async () => {
-          await app.close();
-          process.exit(0);
-        };
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
+        // Ctrl+C, a termination signal, closing the terminal or console window (SIGHUP, SIGBREAK) and a stray error all stop
+        // the Bridge the same way: modules write their state, the lock and control token go, with a 10 s deadline.
+        (await import("./shutdown.mjs")).installShutdown(app, { logger: app.deps.logger });
         return null;
       }
       case "open": {
@@ -637,6 +673,11 @@ export async function runCli(positionals, flags, io) {
         return await recordCliCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
+      case "orders": {
+        const { config } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd });
+        const { ordersCommand } = await import("../orders/cli.mjs");
+        return await ordersCommand(positionals.slice(1), flags, io, { dataDir: config.dataDir, baseUrl: bridgeUrl(flags, io, config), usage: USAGE });
+      }
       case "backup":
       case "restore":
         return await backupRestoreCommand(cmd, positionals.slice(1), flags, io);
@@ -651,6 +692,9 @@ export async function runCli(positionals, flags, io) {
     }
     if (err instanceof BridgeError) {
       io.err(`Error: ${err.detail}`);
+      // The fields that were wrong, one per line ("scopes.0: Invalid option ..."), the way the config errors name them.
+      for (const e of (err.errors ?? []).slice(0, 8)) if (e?.path && e.path !== "(root)") io.err(`  ${e.path}: ${e.message}`);
+      if (cmd === "keys" && sub === "create" && (err.errors ?? []).some((e) => /^scopes/.test(e?.path ?? ""))) io.err(`  Allowed scopes: ${SCOPES.join(", ")} (for example --scope read,paper).`);
       return 1;
     }
     throw err;

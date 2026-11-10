@@ -123,6 +123,10 @@ receives events about those accounts; events that name no account (the kill swit
 | `backup.completed` | admin | A backup was written |
 | `backup.failed` | admin | A backup could not be written |
 | `config.warning` | admin | The Bridge found something in the config worth fixing |
+| `storage.status` | admin | Free space on the Bridge's disk became low, critical or normal again |
+| `data.quarantined` | admin | A damaged data file was set aside and the Bridge started without it |
+| `system.resumed` | admin | The computer woke from sleep (or the Bridge was frozen), with how long it was away |
+| `system.clock_changed` | admin | The computer's clock jumped (a time sync, or someone changed it) |
 
 Never offered: `tick` (use the price stream), key events and the audit log. Before an event leaves the Bridge, every field that
 looks like a secret, a token, a key, a password or an approval is removed, and key-like text is masked.

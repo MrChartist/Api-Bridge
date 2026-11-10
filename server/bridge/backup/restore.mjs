@@ -19,7 +19,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
 import { checkCompatibility, extractArchive, freeBytes, inspectArchive } from "./archive.mjs";
-import { CONFIG_ENTRY, DATA_PREFIX, SECRETS_FILE_NAME, collectDataFiles } from "./paths.mjs";
+import { BULK_DIRS, CONFIG_ENTRY, DATA_PREFIX, SECRETS_FILE_NAME, collectDataFiles } from "./paths.mjs";
 import { createBackupManager } from "./manager.mjs";
 
 const sha256File = (p) => {
@@ -35,6 +35,7 @@ const sha256File = (p) => {
  * @returns {{ add: string[], replace: string[], same: string[], remove: string[], config: "add" | "replace" | "same" | "none", secrets: "restored" | "kept" | "none", bytes: number }}
  */
 export function planRestore({ manifest, dataDir, configFile, masterKeyFile, applyConfig = true }) {
+  const withData = manifestHasData(manifest);
   const plan = { add: [], replace: [], same: [], remove: [], config: "none", secrets: "none", bytes: 0 };
   const incoming = new Set();
   for (const f of manifest.files) {
@@ -53,11 +54,14 @@ export function planRestore({ manifest, dataDir, configFile, masterKeyFile, appl
   const hasSecrets = incoming.has(SECRETS_FILE_NAME);
   plan.secrets = hasSecrets ? "restored" : existsSync(join(dataDir, SECRETS_FILE_NAME)) ? "kept" : "none";
   if (existsSync(dataDir)) {
-    const { files } = collectDataFiles(dataDir, { includeSecrets: hasSecrets, masterKeyFile });
-    for (const f of files) if (!incoming.has(f.rel)) plan.remove.push(f.rel);
+    const { files } = collectDataFiles(dataDir, { includeSecrets: hasSecrets, includeData: withData, masterKeyFile });
+    for (const f of files) if (!incoming.has(f.rel) && !f.bulk) plan.remove.push(f.rel);
   }
   return plan;
 }
+
+/** Whether the archive carries downloads or recordings (made with --include-data). */
+export const manifestHasData = (manifest) => manifest?.includesData === true || (manifest?.files ?? []).some((f) => /^data\/(downloads|recordings)\//.test(f.path));
 
 /** First path segment. */
 const top = (rel) => rel.split("/")[0];
@@ -87,6 +91,7 @@ export async function restoreBackup(o) {
   const id = `${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 
   // 4. Safety backup of what is there now (skipped when there is nothing to lose).
+  // The safety copy holds settings and state only (never the bulk folders): it must be small and quick to make.
   const current = existsSync(dataDir) ? collectDataFiles(dataDir, { includeSecrets: true, masterKeyFile }).files : [];
   const mgr = createBackupManager({ dataDir, configFile, config: o.config, bridgeVersion, logger, env: o.env ?? process.env, freeBytesFn: o.freeBytesFn });
   if (current.length || (configFile && existsSync(configFile))) {
@@ -117,7 +122,8 @@ export async function restoreBackup(o) {
     mkdirSync(holding, { recursive: true, mode: 0o700 });
     const incomingTop = new Set(manifest.files.filter((f) => f.path.startsWith(DATA_PREFIX)).map((f) => top(f.path.slice(DATA_PREFIX.length))));
     const hasSecrets = manifest.files.some((f) => f.path === DATA_PREFIX + SECRETS_FILE_NAME);
-    const currentTop = new Set(collectDataFiles(dataDir, { includeSecrets: hasSecrets, masterKeyFile }).files.map((f) => top(f.rel)));
+    const withData = manifestHasData(manifest);
+    const currentTop = new Set(collectDataFiles(dataDir, { includeSecrets: hasSecrets, includeData: withData, masterKeyFile, maxDataFiles: Number.MAX_SAFE_INTEGER }).files.map((f) => top(f.rel)));
     for (const name of new Set([...incomingTop, ...currentTop])) {
       const live = join(dataDir, name);
       if (existsSync(live)) move(live, join(holding, name));
@@ -150,7 +156,22 @@ export async function restoreBackup(o) {
     throw new BridgeError("VALIDATION_FAILED", `The restore failed part way and was undone; your data is as it was. (${String(err?.message ?? err)})`);
   }
   rmSync(staging, { recursive: true, force: true });
-  rmSync(holding, { recursive: true, force: true });
+  // Downloads and recordings that this restore replaced are not thrown away with the holding folder (no safety copy has
+  // them): they stay in the data folder under a new name until the person has looked.
+  summary.keptBulk = [];
+  for (const name of BULK_DIRS) {
+    const old = join(holding, name);
+    if (!existsSync(old)) continue;
+    const kept = `${name}.before-restore-${id}`;
+    try {
+      renameSync(old, join(dataDir, kept));
+      summary.keptBulk.push(kept);
+    } catch {
+      /* it stays in the holding folder, which is then kept too */
+      summary.keptBulk.push(`.pre-restore-${id}/${name}`);
+    }
+  }
+  if (!summary.keptBulk.some((k) => k.startsWith(".pre-restore-"))) rmSync(holding, { recursive: true, force: true });
   summary.restored = true;
   return summary;
 }

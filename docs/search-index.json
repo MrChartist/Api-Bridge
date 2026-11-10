@@ -144,7 +144,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "216 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "219 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -1218,6 +1218,15 @@
     },
     {
       "headings": [
+        "POST /v1/orders/state/acknowledge"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/acknowledgeOrderState.md",
+      "text": "POST /v1/orders/state/acknowledge. When the Bridge's record of sent orders (orders/state.json) is damaged it is set aside and live orders are refused (ORDERSTATEDAMAGED); paper orders keep working.",
+      "title": "Allow live orders again after the order records were damaged"
+    },
+    {
+      "headings": [
         "POST /v1/orders/cancel-all"
       ],
       "kind": "endpoint",
@@ -2001,12 +2010,30 @@
     },
     {
       "headings": [
+        "GET /v1/metrics"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getMetrics.md",
+      "text": "GET /v1/metrics. This computer only, admin key.",
+      "title": "The Bridge's own numbers (Prometheus text)"
+    },
+    {
+      "headings": [
         "GET /openapi.yaml"
       ],
       "kind": "endpoint",
       "path": "docs/api/system/getOpenApi.md",
       "text": "GET /openapi.yaml.",
       "title": "This document"
+    },
+    {
+      "headings": [
+        "GET /v1/ready"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getReady.md",
+      "text": "GET /v1/ready. No key needed.",
+      "title": "Ready to take work (503 while starting or when the disk is full)"
     },
     {
       "headings": [
@@ -2138,7 +2165,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 211 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 214 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {
@@ -2454,6 +2481,23 @@
       "path": "docs/guides/notifications.md",
       "text": "The Bridge listens to its own events (orders, tickets, the kill switch, broker sessions, webhook alerts, safety limits, data sources) and turns the ones you chose into short plain messages. Today the way to receive them is Telegram: see the step-by-step Telegram guide. This page...",
       "title": "Notifications: how the Bridge tells you things"
+    },
+    {
+      "headings": [
+        "One Bridge per data folder",
+        "Stopping",
+        "A damaged file",
+        "Disk space",
+        "Health, readiness and numbers",
+        "Logs",
+        "Webhooks that do not answer",
+        "Sleep and wake",
+        "The audit log"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/operations.md",
+      "text": "What the Bridge does to stay up, what it tells you when something is wrong, and what to do about it. Everything here is for a Bridge on your own computer or server. Run mc-bridge doctor any time: it reads the data folder (the Bridge does not need to be running) and says what...",
+      "title": "Running the Bridge day to day"
     },
     {
       "headings": [

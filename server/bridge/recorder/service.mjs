@@ -53,6 +53,7 @@ export const GAP_REASONS = Object.freeze({
   "delayed-source": "The only data available was not real-time, and a recording never saves that.",
   "universe-unresolved": "The symbols to record could not be chosen (see the note on the recording).",
   "bridge-stopped": "The Bridge was not running.",
+  "computer-asleep": "The computer was asleep (or the Bridge was frozen), so nothing could be recorded.",
   "disk-full": "Writing stopped because a disk limit was reached.",
   error: "The data could not be read.",
 });
@@ -541,12 +542,25 @@ export function createRecorderService(deps, opts = {}) {
     return "feed-silent";
   }
 
+  /** Stretches when the computer slept (system.resumed): a silent feed in one of them is the computer's doing, not the broker's. */
+  const sleeps = [];
+  const duringSleep = (from, to) => sleeps.some((s) => s.from <= to && s.to >= from);
+  const sleepReason = (reason, from, to) => ((reason === "feed-silent" || reason === "feed-down") && duringSleep(from, to) ? "computer-asleep" : reason);
+
   function afterSample(rec, t, wrote, cause, detail) {
     const since = Math.max(rec.lastDataMs ?? 0, rec.sessionBaseMs ?? 0);
     const limit = gapAfterMs(rec);
     if (wrote) {
-      if (rec.gap) closeGap(rec, t);
-      else if (since && t - since >= limit) addClosedGap(rec, since, t, rec.firstReason ?? "feed-silent", rec.firstReason ? GAP_REASONS[rec.firstReason] : undefined);
+      if (rec.gap) {
+        if (rec.gap.reason === "feed-silent" || rec.gap.reason === "feed-down") {
+          const asleep = sleepReason(rec.gap.reason, rec.gap.from, t);
+          if (asleep !== rec.gap.reason) Object.assign(rec.gap, { reason: asleep, detail: GAP_REASONS[asleep] });
+        }
+        closeGap(rec, t);
+      } else if (since && t - since >= limit) {
+        const reason = sleepReason(rec.firstReason ?? "feed-silent", since, t);
+        addClosedGap(rec, since, t, reason, reason === "computer-asleep" ? GAP_REASONS[reason] : rec.firstReason ? GAP_REASONS[rec.firstReason] : undefined);
+      }
       rec.firstReason = null;
       rec.lastDataMs = t;
       return;
@@ -820,6 +834,7 @@ export function createRecorderService(deps, opts = {}) {
 
   function statusText(rec) {
     const d = rec.def;
+    if (d.damaged) return "Damaged: the recording's settings file could not be read and was set aside. Its saved files are kept. Delete it, or start a new recording.";
     if (d.status === "stopped") return d.statusReason === "rule-off" ? "Stopped: the rule is off." : "Stopped.";
     if (d.status === "paused") return "Paused.";
     if (rec.blocked) return `Not writing: ${rec.blocked.message}`;
@@ -841,6 +856,7 @@ export function createRecorderService(deps, opts = {}) {
       kind: d.kind,
       status: state,
       statusText: statusText(rec),
+      ...(d.damaged ? { damaged: true } : {}),
       auto: d.source === "rule",
       ruleId: d.ruleId,
       target: d.target,
@@ -1206,7 +1222,9 @@ export function createRecorderService(deps, opts = {}) {
 
   function loadRecordings() {
     for (const id of store.ids()) {
-      const def = store.readJson(id, "recording.json", null);
+      // A recording.json that cannot be read is set aside and replaced by a "damaged" stub: the recording stays in the
+      // list (with its day files counted and a way to delete it) instead of vanishing and leaving orphan data.
+      const def = store.loadDef(id, { log, now: now() });
       if (!def || def.id !== id) continue;
       const state = store.readJson(id, "state.json", {});
       recs.set(id, makeRuntime(def, state));
@@ -1217,6 +1235,14 @@ export function createRecorderService(deps, opts = {}) {
     const wake = () => {
       for (const rec of recs.values()) if (rec.def.status === "active" && (rec.gap || rec.lastIssue)) kick(rec);
     };
+    offBus.push(
+      bus.on("system.resumed", (e) => {
+        const to = now();
+        sleeps.push({ from: to - (Number(e?.sleptMs) || 0) - 5000, to: to + 5000 });
+        if (sleeps.length > 20) sleeps.shift();
+        wake();
+      }),
+    );
     offBus.push(bus.on("account.status", (e) => (e?.session === "connected" ? wake() : undefined)));
     offBus.push(bus.on("stream.status", (e) => (e?.state === "up" || e?.connected === true ? wake() : undefined)));
     offBus.push(

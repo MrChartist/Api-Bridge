@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pipeline } from "node:stream/promises";
 import { z } from "zod";
+import { loadJsonOrQuarantine } from "../../lib/safeStore.mjs";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { INTERVALS, planInterval } from "../market/history.mjs";
@@ -115,6 +116,8 @@ export function createDownloadManager(deps, opts = {}) {
   let started = false;
   let stopped = false;
   let diskBytes = 0;
+  /** The disk holding the data folder is nearly full (storage module, topic storage.status): nothing new starts, running jobs wait. */
+  let diskCritical = false;
   let housekeeping = null;
   const unsubs = [];
 
@@ -208,8 +211,21 @@ export function createDownloadManager(deps, opts = {}) {
     for (const id of ids) {
       if (!JOB_ID_RE.test(id)) continue;
       try {
-        const job = JSON.parse(await readFile(join(jobDir(id), "job.json"), "utf8"));
-        if (job?.id !== id || !Array.isArray(job.items)) continue;
+        // A job.json that cannot be read is set aside and the job stays in the list as a "damaged" failed job: its files
+        // still count towards the disk cap, so they must stay visible and deletable (DELETE /v1/downloads/<id>).
+        const loaded = loadJsonOrQuarantine(join(jobDir(id), "job.json"), { what: `download job ${id}`, log: logger, now: now(), validate: (v) => (v?.id === id && Array.isArray(v.items)) || "has an unknown format" });
+        if (loaded.missing) continue;
+        let job = loaded.value;
+        if (!job) {
+          let createdAt = nowIso();
+          try {
+            createdAt = new Date((await stat(jobDir(id))).mtimeMs).toISOString();
+          } catch {
+            /* keep now */
+          }
+          job = { id, name: `Damaged download ${id}`, status: "failed", reason: "damaged", message: "The job's settings file could not be read and was set aside. Its saved files are kept; delete the job to free the space.", items: [], outputs: [], request: {}, dataClass: "eod", sources: [], notes: ["The settings of this job were damaged, so its data class and source are unknown."], createdAt, damaged: true };
+          await persistNow(job).catch(() => {});
+        }
         if (job.status === "running") {
           // The Bridge stopped while this job ran: it continues from its last saved window.
           job.status = "queued";
@@ -548,6 +564,7 @@ export function createDownloadManager(deps, opts = {}) {
   }
 
   async function create(body, o = {}) {
+    if (diskCritical) throw new BridgeError("DISK_FULL", "The disk holding the Bridge's data is almost full, so no new download was started. Free some space (delete old downloads and recordings) and try again.");
     const c = cfg();
     const p = await plan(body, o);
     const req = p.request;
@@ -839,7 +856,7 @@ export function createDownloadManager(deps, opts = {}) {
     const text = (withHeader ? headerText({ format: req.format, layout: req.layout, interval: item.interval }) : "") + encodeBars(bars, { symbol: item.symbol, interval: item.interval, format: req.format, layout: combined ? "combined" : "per-symbol" });
     const n = Buffer.byteLength(text);
     await ensureDisk(n);
-    await appendFile(partPath(job, index), text);
+    await appendFile(partPath(job, index), text, { mode: 0o600 });
     diskBytes += n;
     item.partBytes += n;
     item.bytes += n;
@@ -855,7 +872,7 @@ export function createDownloadManager(deps, opts = {}) {
   async function appendNewBars(part, file, { format, interval, headerFirst }) {
     const existing = await trimPartialTail(file);
     const last = existing ? ((await lastBarOf(file, { format, layout: "per-symbol", interval }))?.bar.time ?? -Infinity) : -Infinity;
-    const out = createWriteStream(file, { flags: "a" });
+    const out = createWriteStream(file, { flags: "a", mode: 0o600 });
     if (existing === 0) out.write(headerFirst);
     const rl = createInterface({ input: createReadStream(part, { encoding: "utf8" }), crlfDelay: Infinity });
     for await (const line of rl) {
@@ -1044,7 +1061,7 @@ export function createDownloadManager(deps, opts = {}) {
         const name = uniqueName(`${job.combinedBase}_${interval}`, ext, taken);
         const final = join(jobDir(job.id), name);
         const tmp = `${final}.tmp`;
-        const out = createWriteStream(tmp);
+        const out = createWriteStream(tmp, { mode: 0o600 });
         out.write(headerText({ format: req.format, layout: "combined", interval }));
         let rows = 0;
         let firstBar = null;
@@ -1473,6 +1490,12 @@ export function createDownloadManager(deps, opts = {}) {
         else resumeAuto("kill_switch").catch(() => {});
       }),
       bus.on("key.revoked", (e) => (e?.keyId ? pauseJobsOfKey(e.keyId).catch(() => {}) : undefined)),
+      // The storage module's free-space floor: below it, jobs pause (reason disk_low) and continue when there is room again.
+      bus.on("storage.status", (e) => {
+        diskCritical = e?.level === "critical";
+        if (diskCritical) pauseAuto("disk_low", "The disk holding the Bridge's data is almost full, so downloads are paused. They continue when space is freed.").catch(() => {});
+        else resumeAuto("disk_low").catch(() => {});
+      }),
       bus.on("account.status", () => onAccountChange().catch(() => {})),
       bus.on("account.session_rejected", () => onAccountChange().catch(() => {})),
     );

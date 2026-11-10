@@ -41,7 +41,7 @@
  * not an AI assistant or a webhook. Both actions are audited and emit "safety.kill_switch"; OrderService listens
  * and runs cancelAll when cancelOpenOrders is true (safety does not depend on orders, which would be a cycle).
  *
- * Refusals are audited as "safety.refused" (repeats of the same refusal within a second are folded into the next
+ * Refusals are audited as "safety.refused" (repeats of the same refusal within a minute are folded into the next
  * record's `suppressed` count, so a runaway script cannot flood the log).
  */
 import { join } from "node:path";
@@ -91,7 +91,8 @@ const EQUITY_SESSION_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO"]);
 const DERIVATIVE_EXCHANGES = new Set(["NFO", "BFO", "MCX", "CDS"]);
 const RELEASE_FORBIDDEN_SOURCES = new Set(["mcp", "webhook"]);
 const LIMIT_CODES = new Set(["DAILY_LIMIT_REACHED", "ORDER_RATE_LIMITED"]);
-const REFUSAL_FOLD_MS = 1000;
+/** The same refusal (account, mode, action, reasons) within this time is one audit record with a count: a script retrying after the daily limit must not add a line per request. */
+const REFUSAL_FOLD_MS = 60_000;
 /**
  * Weekday trading windows (IST minutes from midnight) for exchanges lib/marketHours.mjs does not cover. Needs
  * verification: MCX closes at 23:30 or 23:55 depending on US daylight saving, so the later time is used (the broker

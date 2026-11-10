@@ -24,6 +24,7 @@ import events from "../events/module.mjs";
 import downloads from "../downloads/module.mjs";
 
 import recorder from "../recorder/module.mjs";
+import storage from "../storage/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, library, events, downloads, recorder]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, library, events, downloads, recorder, storage]);
 

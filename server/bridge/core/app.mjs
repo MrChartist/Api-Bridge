@@ -30,6 +30,12 @@ import { createEventBus } from "./eventBus.mjs";
 import { createWriteIdempotency, fingerprint as requestFingerprint, ignoresIdempotencyKey, isIdempotentRoute, readIdempotencyKey } from "./idempotency.mjs";
 import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
+import { acquireInstanceLock } from "./instanceLock.mjs";
+import { createPowerWatcher } from "./powerEvents.mjs";
+import { createLoopLag, renderMetrics } from "./metrics.mjs";
+import { healthProblems, notReadyReasons } from "./healthProblems.mjs";
+import { isDiskFull } from "../../lib/storageHealth.mjs";
+import { onQuarantine } from "../../lib/storageHealth.mjs";
 import { Reply, json, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
 import { MIN_COMPRESS_BYTES, createCompressionCache, etagFor, ifNoneMatches, isCompressible, negotiateEncoding } from "./staticCompress.mjs";
@@ -39,12 +45,15 @@ import { registerExposeRoutes, sheetsAdmits, createSheetsLimiter } from "./expos
 import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
 import { backupHealth } from "../backup/health.mjs";
+import { storageMonitorOf } from "../storage/registry.mjs";
 import { httpConsumer, runAsConsumer } from "../ratelimit/consumer.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 export const BRIDGE_VERSION = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
 export const API_VERSION = "v1";
+/** The longest one module may take to stop (downloads, recordings and the webhook queue write their state in it). */
+export const MODULE_STOP_MS = 5000;
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 
 /** Pull the raw API key from a request. Returns { key, viaQuery } or null. */
@@ -137,15 +146,29 @@ export const DASHBOARD_FILES = Object.freeze({
  *   brokers?: any, warnings?: string[], configFile?: string | null, demoRoutes?: readonly import("../demo/routes.mjs").DemoRoute[] }} opts
  *   configFile: where accounts added from the dashboard are saved (config.mjs configFileForWrites). Without it the
  *   Bridge cannot add or remove accounts at run time.
+ *   instanceLock: the data-folder lock when the caller took it before building the app (the `start` command does, so
+ *   a second Bridge is refused before it reads any file); otherwise listen() takes it (core/instanceLock.mjs).
+ *   Pass `false` to take no lock (tests that deliberately run two Bridges on one folder).
  *   demoRoutes: replaces demo/routes.mjs DEMO_ROUTES (tests only); registered only when config.demo is true.
  */
-export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes }) {
+export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes, instanceLock = null, moduleStopMs = MODULE_STOP_MS }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
   const config = withAddableAccounts(applyModuleConfig(baseConfig, mods));
   const log = logger ?? createLogger({ level: config.logging.level });
   const bus = createEventBus({ logger: log });
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+  // A damaged file moved aside while the stores load: tell listeners (the Telegram agent, webhooks) as `data.quarantined`.
+  // Paths are shown relative to the data folder. Subscribed before the stores are built, so nothing is missed.
+  const rel = (p) => (p && String(p).startsWith(config.dataDir) ? String(p).slice(config.dataDir.length).replace(/^[\\/]+/, "") : p);
+  const offQuarantine = onQuarantine((e) => {
+    if (!String(e.file).startsWith(config.dataDir)) return;
+    try {
+      bus.emit("data.quarantined", { what: e.what, file: rel(e.file), movedTo: rel(e.movedTo), reason: e.reason, at: new Date(e.at).toISOString() });
+    } catch {
+      /* a listener failed: the bus logs it */
+    }
+  });
   const coreDeps = {
     config,
     logger: log,
@@ -203,7 +226,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       // While the Bridge starts, the reads it holds (positions, funds, orders, trades, the book) and how far the jobs
       // they wait for have got: a page shows that progress instead of a silent wait (core/startup.mjs).
       const starting = startupStatus(deps);
-      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}), ...(starting ? { startup: starting } : {}) };
+      const problems = healthProblems(deps);
+      const basic = { status: problems.length ? "degraded" : "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}), ...(starting ? { startup: starting } : {}) };
       if (!ctx.loopback) return basic;
       const services = {};
       for (const name of Object.keys(SERVICE_CONTRACTS).filter((k) => !SERVICES_NOT_IN_V2.includes(k))) services[name] = isStub(deps[name]) ? "not_built" : "ready";
@@ -217,9 +241,26 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       } catch {
         sources = undefined;
       }
-      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}), backup: backupHealth({ config, dataDir: config.dataDir }) };
+      const storage = storageMonitorOf(deps)?.status();
+      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}), backup: backupHealth({ config, dataDir: config.dataDir }), ...(storage ? { storage } : {}), problems };
     },
     { auth: "none", summary: "Liveness; detail only for loopback callers" },
+  );
+  core.get(
+    "/v1/metrics",
+    () => text(renderMetrics(deps, { startedAt, http: httpCounts, loopLag, config }), { headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" } }),
+    { scope: "admin", loopbackOnly: true, summary: "The Bridge's own numbers as Prometheus text (counters and gauges only)" },
+  );
+  core.get(
+    "/v1/ready",
+    (ctx) => {
+      // 503 while the Bridge is still starting, or when the disk is too full to save safely. A load balancer, a Docker
+      // health check or a script can wait on this instead of guessing.
+      const reasons = notReadyReasons(deps, { startup: startupStatus(deps) });
+      const body = ctx.loopback ? { ready: reasons.length === 0, reasons } : { ready: reasons.length === 0 };
+      return json(body, { status: reasons.length ? 503 : 200 });
+    },
+    { auth: "none", summary: "Ready to take work: 503 while starting or when the disk is full" },
   );
   core.get(
     "/v1/meta",
@@ -455,8 +496,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         else idem.release();
       }
       send(res, reply, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
-    } catch (err) {
+    } catch (rawErr) {
       idem?.release(); // a failed write is forgotten, so the same key can retry it
+      // A full disk is its own answer (DISK_FULL, 507) with the fix, not "Internal error".
+      const err = !(rawErr instanceof BridgeError) && (isDiskFull(rawErr) || isDiskFull(rawErr?.cause))
+        ? new BridgeError("DISK_FULL", "The disk the Bridge keeps its data on is full, so this could not be saved. Free some space (delete old downloads and recordings), then repeat the request.")
+        : rawErr;
+      if (err !== rawErr) log.error("a write failed because the disk is full", { requestId, path, code: rawErr?.code ?? rawErr?.cause?.code });
       const problem = toProblem(err, { requestId });
       if (config.demo && problem.code === "ACCOUNT_NOT_FOUND") problem.detail = `${problem.detail ?? ""} ${DEMO_ACCOUNT_HINT}`.trim();
       status = problem.status;
@@ -484,7 +530,12 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       } else sendProblem(res, problem, { ...headers, ...(ctx?.responseHeaders ?? {}), ...problemHeaders(err) });
     } finally {
       const ms = Date.now() - t0;
-      log.info("http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined, ...(listener.sheets ? { sheets: true, ip: req.socket?.remoteAddress } : {}) });
+      httpCounts.set(`${Math.floor(status / 100)}xx`, (httpCounts.get(`${Math.floor(status / 100)}xx`) ?? 0) + 1);
+      // Access lines: errors and slow requests by default (logging.requests); "all" logs every one, "off" none.
+      const reqLog = config.logging.requests ?? "errors";
+      if (reqLog === "all" || (reqLog === "errors" && (status >= 400 || ms >= 1000))) {
+        (status >= 500 ? log.warn : log.info).call(log, "http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined, ...(listener.sheets ? { sheets: true, ip: req.socket?.remoteAddress } : {}) });
+      }
       if (!listener.public && path !== "/v1/requests" && !path.startsWith("/dashboard")) {
         const client = req.headers["x-mcb-client"] === "dashboard" ? "dashboard" : null;
         recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId, ...(ctx?.route ? { route: ctx.route } : {}) });
@@ -533,6 +584,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
 
   const servers = [];
   let started = false;
+  /** Answers by status class, for /v1/metrics. */
+  const httpCounts = new Map();
+  const loopLag = createLoopLag();
+  /** Notices sleep, wake and clock steps and tells the bus (core/powerEvents.mjs). */
+  const power = createPowerWatcher({ bus, logger: log });
+  /** The data-folder lock this app holds (taken in listen() unless the caller passed one). */
+  let lock = instanceLock;
   /** Written while listening; see controlToken.mjs. */
   let controlToken = null;
 
@@ -546,6 +604,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     /** Bind the listeners and start modules. Resolves with the bound ports. */
     async listen() {
       if (started) throw new Error("already listening");
+      // One Bridge per data folder: a second one is refused here, with the holder's process id and port.
+      if (lock === null) lock = acquireInstanceLock({ dataDir: config.dataDir, port: config.server.port || null, version: BRIDGE_VERSION, logger: log });
       started = true;
       // Reads gated on startup jobs (the demo book seed) wait from the first request until the jobs are done.
       armStartup(deps);
@@ -565,6 +625,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       // Host check needs the real port (port 0 = ephemeral in tests), so build it after binding.
       mainListener.hostCheck = (h) => createHostCheck({ port: mainListener.boundPort ?? s.port, allowedHosts: s.allowedHosts })(h);
       const port = await bind(s.host, s.port, mainListener);
+      if (lock) lock.setPort(port);
       let publicPort = null;
       if (s.publicIngress.enabled) {
         const pub = { public: true, hostCheck: null };
@@ -578,6 +639,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         sheetsPort = await bind(s.sheetsIngress.host, s.sheetsIngress.port, sh);
       }
       for (const m of mods) if (m.start) await m.start(deps);
+      power.start();
       // Not awaited: the Bridge answers at once; only the gated reads wait for the startup jobs.
       openStartup(deps).catch(() => {});
       try {
@@ -591,14 +653,27 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     },
     /** Stop modules (reverse order) and close listeners. */
     async close() {
+      power.stop();
+      loopLag.stop();
       if (controlToken) removeControlToken(config.dataDir, controlToken);
       controlToken = null;
       for (const m of [...mods].reverse()) {
         if (!m.stop) continue;
+        let timer;
         try {
-          await m.stop(deps);
+          // A module that hangs in stop() must not keep the Bridge from stopping: it is given `moduleStopMs`, then left.
+          const done = await Promise.race([
+            Promise.resolve(m.stop(deps)).then(() => true),
+            new Promise((resolve) => {
+              timer = setTimeout(() => resolve(false), moduleStopMs);
+              timer.unref?.();
+            }),
+          ]);
+          if (!done) log.error("a module did not stop in time; going on", { module: m.name, afterMs: moduleStopMs });
         } catch (err) {
           log.error("module stop failed", { module: m.name, err });
+        } finally {
+          clearTimeout(timer);
         }
       }
       await Promise.all(
@@ -610,6 +685,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
             }),
         ),
       );
+      if (lock) lock.release();
+      lock = null;
+      offQuarantine();
     },
   };
 }

@@ -61,6 +61,7 @@ import {
 } from "./orderValidation.mjs";
 import { bridgeStatus, mapRows, symbolFor, toFunds, toHolding, toPosition, toTrade, unwrap } from "./portfolio.mjs";
 import { findLegInBook } from "./reconcile.mjs";
+import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { createStateFile } from "./stateFile.mjs";
 import { REJECT_REASON_MAX, createTicketBook } from "./tickets.mjs";
 import { DAY_MS, istDay, istIso } from "./time.mjs";
@@ -108,9 +109,12 @@ export function createOrderService(deps) {
   const sleep = (ms) => new Promise((r) => timers.set(r, ms));
 
   const idem = createIdempotencyStore({ now });
+  /** foldKey -> { at, suppressed }: refusals audited once a minute with a count (see place()). */
+  const refusalFold = new Map();
+  const REFUSAL_FOLD_MS = 60_000;
   const tickets = createTicketBook({ now, ticketTtlMs: cfg.ticketTtlMs, confirmTokenTtlMs: cfg.confirmTokenTtlMs });
   const dataDir = deps.paths?.dataDir ?? config?.dataDir ?? null;
-  const stateFile = dataDir ? createStateFile(join(dataDir, "orders", "state.json"), { logger: log }) : null;
+  const stateFile = dataDir ? createStateFile(join(dataDir, "orders", "state.json"), { logger: log, now }) : null;
 
   /** @type {Map<string, LiveRecord>} live orders by Bridge id */
   const live = new Map();
@@ -214,7 +218,8 @@ export function createOrderService(deps) {
       return true;
     } catch (err) {
       log.error("audit append failed", { type, code: err?.code ?? "ERROR" });
-      if (required) throw new BridgeError("INTERNAL", "The audit log could not be written, so the live order was not sent.");
+      // A live order is never sent without its audit record: if it cannot be written, nothing goes out.
+      if (required) throw saveFailure("The audit log could not be written, so the live order was not sent.", err);
       return false;
     }
   }
@@ -960,6 +965,21 @@ export function createOrderService(deps) {
     return o;
   }
 
+  /** The error for "could not be saved": DISK_FULL when the disk is full (the fix is different), else INTERNAL. */
+  function saveFailure(message, err = stateFile?.lastError?.() ?? null) {
+    return isDiskFull(err) || isDiskFull(err?.cause) ? new BridgeError("DISK_FULL", `${message} The disk is full: free some space and try again.`) : new BridgeError("INTERNAL", message);
+  }
+
+  /** A damaged order-records file was set aside (stateFile.mjs): no live order until the owner has checked the order book. */
+  function assertOrderStateUsable() {
+    const d = stateFile?.damage();
+    if (d) {
+      throw new BridgeError("ORDER_STATE_DAMAGED", "The Bridge's record of the orders it sent was damaged and set aside, so it cannot tell whether a live order was already sent. Nothing was sent. Check your broker's order book, then acknowledge: mc-bridge orders acknowledge-state.", {
+        fields: { damagedAt: d.at },
+      });
+    }
+  }
+
   const auditOrder = (o) => ({ symbol: o.symbol, side: o.side, quantity: o.quantity, product: o.product, orderType: o.orderType, price: o.price, triggerPrice: o.triggerPrice, validity: o.validity, clientOrderId: o.clientOrderId, tag: o.tag });
 
   async function place(ctx, raw, opts = {}) {
@@ -992,6 +1012,7 @@ export function createOrderService(deps) {
       if (req.clientOrderId !== undefined) cid = idem.reserveClientId(req.account, req.clientOrderId, fp);
       const p = await prepare(ctx, body, { confirmToken, ticketId, forPlace: true });
       if (p.blocks.length) throw refusalError(p.blocks);
+      if (p.mode === "live") assertOrderStateUsable();
       if (p.mode === "live" && !scopeKey) {
         // A client that retries a live order after a timeout must not be able to send it twice.
         throw new BridgeError("VALIDATION_FAILED", "Live orders need an Idempotency-Key header or a clientOrderId, so a retry cannot place the order twice.", {
@@ -1022,7 +1043,7 @@ export function createOrderService(deps) {
       live.set(liveRec.order.orderId, liveRec);
       if (scopeKey) idem.attach(scopeKey, { orderId: liveRec.order.orderId, accountId: p.summary.id, mode: "live" });
       if (cid) idem.linkClientId(cid.accountId, cid.clientOrderId, cid.day, { orderId: liveRec.order.orderId, mode: "live" });
-      if (!persist()) throw new BridgeError("INTERNAL", "The order record could not be saved to disk, so the live order was not sent.");
+      if (!persist()) throw saveFailure("The order record could not be saved to disk, so the live order was not sent.");
       audited = true;
       await audit(ctx, "order.requested", { accountId: p.summary.id, required: true, data: { orderId: liveRec.order.orderId, mode: "live", order: auditOrder(liveRec.order), legs: p.legs, warnings } });
 
@@ -1089,7 +1110,17 @@ export function createOrderService(deps) {
           persist();
         }
         if (!audited && err instanceof BridgeError && err.code !== "VALIDATION_FAILED") {
-          await audit(ctx, "order.refused", { accountId: req.account, data: { code: err.code, message: err.detail, mode: req.mode ?? "paper", symbol: req.symbol, side: req.side, reasons: err.errors?.map((e) => e.path) } });
+          // The same refusal of the same order shape by the same client within a minute is ONE record with a count, not a
+          // line per retry (a looping script after the daily limit used to add hundreds of MB a day to the audit log).
+          const foldKey = `${principalKey(ctx)}|${req.account}|${err.code}|${req.symbol}|${req.side}|${req.quantity}|${req.mode ?? "paper"}`;
+          const t = now();
+          const prev = refusalFold.get(foldKey);
+          if (prev && t - prev.at < REFUSAL_FOLD_MS) prev.suppressed += 1;
+          else {
+            refusalFold.set(foldKey, { at: t, suppressed: 0 });
+            if (refusalFold.size > 500) for (const [k, v] of refusalFold) if (t - v.at >= REFUSAL_FOLD_MS) refusalFold.delete(k);
+            await audit(ctx, "order.refused", { accountId: req.account, data: { code: err.code, message: err.detail, mode: req.mode ?? "paper", symbol: req.symbol, side: req.side, reasons: err.errors?.map((e) => e.path), suppressed: prev?.suppressed ?? 0 } });
+          }
         }
       }
       throw err;
@@ -2045,6 +2076,10 @@ export function createOrderService(deps) {
     rejectTicket,
     ticketStatus,
     // ── internal helpers (not part of the contract) ──
+    /** The set-aside order records still waiting for the owner, or null (health, doctor, dashboard). */
+    stateDamage: () => stateFile?.damage() ?? null,
+    /** The owner checked the broker's order book: live orders may go again. @returns {boolean} whether there was damage */
+    acknowledgeStateDamage: () => stateFile?.acknowledge() ?? false,
     /** Run one reconciliation pass now (tests, `doctor`). */
     reconcileNow,
     /** Stop timers and the kill-switch subscription (module stop). */

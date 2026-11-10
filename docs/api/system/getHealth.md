@@ -24,9 +24,11 @@ No key needed. Callers on this computer also see which services are built.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `status` | one of `ok` | yes |  |
+| `status` | one of `ok`, `degraded` | yes | `degraded` when something needs attention: little free disk space, a file that could not be saved, a damaged file set aside, the order records damaged, or the kill switch on. The HTTP status stays 200; callers on this computer see `problems`. |
 | `version` | string | yes |  |
 | `apiVersion` | string | yes |  |
+| `problems` | array of object | no | For callers on this computer. What is wrong, in plain words. Empty when status is ok. |
+| `storage` | object | no | For callers on this computer. Free space on the data folder's disk and how many files could not be saved. |
 | `startedAt` | string (date-time) | no |  |
 | `uptimeSeconds` | integer | no |  |
 | `demo` | boolean | no | Present and true only in demo mode (sample data, no real broker). |

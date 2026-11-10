@@ -165,7 +165,9 @@ Update outside market hours, then look at the readiness badge and send a paper o
 
 ## 9. Backups
 
-The Bridge has no backup command. Everything it keeps is in two places, and they should be backed up **separately**:
+`mc-bridge backup` makes a verified copy of the settings and state (see [backup.md](backup.md): what it holds, the schedule, restore and the
+runbooks). Downloads and recordings are left out unless you add `--include-data`. Everything the Bridge keeps is in two places, and they
+should be backed up **separately**:
 
 - the **data folder** (`/var/lib/mc-bridge`, or the `bridge-data` volume): keys (hashed), settings of hooks, the audit log
   and the encrypted broker secrets;
