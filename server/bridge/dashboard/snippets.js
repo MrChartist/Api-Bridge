@@ -30,8 +30,12 @@ export function presetKeyBody(preset, { label = preset.label, accounts = "*", ex
 }
 
 const j = (v) => JSON.stringify(v, null, 2);
-/** A folder path as a shell word: quoted only when it has a space. */
-const sh = (path) => (/\s/.test(path) ? `"${path}"` : path);
+/** A path as a bash word: left alone when it only has safe characters, else in double quotes with " $ ` and \ escaped. */
+export const sh = (path) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(path) ? path : `"${String(path).replace(/(["\\$`])/g, "\\$1")}"`);
+/** A path as a PowerShell word: left alone when safe, else in single quotes (a single quote is doubled). */
+export const ps = (path) => (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(path) ? path : `'${String(path).replace(/'/g, "''")}'`);
+/** Is this install folder a Windows path (C:\Users\me\bridge or a UNC path)? The Bridge reports its own folder, so this says what computer it runs on. */
+export const isWindowsPath = (p) => /^[A-Za-z]:[\\/]/.test(String(p)) || String(p).startsWith("\\\\");
 
 /** Body of a generic webhook alert (sign it with the hook's signing secret). */
 export function genericAlert({ orderType = "LIMIT", symbol = "NSE:RELIANCE" } = {}) {
@@ -64,6 +68,7 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
   const paper = key ?? PLACEHOLDER.paper;
   const url = key ?? PLACEHOLDER.url;
   const host = base.replace(/\/$/, "");
+  const win = isWindowsPath(folder); // the Bridge runs on Windows: PowerShell words, not bash
   return {
     webhooks: [
       { title: "TradingView alert message, plain alert (paper)", lang: "json", code: tradingViewAlert() },
@@ -85,7 +90,9 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
     ],
     python: [
       // The Python client is not on PyPI: it installs from this repository's sdk/python folder (import name: mrchartist_bridge).
-      { title: "Install from your API Bridge folder (it is not on PyPI)", lang: "bash", code: `python3 -m venv .venv && . .venv/bin/activate\npip install ${sh(`${folder}/sdk/python`)}\nexport MCB_API_KEY=${paper}` },
+      win
+        ? { title: "Install from your API Bridge folder (it is not on PyPI)", lang: "powershell", code: `py -m venv .venv\n.venv\\Scripts\\Activate.ps1\npip install ${ps(`${folder}\\sdk\\python`)}\n$env:MCB_API_KEY=${ps(paper)}` }
+        : { title: "Install from your API Bridge folder (it is not on PyPI)", lang: "bash", code: `python3 -m venv .venv && . .venv/bin/activate\npip install ${sh(`${folder}/sdk/python`)}\nexport MCB_API_KEY=${paper}` },
       {
         title: orders ? "Prices and a paper order" : "Prices",
         lang: "python",
@@ -128,7 +135,9 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
     ],
     node: [
       // The Node client (@mrchartist/bridge-client) is private: it is packed from this repository's sdk/node folder.
-      { title: "Install from your API Bridge folder (it is not on npm)", lang: "bash", code: `cd ${sh(`${folder}/sdk/node`)} && npm pack\n# then, in your project (ws is only needed to stream on Node 20):\nnpm install ${sh(`${folder}/sdk/node/mrchartist-bridge-client-0.2.0.tgz`)} ws` },
+      win
+        ? { title: "Install from your API Bridge folder (it is not on npm)", lang: "powershell", code: `cd ${ps(`${folder}\\sdk\\node`)}\nnpm pack\n# then, in your project (ws is only needed to stream on Node 20):\nnpm install ${ps(`${folder}\\sdk\\node\\mrchartist-bridge-client-0.2.0.tgz`)} ws` }
+        : { title: "Install from your API Bridge folder (it is not on npm)", lang: "bash", code: `cd ${sh(`${folder}/sdk/node`)} && npm pack\n# then, in your project (ws is only needed to stream on Node 20):\nnpm install ${sh(`${folder}/sdk/node/mrchartist-bridge-client-0.2.0.tgz`)} ws` },
       {
         title: orders ? "Prices, a stream and a paper order (ESM)" : "Prices and a stream (ESM)",
         lang: "js",
@@ -213,7 +222,7 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       {
         title: "Claude Code",
         lang: "bash",
-        code: `claude mcp add mr-chartist-bridge --env MCB_API_KEY=${read} --env MCB_BRIDGE_URL=${host} -- node ${folder}/bin/mc-bridge.mjs mcp\n# or over HTTP:\nclaude mcp add --transport http mr-chartist-bridge ${host}/mcp --header "Authorization: Bearer ${read}"`,
+        code: `claude mcp add mr-chartist-bridge --env MCB_API_KEY=${read} --env MCB_BRIDGE_URL=${host} -- node ${sh(`${folder}/bin/mc-bridge.mjs`)} mcp\n# or over HTTP:\nclaude mcp add --transport http mr-chartist-bridge ${host}/mcp --header "Authorization: Bearer ${read}"`,
       },
     ],
     chatgpt: [

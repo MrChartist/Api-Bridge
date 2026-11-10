@@ -150,6 +150,21 @@ describe("mc-bridge init <starter>", () => {
     },
   });
 
+  it("on Windows the next step says py, not python3, and does not rely on && (audit F9)", async () => {
+    const cwd = mkdtempSync(join(work, "cwd-"));
+    const t = io(cwd);
+    expect(await runInitStarter({ id: "python" }, {}, t, { ...deps(), platform: "win32" })).toBe(0);
+    const text = t.lines.join("\n");
+    expect(text).toContain("Next: cd bridge-python\nThen: py main.py");
+    expect(text).not.toContain("python3 main.py");
+    const t2 = io(mkdtempSync(join(work, "cwd-")));
+    await runInitStarter({ id: "curl" }, {}, t2, { ...deps(), platform: "win32" });
+    expect(t2.lines.join("\n")).toContain("Then: bash quote.sh (in Git Bash or WSL)");
+    const t3 = io(mkdtempSync(join(work, "cwd-")));
+    await runInitStarter({ id: "python" }, {}, t3, { ...deps(), platform: "linux" });
+    expect(t3.lines.join("\n")).toContain("Next: cd bridge-python && python3 main.py");
+  });
+
   it("writes a project in ./bridge-<starter>, makes no key without --with-key, and says what to do next", async () => {
     const cwd = mkdtempSync(join(work, "cwd-"));
     const t = io(cwd);

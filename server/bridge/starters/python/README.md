@@ -21,6 +21,8 @@ A small project that talks to your Bridge at `{{baseUrl}}`. Python 3.9 or newer,
    python3 examples/events.py 30                     # live events (newer Bridges)
    ```
 
+On Windows, type `py` where this page says `python3` (for example `py main.py`).
+
 ## What is here
 
 | File | What it is |

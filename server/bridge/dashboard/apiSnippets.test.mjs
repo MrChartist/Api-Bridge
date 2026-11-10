@@ -52,4 +52,31 @@ describe("integration snippets match the shipped SDKs", () => {
     expect(s.node[0].title).toMatch(/not on npm/);
     expect(snippets({ base: "http://h:1" }).python[0].code).toContain("pip install /path/to/api-bridge-v2/sdk/python");
   });
+
+  it("quotes every shell-special character in a path, not only a space (audit F9)", () => {
+    for (const bad of ["/opt/a&b", "/opt/a;rm -rf x", "/opt/$HOME/x", "/opt/`id`", '/opt/a"b', "/opt/it's"]) {
+      const code = snippets({ base: "http://h:1", folder: bad }).python[0].code;
+      const line = code.split("\n").find((l) => l.startsWith("pip install"));
+      expect(line, bad).toMatch(/^pip install ".*"$/);
+      // inside double quotes no unescaped " $ or ` remains
+      const inner = line.slice('pip install "'.length, -1);
+      expect(inner.replace(/\\./g, ""), bad).not.toMatch(/["$`]/);
+    }
+  });
+
+  it("a Bridge on Windows gets PowerShell words: py, Activate.ps1, $env:, backslashes, no && or export", () => {
+    const win = snippets({ base: "http://127.0.0.1:4300", key: "mcb_k", folder: "C:\\Users\\Asha Rao\\api-bridge" });
+    const py = win.python[0].code;
+    expect(py).toContain("py -m venv .venv");
+    expect(py).toContain(".venv\\Scripts\\Activate.ps1");
+    expect(py).toContain("pip install 'C:\\Users\\Asha Rao\\api-bridge\\sdk\\python'");
+    expect(py).toContain("$env:MCB_API_KEY=mcb_k");
+    expect(py).not.toMatch(/python3|export |&&|bin\/activate/);
+    expect(win.python[0].lang).toBe("powershell");
+    const js = win.node[0].code;
+    expect(js).toContain("cd 'C:\\Users\\Asha Rao\\api-bridge\\sdk\\node'\nnpm pack");
+    expect(js).not.toContain("&&");
+    // a Unix Bridge is unchanged
+    expect(snippets({ base: "http://h:1", folder: "/home/me/bridge" }).python[0].code).toContain("python3 -m venv .venv && . .venv/bin/activate");
+  });
 });

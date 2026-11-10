@@ -47,6 +47,20 @@ export const STARTERS = Object.freeze([
 ]);
 
 export const STARTER_IDS = Object.freeze(STARTERS.map((s) => s.id));
+
+/** A path as a shell word: plain when safe, else in double quotes (Windows and bash both read that). */
+export const shellWord = (p) => (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(p) ? p : `"${String(p).replace(/"/g, '\\"')}"`);
+
+/**
+ * The command that runs a starter on this computer. Windows has no `python3` (it has the `py` launcher) and no bash of its own:
+ * the curl scripts need Git Bash or WSL.
+ */
+export function runCommand(starter, platform = process.platform) {
+  if (platform !== "win32") return starter.run;
+  if (starter.run.startsWith("python3 ")) return `py ${starter.run.slice(8)}`;
+  if (starter.run.startsWith("bash ")) return `${starter.run} (in Git Bash or WSL)`;
+  return starter.run;
+}
 export const starterById = (id) => STARTERS.find((s) => s.id === id) ?? null;
 
 /** Scopes a starter key may have. Never admin or live: a starter is a place to begin, not to hold power. */
