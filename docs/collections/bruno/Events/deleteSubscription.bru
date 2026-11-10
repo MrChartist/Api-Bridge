@@ -22,6 +22,7 @@ docs {
   Remove a subscription, its queue, dead letters, log and stored secret
 
   - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
 
   Reference: docs/api/events/deleteSubscription.md in the repository.
 }
