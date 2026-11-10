@@ -44,6 +44,7 @@
     "audit:runtime": "npm audit --omit=dev",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:future": "node scripts/test-future.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:mjs": "node scripts/check-mjs.mjs",
     "capabilities": "node scripts/generate-broker-capabilities.mjs",

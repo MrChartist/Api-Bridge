@@ -111,6 +111,7 @@ describe("taking the lock", () => {
     const file = join(d, LOCK_FILE);
     writeFileSync(file, "");
     const fresh = Date.now();
+    utimesSync(file, new Date(fresh), new Date(fresh)); // the file's own clock is the real one; the test's may be moved
     expect(inspectLock(d, { now: () => fresh })).toMatchObject({ held: true });
     expect(inspectLock(d, { now: () => fresh + 10 * 60_000 })).toMatchObject({ held: false, stale: true });
   });
@@ -178,6 +179,7 @@ describe("left-over temp files", () => {
     writeFileSync(fresh, "x");
     const t = new Date(Date.now() - 3 * 3600_000);
     utimesSync(old, t, t);
+    utimesSync(fresh, new Date(Date.now()), new Date(Date.now())); // the file clock is the real one; Date.now() may be moved
     expect(sweepStaleTemps(d)).toEqual([old]);
     expect(existsSync(fresh)).toBe(true);
   });

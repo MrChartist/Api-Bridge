@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../server/bridge/core/app.mjs";
 import { loadConfig } from "../server/bridge/core/config.mjs";
 import { createNullLogger } from "../server/bridge/core/logger.mjs";
+import { createDemoRegistry } from "../server/bridge/demo/demoMode.mjs";
 import { isoToCompact } from "../server/bridge/compat/mapping.mjs";
 import { curlCommands, parseCurl, shellWords } from "./lib/curl.mjs";
 import { expectedStatus } from "./lib/endpoint-docs.mjs";
@@ -86,7 +87,10 @@ describe("docs examples run against a demo Bridge", () => {
     const { config } = loadConfig({ raw: { dataDir: dir, server: { port: 0 }, logging: { level: "silent" } }, env: {}, demo: true });
     // Monday 9 November 2026, 10:30 IST (dates in the examples are the week before), so paper MARKET orders fill whatever time this runs.
     let t = Date.UTC(2026, 10, 9, 5, 0, 0);
-    app = await createApp({ config, logger: createNullLogger(), clock: { now: () => (t += 50) } });
+    const clock = { now: () => (t += 50) };
+    // The demo prices are a function of the clock the demo adapter reads: give it the same fixed clock, so the price the
+    // examples assume (the modify example says 1450, inside the 3% paper band) never depends on the day the test runs.
+    app = await createApp({ config, logger: createNullLogger(), clock, brokers: createDemoRegistry({ now: () => t }) });
     const { port } = await app.listen();
     base = `http://127.0.0.1:${port}`;
     ({ key } = await app.deps.keyStore.create({ label: "docs-examples", scopes: ["admin", "paper"], accounts: "*" }));

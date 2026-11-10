@@ -43,7 +43,8 @@ describe("presets: what an app may be", () => {
 
   it("every preset makes a key the real key store accepts, with exactly the preset's scope", async () => {
     for (const p of APP_PRESETS) {
-      const { body } = appBody(p.id, { name: `${p.id} test`, now: new Date(NOW) });
+      // The key store checks "expires in the future" against the real clock, so build the expiry from the real clock too.
+      const { body } = appBody(p.id, { name: `${p.id} test`, now: new Date() });
       const { record } = await app.deps.keyStore.create(body, { loopback: true });
       expect(record.scopes, p.id).toEqual(p.scopes);
       expect(record.clientKind, p.id).toBe(p.clientKind);
