@@ -514,11 +514,11 @@
     },
     {
       "headings": [
-        "POST /v1/downloads/{id}/cancel"
+        "POST /v1/downloads/{downloadId}/cancel"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/cancelDownload.md",
-      "text": "POST /v1/downloads/{id}/cancel. Files of items that were already whole are kept; half-written parts are dropped.",
+      "text": "POST /v1/downloads/{downloadId}/cancel. Files of items that were already whole are kept; half-written parts are dropped.",
       "title": "Cancel a job"
     },
     {
@@ -541,11 +541,11 @@
     },
     {
       "headings": [
-        "DELETE /v1/downloads/{id}"
+        "DELETE /v1/downloads/{downloadId}"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/deleteDownload.md",
-      "text": "DELETE /v1/downloads/{id}. This computer only, admin key.",
+      "text": "DELETE /v1/downloads/{downloadId}. This computer only, admin key.",
       "title": "Delete a job and its files"
     },
     {
@@ -568,20 +568,20 @@
     },
     {
       "headings": [
-        "GET /v1/downloads/{id}"
+        "GET /v1/downloads/{downloadId}"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/getDownload.md",
-      "text": "GET /v1/downloads/{id}.",
+      "text": "GET /v1/downloads/{downloadId}.",
       "title": "One download job with its progress and items"
     },
     {
       "headings": [
-        "GET /v1/downloads/{id}/files/{name}"
+        "GET /v1/downloads/{downloadId}/files/{name}"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/getDownloadFile.md",
-      "text": "GET /v1/downloads/{id}/files/{name}. The file as the Bridge wrote it.",
+      "text": "GET /v1/downloads/{downloadId}/files/{name}. The file as the Bridge wrote it.",
       "title": "Stream one file of a job (or manifest.json)"
     },
     {
@@ -595,11 +595,11 @@
     },
     {
       "headings": [
-        "GET /v1/downloads/{id}/files"
+        "GET /v1/downloads/{downloadId}/files"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/listDownloadFiles.md",
-      "text": "GET /v1/downloads/{id}/files.",
+      "text": "GET /v1/downloads/{downloadId}/files.",
       "title": "The files of a job, as listed in its manifest"
     },
     {
@@ -613,20 +613,20 @@
     },
     {
       "headings": [
-        "POST /v1/downloads/{id}/pause"
+        "POST /v1/downloads/{downloadId}/pause"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/pauseDownload.md",
-      "text": "POST /v1/downloads/{id}/pause. The job keeps what it has written and continues from there when resumed.",
+      "text": "POST /v1/downloads/{downloadId}/pause. The job keeps what it has written and continues from there when resumed.",
       "title": "Pause a queued or running job"
     },
     {
       "headings": [
-        "POST /v1/downloads/{id}/resume"
+        "POST /v1/downloads/{downloadId}/resume"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/resumeDownload.md",
-      "text": "POST /v1/downloads/{id}/resume.",
+      "text": "POST /v1/downloads/{downloadId}/resume.",
       "title": "Resume a paused job, or retry the failed items of a failed job"
     },
     {
@@ -649,11 +649,11 @@
     },
     {
       "headings": [
-        "PATCH /v1/downloads/{id}"
+        "PATCH /v1/downloads/{downloadId}"
       ],
       "kind": "endpoint",
       "path": "docs/api/data-downloads/updateDownload.md",
-      "text": "PATCH /v1/downloads/{id}.",
+      "text": "PATCH /v1/downloads/{downloadId}.",
       "title": "Rename a job or change its tags"
     },
     {

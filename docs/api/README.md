@@ -227,14 +227,14 @@ History downloads that run in the background and save files on this computer, da
 | [GET /v1/instruments/export](data-downloads/exportInstruments.md) | The instrument master as a CSV or JSONL file | `read` |
 | [GET /v1/downloads](data-downloads/listDownloads.md) | Download jobs, newest first | `read` |
 | [POST /v1/downloads](data-downloads/createDownload.md) | Start a history download, or only estimate it with dryRun=1 | `read` |
-| [GET /v1/downloads/{id}](data-downloads/getDownload.md) | One download job with its progress and items | `read` |
-| [PATCH /v1/downloads/{id}](data-downloads/updateDownload.md) | Rename a job or change its tags | `read` |
-| [DELETE /v1/downloads/{id}](data-downloads/deleteDownload.md) | Delete a job and its files | `admin`, this computer only |
-| [POST /v1/downloads/{id}/pause](data-downloads/pauseDownload.md) | Pause a queued or running job | `read` |
-| [POST /v1/downloads/{id}/resume](data-downloads/resumeDownload.md) | Resume a paused job, or retry the failed items of a failed job | `read` |
-| [POST /v1/downloads/{id}/cancel](data-downloads/cancelDownload.md) | Cancel a job | `read` |
-| [GET /v1/downloads/{id}/files](data-downloads/listDownloadFiles.md) | The files of a job, as listed in its manifest | `read` |
-| [GET /v1/downloads/{id}/files/{name}](data-downloads/getDownloadFile.md) | Stream one file of a job (or manifest.json) | `read` |
+| [GET /v1/downloads/{downloadId}](data-downloads/getDownload.md) | One download job with its progress and items | `read` |
+| [PATCH /v1/downloads/{downloadId}](data-downloads/updateDownload.md) | Rename a job or change its tags | `read` |
+| [DELETE /v1/downloads/{downloadId}](data-downloads/deleteDownload.md) | Delete a job and its files | `admin`, this computer only |
+| [POST /v1/downloads/{downloadId}/pause](data-downloads/pauseDownload.md) | Pause a queued or running job | `read` |
+| [POST /v1/downloads/{downloadId}/resume](data-downloads/resumeDownload.md) | Resume a paused job, or retry the failed items of a failed job | `read` |
+| [POST /v1/downloads/{downloadId}/cancel](data-downloads/cancelDownload.md) | Cancel a job | `read` |
+| [GET /v1/downloads/{downloadId}/files](data-downloads/listDownloadFiles.md) | The files of a job, as listed in its manifest | `read` |
+| [GET /v1/downloads/{downloadId}/files/{name}](data-downloads/getDownloadFile.md) | Stream one file of a job (or manifest.json) | `read` |
 | [GET /v1/datasets](data-downloads/listDatasets.md) | Datasets stored on this computer | `read` |
 | [GET /v1/datasets/{name}](data-downloads/getDataset.md) | One dataset with its files, coverage and gaps | `read` |
 | [PATCH /v1/datasets/{name}](data-downloads/updateDatasetInfo.md) | Rename a dataset or change its tags and title | `read` |

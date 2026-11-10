@@ -1,6 +1,6 @@
 # Rename a job or change its tags
 
-`PATCH /v1/downloads/{id}`
+`PATCH /v1/downloads/{downloadId}`
 
 | | |
 |---|---|
@@ -15,7 +15,7 @@
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `downloadId` | path | string | yes |  |
 
 ## Request body
 
@@ -90,7 +90,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X PATCH "http://127.0.0.1:4300/v1/downloads/demo" \
+curl -s -X PATCH "http://127.0.0.1:4300/v1/downloads/<downloadId>" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{}'
@@ -103,6 +103,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("PATCH", "/v1/downloads/demo", body={})
+response = bridge.request("PATCH", "/v1/downloads/<downloadId>", body={})
 print(response.body)
 ```

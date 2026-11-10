@@ -80,27 +80,27 @@ export function createDownloadRoutes(deps, { downloads }) {
       return { data: all.slice(0, limit), meta: meta(ctx, { total: all.length }) };
     },
 
-    get: (ctx) => ({ data: downloads.get(ctx.params.id), meta: meta(ctx) }),
+    get: (ctx) => ({ data: downloads.get(ctx.params.downloadId), meta: meta(ctx) }),
     async patch(ctx) {
-      return { data: await downloads.patchJob(ctx.params.id, ctx.body), meta: meta(ctx) };
+      return { data: await downloads.patchJob(ctx.params.downloadId, ctx.body), meta: meta(ctx) };
     },
     async pause(ctx) {
-      return { data: await downloads.pause(ctx.params.id), meta: meta(ctx) };
+      return { data: await downloads.pause(ctx.params.downloadId), meta: meta(ctx) };
     },
     async resume(ctx) {
-      return { data: await downloads.resume(ctx.params.id), meta: meta(ctx) };
+      return { data: await downloads.resume(ctx.params.downloadId), meta: meta(ctx) };
     },
     async cancel(ctx) {
-      return { data: await downloads.cancel(ctx.params.id), meta: meta(ctx) };
+      return { data: await downloads.cancel(ctx.params.downloadId), meta: meta(ctx) };
     },
     async remove(ctx) {
-      await downloads.remove(ctx.params.id);
+      await downloads.remove(ctx.params.downloadId);
       return undefined;
     },
-    files: (ctx) => ({ data: downloads.files(ctx.params.id), meta: meta(ctx, { manifestUrl: `/v1/downloads/${ctx.params.id}/files/manifest.json` }) }),
+    files: (ctx) => ({ data: downloads.files(ctx.params.downloadId), meta: meta(ctx, { manifestUrl: `/v1/downloads/${ctx.params.downloadId}/files/manifest.json` }) }),
 
     async file(ctx) {
-      const f = await downloads.fileOf(ctx.params.id, ctx.params.name);
+      const f = await downloads.fileOf(ctx.params.downloadId, ctx.params.name);
       const { req, res } = ctx;
       const type = f.format === "json" ? "application/json; charset=utf-8" : (CONTENT_TYPES[f.format] ?? "application/octet-stream");
       const headers = streamHeaders(ctx, {

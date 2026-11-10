@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/v1/downloads/:id/files/:name
+  url: {{baseUrl}}/v1/downloads/:downloadId/files/:name
   body: none
   auth: bearer
 }
 
 params:path {
-  id: demo
+  downloadId: <downloadId>
   name: <name>
 }
 

@@ -3509,13 +3509,13 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id"
+                ":downloadId"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 }
               ]
             }
@@ -3550,13 +3550,13 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id"
+                ":downloadId"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 }
               ]
             }
@@ -3576,13 +3576,13 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id"
+                ":downloadId"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 }
               ]
             }
@@ -3602,14 +3602,14 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id",
+                ":downloadId",
                 "pause"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id/pause",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId/pause",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 }
               ]
             }
@@ -3629,14 +3629,14 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id",
+                ":downloadId",
                 "resume"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id/resume",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId/resume",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 }
               ]
             }
@@ -3656,14 +3656,14 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id",
+                ":downloadId",
                 "cancel"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id/cancel",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId/cancel",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 }
               ]
             }
@@ -3683,14 +3683,14 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id",
+                ":downloadId",
                 "files"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id/files",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId/files",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 }
               ]
             }
@@ -3710,15 +3710,15 @@
               "path": [
                 "v1",
                 "downloads",
-                ":id",
+                ":downloadId",
                 "files",
                 ":name"
               ],
-              "raw": "{{baseUrl}}/v1/downloads/:id/files/:name",
+              "raw": "{{baseUrl}}/v1/downloads/:downloadId/files/:name",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "downloadId",
+                  "value": "<downloadId>"
                 },
                 {
                   "key": "name",

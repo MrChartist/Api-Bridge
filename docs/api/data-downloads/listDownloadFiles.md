@@ -1,6 +1,6 @@
 # The files of a job, as listed in its manifest
 
-`GET /v1/downloads/{id}/files`
+`GET /v1/downloads/{downloadId}/files`
 
 | | |
 |---|---|
@@ -15,7 +15,7 @@
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `downloadId` | path | string | yes |  |
 
 ## Responses
 
@@ -60,7 +60,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s "http://127.0.0.1:4300/v1/downloads/demo/files" \
+curl -s "http://127.0.0.1:4300/v1/downloads/<downloadId>/files" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -71,6 +71,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("GET", "/v1/downloads/demo/files")
+response = bridge.request("GET", "/v1/downloads/<downloadId>/files")
 print(response.body)
 ```

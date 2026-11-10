@@ -265,7 +265,8 @@ describe("GET /v1/limits?explain=1", () => {
     const plain = await get("/v1/limits", ADMIN);
     const explained = await get("/v1/limits?explain=1", ADMIN);
     expect(explained.status).toBe(200);
-    const { pools, consumers, you, ...rest } = explained.json.data;
+    const { pools, consumers, you, savedCalls, ...rest } = explained.json.data;
+    expect(savedCalls).toMatchObject({ total: expect.any(Number), totalToday: expect.any(Number) });
     expect(Object.keys(plain.json.data)).toEqual(["safety", "brokers", "client", "accounts"]);
     const strip = (d) => ({ ...d, client: { ...d.client, remaining: 0 } });
     expect(strip(rest)).toEqual(strip(plain.json.data));

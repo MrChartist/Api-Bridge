@@ -1,6 +1,6 @@
 # Delete a job and its files
 
-`DELETE /v1/downloads/{id}`
+`DELETE /v1/downloads/{downloadId}`
 
 | | |
 |---|---|
@@ -18,7 +18,7 @@ This computer only, admin key. Stops the job if it runs and removes its folder w
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `downloadId` | path | string | yes |  |
 
 ## Responses
 
@@ -45,7 +45,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X DELETE "http://127.0.0.1:4300/v1/downloads/demo" \
+curl -s -X DELETE "http://127.0.0.1:4300/v1/downloads/<downloadId>" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -56,6 +56,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("DELETE", "/v1/downloads/demo")
+response = bridge.request("DELETE", "/v1/downloads/<downloadId>")
 print(response.body)
 ```

@@ -5,13 +5,13 @@ meta {
 }
 
 delete {
-  url: {{baseUrl}}/v1/downloads/:id
+  url: {{baseUrl}}/v1/downloads/:downloadId
   body: none
   auth: bearer
 }
 
 params:path {
-  id: demo
+  downloadId: <downloadId>
 }
 
 auth:bearer {

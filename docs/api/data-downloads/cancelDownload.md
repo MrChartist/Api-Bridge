@@ -1,6 +1,6 @@
 # Cancel a job
 
-`POST /v1/downloads/{id}/cancel`
+`POST /v1/downloads/{downloadId}/cancel`
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ Files of items that were already whole are kept; half-written parts are dropped.
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `downloadId` | path | string | yes |  |
 
 ## Responses
 
@@ -75,7 +75,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X POST "http://127.0.0.1:4300/v1/downloads/demo/cancel" \
+curl -s -X POST "http://127.0.0.1:4300/v1/downloads/<downloadId>/cancel" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -86,6 +86,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/downloads/demo/cancel")
+response = bridge.request("POST", "/v1/downloads/<downloadId>/cancel")
 print(response.body)
 ```
