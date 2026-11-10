@@ -940,7 +940,7 @@
               },
               "raw": "{\n  \"name\": \"large-caps\",\n  \"description\": \"My core list\",\n  \"tags\": [\n    \"core\"\n  ],\n  \"symbols\": [\n    \"NSE:RELIANCE\",\n    \"NSE:INFY\",\n    \"NSE:TCS\"\n  ]\n}"
             },
-            "description": "Create a collection\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nA static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used\n(`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.\nWriting needs the `paper` scope.\n\nReference: docs/api/collections/createCollection.md in the repository.",
+            "description": "Create a collection\n\n- An API key with the `read` scope (any key).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nA static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used\n(`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.\nWriting needs the `paper` scope.\n\nReference: docs/api/collections/createCollection.md in the repository.",
             "header": [
               {
                 "key": "Idempotency-Key",
@@ -979,7 +979,7 @@
               },
               "raw": "{\n  \"name\": \"from-a-file\",\n  \"symbols\": [\n    \"NSE:RELIANCE\",\n    \"NSE:INFY\"\n  ]\n}"
             },
-            "description": "Make collections from CSV or JSON\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nJSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file\nthat `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with\n`name` in the query (or as JSON `{ format: \"csv\", csv, name }`); the symbols are in a column named `symbol`, or the\nfirst column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`\nis true for a CSV.\n\nReference: docs/api/collections/importCollections.md in the repository.",
+            "description": "Make collections from CSV or JSON\n\n- An API key with the `read` scope (any key).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nJSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file\nthat `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with\n`name` in the query (or as JSON `{ format: \"csv\", csv, name }`); the symbols are in a column named `symbol`, or the\nfirst column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`\nis true for a CSV. `replace=true` (replace collections that already exist) needs an admin key, from this computer.\n\nReference: docs/api/collections/importCollections.md in the repository.",
             "header": [
               {
                 "key": "Idempotency-Key",
@@ -1081,7 +1081,7 @@
               },
               "raw": "{\n  \"tags\": [\n    \"core\",\n    \"daily\"\n  ]\n}"
             },
-            "description": "Change a collection, or rename it (send `name`)\n\n- An API key with the `paper` scope (or `live`).\n\nA rename keeps the collection's id and its old name keeps working. The kind cannot change.\n\nReference: docs/api/collections/updateCollection.md in the repository.",
+            "description": "Change a collection, or rename it (send `name`)\n\n- An API key with the `read` scope (any key).\n\nA rename keeps the collection's id and its old name keeps working. The kind cannot change.\n\nReference: docs/api/collections/updateCollection.md in the repository.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1113,7 +1113,7 @@
         {
           "name": "Delete a collection",
           "request": {
-            "description": "Delete a collection\n\n- An API key with the `paper` scope (or `live`).\n\nRefused with 409 while a download, recording or rule that is running uses it, unless `force=true`.\n\nReference: docs/api/collections/deleteCollection.md in the repository.",
+            "description": "Delete a collection\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nRefused with 409 while a download, recording or rule that is running uses it, unless `force=true`. Needs an admin key, from this computer.\n\nReference: docs/api/collections/deleteCollection.md in the repository.",
             "header": [],
             "method": "DELETE",
             "url": {
@@ -1213,7 +1213,7 @@
               },
               "raw": "{\n  \"name\": \"large-caps-copy\"\n}"
             },
-            "description": "Copy a collection under a new name\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nWithout a name the copy is called `<name>-copy` (then `-copy2` ...).\n\nReference: docs/api/collections/duplicateCollection.md in the repository.",
+            "description": "Copy a collection under a new name\n\n- An API key with the `read` scope (any key).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nWithout a name the copy is called `<name>-copy` (then `-copy2` ...).\n\nReference: docs/api/collections/duplicateCollection.md in the repository.",
             "header": [
               {
                 "key": "Idempotency-Key",
@@ -5766,6 +5766,38 @@
                 {
                   "key": "name",
                   "value": "large-caps-1d"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stream one file of a dataset",
+          "request": {
+            "description": "Stream one file of a dataset\n\n- An API key with the `read` scope (any key).\n\nOne series file, by the name (and `url`) that GET /v1/datasets/{name} lists. The response headers carry the dataset's own data class, source, official flag and delay (X-Data-Class and so on): they follow the least current data the dataset holds. Data that is delayed or end-of-day must never feed orders, risk checks, paper fills or alerts.\n\nReference: docs/api/data-downloads/getDatasetFile.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "datasets",
+                ":name",
+                "files",
+                ":file"
+              ],
+              "raw": "{{baseUrl}}/v1/datasets/:name/files/:file",
+              "variable": [
+                {
+                  "key": "name",
+                  "value": "large-caps"
+                },
+                {
+                  "key": "file",
+                  "value": "<file>"
                 }
               ]
             }

@@ -6,10 +6,10 @@
 |---|---|
 | Area | [Collections](../README.md#collections) |
 | Operation | `updateCollection` |
-| Scope | `paper` |
+| Scope | `read` |
 | This computer only | no |
 
-- An API key with the `paper` scope (or `live`).
+- An API key with the `read` scope (any key).
 
 A rename keeps the collection's id and its old name keeps working. The kind cannot change.
 
@@ -83,7 +83,6 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 | `INVALID_JSON` | 400 | no |
 | `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
-| `SCOPE_REQUIRED` | 403 | no |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | no |
 | `RATE_LIMITED` | 429 | yes |
 

@@ -104,6 +104,7 @@ Example:
 | `keepDays` | integer or null | no |  |
 | `nextStartAt` | string or null | no |  |
 | `issue` | object or null | no |  |
+| `problem` | `FailureReason` or null | no | What is wrong right now (a full disk, no login, symbols that could not be chosen, a silent feed): the real text, its code and the fix. null when all is well. |
 | `filesUrl` | string | no |  |
 | `files` | object | no | On GET /v1/recordings/{recordingId} only. |
 

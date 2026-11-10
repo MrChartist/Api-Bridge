@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Leftovers: recorder CSV cells get the same spreadsheet formula guard as other exports (the trade-book and collection CSVs in the
+  dashboard too); `POST /v1/downloads` and recordings refuse an unknown symbol with a 400 naming it and the closest real ones
+  (`unknownSymbols`; `allowExpired` / `--allow-expired` keeps expired contracts for history); a failed download or recording shows its
+  real reason (`failure` on a job, `problem` on a recording: code, text, fix) in the Data page, `download show` and both SDKs;
+  `GET /v1/datasets/{name}/files/{file}` (the dashboard's Download button for a dataset file got a 404); collections can be made
+  and changed with a `read` key, delete and replace need admin from this computer; `mc-bridge subscriptions allow-local`;
+  `init --with-key` limits the key to the accounts connected now (`--accounts`); validation errors carry `errors[].code` and
+  `allowed`; a test keeps the OpenAPI contract from losing or narrowing anything.
 - Python and Node clients: `downloads.estimate`, `downloads.settings/set_settings`, `recordings.status/settings/presets/apply_preset`
   and `saved_calls()` / `savedCalls()` (from `GET /v1/limits?explain=1`).
 - `GET/PATCH /v1/downloads/settings` and `/v1/recordings/settings`: change the background budget share (0.05 to 0.8) and the

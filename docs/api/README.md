@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-216 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+217 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -70,13 +70,13 @@ Named, tagged lists of instruments and option universes (rolling expiries, at-th
 | Call | What it does | Needs |
 |---|---|---|
 | [GET /v1/collections](collections/listCollections.md) | List collections (static lists and option universes) | `read` |
-| [POST /v1/collections](collections/createCollection.md) | Create a collection | `paper` |
-| [POST /v1/collections/import](collections/importCollections.md) | Make collections from CSV or JSON | `paper` |
+| [POST /v1/collections](collections/createCollection.md) | Create a collection | `read` |
+| [POST /v1/collections/import](collections/importCollections.md) | Make collections from CSV or JSON | `read` |
 | [GET /v1/collections/{name}](collections/getCollection.md) | One collection with its symbols or universe | `read` |
-| [PATCH /v1/collections/{name}](collections/updateCollection.md) | Change a collection, or rename it (send `name`) | `paper` |
-| [DELETE /v1/collections/{name}](collections/deleteCollection.md) | Delete a collection | `paper` |
+| [PATCH /v1/collections/{name}](collections/updateCollection.md) | Change a collection, or rename it (send `name`) | `read` |
+| [DELETE /v1/collections/{name}](collections/deleteCollection.md) | Delete a collection | `admin`, this computer only |
 | [GET /v1/collections/{name}/resolve](collections/resolveCollection.md) | The concrete symbols of a collection right now | `read` |
-| [POST /v1/collections/{name}/duplicate](collections/duplicateCollection.md) | Copy a collection under a new name | `paper` |
+| [POST /v1/collections/{name}/duplicate](collections/duplicateCollection.md) | Copy a collection under a new name | `read` |
 | [GET /v1/collections/{name}/export](collections/exportCollection.md) | A collection as a CSV or JSON file | `read` |
 | [GET /v1/collections/{name}/usage](collections/getCollectionUsage.md) | What is made from this collection | `read` |
 | [GET /v1/collections/{name}/estimate](collections/estimateCollection.md) | Size of downloading a collection (symbols x intervals x days) | `read` |
@@ -311,6 +311,7 @@ History downloads that run in the background and save files on this computer, da
 | [PATCH /v1/datasets/{name}](data-downloads/updateDatasetInfo.md) | Rename a dataset or change its tags and title | `read` |
 | [DELETE /v1/datasets/{name}](data-downloads/deleteDataset.md) | Delete a dataset and its files | `admin`, this computer only |
 | [POST /v1/datasets/{name}/update](data-downloads/updateDataset.md) | Fetch what is new since the last stored bar | `read` |
+| [GET /v1/datasets/{name}/files/{file}](data-downloads/getDatasetFile.md) | Stream one file of a dataset | `read` |
 
 ## Backup
 

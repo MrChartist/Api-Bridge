@@ -144,7 +144,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "216 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "217 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -668,6 +668,15 @@
       "path": "docs/api/data-downloads/getDataset.md",
       "text": "GET /v1/datasets/{name}. Each file lists its coverage (the stretch already fetched and stored) and its gaps (places inside it where bars are missing; a thin stock has no bar for a minute with no trade, so a gap is reported and never filled with a made-up bar).",
       "title": "One dataset with its files, coverage and gaps"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets/{name}/files/{file}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDatasetFile.md",
+      "text": "GET /v1/datasets/{name}/files/{file}. One series file, by the name (and url) that GET /v1/datasets/{name} lists.",
+      "title": "Stream one file of a dataset"
     },
     {
       "headings": [
@@ -2138,7 +2147,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 211 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 212 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {

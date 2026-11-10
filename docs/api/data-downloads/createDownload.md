@@ -40,6 +40,7 @@ Required, `application/json`, schema `DownloadRequest`.
 | `account` | string | no | Use only this broker account. |
 | `backup` | boolean | no | Allow data sources other than your broker accounts. The files then carry the source's data class (delayed or eod). Default `false`. |
 | `afterHoursOnly` | boolean | no | Wait outside market hours. Default: follows the downloads setting when the job runs (downloads.afterHoursOnly, or GET /v1/downloads/settings). |
+| `allowExpired` | boolean | no | Accept symbols of contracts that have already expired (they are in no instrument master) to download their history. Without it an unknown or expired symbol is refused with 400 VALIDATION_FAILED, the unknown symbols are named in `unknownSymbols`, each with suggestions. Default `false`. |
 | `tags` | array of string, up to 32 characters | no |  |
 
 Example:
