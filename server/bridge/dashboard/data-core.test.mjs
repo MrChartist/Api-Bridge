@@ -27,6 +27,8 @@ import {
   formatBytes,
   folderPath,
   hasRoute,
+  nextStartText,
+  presetAdded,
   formatCount,
   formatDuration,
   isUnavailable,
@@ -662,5 +664,27 @@ describe("routes this Bridge may not have", () => {
     expect(hasRoute(routes, "POST", "/v1/collections/resolve")).toBe(false);
     expect(hasRoute(undefined, "GET", "/v1/downloads/settings")).toBe(true);
     expect(hasRoute([], "GET", "/v1/anything")).toBe(true);
+  });
+});
+
+describe("auto-record rules after they are made", () => {
+  it("says when a rule starts next, in Indian time, skipping days it does not run", () => {
+    // Tue 10 Nov 2026 10:00 IST: today's 09:15 has passed, so the next start is Wed.
+    const tue10 = Date.parse("2026-11-10T04:30:00Z");
+    expect(nextStartText({ schedule: "market-hours" }, tue10)).toBe("Next start: Wed 11 Nov, 09:15 IST, if the market is open that day");
+    // Tue 08:00 IST: later today.
+    expect(nextStartText({ schedule: "market-hours" }, Date.parse("2026-11-10T02:30:00Z"))).toMatch(/^Next start: today, 09:15 IST/);
+    // Fri evening: Monday.
+    expect(nextStartText({ schedule: "market-hours" }, Date.parse("2026-11-13T12:00:00Z"))).toMatch(/Mon 16 Nov, 09:15/);
+    expect(nextStartText({ schedule: { days: ["mon"], start: "10:00", end: "12:00" } }, tue10)).toMatch(/Mon 16 Nov, 10:00/);
+  });
+  it("shows a preset as added once its rules exist, and lists indexes as 'NIFTY, BANKNIFTY'", () => {
+    const [chains, watch] = RECORD_PRESETS;
+    expect(presetAdded(chains, [], [])).toBe(false);
+    expect(presetAdded(chains, [{ name: "NIFTY option chain" }], [])).toBe(false);
+    expect(presetAdded(chains, [{ name: "NIFTY option chain" }, { name: "BANKNIFTY option chain" }], [])).toBe(true);
+    expect(presetAdded(watch, [{ name: "Watchlist nifty-chain" }], [{ name: "nifty-chain" }])).toBe(true);
+    expect(presetAdded(watch, [{ name: "Watchlist other" }], [{ name: "nifty-chain" }])).toBe(false);
+    expect(ruleSentence({ kind: "chain", underlying: ["NIFTY", "BANKNIFTY"], universe: { strikes: { around: "atm", count: 10 }, expiries: "current-weekly" }, everySec: 30, schedule: "market-hours" })).toMatch(/^NIFTY, BANKNIFTY ATM/);
   });
 });

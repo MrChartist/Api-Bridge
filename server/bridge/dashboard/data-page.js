@@ -53,6 +53,8 @@ import {
   parseCollectionImport,
   parseSymbolList,
   parseTags,
+  nextStartText,
+  presetAdded,
   presetPlan,
   recordingBody,
   rangeDates,
@@ -255,7 +257,7 @@ function banners({ login, disk, diskWhat = "downloads and recordings" }) {
   }
   const d = diskView(disk);
   if (d?.low) {
-    out.push(h("div", { class: "alert warn dt-banner", role: "status" }, icon("warn"), h("div", {}, h("strong", {}, "The disk is nearly full"), h("span", { class: "detail" }, `${d.text ? `${d.text}. ` : ""}The Bridge stops writing ${diskWhat} before the disk fills up. Delete what you no longer need, or raise the limit in the configuration.`))));
+    out.push(h("div", { class: "alert warn dt-banner", role: "status" }, icon("warn"), h("div", {}, h("strong", {}, "The disk is nearly full"), h("span", { class: "detail" }, `${d.text ? `${d.text}. ` : ""}The Bridge stops writing ${diskWhat} before the disk fills up. Delete what you no longer need (the lists below have a Delete button), or raise recorder.maxDiskMb or downloads.maxDiskMb in bridge.config.json and restart the Bridge.`))));
   }
   return out;
 }
@@ -1119,9 +1121,10 @@ export async function renderRecordings() {
         return go("#/data/collections");
       }
       collection = collections[0].name;
-      if (collections.length > 1) {
+      {
+        // Always asked, even with one collection, so the person sees which list will be recorded.
         const sel = select(collections.map((c) => [c.name, c.name]), collection, { id: "pre-col" });
-        const ok = await modal({ title: p.title, body: h("div", { class: "dt-fields" }, field("Which collection?", sel)), buttons: [{ label: "Cancel", value: false }, { label: "Next", cls: "primary", value: true }] });
+        const ok = await modal({ title: p.title, body: h("div", { class: "dt-fields" }, field("Which collection?", sel, "Prices of every symbol in it, every 5 seconds. An option universe is worked out again each day."), hint("Make or change collections on the Collections tab.")), buttons: [{ label: "Cancel", value: false }, { label: "Next", cls: "primary", value: true }] });
         if (!ok) return;
         collection = sel.value;
       }
@@ -1149,7 +1152,7 @@ export async function renderRecordings() {
             else showFormError(err, f.title, f.detail);
           }
         });
-        return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("p", { class: "dt-confirm" }, p.sub, "."), plan.symbols ? h("p", { class: "hint" }, `About ${plural(plan.symbols, "symbol")} and roughly ${formatBytes(plan.bytesPerDay)} a trading day. It uses your live stream and starts by itself at each market open. You can turn it off any time.`) : null, hint("Recorded from your own real-time data only.")), h("div", { class: "dt-wiz-foot" }, err, btn("Not now", "", () => close(false)), go1));
+        return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("p", { class: "dt-confirm" }, collection ? `Collection ${collection}: ` : "", p.sub, "."), plan.symbols ? h("p", { class: "hint" }, `About ${plural(plan.symbols, "symbol")} and roughly ${formatBytes(plan.bytesPerDay)} a trading day. It uses your live stream and starts by itself at each market open. You can turn it off any time.`) : null, hint("Recorded from your own real-time data only.")), h("div", { class: "dt-wiz-foot" }, err, btn("Not now", "", () => close(false)), go1));
       },
       buttons: [],
     });
@@ -1163,14 +1166,19 @@ export async function renderRecordings() {
     setText(statusLine, sum.detail ? `${sum.headline}. ${sum.detail}` : sum.headline);
     statusDot.className = `dot dt-auto-dot ${sum.tone === "ok" ? "" : sum.tone === "warn" ? "warn" : "idle"}`;
     presetsBox.replaceChildren(
-      ...RECORD_PRESETS.map((p) => h("button", { type: "button", class: "dt-preset", onclick: () => applyPreset(p) }, iconTile(p.id === "my-watchlist" ? "folder" : "chart", p.id === "my-watchlist" ? "teal" : "indigo", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, p.title), h("span", { class: "sub" }, p.sub)), icon("plus"))),
+      ...RECORD_PRESETS.map((p) => presetAdded(p, rules, collections)
+        ? h("div", { class: "dt-preset added", role: "status" }, iconTile(p.id === "my-watchlist" ? "folder" : "chart", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, p.title), h("span", { class: "sub" }, "Added. It is in the list below.")), icon("check"))
+        : h("button", { type: "button", class: "dt-preset", onclick: () => applyPreset(p) }, iconTile(p.id === "my-watchlist" ? "folder" : "chart", p.id === "my-watchlist" ? "teal" : "indigo", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, p.title), h("span", { class: "sub" }, p.needs === "collection" && !collections.length ? "Needs a collection first: make one on the Collections tab." : p.sub)), icon("plus"))),
     );
     patchList(ruleBox, rules, (r) => r.id, (r, had) => {
       const s = ruleStatus(r);
-      const el = had ?? h("div", { class: "list-row static dt-rule" }, iconTile("record", "red", "sm"), h("span", { class: "names" }, h("span", { class: "nm" }), h("span", { class: "sub dt-wrap" }), h("span", { class: "dt-rule-state" })), h("span", { class: "dt-rule-acts" }));
+      const el = had ?? h("div", { class: "list-row static dt-rule" }, iconTile("record", "red", "sm"), h("span", { class: "names" }, h("span", { class: "nm" }), h("span", { class: "sub dt-wrap" }), h("span", { class: "dt-rule-state" }), h("span", { class: "sub dt-wrap dt-rule-next" })), h("span", { class: "dt-rule-acts" }));
       const names = el.querySelector(".names");
       setText(names.children[0], r.name || "Recording rule");
       setText(names.children[1], ruleSentence(r, collections));
+      const rec = recs.find((x) => x.ruleId === r.id || x.id === r.recordingId || x.id === `rule-${r.id}`);
+      const wrote = rec ? recordingView(rec).stats : "";
+      setText(names.children[3], [r.enabled === false ? "" : nextStartText(r, Date.now()), wrote ? `So far: ${wrote}` : ""].filter(Boolean).join(". "));
       const stEl = names.children[2];
       stEl.className = `dt-rule-state pill ${toneOf(s.tone)}`.trim();
       setText(stEl, s.word + (r.keepDays ? ` · keeps ${r.keepDays} days` : ""));

@@ -380,7 +380,7 @@ export function universeShort(u) {
   if (!u?.underlying) return "";
   const strikes = u.strikes?.from !== undefined ? [formatInt(u.strikes.from), formatInt(u.strikes.to)].join("-") : `ATM +/- ${formatInt(u.strikes?.count ?? 10)}`;
   const ex = Array.isArray(u.expiries) ? `${plural(u.expiries.length, "date")}` : (EXPIRY_CHOICES.find((c) => c.id === u.expiries)?.label ?? "").replace(" expiry", "").toLowerCase();
-  return `${u.underlying} ${strikes}${ex ? `, ${ex}` : ""}`;
+  return `${Array.isArray(u.underlying) ? u.underlying.join(", ") : u.underlying} ${strikes}${ex ? `, ${ex}` : ""}`;
 }
 
 /**
@@ -683,7 +683,7 @@ const REC_STATUS = {
 const REC_WHY = {
   login_needed: ["No broker login right now", "It starts by itself as soon as a price feed is available. Log in on Accounts.", "accounts"],
   SESSION_EXPIRED: ["Your broker login ended", "Log in again on Accounts. It carries on by itself.", "accounts"],
-  disk_low: ["The disk is nearly full", "The recording stopped writing so the disk does not fill up. Delete old recordings or raise the limit.", null],
+  disk_low: ["The disk is nearly full", "The recording stopped writing so the disk does not fill up. Delete old recordings, or raise recorder.maxDiskMb in bridge.config.json and restart the Bridge.", null],
   feed_silent: ["The price feed went quiet", "A gap is marked in the file. It carries on when prices come back.", null],
   kill_switch: ["The kill switch is on", "Release it on Safety and the recording continues.", "safety"],
 };
@@ -753,6 +753,37 @@ export function ruleSentence(rule, collections = []) {
           ? `${rule.underlying} option chain`
           : "Nothing chosen";
   return `${what}, every ${rule?.everySec ?? 30} s, ${scheduleText(rule?.schedule)}`;
+}
+
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_KEY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+/**
+ * When a rule next starts, in words: "Next start: Wed 11 Nov, 09:15 IST". It counts weekdays only (the exchange calendar
+ * also skips holidays, which the Bridge knows and this does not), so it says "if the market is open that day".
+ * @param {{ schedule?: any }} rule  @param {number} nowMs
+ */
+export function nextStartText(rule, nowMs = Date.now()) {
+  const s = rule?.schedule;
+  const start = s && typeof s === "object" && /^\d{2}:\d{2}$/.test(s.start ?? "") ? s.start : "09:15";
+  const days = s && typeof s === "object" && Array.isArray(s.days) && s.days.length ? s.days.map((d) => String(d).toLowerCase()) : ["mon", "tue", "wed", "thu", "fri"];
+  const [hh, mm] = start.split(":").map(Number);
+  const ist = nowMs + IST_MS;
+  for (let i = 0; i < 8; i += 1) {
+    const day = new Date(Math.floor(ist / 86_400_000) * 86_400_000 + i * 86_400_000);
+    const at = day.getTime() + (hh * 60 + mm) * 60_000;
+    if (at <= ist || !days.includes(DAY_KEY[day.getUTCDay()])) continue;
+    const label = `${WEEKDAY[day.getUTCDay()]} ${day.getUTCDate()} ${new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", month: "short" }).format(day)}`;
+    return `Next start: ${i === 0 ? "today" : label}, ${start} IST, if the market is open that day`;
+  }
+  return "";
+}
+
+/** Has the person already added this preset's rules? Then the preset says Added instead of offering itself again. */
+export function presetAdded(preset, rules = [], collections = []) {
+  const names = new Set(rules.map((r) => r?.name));
+  if (preset.needs === "collection") return collections.some((c) => names.has(`Watchlist ${c.name}`.slice(0, 60)));
+  const bodies = preset.build({});
+  return bodies.length > 0 && bodies.every((b) => names.has(b.name));
 }
 
 const RULE_STATUS = {
