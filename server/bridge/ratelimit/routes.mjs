@@ -260,7 +260,8 @@ export function createLimitRoutes(deps) {
           ),
         }));
       const admin = ctx.principal?.kind === "local" || Boolean(ctx.scopes?.has?.("admin"));
-      const data = { accounts: rows, savings: report.savings, generatedAt: report.generatedAt };
+      // servedFromLocal: calls not made because the data was already on disk (a dataset or a recording): counted by the market module, not the scheduler.
+      const data = { accounts: rows, savings: { ...report.savings, servedFromLocal: savedCallsSnapshot().total }, generatedAt: report.generatedAt };
       if (admin && Array.isArray(report.consumers)) data.consumers = report.consumers;
       return { data, meta: { requestId: ctx.requestId } };
     },

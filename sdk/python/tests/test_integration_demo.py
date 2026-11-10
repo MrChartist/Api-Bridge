@@ -156,3 +156,64 @@ def test_the_shipped_examples_run_against_the_demo(demo, script, args, needs_pan
     r = subprocess.run([sys.executable, str(HERE.parent / "examples" / script), *args], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr[-800:]
     assert r.stdout.strip()
+
+
+# ── downloads, datasets, recordings against the real data modules ──
+
+
+def test_a_real_download_end_to_end(bridge, tmp_path):
+    import datetime as dt
+
+    today = dt.date.today()
+    first = (today - dt.timedelta(days=5)).isoformat()
+    est = bridge.downloads.estimate(["NSE:RELIANCE", "NSE:TCS"], "5m", from_=first, dataset="py-e2e-5m")
+    assert est.items == 2 and est.broker_calls >= 2 and est.rows > 0 and est.fits_disk and est.budget_share > 0
+    assert not any(j.name == "py e2e" for j in bridge.downloads.list())  # the estimate started nothing
+    saved_before = bridge.saved_calls()
+    job = bridge.downloads.create(["NSE:RELIANCE", "NSE:TCS"], "5m", from_=first, dataset="py-e2e-5m", name="py e2e")
+    done = bridge.downloads.wait(job, timeout=60, poll=0.2)
+    assert done.is_done and done.data_class == "realtime" and done.progress.done == 2
+    files = bridge.downloads.files(done)
+    assert {f.symbol for f in files} == {"NSE:RELIANCE", "NSE:TCS"}
+    saved = bridge.downloads.save(done, str(tmp_path))  # every file is checked against the Bridge's SHA-256
+    assert len(saved) == 2 and (tmp_path / "manifest.json").exists()
+    rows = bridge.downloads.read(done, files[0].name)
+    assert len(rows) == files[0].rows > 20 and rows[0]["symbol"] == files[0].symbol
+    # updating a dataset that is already up to date makes no broker call and counts the saving
+    upd = bridge.datasets.update("py-e2e-5m", wait=True, timeout=60, poll=0.2)
+    assert upd.is_done and upd.raw["callsSaved"] >= 1
+    assert bridge.saved_calls().total > saved_before.total
+    ds = bridge.datasets.get("py-e2e-5m")
+    assert ds.rows == sum(f.rows for f in files)
+    bridge.downloads.delete(done)
+
+
+def test_download_and_recording_settings_round_trip(bridge):
+    d = bridge.downloads.settings()
+    r = bridge.recordings.settings()
+    assert 0.05 <= d.max_budget_share <= 0.8 and d.after_hours_only is False and r.after_hours_only is None
+    try:
+        assert bridge.downloads.set_settings(max_budget_share=0.5).max_budget_share == 0.5
+        assert bridge.recordings.set_settings(max_budget_share=0.45).max_budget_share == 0.45
+        assert bridge.downloads.settings().changed == ("maxBudgetShare",) and bridge.recordings.status().budget_share == 0.45
+    finally:
+        bridge.downloads.set_settings(max_budget_share=d.max_budget_share)
+        bridge.recordings.set_settings(max_budget_share=r.max_budget_share)
+
+
+def test_a_real_recording_writes_files_and_presets_list(bridge):
+    assert bridge.recordings.status().line
+    assert [p.id for p in bridge.recordings.presets()] == ["index-option-chains", "my-watchlist"]
+    rec = bridge.recordings.create("quotes", ["NSE:RELIANCE"], every_sec=1, session_only=False, name="py e2e quotes")
+    try:
+        deadline = time.time() + 15
+        files = []
+        while time.time() < deadline and not files:
+            time.sleep(0.5)
+            files = bridge.recordings.files(rec)
+        assert files and files[0].symbol == "NSE:RELIANCE" and files[0].rows >= 1
+        rows = bridge.recordings.read(rec, files[0].name)
+        assert rows[0]["symbol"] == "NSE:RELIANCE" and rows[0]["class"] == "realtime"
+    finally:
+        bridge.recordings.stop(rec)
+        bridge.recordings.delete(rec)

@@ -963,6 +963,16 @@ export function createDownloadManager(deps, opts = {}) {
       }
     }
     job.outputs = outputs;
+    // A dataset job that asked the broker for nothing (the dataset was already up to date) still says where its data came from.
+    if (job.dataset && !job.sources.length) {
+      const ds = datasets.get(job.dataset);
+      if (ds?.source) {
+        job.dataClass = ds.dataClass ?? job.dataClass;
+        job.sources = String(ds.source).split(", ");
+        job.official = ds.official ?? job.official;
+        job.delaySec = ds.delaySec ?? job.delaySec;
+      }
+    }
     const gapNotes = job.items.filter((i) => i.holesNote).map((i) => `${i.symbol} ${i.interval}: ${i.holesNote}.`);
     for (const n of [...gapNotes.slice(0, 10), ...(gapNotes.length > 10 ? [`... and ${gapNotes.length - 10} more series with missing bars. A thin stock has no bar for a minute with no trade.`] : [])]) if (!job.notes.includes(n)) job.notes.push(n);
     const pushNote = (n) => {

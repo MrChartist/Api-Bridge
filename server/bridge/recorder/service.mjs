@@ -1123,19 +1123,25 @@ export function createRecorderService(deps, opts = {}) {
     return { preset: presetId, created: !existing, rule: getRule(rule.id), auto: autoView() };
   }
 
-  /** Recordings and rules that use a collection (all of them when no name is given). */
+  /** Recordings and rules that use a collection: one name, several (a renamed collection keeps its old names) or none (all of them). */
   function usageOf(name) {
+    const wanted = new Set((Array.isArray(name) ? name : [name]).filter(Boolean));
     const out = [];
     for (const r of allRules()) {
-      if (!r.collection || (name && r.collection !== name)) continue;
+      if (!r.collection || (wanted.size && !wanted.has(r.collection))) continue;
       out.push({ type: "recording-rule", module: "recorder", id: r.id, name: r.name, collection: r.collection, kind: r.kind, enabled: r.enabled !== false, status: ruleView(r).state, url: `/v1/recordings/rules/${r.id}` });
     }
     for (const rec of recs.values()) {
-      if (rec.def.source !== "manual" || !rec.def.target.collection || (name && rec.def.target.collection !== name)) continue;
+      if (rec.def.source !== "manual" || !rec.def.target.collection || (wanted.size && !wanted.has(rec.def.target.collection))) continue;
       out.push({ type: "recording", module: "recorder", id: rec.def.id, name: rec.def.name, collection: rec.def.target.collection, kind: rec.def.kind, enabled: rec.def.status === "active", status: view(rec).status, url: `/v1/recordings/${rec.def.id}` });
     }
     return out;
   }
+  /** The rows the library's usage view shows ({ id, label, status, active }); an active one stops a collection being deleted without force. */
+  const usageRows = (type, { name, names } = {}) =>
+    usageOf([name, ...(names ?? [])])
+      .filter((u) => u.type === type)
+      .map((u) => ({ id: u.id, label: u.name ?? u.id, status: u.status, active: u.enabled === true }));
 
   // ───────────────────────────── status line ─────────────────────────────
 
@@ -1292,7 +1298,8 @@ export function createRecorderService(deps, opts = {}) {
       libraryFn = () => library;
       // Let the library's usage view list the recordings and rules that use a collection (when it has such a hook).
       try {
-        library.registerUsageProvider?.((name) => usageOf(name));
+        library.registerUsageProvider?.("recordings", (c) => usageRows("recording", c));
+        library.registerUsageProvider?.("rules", (c) => usageRows("recording-rule", c));
       } catch (err) {
         log.debug("library usage provider not registered", { err: err?.message });
       }

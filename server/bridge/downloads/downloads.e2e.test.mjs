@@ -250,6 +250,8 @@ describe("calls saved", () => {
     expect(done.notes.join(" ")).toMatch(/came from dataset sept/);
     const limits = (await bridge.http("/v1/limits?explain=1", { key: keys.read })).json.data.savedCalls;
     expect(limits.byReason["local-dataset"]).toBeGreaterThanOrEqual(1);
+    // the same count is in GET /v1/usage, which is what the Data page's "API calls saved today" reads
+    expect((await bridge.http("/v1/usage", { key: keys.read })).json.data.savings.servedFromLocal).toBe(limits.total);
     expect(readFileSync(join(bridge.dataDir, "downloads", "jobs", b.json.data.id, "NSE_RELIANCE_1d.csv"), "utf8").split("\r\n").filter(Boolean)).toHaveLength(1 + 10);
   });
 });

@@ -8500,6 +8500,7 @@ components:
           type: object
           description: Broker calls avoided today.
           properties:
+            servedFromLocal: { type: integer, description: "Served from data already stored on this computer (datasets, recordings)." }
             servedFromStream: { type: integer }
             servedFromCache: { type: integer }
             coalesced: { type: integer }
