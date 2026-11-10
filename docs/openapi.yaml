@@ -56,6 +56,12 @@ info:
     depth, history, expiries, option chain) tell you about a query parameter they do not know with `X-MCB-Ignored-Params`
     (`strict=true` refuses it instead).
 
+    Big answers. `GET /v1/history`, `/v1/optionchain`, `/v1/instruments/search`, `/v1/errors`, `/v1/brokers`,
+    `/v1/calendar/holidays` and this file carry a strong `ETag` and answer `304` to a matching `If-None-Match`; they are gzipped
+    (this file also br) when the request sends `Accept-Encoding`. The ETag is a hash of the exact bytes, so it changes whenever
+    the answer does, `freshness` included. Answers stay `Cache-Control: no-store`, except this file (`no-cache`). `fields=` keeps only
+    the columns you name on quotes, history candles and instrument search. `GET /v1/instruments/export` is gzipped while it streams.
+
     ## Data sources
     Real-time data and option chains come from your own broker accounts. Optional free sources and plugins (see
     `/v1/sources`) add history, cross-checks and graceful fallback; their answers are labelled `delayed` or `eod`, never
@@ -1276,6 +1282,10 @@ paths:
         - name: expiry
           in: query
           schema: { type: string, format: date }
+        - name: fields
+          in: query
+          description: "Comma-separated columns to keep in each instrument, for example `lotSize,tickSize`. `symbol` is always kept. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list."
+          schema: { type: string, examples: ["lotSize,tickSize"] }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -1975,6 +1985,10 @@ paths:
       x-scope: read
       parameters:
         - $ref: "#/components/parameters/Symbols"
+        - name: fields
+          in: query
+          description: "Comma-separated columns to keep in each quote, for example `ltp,bid`. `symbol` and `freshness` (the data-class label) are always kept. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list."
+          schema: { type: string, examples: ["ltp,bid"] }
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
@@ -2060,6 +2074,10 @@ paths:
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/Strict"
+        - name: fields
+          in: query
+          description: "Comma-separated columns to keep in each candle, for example `close` or `close,date`. `time` is always kept. Naming `timeIso` turns it on. JSON only. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list. The history answer's own `freshness` and `partial` do not change."
+          schema: { type: string, examples: ["close,date"] }
         - { name: timeIso, in: query, description: "`true` adds `timeIso` to each candle: the epoch `time` as an ISO-8601 string (IST `+05:30` unless `tz=UTC`). JSON only.", schema: { type: boolean, default: false } }
         - { name: tz, in: query, description: "Zone of `timeIso`: `IST` (default, `+05:30`) or `UTC` (`Z`). Sending it turns `timeIso` on. JSON only. The epoch `time` and the IST `date` do not change.", schema: { type: string, enum: [IST, UTC], default: IST } }
         - { name: localFirst, in: query, description: "`true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`.", schema: { type: boolean, default: false } }

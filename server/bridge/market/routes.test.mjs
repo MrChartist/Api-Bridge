@@ -137,6 +137,25 @@ describe("market routes", () => {
     expect(live.json.data[0].freshness.source).toBe("broker");
   });
 
+  it("fields= trims quotes and history candles but never drops the data-class label or the time", async () => {
+    const q = await call(`/v1/quotes?symbols=${enc("NSE:INFY")}&fields=ltp,bid`);
+    expect(q.status).toBe(200);
+    expect(Object.keys(q.json.data[0])).toEqual(["symbol", "ltp", "bid", "freshness"]);
+    expect(q.json.data[0].freshness).toMatchObject({ class: "realtime", source: expect.any(String) });
+    expect(q.json.meta.fields).toEqual(["ltp", "bid"]);
+    expect(Array.isArray(q.json.errors)).toBe(true);
+    expect((await call(`/v1/quotes?symbols=${enc("NSE:INFY")}&fields=ltp,nope`)).status).toBe(400);
+    expect((await call(`/v1/quotes?symbols=${enc("NSE:INFY")}&fields=`)).status).toBe(200); // an empty value counts as not sent
+    const h = await call("/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14&fields=close,date,timeIso");
+    expect(h.status).toBe(200);
+    expect(Object.keys(h.json.data.candles[0])).toEqual(["time", "close", "date", "timeIso"]);
+    expect(h.json.data.freshness).toBeTruthy();
+    expect(h.json.data.partial).toBe(false);
+    expect(h.json.meta.fields).toEqual(["close", "date", "timeIso"]);
+    expect((await call("/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14&fields=close&format=csv")).status).toBe(400);
+    expect((await call("/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14&fields=a,b")).json.detail).toMatch(/Allowed: time, open/);
+  });
+
   it("validates symbols and maxAgeMs", async () => {
     expect((await call("/v1/ltp")).json.code).toBe("VALIDATION_FAILED");
     expect((await call(`/v1/ltp?symbols=${Array.from({ length: 201 }, () => "NSE:NIFTY").join(",")}`)).status).toBe(400);

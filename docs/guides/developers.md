@@ -122,6 +122,32 @@ curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/history?symbol
 Both are additions: `time` did not change, and a client that ignores them works as before. The CSV `time` column is already IST
 (a date for daily bars). Where the API gives an epoch number next to a time, the ISO twin is named `<name>Iso`.
 
+## Big answers: fields, ETag and gzip
+
+Three things keep a large read small. None of them changes an answer you already read.
+
+**`fields=`** keeps only the columns you name. It works on `GET /v1/quotes`, on the candles of `GET /v1/history` (JSON only) and on
+`GET /v1/instruments/search`:
+
+```bash
+curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/history?symbol=NSE:NIFTY&interval=5m&countback=5000&fields=close"
+```
+
+`symbol` (quotes, search), `time` (candles) and `freshness` (quotes) are always kept: an item is no use without its key, and a
+price must always say how fresh it is and which data class it is. An unknown name is a 400 that lists the allowed ones, so a typo
+never quietly returns less than you meant. `meta.fields` echoes what was applied.
+
+**gzip.** Send `Accept-Encoding: gzip` (Python `requests` and Node `fetch` already do) and `history`, `optionchain`,
+`instruments/search`, `instruments/export`, `errors`, `brokers`, `calendar/holidays` and `/openapi.yaml` come back compressed (the
+OpenAPI file also as `br`). Your library decodes it. Without the header you get the same bytes as before.
+
+**ETag.** The same routes (except the streamed `instruments/export`) carry a strong `ETag`, a hash of the exact bytes. Send it back
+as `If-None-Match` and an unchanged answer is `304` with no body. The ETag covers the whole answer, `freshness` included, so it
+only matches when nothing changed at all, which suits files such as the OpenAPI spec and the instrument list more than a live
+price. The ETag differs per coding (a gzip body has its own). Answers stay `Cache-Control: no-store`, so a browser does not keep
+them; a script or SDK that wants to use the ETag keeps the last body itself. `/openapi.yaml` is `no-cache`: tools such as
+Swagger UI and Postman may keep it and revalidate.
+
 ## Idempotency
 
 Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write and every create listed below. A repeat with the same key and

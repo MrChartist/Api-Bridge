@@ -38,6 +38,7 @@ import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { onQuarantine } from "../../lib/storageHealth.mjs";
 import { Reply, json, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
+import { createResponseEncoder } from "./responseEncoding.mjs";
 import { MIN_COMPRESS_BYTES, createCompressionCache, etagFor, ifNoneMatches, isCompressible, negotiateEncoding } from "./staticCompress.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
@@ -307,6 +308,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   );
   /** Each dashboard file compressed once per content change (br or gzip), bounded in memory (staticCompress.mjs). */
   const dashboardCompressed = createCompressionCache();
+  /** ETag, 304 and gzip for the large read answers of /v1 and the OpenAPI file (responseEncoding.mjs). */
+  const responseEncoder = createResponseEncoder();
   /**
    * One dashboard file as a reply. Text files are compressed when the request accepts br or gzip (the best the client
    * prefers); every representation has its own strong ETag, and Vary: Accept-Encoding tells caches why. The 304 needs
@@ -496,7 +499,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         if (stored.status < 400) idem.done({ status: stored.status, body: stored.body, headers: stored.headers });
         else idem.release();
       }
-      send(res, reply, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
+      const encoded = await responseEncoder.encode(reply, { method, pattern: route.pattern, requestHeaders: req.headers, baseVary: headers.Vary });
+      if (encoded !== reply) status = encoded.status;
+      send(res, encoded, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
     } catch (rawErr) {
       idem?.release(); // a failed write is forgotten, so the same key can retry it
       // A full disk is its own answer (DISK_FULL, 507) with the fix, not "Internal error".
