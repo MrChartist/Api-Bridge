@@ -2678,6 +2678,40 @@ paths:
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/datasets/{name}/files/{file}:
+    get:
+      tags: [Data downloads]
+      operationId: getDatasetFile
+      summary: Stream one file of a dataset
+      description: >-
+        One series file, by the name (and `url`) that GET /v1/datasets/{name} lists. The response headers carry the
+        dataset's own data class, source, official flag and delay (X-Data-Class and so on): they follow the least current
+        data the dataset holds. Data that is delayed or end-of-day must never feed orders, risk checks, paper fills or alerts.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$" }
+        - name: file
+          in: path
+          required: true
+          description: A file name from the dataset's file list.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Data-Class: { description: "realtime, delayed or eod.", schema: { type: string } }
+            X-Data-Source: { description: "Where the bars came from.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+            application/x-ndjson:
+              schema: { type: string, format: binary }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
 
   /v1/stream:
     get:

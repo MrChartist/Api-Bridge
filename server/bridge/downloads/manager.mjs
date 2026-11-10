@@ -1254,6 +1254,23 @@ export function createDownloadManager(deps, opts = {}) {
     return { path, size, name, format, job: labels };
   }
 
+  /** One file of a dataset, by the name GET /v1/datasets/{name} lists (never a path the caller made up). Labels are the dataset's own. */
+  async function datasetFileOf(name, file) {
+    checkDatasetName(name);
+    const meta = datasets.get(name);
+    if (!meta) throw new BridgeError("NOT_FOUND", `There is no dataset "${String(name).slice(0, 64)}".`);
+    const known = Object.values(meta.series ?? {}).some((s) => s.file === file);
+    if (!known) throw new BridgeError("NOT_FOUND", `Dataset ${name} has no file "${String(file).slice(0, 80)}".`);
+    const path = join(datasets.dirOf(name), file);
+    let size;
+    try {
+      size = (await stat(path)).size;
+    } catch {
+      throw new BridgeError("NOT_FOUND", `The file "${String(file).slice(0, 80)}" is no longer on disk.`);
+    }
+    return { path, size, name: file, format: meta.format, job: { dataClass: meta.dataClass, source: meta.source ?? null, official: meta.official ?? null, delaySec: meta.delaySec ?? null } };
+  }
+
   // ───────────────────────── datasets ─────────────────────────
 
   const activeJobOf = (name) => [...jobs.values()].find((j) => j.dataset === name && (j.status === "queued" || j.status === "running" || j.status === "paused"))?.id ?? null;
@@ -1531,6 +1548,7 @@ export function createDownloadManager(deps, opts = {}) {
     patchJob,
     files,
     fileOf,
+    datasetFileOf,
     listDatasets,
     getDataset,
     updateDataset,

@@ -69,6 +69,35 @@ export function createDownloadRoutes(deps, { downloads }) {
   /** Headers for a stream the handler writes itself (the pipeline's base headers, this request's id, rate-limit headers). */
   const streamHeaders = (ctx, extra) => ({ ...BASE_HEADERS, "X-Request-Id": ctx.requestId, "Cache-Control": "no-store", ...ctx.responseHeaders, ...extra });
 
+  /** Stream one file with its data-class headers. `pending` resolves to { path, size, name, format, job: { dataClass, source, official, delaySec } }. */
+  async function sendFile(ctx, pending) {
+    const f = await pending;
+    const { req, res } = ctx;
+    const type = f.format === "json" ? "application/json; charset=utf-8" : (CONTENT_TYPES[f.format] ?? "application/octet-stream");
+    const headers = streamHeaders(ctx, {
+      "Content-Type": type,
+      "Content-Length": String(f.size),
+      "Content-Disposition": `attachment; filename="${f.name.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+      "X-Data-Class": f.job.dataClass,
+      ...(f.job.source ? { "X-Data-Source": f.job.source } : {}),
+      ...(f.job.official !== null && f.job.official !== undefined ? { "X-Data-Official": String(f.job.official) } : {}),
+      ...(Number.isFinite(f.job.delaySec) ? { "X-Data-Delay-Sec": String(f.job.delaySec) } : {}),
+    });
+    res.writeHead(200, headers);
+    if (req.method === "HEAD") {
+      res.end();
+      return undefined;
+    }
+    // Only the bytes counted in Content-Length: a file that is still growing must not overrun the answer.
+    const stream = f.size > 0 ? createReadStream(f.path, { start: 0, end: f.size - 1 }) : Readable.from([]);
+    try {
+      await pipeline(stream, res);
+    } catch {
+      res.destroy();
+    }
+    return undefined;
+  }
+
   return {
     async create(ctx) {
       const body = ctx.body ?? {};
@@ -124,33 +153,9 @@ export function createDownloadRoutes(deps, { downloads }) {
     },
     files: (ctx) => ({ data: downloads.files(ctx.params.downloadId), meta: meta(ctx, { manifestUrl: `/v1/downloads/${ctx.params.downloadId}/files/manifest.json` }) }),
 
-    async file(ctx) {
-      const f = await downloads.fileOf(ctx.params.downloadId, ctx.params.name);
-      const { req, res } = ctx;
-      const type = f.format === "json" ? "application/json; charset=utf-8" : (CONTENT_TYPES[f.format] ?? "application/octet-stream");
-      const headers = streamHeaders(ctx, {
-        "Content-Type": type,
-        "Content-Length": String(f.size),
-        "Content-Disposition": `attachment; filename="${f.name.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
-        "X-Data-Class": f.job.dataClass,
-        ...(f.job.source ? { "X-Data-Source": f.job.source } : {}),
-        ...(f.job.official !== null && f.job.official !== undefined ? { "X-Data-Official": String(f.job.official) } : {}),
-        ...(Number.isFinite(f.job.delaySec) ? { "X-Data-Delay-Sec": String(f.job.delaySec) } : {}),
-      });
-      res.writeHead(200, headers);
-      if (req.method === "HEAD") {
-        res.end();
-        return undefined;
-      }
-      // Only the bytes counted in Content-Length: a file that is still growing must not overrun the answer.
-      const stream = f.size > 0 ? createReadStream(f.path, { start: 0, end: f.size - 1 }) : Readable.from([]);
-      try {
-        await pipeline(stream, res);
-      } catch {
-        res.destroy();
-      }
-      return undefined;
-    },
+    file: (ctx) => sendFile(ctx, downloads.fileOf(ctx.params.downloadId, ctx.params.name)),
+    /** One file of a dataset (the names are the ones GET /v1/datasets/{name} lists). */
+    datasetFile: (ctx) => sendFile(ctx, downloads.datasetFileOf(ctx.params.name, ctx.params.file)),
 
     // ── datasets ──
     listDatasets(ctx) {

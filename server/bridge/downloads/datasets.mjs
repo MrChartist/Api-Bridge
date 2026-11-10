@@ -75,6 +75,7 @@ export function toPublicDataset(meta, { detail = false, activeJobId = null } = {
       symbol: s.symbol,
       interval: s.interval,
       name: s.file,
+      url: `/v1/datasets/${meta.name}/files/${s.file}`,
       rows: s.rows ?? 0,
       bytes: s.bytes ?? 0,
       firstBar: iso(s.firstBar),

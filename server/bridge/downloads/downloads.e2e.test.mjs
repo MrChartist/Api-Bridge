@@ -206,6 +206,17 @@ describe("datasets", () => {
     const one = (await bridge.http("/v1/datasets/reliance-1d", { key: keys.read })).json.data;
     expect(one.files[0]).toMatchObject({ symbol: "NSE:RELIANCE", interval: "1d", name: "NSE_RELIANCE_1d.csv", rows: 12 });
     expect(one.files[0].coverage.from).toBeTruthy();
+    // the file the dashboard's Download button asks for: its url works, and carries the dataset's data class
+    expect(one.files[0].url).toBe("/v1/datasets/reliance-1d/files/NSE_RELIANCE_1d.csv");
+    const file = await fetch(`${bridge.base}${one.files[0].url}`, { headers: { authorization: `Bearer ${keys.read}` } });
+    expect(file.status).toBe(200);
+    expect(file.headers.get("x-data-class")).toBe("realtime");
+    expect((await file.text()).split("\r\n").filter(Boolean).length).toBe(13);
+    for (const bad of ["../dataset.json", "dataset.json", "nothing.csv", "NSE_RELIANCE_1d.csv.part"]) {
+      expect((await bridge.http(`/v1/datasets/reliance-1d/files/${encodeURIComponent(bad)}`, { key: keys.read })).status).toBe(404);
+    }
+    expect((await bridge.http("/v1/datasets/nothing/files/x.csv", { key: keys.read })).status).toBe(404);
+    expect((await bridge.http(one.files[0].url)).status).toBe(401);
     expect((await bridge.http("/v1/datasets/Bad%20Name", { key: keys.read })).status).toBe(404);
     expect((await bridge.http("/v1/datasets/nothing", { key: keys.read })).status).toBe(404);
 
