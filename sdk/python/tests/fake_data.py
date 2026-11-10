@@ -334,7 +334,7 @@ class DataRoutes:
         if parts == ["settings"]:
             return self.settings_route(method, self.rec_settings, body, ("maxBudgetShare",))
         if parts == ["status"] and method == "GET":
-            running = [r for r in self.recordings.values() if r["status"] == "running"]
+            running = [r for r in self.recordings.values() if r["status"] in ("running", "recording")]
             rows = sum(r["rows"] for r in self.recordings.values())
             return self.ok({"line": "Recording today: %d recordings, %d rows." % (len(running), rows) if running else "Recording is off. Nothing is being saved.", "enabled": True,
                             "auto": {"enabled": self.auto_on, "rules": len(self.rules), "activeRules": len(self.rules) if self.auto_on else 0},
