@@ -72,6 +72,8 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
   const heldUntil = new Map();
   /** subscription id -> failures in a row where the receiver did not answer at all (memory only) */
   const unreachableStreak = new Map();
+  /** subscription id -> { count: failures not yet reported, lastReportAt } (one summary line a minute, not one per failure) */
+  const failureReports = new Map();
   /** Attempts started by pump() that have not ended yet (so pump() can wait for them). */
   const running = new Set();
   const perSub = w.perSubscription ?? 2;
@@ -240,6 +242,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       queuedBySub.delete(id);
       heldUntil.delete(id);
       unreachableStreak.delete(id);
+      failureReports.delete(id);
       inflightBySub.delete(id);
       for (const i of dead.list()) if (i.subId === id) dead.delete(i.id);
       for (const i of deliveries.list()) if (i.subId === id) deliveries.delete(i.id);
@@ -336,10 +339,26 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       // A secret that is gone (demo mode keeps secrets in memory only) is found now, not at the first delivery.
       void checkCredentials();
     },
-    stop() {
+    /** The computer woke from sleep: timers may be late, and a subscription held by the breaker deserves a fresh look. */
+    wake() {
+      heldUntil.clear();
+      schedule();
+    },
+    /** Stop starting deliveries; wait up to `graceMs` for the ones in flight (the queue is on disk, so the rest is sent again after a restart). */
+    async stop(graceMs = w.stopGraceMs ?? 3000) {
       stopped = true;
       if (timer) clearTimer(timer);
       timer = null;
+      if (!running.size) return;
+      let t;
+      await Promise.race([
+        Promise.allSettled([...running]),
+        new Promise((resolve) => {
+          t = setTimeout(resolve, graceMs);
+          t.unref?.();
+        }),
+      ]);
+      clearTimeout(t);
     },
 
     status() {
@@ -416,6 +435,19 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     if (s) subs.patch(item.subId, { deadLettered: (s.deadLettered ?? 0) + 1 });
   }
 
+  /** A failed delivery is reported on the first failure of a run and then once a minute with how many there were. */
+  function reportFailure(subId, code) {
+    const t = now();
+    const f = failureReports.get(subId) ?? { count: 0, lastReportAt: 0 };
+    f.count += 1;
+    failureReports.set(subId, f);
+    if (f.lastReportAt === 0 || t - f.lastReportAt >= 60_000) {
+      logger.warn?.(`webhook subscription ${subId} failed ${f.count} time${f.count === 1 ? "" : "s"}${f.lastReportAt === 0 ? "" : " in the last minute"}: ${code}`, { subscriptionId: subId, failures: f.count, code });
+      f.count = 0;
+      f.lastReportAt = t;
+    }
+  }
+
   async function attempt(item) {
     const s = subs.get(item.subId);
     if (!s) {
@@ -436,6 +468,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       qDelete(item);
       heldUntil.delete(item.subId);
       unreachableStreak.delete(item.subId);
+      if (failureReports.delete(item.subId)) logger.info?.(`webhook subscription ${item.subId} is delivering again`, { subscriptionId: item.subId });
       record({ subId: item.subId, deliveryId: item.id, eventId: item.eventId, topic: item.topic, attempt: n, result: r, outcome: "delivered" });
       subs.patch(item.subId, { delivered: (subs.get(item.subId).delivered ?? 0) + 1, lastDeliveredAt: now(), consecutiveFailures: 0 });
       return;
@@ -443,6 +476,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     const t = now();
     const failure = { failed: (subs.get(item.subId).failed ?? 0) + 1, lastFailureAt: t, lastFailureCode: r.code, lastFailureStatus: r.status ?? null, consecutiveFailures: (subs.get(item.subId).consecutiveFailures ?? 0) + 1 };
     subs.patch(item.subId, failure);
+    reportFailure(item.subId, r.code);
     // The circuit breaker: after a few failures in a row, start no new attempt for this subscription until a backoff
     // period has passed, however many events arrive. One attempt then probes the receiver.
     // Only failures that tie up a slot (no answer, no connection) count; an answer such as 400 or 500 frees it at once.

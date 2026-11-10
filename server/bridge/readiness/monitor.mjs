@@ -860,6 +860,12 @@ export function createReadinessService(deps, opts = {}) {
       feedSafety();
       if (!cfg.enabled) return;
       listen();
+      // After a sleep the session and the egress IP are checked again at once, not at the next cycle.
+      const offWake = bus?.on?.("system.resumed", () => {
+        lastCycleAt = null;
+        void tick().catch((err) => log?.warn?.("readiness tick failed", { err: err?.message }));
+      });
+      if (offWake) offs.push(offWake);
       tickHandle = timers.setInterval(() => {
         void tick().catch((err) => log?.warn?.("readiness tick failed", { err: err?.message }));
       }, TICK_MS);

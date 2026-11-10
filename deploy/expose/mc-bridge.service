@@ -30,6 +30,10 @@ Environment=TZ=Asia/Kolkata
 ExecStart=/usr/bin/node /opt/mc-bridge/bin/mc-bridge.mjs start
 Restart=on-failure
 RestartSec=5
+# A stop (SIGTERM) lets downloads, recordings and the webhook queue write their state; the Bridge itself gives up after 10 s.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+LimitNOFILE=4096
 StateDirectory=mc-bridge mc-bridge-secrets
 StateDirectoryMode=0700
 UMask=0077

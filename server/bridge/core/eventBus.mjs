@@ -49,6 +49,8 @@
  *  recording.stopped   { id, name, auto, ruleId?, reason, rows, bytes, gaps }     stopped by hand, session end of a rule, rule off, deleted
  *  recording.gap       { id, name, state: "open"|"closed", gapId, from, to, reason, message }   no data was saved for a stretch (feed silent, login missing ...)
  *  storage.status      { level: "ok"|"low"|"critical", previous, freeMb, minFreeMb, hardFreeMb, writeFailures, message }   free space on the data folder's disk changed level
+ *  system.resumed      { sleptMs, from, to }   the computer slept, or the Bridge was frozen, for about sleptMs (core/powerEvents.mjs)
+ *  system.clock_changed { deltaMs, from, to }  the computer's clock jumped by deltaMs (a time sync, or a person changed it)
  *  data.quarantined    { what, file, movedTo, reason, at }   a damaged state file was moved aside (paths relative to the data folder); the store started empty
  *  recording.disk_low  { id|null, name|null, scope: "recording"|"total"|"volume", level: "warning"|"stopped", stopped, usedMb?, limitMb?, freeMb?, message }
  */
@@ -90,6 +92,8 @@ export const TOPICS = Object.freeze([
   "recording.disk_low",
   "storage.status",
   "data.quarantined",
+  "system.resumed",
+  "system.clock_changed",
 ]);
 
 /**

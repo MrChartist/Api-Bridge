@@ -12,6 +12,7 @@
  * Bus topics: download.progress (throttled), download.done, download.failed.
  */
 import { defineModule } from "../core/modules.mjs";
+import { addMetrics } from "../core/metrics.mjs";
 import { DOWNLOADS_CONFIG_SCHEMA } from "./config.mjs";
 import { createDownloadManager } from "./manager.mjs";
 import { createDownloadRoutes } from "./routes.mjs";
@@ -64,6 +65,15 @@ export function createDownloadsModule(opts = {}) {
           app.logger?.warn?.("could not register a downloads usage provider", { kind, err });
         }
       }
+      addMetrics(deps, () => {
+        const jobs = deps.downloads.list?.() ?? [];
+        const n = (s) => jobs.filter((j) => j.status === s).length;
+        return [
+          { name: "bridge_downloads_running", help: "Download jobs running now.", value: n("running") },
+          { name: "bridge_downloads_queued", help: "Download jobs waiting.", value: n("queued") },
+          { name: "bridge_downloads_disk_bytes", help: "Disk used by the downloads folder.", value: deps.downloads.internals?.diskBytes?.() ?? 0 },
+        ];
+      });
       const handlers = createDownloadRoutes(deps, { downloads: deps.downloads });
       for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
     },

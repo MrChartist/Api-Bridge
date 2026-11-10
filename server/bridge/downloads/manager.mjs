@@ -748,7 +748,7 @@ export function createDownloadManager(deps, opts = {}) {
     const text = (withHeader ? headerText({ format: req.format, layout: req.layout, interval: item.interval }) : "") + encodeBars(bars, { symbol: item.symbol, interval: item.interval, format: req.format, layout: combined ? "combined" : "per-symbol" });
     const n = Buffer.byteLength(text);
     await ensureDisk(n);
-    await appendFile(partPath(job, index), text);
+    await appendFile(partPath(job, index), text, { mode: 0o600 });
     diskBytes += n;
     item.partBytes += n;
     item.bytes += n;
@@ -764,7 +764,7 @@ export function createDownloadManager(deps, opts = {}) {
   async function appendNewBars(part, file, { format, interval, headerFirst }) {
     const existing = await trimPartialTail(file);
     const last = existing ? ((await lastBarOf(file, { format, layout: "per-symbol", interval }))?.bar.time ?? -Infinity) : -Infinity;
-    const out = createWriteStream(file, { flags: "a" });
+    const out = createWriteStream(file, { flags: "a", mode: 0o600 });
     if (existing === 0) out.write(headerFirst);
     const rl = createInterface({ input: createReadStream(part, { encoding: "utf8" }), crlfDelay: Infinity });
     for await (const line of rl) {
@@ -950,7 +950,7 @@ export function createDownloadManager(deps, opts = {}) {
         const name = uniqueName(`${job.combinedBase}_${interval}`, ext, taken);
         const final = join(jobDir(job.id), name);
         const tmp = `${final}.tmp`;
-        const out = createWriteStream(tmp);
+        const out = createWriteStream(tmp, { mode: 0o600 });
         out.write(headerText({ format: req.format, layout: "combined", interval }));
         let rows = 0;
         let firstBar = null;

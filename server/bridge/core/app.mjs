@@ -30,6 +30,8 @@ import { createEventBus } from "./eventBus.mjs";
 import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { acquireInstanceLock } from "./instanceLock.mjs";
+import { createPowerWatcher } from "./powerEvents.mjs";
+import { createLoopLag, renderMetrics } from "./metrics.mjs";
 import { healthProblems, notReadyReasons } from "./healthProblems.mjs";
 import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { onQuarantine } from "../../lib/storageHealth.mjs";
@@ -49,6 +51,8 @@ import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, creat
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 export const BRIDGE_VERSION = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
 export const API_VERSION = "v1";
+/** The longest one module may take to stop (downloads, recordings and the webhook queue write their state in it). */
+export const MODULE_STOP_MS = 5000;
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 
 /** Pull the raw API key from a request. Returns { key, viaQuery } or null. */
@@ -146,7 +150,7 @@ export const DASHBOARD_FILES = Object.freeze({
  *   Pass `false` to take no lock (tests that deliberately run two Bridges on one folder).
  *   demoRoutes: replaces demo/routes.mjs DEMO_ROUTES (tests only); registered only when config.demo is true.
  */
-export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes, instanceLock = null }) {
+export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes, instanceLock = null, moduleStopMs = MODULE_STOP_MS }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
   const config = withAddableAccounts(applyModuleConfig(baseConfig, mods));
@@ -240,6 +244,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}), backup: backupHealth({ config, dataDir: config.dataDir }), ...(storage ? { storage } : {}), problems };
     },
     { auth: "none", summary: "Liveness; detail only for loopback callers" },
+  );
+  core.get(
+    "/v1/metrics",
+    () => text(renderMetrics(deps, { startedAt, http: httpCounts, loopLag, config }), { headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" } }),
+    { scope: "admin", loopbackOnly: true, summary: "The Bridge's own numbers as Prometheus text (counters and gauges only)" },
   );
   core.get(
     "/v1/ready",
@@ -492,7 +501,12 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       } else sendProblem(res, problem, { ...headers, ...(ctx?.responseHeaders ?? {}), ...problemHeaders(err) });
     } finally {
       const ms = Date.now() - t0;
-      log.info("http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined, ...(listener.sheets ? { sheets: true, ip: req.socket?.remoteAddress } : {}) });
+      httpCounts.set(`${Math.floor(status / 100)}xx`, (httpCounts.get(`${Math.floor(status / 100)}xx`) ?? 0) + 1);
+      // Access lines: errors and slow requests by default (logging.requests); "all" logs every one, "off" none.
+      const reqLog = config.logging.requests ?? "errors";
+      if (reqLog === "all" || (reqLog === "errors" && (status >= 400 || ms >= 1000))) {
+        (status >= 500 ? log.warn : log.info).call(log, "http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined, ...(listener.sheets ? { sheets: true, ip: req.socket?.remoteAddress } : {}) });
+      }
       if (!listener.public && path !== "/v1/requests" && !path.startsWith("/dashboard")) {
         const client = req.headers["x-mcb-client"] === "dashboard" ? "dashboard" : null;
         recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId, ...(ctx?.route ? { route: ctx.route } : {}) });
@@ -541,6 +555,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
 
   const servers = [];
   let started = false;
+  /** Answers by status class, for /v1/metrics. */
+  const httpCounts = new Map();
+  const loopLag = createLoopLag();
+  /** Notices sleep, wake and clock steps and tells the bus (core/powerEvents.mjs). */
+  const power = createPowerWatcher({ bus, logger: log });
   /** The data-folder lock this app holds (taken in listen() unless the caller passed one). */
   let lock = instanceLock;
   /** Written while listening; see controlToken.mjs. */
@@ -591,6 +610,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         sheetsPort = await bind(s.sheetsIngress.host, s.sheetsIngress.port, sh);
       }
       for (const m of mods) if (m.start) await m.start(deps);
+      power.start();
       // Not awaited: the Bridge answers at once; only the gated reads wait for the startup jobs.
       openStartup(deps).catch(() => {});
       try {
@@ -604,14 +624,27 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     },
     /** Stop modules (reverse order) and close listeners. */
     async close() {
+      power.stop();
+      loopLag.stop();
       if (controlToken) removeControlToken(config.dataDir, controlToken);
       controlToken = null;
       for (const m of [...mods].reverse()) {
         if (!m.stop) continue;
+        let timer;
         try {
-          await m.stop(deps);
+          // A module that hangs in stop() must not keep the Bridge from stopping: it is given `moduleStopMs`, then left.
+          const done = await Promise.race([
+            Promise.resolve(m.stop(deps)).then(() => true),
+            new Promise((resolve) => {
+              timer = setTimeout(() => resolve(false), moduleStopMs);
+              timer.unref?.();
+            }),
+          ]);
+          if (!done) log.error("a module did not stop in time; going on", { module: m.name, afterMs: moduleStopMs });
         } catch (err) {
           log.error("module stop failed", { module: m.name, err });
+        } finally {
+          clearTimeout(timer);
         }
       }
       await Promise.all(

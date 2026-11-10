@@ -115,6 +115,7 @@ A gap is a stretch inside a session when nothing was saved. Each one has a start
 | `delayed-source` | the only data was delayed or end-of-day, which is never recorded |
 | `universe-unresolved` | the symbols could not be chosen honestly (see above) |
 | `bridge-stopped` | the Bridge was not running |
+| `computer-asleep` | the computer was asleep, or the Bridge was frozen, so nothing could be recorded (not the broker's fault) |
 | `disk-full` | a disk limit was reached |
 
 A gap opens after silence of `recorder.gapAfterSec` (default three intervals, at least 30 seconds), except login-missing and disk-full, which open at once. They are kept in `gaps.jsonl` in the recording's folder, shown in `GET /v1/recordings/{recordingId}`, and sent as `recording.gap` events (`state` open, then closed). A quiet symbol that simply has not traded is not a gap: the feed is alive.

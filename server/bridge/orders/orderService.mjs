@@ -109,6 +109,9 @@ export function createOrderService(deps) {
   const sleep = (ms) => new Promise((r) => timers.set(r, ms));
 
   const idem = createIdempotencyStore({ now });
+  /** foldKey -> { at, suppressed }: refusals audited once a minute with a count (see place()). */
+  const refusalFold = new Map();
+  const REFUSAL_FOLD_MS = 60_000;
   const tickets = createTicketBook({ now, ticketTtlMs: cfg.ticketTtlMs, confirmTokenTtlMs: cfg.confirmTokenTtlMs });
   const dataDir = deps.paths?.dataDir ?? config?.dataDir ?? null;
   const stateFile = dataDir ? createStateFile(join(dataDir, "orders", "state.json"), { logger: log, now }) : null;
@@ -1105,7 +1108,17 @@ export function createOrderService(deps) {
           persist();
         }
         if (!audited && err instanceof BridgeError && err.code !== "VALIDATION_FAILED") {
-          await audit(ctx, "order.refused", { accountId: req.account, data: { code: err.code, message: err.detail, mode: req.mode ?? "paper", symbol: req.symbol, side: req.side, reasons: err.errors?.map((e) => e.path) } });
+          // The same refusal of the same order shape by the same client within a minute is ONE record with a count, not a
+          // line per retry (a looping script after the daily limit used to add hundreds of MB a day to the audit log).
+          const foldKey = `${principalKey(ctx)}|${req.account}|${err.code}|${req.symbol}|${req.side}|${req.quantity}|${req.mode ?? "paper"}`;
+          const t = now();
+          const prev = refusalFold.get(foldKey);
+          if (prev && t - prev.at < REFUSAL_FOLD_MS) prev.suppressed += 1;
+          else {
+            refusalFold.set(foldKey, { at: t, suppressed: 0 });
+            if (refusalFold.size > 500) for (const [k, v] of refusalFold) if (t - v.at >= REFUSAL_FOLD_MS) refusalFold.delete(k);
+            await audit(ctx, "order.refused", { accountId: req.account, data: { code: err.code, message: err.detail, mode: req.mode ?? "paper", symbol: req.symbol, side: req.side, reasons: err.errors?.map((e) => e.path), suppressed: prev?.suppressed ?? 0 } });
+          }
         }
       }
       throw err;

@@ -12,6 +12,7 @@
  */
 import { join } from "node:path";
 import { defineModule } from "../core/modules.mjs";
+import { addMetrics } from "../core/metrics.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { EVENT_TOPICS } from "./catalog.mjs";
 import { createClientRegistry, createEventsSse, createEventsWs } from "./clients.mjs";
@@ -70,6 +71,18 @@ export function createEventsModule(opts = {}) {
       const sse = createEventsSse({ ...common, bus: deps.bus, cors: app.config.cors, setInterval: opts.setInterval, clearInterval: opts.clearInterval });
       const ws = createEventsWs(common);
       states.set(deps, { eventLog, webhooks, registry, ws, offs: [], cfg });
+      addMetrics(deps, () => {
+        const w = webhooks.status();
+        const c = registry.stats();
+        return [
+          { name: "bridge_events_total", help: "Events recorded in the event log since the Bridge started.", type: "counter", value: eventLog.stats().recorded },
+          { name: "bridge_sse_clients", help: "Open event streams (server-sent events).", value: c.sse },
+          { name: "bridge_ws_clients", help: "Open event WebSocket connections.", value: c.ws },
+          { name: "bridge_webhook_pending", help: "Webhook deliveries waiting.", value: w.pending },
+          { name: "bridge_webhook_inflight", help: "Webhook deliveries being sent now.", value: w.inflight },
+          { name: "bridge_webhook_dead", help: "Webhook dead letters.", value: w.deadLetters },
+        ];
+      });
 
       const handlers = createEventsRoutes({ eventLog, webhooks, registry, audit: deps.audit, cfg });
       const off = () => {
@@ -97,6 +110,7 @@ export function createEventsModule(opts = {}) {
         }
       }
       state.offs.push(eventLog.subscribe((e) => webhooks.offer(e)));
+      state.offs.push(deps.bus.on("system.resumed", () => webhooks.wake()));
       state.offs.push(
         deps.bus.on("key.revoked", ({ keyId } = {}) => {
           for (const s of state.registry.all()) if (s.keyId === keyId) s.goAway("key_revoked", "The API key behind this connection was revoked.");
@@ -110,7 +124,8 @@ export function createEventsModule(opts = {}) {
       for (const off of state.offs.splice(0)) off();
       state.registry.all().forEach((s) => s.goAway("shutdown", "The Bridge is restarting. Reconnect in a few seconds with your last cursor."));
       state.ws.close();
-      state.webhooks.stop();
+      // Deliveries in flight get a few seconds to end; the queue itself is already on disk, so what is left is sent again.
+      await state.webhooks.stop();
     },
   });
 }

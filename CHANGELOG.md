@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Operation ([docs/guides/operations.md](docs/guides/operations.md)): one Bridge per data folder (`bridge.lock`); every damaged state
+  file is set aside and reported instead of stopping the start, and a damaged order record refuses live orders (`ORDER_STATE_DAMAGED`,
+  `mc-bridge orders acknowledge-state`) while paper keeps working; a disk monitor with `/v1/health` `degraded` and `problems`,
+  `GET /v1/ready`, `GET /v1/metrics`, `DISK_FULL` (a paper order is never accepted unless saved); webhook delivery per
+  subscription with a circuit breaker; a clean stop on SIGHUP and a Windows console close; a rotated log file and fewer access lines;
+  sleep and wake events; backups hold state only (downloads and recordings with `--include-data`); `doctor` covers the new parts.
+
 - Python and Node clients: `downloads.estimate`, `downloads.settings/set_settings`, `recordings.status/settings/presets/apply_preset`
   and `saved_calls()` / `savedCalls()` (from `GET /v1/limits?explain=1`).
 - `GET/PATCH /v1/downloads/settings` and `/v1/recordings/settings`: change the background budget share (0.05 to 0.8) and the

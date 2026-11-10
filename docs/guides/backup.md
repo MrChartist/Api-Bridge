@@ -4,6 +4,10 @@ The Bridge keeps everything you cannot make again in one data folder: your API k
 state, paper books, order records, audit log and source settings. This guide shows how to copy that folder safely, how
 to put a copy back, and what to do when a disk dies, an upgrade goes wrong or you move to another computer.
 
+**Downloads and recordings are not in a normal backup.** They can be many gigabytes and can be downloaded or recorded
+again, so a backup holds settings and state only, says which folders it left out and how big they are, and stays small
+and fast. Add `--include-data` (or `backup.includeData`) when you want them in the file too.
+
 Where the data folder is: `~/.mc-bridge/data` on Mac, Linux and Android, `%APPDATA%\MrChartist\Bridge\data` on Windows,
 and `data` next to `bridge.config.json` if you start the Bridge from a folder with its own config. `mc-bridge doctor`
 prints the exact path.
@@ -18,6 +22,8 @@ prints the exact path.
 | Data-source settings, pooling consent | The instrument cache (it is downloaded again) |
 | Paper books, order and idempotency records | Other backups |
 | The audit log (with its hash chain) | |
+| Collections, webhook subscription records (not their secrets), the event log | The URL and signing secret of a webhook subscription: they live in `secrets.enc` only |
+| | **Downloads and recordings** (`downloads/`, `recordings/`), unless you add `--include-data` |
 
 **Why the master key is left out.** `secrets.enc` is encrypted with the master key. If one file carried both, the
 encryption would protect nothing. So a backup never holds the key, and `secrets.enc` is optional: it is only of use
@@ -37,6 +43,11 @@ mc-bridge backup --out ~/Backups/bridge-2026-11-09.tar.gz
 - Without `--out` the file goes to `backups/` inside the data folder. That does **not** survive a failed disk, so copy it
   elsewhere.
 - `--include-secrets` also copies `secrets.enc`.
+- `--include-data` also copies the `downloads/` and `recordings/` folders. They are streamed in pieces (never read whole into
+  memory) and a recording that is still growing is copied up to the size it had when its turn came. The command prints their
+  size first when they are left out: `NOT included: downloads: 22 MB, 32 jobs; recordings: 1.6 MB, 3 recordings`. More than
+  `backup.maxDataFiles` (default 50,000) files in these folders is refused with a plain message, not a crash; copy the folders
+  yourself in that case.
 - Every file is copied whole and the finished archive is read back and compared with the checksum of each file. The
   command says "matched its checksum" only when they agree.
 - The Bridge can be running. Each file is copied in one piece (the Bridge replaces files atomically, so a copy is always
@@ -87,10 +98,12 @@ Saved a copy of your data before this version runs (2.0.0 to 2.1.0): /home/me/.m
 ```
 
 - It keeps the newest `backup.keep` (default 5). Daily backups, restore safety copies and manual backups in that folder
-  are counted separately; manual ones keep the newest 20.
+  are counted separately; manual ones keep the newest `backup.manualKeep` (default 5). Copies made with `--out` are never removed.
+- It never holds downloads or recordings (the copy before an upgrade and the safety copy before a restore are always state only),
+  so they stay small and quick to make however large the recordings grow.
 - It includes `secrets.enc` (the copy stays next to the file it copies, so it adds no exposure), never the master key.
-- It never fills the disk or stops the Bridge. It is skipped, with one warning line, when the data folder is larger than
-  `backup.maxSizeMb` (default 500) or when less than the size plus 50 MB is free. The Bridge starts anyway; make a copy
+- It never fills the disk or stops the Bridge. It is skipped, with one warning line, when the settings and state are larger than
+  `backup.maxSizeMb` (default 500; downloads and recordings are not counted) or when less than the size plus 50 MB is free. The Bridge starts anyway; make a copy
   yourself.
 - The version that last ran is remembered in `last-version.json` in the data folder.
 
@@ -103,6 +116,7 @@ Off by default. In `bridge.config.json`:
   "backup": {
     "keep": 5,
     "maxSizeMb": 500,
+    "includeData": false,
     "schedule": { "enabled": true, "time": "02:30", "keep": 7, "includeSecrets": false }
   }
 }
@@ -127,6 +141,15 @@ Do these with the Bridge stopped.
 3. `mc-bridge restore <file> --dry-run`, then `mc-bridge restore <file>`.
 4. `mc-bridge start --open`, then `mc-bridge doctor`.
 5. Check Safety: live trading is on only if your settings say so. The kill switch state is restored as it was.
+
+A restore of a backup that holds downloads and recordings puts them back and keeps the ones it replaced next to them, as
+`downloads.before-restore-...` and `recordings.before-restore-...` (no safety copy holds them); delete those when you have
+checked. A restore of a state-only backup leaves the downloads and recordings on this computer as they are.
+
+Webhook subscriptions: their URL and signing secret are in `secrets.enc`, which a normal backup leaves out. After a restore on
+another computer (or without `--include-secrets` and the original master key) each subscription needs its secret again:
+`mc-bridge subscriptions rotate-secret <id>`. Its queued deliveries wait for it (they are not thrown away). `restore` and
+`mc-bridge doctor` say how many.
 
 You do **not** have to re-enter: API keys (the keys themselves are shown only once, and every tool that has one keeps
 working), accounts, quotas, paper books, hooks and the audit history. You **do** have to re-enter: broker logins if the
@@ -166,7 +189,10 @@ a one-off container with the same volume: `docker compose run --rm --no-deps bri
 | Setting | Default | Meaning |
 |---|---|---|
 | `backup.keep` | 5 | Snapshots kept per kind: before an upgrade, before a restore |
-| `backup.maxSizeMb` | 500 | Larger data folders are not copied automatically (a warning, never a failure to start) |
+| `backup.maxSizeMb` | 500 | Settings and state larger than this are not copied automatically (downloads and recordings are not counted). A warning, never a failure to start |
+| `backup.includeData` | false | Also put `downloads/` and `recordings/` into manual and daily backups (never into the copy before an upgrade or a restore) |
+| `backup.maxDataFiles` | 50000 | More files than this in downloads and recordings: a backup with data is refused with a clear message |
+| `backup.manualKeep` | 5 | Manual backups kept in the data folder (backups made with `--out` are never removed) |
 | `backup.schedule.enabled` | false | Daily backup |
 | `backup.schedule.time` | `"02:30"` | Local time, 24-hour |
 | `backup.schedule.keep` | 7 | Daily backups kept |

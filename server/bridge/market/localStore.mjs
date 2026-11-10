@@ -20,7 +20,8 @@ import { join } from "node:path";
 import { readBars } from "../downloads/bars.mjs";
 
 export const DATASET_META_FILE = "dataset.json";
-export const DATASET_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+// Windows refuses folders named like its device files (con, prn, aux, nul, com1-9, lpt1-9), and dataset names become folder names.
+export const DATASET_NAME_RE = /^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$)[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /** Folder that holds every dataset. */
 export const datasetsRoot = (dataDir) => join(dataDir, "downloads", "datasets");

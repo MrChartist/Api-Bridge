@@ -177,6 +177,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Ready" }
 
+  /v1/metrics:
+    get:
+      tags: [System]
+      operationId: getMetrics
+      summary: The Bridge's own numbers (Prometheus text)
+      description: >-
+        This computer only, admin key. Counters and gauges as plain Prometheus text: uptime, memory, open file handles,
+        event-loop delay, requests by status class, free disk space, failed writes, damaged files set aside, the age of the
+        last backup, webhook queue sizes, download and recording figures. No symbol, key, account id or file name appears in it.
+      x-module: core
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Prometheus text exposition format.
+          content:
+            text/plain:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+
   /:
     get:
       tags: [System]
@@ -9454,7 +9474,7 @@ components:
         state: { type: string, enum: [open, closed] }
         from: { type: string }
         to: { type: [string, "null"] }
-        reason: { type: string, enum: [login-missing, feed-down, feed-silent, budget, delayed-source, universe-unresolved, bridge-stopped, disk-full, error] }
+        reason: { type: string, enum: [login-missing, feed-down, feed-silent, budget, delayed-source, universe-unresolved, bridge-stopped, computer-asleep, disk-full, error] }
         detail: { type: [string, "null"] }
         seconds: { type: [integer, "null"] }
     RecordingFile:

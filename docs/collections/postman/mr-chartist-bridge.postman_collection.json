@@ -63,6 +63,25 @@
           "response": []
         },
         {
+          "name": "The Bridge's own numbers (Prometheus text)",
+          "request": {
+            "description": "The Bridge's own numbers (Prometheus text)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThis computer only, admin key. Counters and gauges as plain Prometheus text: uptime, memory, open file handles, event-loop delay, requests by status class, free disk space, failed writes, damaged files set aside, the age of the last backup, webhook queue sizes, download and recording figures. No symbol, key, account id or file name appears in it.\n\nReference: docs/api/system/getMetrics.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "metrics"
+              ],
+              "raw": "{{baseUrl}}/v1/metrics"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Versions, brokers, modules and routes",
           "request": {
             "description": "Versions, brokers, modules and routes\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/system/getMeta.md in the repository.",
