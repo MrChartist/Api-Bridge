@@ -17,6 +17,7 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { json, noContent, Reply } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 import { parseTagFilter } from "./tags.mjs";
 
@@ -85,7 +86,9 @@ export function createLibraryRoutes(deps) {
       const kind = q.get("kind")?.trim() || undefined;
       if (kind !== undefined && kind !== "static" && kind !== "option-universe") throw invalid("kind", "kind must be static or option-universe.");
       const rows = lib().list({ tag, kind, q: q.get("q")?.trim() || undefined });
-      return reply(ctx, rows, 200, { count: rows.length });
+      const { limit, cursor } = pageParams(q);
+      const { items, nextCursor } = paginate(rows, { limit, cursor, keyOf: (c) => c.name });
+      return reply(ctx, items, 200, { count: rows.length, nextCursor });
     },
 
     create(ctx) {

@@ -16,6 +16,7 @@ import { createReadStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { BridgeError } from "../core/errors.mjs";
 import { json, toCsv } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { BASE_HEADERS } from "../core/security.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 import { istDate } from "../market/time.mjs";
@@ -70,14 +71,10 @@ export function createDownloadRoutes(deps, { downloads }) {
       if (status !== undefined && !STATUSES.includes(status)) throw invalid("status", `status must be one of ${STATUSES.join(", ")}.`);
       const include = opt(ctx.query, "include");
       if (include !== undefined && include !== "items") throw invalid("include", "include accepts only items.");
-      const limitText = opt(ctx.query, "limit");
-      let limit = 100;
-      if (limitText !== undefined) {
-        limit = Number(limitText);
-        if (!/^\d+$/.test(limitText) || limit < 1 || limit > LIST_MAX) throw invalid("limit", `limit must be a whole number from 1 to ${LIST_MAX}.`);
-      }
+      const { limit, cursor } = pageParams(ctx.query, { defaultLimit: 100, maxLimit: LIST_MAX });
       const all = downloads.list({ status, tag: opt(ctx.query, "tag"), items: include === "items" });
-      return { data: all.slice(0, limit), meta: meta(ctx, { total: all.length }) };
+      const { items, nextCursor } = paginate(all, { limit, cursor, keyOf: (j) => j.id });
+      return { data: items, meta: meta(ctx, { total: all.length, nextCursor }) };
     },
 
     get: (ctx) => ({ data: downloads.get(ctx.params.downloadId), meta: meta(ctx) }),
@@ -128,7 +125,10 @@ export function createDownloadRoutes(deps, { downloads }) {
 
     // ── datasets ──
     listDatasets(ctx) {
-      return { data: downloads.listDatasets({ tag: opt(ctx.query, "tag") }), meta: meta(ctx) };
+      const { limit, cursor } = pageParams(ctx.query);
+      const all = downloads.listDatasets({ tag: opt(ctx.query, "tag") });
+      const { items, nextCursor } = paginate(all, { limit, cursor, keyOf: (d) => d.name });
+      return { data: items, meta: meta(ctx, { nextCursor }) };
     },
     getDataset: (ctx) => ({ data: downloads.getDataset(ctx.params.name), meta: meta(ctx) }),
     async patchDataset(ctx) {

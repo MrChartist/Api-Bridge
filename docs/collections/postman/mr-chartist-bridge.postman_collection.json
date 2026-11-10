@@ -218,6 +218,20 @@
                 "v1",
                 "accounts"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/accounts"
             }
           },
@@ -429,6 +443,20 @@
               "path": [
                 "v1",
                 "keys"
+              ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
               ],
               "raw": "{{baseUrl}}/v1/keys"
             }
@@ -881,6 +909,18 @@
                   "disabled": true,
                   "key": "q",
                   "value": "RELIANCE"
+                },
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
                 }
               ],
               "raw": "{{baseUrl}}/v1/collections"
@@ -1380,6 +1420,12 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/ltp?symbols=NSE:RELIANCE,NSE:NIFTY"
@@ -1442,6 +1488,12 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/quotes?symbols=NSE:RELIANCE,NSE:NIFTY"
@@ -1485,6 +1537,12 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/depth?symbol=NSE:RELIANCE"
@@ -1558,6 +1616,18 @@
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
+                },
+                {
+                  "description": "`true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`.",
+                  "disabled": true,
+                  "key": "localFirst",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/history?symbol=NSE:RELIANCE&interval=5m&countback=50"
@@ -1622,6 +1692,12 @@
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/expiries?underlying=NIFTY"
@@ -1703,6 +1779,12 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/optionchain?underlying=NIFTY&expiry={{expiry}}&strikes=5"
@@ -2048,6 +2130,20 @@
                 "v1",
                 "subscriptions"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/subscriptions"
             }
           },
@@ -2281,6 +2377,20 @@
                 "subscriptions",
                 ":subscriptionId",
                 "dead-letters"
+              ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
               ],
               "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId/dead-letters",
               "variable": [
@@ -4093,6 +4203,20 @@
                 "v1",
                 "recordings"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/recordings"
             }
           },
@@ -4309,6 +4433,20 @@
                 "v1",
                 "recordings",
                 "rules"
+              ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
               ],
               "raw": "{{baseUrl}}/v1/recordings/rules"
             }
@@ -5052,6 +5190,12 @@
                   "disabled": true,
                   "key": "limit",
                   "value": "100"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
                 }
               ],
               "raw": "{{baseUrl}}/v1/downloads"
@@ -5373,6 +5517,18 @@
                   "disabled": true,
                   "key": "tag",
                   "value": "<tag>"
+                },
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
                 }
               ],
               "raw": "{{baseUrl}}/v1/datasets"
@@ -6055,6 +6211,20 @@
               "path": [
                 "v1",
                 "hooks"
+              ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
               ],
               "raw": "{{baseUrl}}/v1/hooks"
             }

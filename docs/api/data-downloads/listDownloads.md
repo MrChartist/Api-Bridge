@@ -21,6 +21,7 @@ The list leaves out each job's `items` unless `include=items`.
 | `tag` | query | string, up to 32 characters | no |  |
 | `include` | query | one of `items` | no |  |
 | `limit` | query | integer, min 1, max 500 | no | Default `100`. |
+| `cursor` | query | string, up to 512 characters | no | Opaque cursor from `meta.nextCursor`. |
 
 ## Responses
 

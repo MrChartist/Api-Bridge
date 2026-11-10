@@ -64,7 +64,20 @@ code has no entry there. When you report a problem, quote the `requestId`.
 ## Pagination
 
 List routes take `limit` and an opaque `cursor`; the answer's `meta.nextCursor` is the cursor for the next page and is `null`
-on the last one. Do not build or read a cursor.
+on the last one. Do not build or read a cursor. Without `limit` you get the whole list (downloads: the newest 100), so a client
+that never pages sees what it always saw.
+
+Routes that page: instruments search, orders, trades, audit, downloads, datasets, collections, recordings and their rules,
+subscriptions and their dead letters, keys, accounts and hooks. `GET /v1/events` pages with `since`; its `meta.nextCursor` is the
+`since` for the next page. Other lists are short and always come back whole. Each page is a slice of the list sorted as the route
+documents, and the cursor names the last item you got, so adding or removing items between two calls does not repeat or skip one.
+
+### A parameter the Bridge does not know
+
+Bodies are strict (an unknown field is a 400). On the price and history reads (`/v1/ltp`, `/quotes`, `/depth`, `/history`,
+`/expiries`, `/optionchain`) a query parameter the route does not know, such as `maxAge` for `maxAgeMs`, is reported instead of
+ignored: the answer still comes, with `X-MCB-Ignored-Params: maxAge` and `X-MCB-Param-Hint: maxAge: did you mean maxAgeMs`.
+Add `strict=true` to get a 400 `VALIDATION_FAILED` for it instead. Other routes ignore what they do not read.
 
 ## Idempotency
 

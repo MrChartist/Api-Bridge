@@ -13,6 +13,13 @@
 
 A recording saves this Bridge's own real-time data going forward, because brokers give no history for option chains, open interest snapshots or ticks. Every item says dataClass realtime.
 
+## Parameters
+
+| Name | In | Type | Required | Notes |
+|---|---|---|---|---|
+| `limit` | query | integer, min 1, max 500 | no | Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page. |
+| `cursor` | query | string, up to 512 characters | no | Opaque cursor from `meta.nextCursor`. |
+
 ## Responses
 
 | Status | Meaning | Body |
@@ -69,6 +76,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 
 | Code | HTTP | Retryable |
 |---|---|---|
+| `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
 | `RATE_LIMITED` | 429 | yes |
 

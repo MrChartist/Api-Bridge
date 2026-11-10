@@ -15,6 +15,7 @@
  */
 import { BridgeError, NotImplementedError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { defineModule } from "../core/modules.mjs";
 import { createKeyStore, KEY_ID_RE } from "./keyStore.mjs";
 import { createSecretStore } from "./secretStore.mjs";
@@ -38,7 +39,7 @@ export const SIGN_IN_FAILED = "This sign-in link has expired or was already used
 export const MAX_FAILED_SIGN_IN = 20;
 const SIGN_IN_WINDOW_MS = 60_000;
 
-const meta = (ctx) => ({ requestId: ctx.requestId });
+const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
 /** A key record the caller may see and revoke: its accounts are all ones the caller holds. */
 const visible = (ctx, record) => ctx.canAccessAccounts?.(record.accounts) ?? true;
 
@@ -64,7 +65,10 @@ export function createHandlers(deps) {
     async listKeys(ctx) {
       // An account-limited admin key sees only keys limited to accounts it holds (never the unlimited ones).
       const all = await deps.keyStore.list();
-      return { data: all.filter((k) => visible(ctx, k)), meta: meta(ctx) };
+      const { limit, cursor } = pageParams(ctx.query);
+      const mine = all.filter((k) => visible(ctx, k));
+      const { items, nextCursor } = paginate(mine, { limit, cursor, keyOf: (k) => k.id });
+      return { data: items, meta: meta(ctx, { nextCursor }) };
     },
     async createKey(ctx) {
       if (ctx.body === undefined || ctx.body === null || typeof ctx.body !== "object" || Array.isArray(ctx.body)) {

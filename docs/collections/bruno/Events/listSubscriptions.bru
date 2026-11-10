@@ -10,6 +10,11 @@ get {
   auth: bearer
 }
 
+params:query {
+  ~limit: 1
+  ~cursor: <cursor>
+}
+
 auth:bearer {
   token: {{apiKey}}
 }

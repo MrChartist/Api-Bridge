@@ -48,7 +48,12 @@ info:
     it; and how current the data is: `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`), so you
     always know how old a number is and where it came from. Errors are RFC 9457 `application/problem+json` with a stable `code` and a
     `retryable` flag. Times are ISO-8601 with the IST offset (`+05:30`) unless an endpoint says otherwise; candle times
-    are epoch seconds. List endpoints are paginated with `limit` and an opaque `cursor` (`meta.nextCursor`).
+    are epoch seconds. List endpoints take `limit` and an opaque `cursor`; the answer's `meta.nextCursor` is the cursor of the next
+    page and is null on the last one (without `limit` the whole list comes back). The routes that page: instruments search, orders,
+    trades, audit, downloads, datasets, collections, recordings and their rules, subscriptions and their dead letters, keys,
+    accounts and hooks; `GET /v1/events` pages with `since` and also gives `meta.nextCursor`. Market reads (prices, quotes,
+    depth, history, expiries, option chain) tell you about a query parameter they do not know with `X-MCB-Ignored-Params`
+    (`strict=true` refuses it instead).
 
     ## Data sources
     Real-time data and option chains come from your own broker accounts. Optional free sources and plugins (see
@@ -430,6 +435,9 @@ paths:
       description: Only accounts this key may use are listed. Never includes credentials.
       x-module: accounts
       x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Accounts.
@@ -642,6 +650,9 @@ paths:
       x-module: auth
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Keys.
@@ -1511,6 +1522,8 @@ paths:
         - { name: tag, in: query, description: "Tags to match, all of them (comma separated, or repeat the parameter).", schema: { type: string } }
         - { name: kind, in: query, schema: { type: string, enum: [static, option-universe] } }
         - { name: q, in: query, description: "Text found in the name, description or a tag.", schema: { type: string, maxLength: 64 } }
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Collections.
@@ -1858,6 +1871,7 @@ paths:
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Prices; symbols that failed are listed in `errors`.
@@ -1889,6 +1903,7 @@ paths:
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Quotes.
@@ -1917,6 +1932,7 @@ paths:
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Depth.
@@ -1965,6 +1981,8 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/Strict"
+        - { name: localFirst, in: query, description: "`true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`.", schema: { type: boolean, default: false } }
       responses:
         "200":
           description: Candles, ascending.
@@ -2002,6 +2020,7 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: ISO dates, ascending.
@@ -2062,6 +2081,7 @@ paths:
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Chain.
@@ -2246,6 +2266,7 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Jobs.
@@ -2486,6 +2507,8 @@ paths:
         - name: tag
           in: query
           schema: { type: string, maxLength: 32 }
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Datasets.
@@ -2818,6 +2841,9 @@ paths:
       description: The URL's path and the signing secret are never returned, only the host.
       x-module: events
       x-scope: admin
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Subscriptions.
@@ -2990,6 +3016,9 @@ paths:
       summary: Events that could not be delivered, newest first
       x-module: events
       x-scope: admin
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Dead letters.
@@ -4643,6 +4672,9 @@ paths:
       x-module: hooks
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Hooks.
@@ -5110,6 +5142,9 @@ paths:
       description: "A recording saves this Bridge's own real-time data going forward, because brokers give no history for option chains, open interest snapshots or ticks. Every item says dataClass realtime."
       x-module: recorder
       x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: The recordings, oldest first.
@@ -5287,6 +5322,9 @@ paths:
       description: "Rules from this computer's data folder and from recorder.autoRecord.rules in the config file (source config, read-only here)."
       x-module: recorder
       x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Rules.
@@ -6770,6 +6808,16 @@ components:
       in: query
       description: Opaque cursor from `meta.nextCursor`.
       schema: { type: string, maxLength: 512 }
+    ListLimit:
+      name: limit
+      in: query
+      description: "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page."
+      schema: { type: integer, minimum: 1, maximum: 500 }
+    Strict:
+      name: strict
+      in: query
+      description: "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored."
+      schema: { type: boolean, default: false }
     IdempotencyKey:
       name: Idempotency-Key
       in: header

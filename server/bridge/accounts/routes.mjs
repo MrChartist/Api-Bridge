@@ -27,6 +27,7 @@ import { isStub } from "../core/contracts.mjs";
 import { accountSchema, deepFreeze } from "../core/config.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { BROKER_NAMES, PAPER_BROKER, VERIFIED_BROKERS, adapterCapabilities, loadBrokerPolicies } from "./brokerInfo.mjs";
 import { verificationOf } from "../../brokers/verification.mjs";
 import { addAccountToConfigFile, configFileAccountIds, removeAccountFromConfigFile } from "./configFile.mjs";
@@ -200,8 +201,10 @@ export function createAccountRoutes(deps, { policies = {} } = {}) {
     /** GET /v1/accounts — only the accounts this key may use. */
     listAccounts(ctx) {
       const visible = visibleAccountIds(ctx);
-      const data = accounts.list().filter((a) => visible === "*" || visible.has(a.id));
-      return { data, meta: meta(ctx) };
+      const all = accounts.list().filter((a) => visible === "*" || visible.has(a.id));
+      const { limit, cursor } = pageParams(ctx.query);
+      const { items, nextCursor } = paginate(all, { limit, cursor, keyOf: (a) => a.id });
+      return { data: items, meta: meta(ctx, { nextCursor }) };
     },
 
     /** POST /v1/accounts (admin, loopback only, unlimited admin key): add a paper-only account and use it at once. */

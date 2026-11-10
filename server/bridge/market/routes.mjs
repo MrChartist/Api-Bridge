@@ -20,6 +20,7 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { csv } from "../core/http.mjs";
+import { READ_OPTION_PARAMS, checkQuery } from "../core/query.mjs";
 import { IV_MODELS } from "./chain.mjs";
 import { parseMarketConfig } from "./config.mjs";
 import { historyCsvRows } from "./history.mjs";
@@ -164,9 +165,10 @@ export function createMarketRoutes(deps) {
   const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
   /** Stored bars (datasets) for local-first history; created on first use. */
   let localStore;
-  const historyLocal = (params, opts, dataset) => {
+  const historyLocal = (params, opts, dataset, asked = false) => {
     localStore ??= createLocalStore({ dataDir: deps.paths?.dataDir });
-    const enabled = parseMarketConfig(deps.config?.market).history.localFirst;
+    // ?localFirst=true opts this one read in (any stored dataset that covers the range may serve it); the config does it for all reads.
+    const enabled = asked || parseMarketConfig(deps.config?.market).history.localFirst;
     return readHistoryLocalFirst({ store: localStore, history: (p, o) => md().history(p, o), now: () => deps.clock.now() }, { params, opts, dataset, enabled });
   };
   /** The name of a data source to show in the request log (its descriptor's name), if the sources service knows it. */
@@ -182,6 +184,7 @@ export function createMarketRoutes(deps) {
 
   return {
     async ltp(ctx) {
+      checkQuery(ctx, ["symbols", "maxAgeMs", ...READ_OPTION_PARAMS]);
       const symbols = parseSymbolList(ctx.query.get("symbols"));
       const opts = readOptions(ctx);
       const r = await md().ltp(symbols, opts);
@@ -190,6 +193,7 @@ export function createMarketRoutes(deps) {
     },
 
     async quotes(ctx) {
+      checkQuery(ctx, ["symbols", "maxAgeMs", ...READ_OPTION_PARAMS]);
       const symbols = parseSymbolList(ctx.query.get("symbols"));
       const opts = readOptions(ctx);
       const r = await md().quotes(symbols, opts);
@@ -198,6 +202,7 @@ export function createMarketRoutes(deps) {
     },
 
     async depth(ctx) {
+      checkQuery(ctx, ["symbol", "maxAgeMs", ...READ_OPTION_PARAMS]);
       const symbol = opt(ctx.query, "symbol");
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:RELIANCE.");
       const opts = readOptions(ctx);
@@ -207,6 +212,8 @@ export function createMarketRoutes(deps) {
     },
 
     async history(ctx) {
+      // No maxAgeMs here: a history range has no freshness target, so a caller who sends one is told it was ignored.
+      checkQuery(ctx, ["symbol", "interval", "format", "from", "to", "countback", "dataset", "localFirst", ...READ_OPTION_PARAMS]);
       const q = ctx.query;
       const symbol = opt(q, "symbol");
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:NIFTY.");
@@ -223,7 +230,7 @@ export function createMarketRoutes(deps) {
       if (countback !== undefined) params.countback = countback;
       const opts = readOptions(ctx, { maxAge: false });
       // Stored bars first (?dataset=, or market.history.localFirst); the broker answers only for what is not on disk.
-      const local = await historyLocal(params, opts, opt(q, "dataset"));
+      const local = await historyLocal(params, opts, opt(q, "dataset"), boolParam(q, "localFirst", false));
       const data = local ? local.data : await md().history(params, opts);
       route(ctx, [data.freshness]);
       if (local) ctx.setHeader("X-MCB-Local", local.meta.source);
@@ -236,6 +243,7 @@ export function createMarketRoutes(deps) {
     },
 
     async expiries(ctx) {
+      checkQuery(ctx, ["underlying", "exchange", ...READ_OPTION_PARAMS]);
       const underlying = opt(ctx.query, "underlying");
       if (!underlying) throw invalid("underlying", "underlying is required, for example NIFTY.");
       const opts = readOptions(ctx, { maxAge: false });
@@ -247,6 +255,7 @@ export function createMarketRoutes(deps) {
     },
 
     async optionChain(ctx) {
+      checkQuery(ctx, ["underlying", "expiry", "greeks", "strikes", "ivModel", "maxAgeMs", ...READ_OPTION_PARAMS]);
       const q = ctx.query;
       const underlying = opt(q, "underlying");
       if (!underlying) throw invalid("underlying", "underlying is required, for example NIFTY.");

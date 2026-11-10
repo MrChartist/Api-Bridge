@@ -16,6 +16,8 @@
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
 | `subscriptionId` | path | string | yes |  |
+| `limit` | query | integer, min 1, max 500 | no | Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page. |
+| `cursor` | query | string, up to 512 characters | no | Opaque cursor from `meta.nextCursor`. |
 
 ## Responses
 

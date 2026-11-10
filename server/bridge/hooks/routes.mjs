@@ -36,6 +36,7 @@ import { liveAllowedByConfig } from "../core/config.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { json, noContent } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { isLoopbackAddress } from "../core/security.mjs";
 import { IP_PRESET_NAMES, expandIpList, ipAllowed, ipPreset } from "./config.mjs";
 import { createDedupeMap } from "./dedupe.mjs";
@@ -415,7 +416,9 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
   /** GET /v1/hooks */
   async function listHooks(ctx) {
     const mine = store.list().filter((h) => ctx.canAccessAccounts?.([h.account]) ?? true);
-    return { data: mine.map((h) => ({ ...publicHook(h), readiness: automations?.state(h) ?? null, templates: alertTemplates(h) })), meta: { requestId: ctx.requestId } };
+    const { limit, cursor } = pageParams(ctx.query);
+    const { items, nextCursor } = paginate(mine, { limit, cursor, keyOf: (h) => h.id });
+    return { data: items.map((h) => ({ ...publicHook(h), readiness: automations?.state(h) ?? null, templates: alertTemplates(h) })), meta: { requestId: ctx.requestId, nextCursor } };
   }
 
   /** Refuse a live hook the caller may not create (see the file header). Throws; returns nothing. */
