@@ -50,4 +50,5 @@ The headers are `X-Bridge-Timestamp: <seconds>` and `X-Bridge-Signature: v1=<hex
 raw body. The event's `id` is in the body, so it is signed: use that to handle each event once. `X-Bridge-Event-Id` repeats it but is NOT signed, so do not rely on it. The same check in Python is in
 `docs/guides/developers.md`.
 
-Edit `handleEvent` in `receiver.mjs` to do your own work.
+Edit `handleEvent` in `receiver.mjs` to do your own work. If it throws, the receiver keeps running, prints the reason and saves
+the event to `failed-events.jsonl` (one JSON line each) so you can fix the bug and replay it.

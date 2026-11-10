@@ -467,6 +467,45 @@ describe("the starters, run against a demo Bridge", () => {
     expect(bad.err).toMatch(/UNAUTHENTICATED/);
   });
 
+  it("webhook-receiver: a handler that throws does not end the receiver or lose the event (audit F11)", async () => {
+    const dir = project("webhook-receiver");
+    const { createReceiver, runHandler, seenBefore } = await import(join(dir, "receiver.mjs"));
+    const secret = /WEBHOOK_SECRET=(\S+)/.exec(readFileSync(join(dir, ".env"), "utf8"))[1];
+    const failed = join(dir, "failed-here.jsonl");
+    let calls = 0;
+    const server = createReceiver({ secret, failedFile: failed, onEvent: async () => ((calls += 1), (() => { throw new Error("my bug"); })()) });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${server.address().port}/events`;
+    const errors = [];
+    const spy = console.error;
+    console.error = (m) => errors.push(String(m));
+    const crashes = [];
+    const onCrash = (e) => crashes.push(e);
+    process.on("uncaughtException", onCrash);
+    try {
+      const body = JSON.stringify({ id: "evt_boom", topic: "order.updated", data: { n: 1 } });
+      const t = Math.floor(Date.now() / 1000);
+      const post = () => fetch(url, { method: "POST", body, headers: signatureHeaders(secret, t, body) });
+      expect((await post()).status).toBe(200); // the Bridge is answered first
+      await new Promise((r) => setTimeout(r, 100));
+      expect(crashes).toEqual([]); // before the fix this was an uncaught exception that ended the process
+      expect(calls).toBe(1);
+      const saved = readFileSync(failed, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toMatchObject({ error: "my bug", event: { id: "evt_boom", topic: "order.updated" } });
+      expect(errors.join(" ")).toMatch(/Your handler failed on event evt_boom: my bug/);
+      // the id was forgotten, so a replay of the same event is handled again
+      expect(seenBefore("evt_boom")).toBe(false);
+      // and a handler that works leaves no file entry
+      await runHandler({ id: "ok" }, () => {}, failed);
+      expect(readFileSync(failed, "utf8").trim().split("\n")).toHaveLength(1);
+    } finally {
+      console.error = spy;
+      process.off("uncaughtException", onCrash);
+      await new Promise((r) => server.close(r));
+    }
+  });
+
   it("webhook-receiver: accepts a signed event once, refuses an unsigned one, and register.mjs is guarded", async () => {
     const dir = project("webhook-receiver");
     const { createReceiver } = await import(join(dir, "receiver.mjs"));

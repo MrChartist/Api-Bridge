@@ -4,8 +4,9 @@
 //   - answer 2xx quickly and do slow work afterwards: the Bridge retries anything that is not 2xx, with growing waits
 //   - expect the same event twice (a retry after a slow answer, or a copy someone captured): handle each event id once,
 //     using the `id` INSIDE the signed body. The X-Bridge-Event-Id header is not covered by the signature: anyone can change it.
+import { appendFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./env.mjs";
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignature } from "./verify.mjs";
@@ -45,7 +46,30 @@ export function handleEvent(event) {
   console.log(`${new Date().toISOString()}  ${event.topic ?? "event"}  ${JSON.stringify(event.data ?? event).slice(0, 160)}`);
 }
 
-export function createReceiver({ secret = SECRET, onEvent = handleEvent } = {}) {
+/** Where an event is saved when your handler throws, one JSON line each, so you can fix the bug and replay it. */
+const FAILED_FILE = env.RECEIVER_FAILED_FILE ?? fileURLToPath(new URL("./failed-events.jsonl", import.meta.url));
+
+/**
+ * Run your handler after the answer went out. A bug in it must not end this process or lose the event: the Bridge already
+ * has its 200 and will not send the event again, so on a failure the id is forgotten (a replayed copy is handled again) and
+ * the event is saved to failed-events.jsonl. Awaits a handler that returns a promise.
+ */
+export async function runHandler(event, onEvent = handleEvent, failedFile = FAILED_FILE) {
+  try {
+    await onEvent(event);
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    console.error(`Your handler failed on event ${event?.id ?? "(no id)"}: ${why}. The event is saved in ${basename(failedFile)}.`);
+    if (event?.id !== undefined && event?.id !== null) seen.delete(String(event.id));
+    try {
+      appendFileSync(failedFile, `${JSON.stringify({ failedAt: new Date().toISOString(), error: why, event })}\n`, { mode: 0o600 });
+    } catch (writeErr) {
+      console.error(`Could not save it either (${writeErr.message}). The event: ${JSON.stringify(event).slice(0, 500)}`);
+    }
+  }
+}
+
+export function createReceiver({ secret = SECRET, onEvent = handleEvent, failedFile = FAILED_FILE } = {}) {
   return createServer((req, res) => {
     if (req.method !== "POST" || req.url?.split("?")[0] !== "/events") {
       res.writeHead(404).end();
@@ -76,7 +100,7 @@ export function createReceiver({ secret = SECRET, onEvent = handleEvent } = {}) 
       // The id from the body, which the signature covers. Never the X-Bridge-Event-Id header: it is not signed.
       const duplicate = seenBefore(event?.id === undefined || event?.id === null ? undefined : String(event.id));
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, duplicate }));
-      if (!duplicate) setImmediate(() => onEvent(event)); // after the answer: slow work must not delay it
+      if (!duplicate) setImmediate(() => void runHandler(event, onEvent, failedFile)); // after the answer: slow work must not delay it
     });
   });
 }

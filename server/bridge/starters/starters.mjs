@@ -52,7 +52,7 @@ export const starterById = (id) => STARTERS.find((s) => s.id === id) ?? null;
 /** Scopes a starter key may have. Never admin or live: a starter is a place to begin, not to hold power. */
 export const STARTER_SCOPES = Object.freeze(["read", "paper"]);
 
-const GITIGNORE = [".env", ".env.*", "!.env.example", "node_modules/", "__pycache__/", "*.pyc", ".venv/", "downloads/", "*.csv", ""].join("\n");
+const GITIGNORE = [".env", ".env.*", "!.env.example", "node_modules/", "__pycache__/", "*.pyc", ".venv/", "downloads/", "*.csv", "failed-events.jsonl", ""].join("\n");
 
 /** All files under `dir`, as paths relative to it, sorted. */
 function walk(dir, base = dir) {
