@@ -88,7 +88,10 @@ retries an order write blindly.
   itself (an admin key pasted into the dashboard cannot open a live trading path on its own). The CLI, run on this
   computer, is not limited. `key.created` and `hook.created` audit records name the creating key.
 - Malformed keys and unknown key ids are refused without any hashing; at most two scrypt checks run at a time, and an
-  address that sends 30 bad keys in a minute is refused for the rest of that minute.
+  address that sends 30 bad attempts at one key id in a minute is refused for that key id for the rest of the minute (the
+  event stream counts the same way). The count is per address and key id, so one stale key in a sheet on this computer
+  does not lock out the dashboard or other apps, and a key that worked in the last ten minutes needs ten times as many
+  bad attempts. One address that makes 300 wrong guesses at real key ids in a minute is refused for keys that did not work lately.
 - Optional account list and expiry per key. `mc-bridge keys revoke <id>` takes effect on the next request and closes
   the key's open streams.
 - `?key=` in a URL only for read-only keys created with `--allow-query` (Excel, AmiBroker).

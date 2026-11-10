@@ -64,8 +64,16 @@ export const MAX_KEYS = 500;
 /** Concurrent scrypt verifications allowed, and how many may wait for a turn before RATE_LIMITED. */
 export const MAX_CONCURRENT_VERIFY = 2;
 export const MAX_WAITING_VERIFY = 32;
-/** Failed key checks allowed per client IP per minute before that IP is refused without hashing. */
+/**
+ * Failed key checks allowed per minute, counted per (client address, key id the caller named), before that pair is refused
+ * without hashing. Every program on this computer shares 127.0.0.1, so counting per address alone let one stale key in a
+ * sheet lock the dashboard, the CLI and every other app out for a minute.
+ */
 export const MAX_FAILED_AUTH_PER_IP = 30;
+/** Wrong secrets for real key ids (the ones that cost a scrypt run) per address per minute, over all key ids. */
+export const MAX_FAILED_HASHES_PER_IP = 300;
+/** A key id that checked out within this long is not locked out by failures, only by ten times as many. */
+export const GOOD_KEY_GRACE_MS = 10 * 60_000;
 const FAILED_AUTH_WINDOW_MS = 60_000;
 const MAX_STREAM_TOKENS_PER_KEY = 32;
 const MAX_STREAM_TOKENS = 10_000;
@@ -227,24 +235,38 @@ export function createKeyStore(deps, opts = {}) {
       verifyWaiters.shift()?.();
     }
   }
-  /** @type {Map<string, { n: number, since: number }>} client IP -> failed checks in the current window */
-  const failedByIp = new Map();
-  const ipBlocked = (ip, t) => {
-    if (!ip) return false;
-    const f = failedByIp.get(ip);
-    if (!f) return false;
+  /** @type {Map<string, { n: number, since: number }>} "<ip>|<key id named, or ?>" -> failed checks in the current window */
+  const failedByPair = new Map();
+  /** @type {Map<string, { n: number, since: number }>} client IP -> wrong secrets for real key ids (scrypt runs) in the current window */
+  const failedHashesByIp = new Map();
+  /** @type {Map<string, number>} key id -> when a check last succeeded */
+  const lastGood = new Map();
+  const windowCount = (map, k, t) => {
+    const f = map.get(k);
+    if (!f) return 0;
     if (t - f.since >= FAILED_AUTH_WINDOW_MS) {
-      failedByIp.delete(ip);
-      return false;
+      map.delete(k);
+      return 0;
     }
-    return f.n >= MAX_FAILED_AUTH_PER_IP;
+    return f.n;
   };
-  const noteFailed = (ip, t) => {
-    if (!ip) return;
-    const f = failedByIp.get(ip);
-    if (!f || t - f.since >= FAILED_AUTH_WINDOW_MS) failedByIp.set(ip, { n: 1, since: t });
+  const bump = (map, k, t) => {
+    const f = map.get(k);
+    if (!f || t - f.since >= FAILED_AUTH_WINDOW_MS) map.set(k, { n: 1, since: t });
     else f.n += 1;
-    if (failedByIp.size > 10_000) failedByIp.delete(failedByIp.keys().next().value);
+    if (map.size > 10_000) map.delete(map.keys().next().value);
+  };
+  /** A pair is refused after MAX_FAILED_AUTH_PER_IP failures; a key id that worked lately only after ten times as many. */
+  const ipBlocked = (ip, id, t) => {
+    if (!ip) return false;
+    const good = id !== null && t - (lastGood.get(id) ?? -Infinity) < GOOD_KEY_GRACE_MS;
+    if (windowCount(failedByPair, `${ip}|${id ?? "?"}`, t) >= (good ? MAX_FAILED_AUTH_PER_IP * 10 : MAX_FAILED_AUTH_PER_IP)) return true;
+    return !good && windowCount(failedHashesByIp, ip, t) >= MAX_FAILED_HASHES_PER_IP;
+  };
+  const noteFailed = (ip, id, t, { hashed = false } = {}) => {
+    if (!ip) return;
+    bump(failedByPair, `${ip}|${id ?? "?"}`, t);
+    if (hashed) bump(failedHashesByIp, ip, t);
   };
 
   const hydrate = (r) => {
@@ -491,9 +513,10 @@ export function createKeyStore(deps, opts = {}) {
     async authenticate(rawKey, opts = {}) {
       const ip = typeof opts?.ip === "string" && opts.ip ? opts.ip : null;
       const t = now();
-      if (ipBlocked(ip, t)) throw new BridgeError("RATE_LIMITED", "Too many invalid API keys from this address. Wait a minute and try again.", { retryAfterMs: FAILED_AUTH_WINDOW_MS });
+      const named = typeof rawKey === "string" && rawKey.length <= MAX_RAW_KEY_LENGTH ? parseApiKey(rawKey)?.keyId ?? null : null;
+      if (ipBlocked(ip, named, t)) throw new BridgeError("RATE_LIMITED", "Too many invalid API keys from this address for this key. Wait a minute and try again.", { retryAfterMs: FAILED_AUTH_WINDOW_MS });
       if (typeof rawKey !== "string" || rawKey.length === 0 || rawKey.length > MAX_RAW_KEY_LENGTH) {
-        noteFailed(ip, t);
+        noteFailed(ip, null, t);
         return null;
       }
       refresh();
@@ -511,7 +534,7 @@ export function createKeyStore(deps, opts = {}) {
         const candidate = parts ? records.get(parts.keyId) : undefined;
         // Malformed key or unknown keyId: both are public facts, so refuse without hashing.
         if (!candidate || loadError) {
-          noteFailed(ip, t);
+          noteFailed(ip, parts?.keyId ?? null, t);
           return null;
         }
         let derived;
@@ -523,7 +546,7 @@ export function createKeyStore(deps, opts = {}) {
           return null;
         }
         const equal = derived.length === candidate.hashBuf.length && timingSafeEqual(derived, candidate.hashBuf);
-        if (!equal) noteFailed(ip, t);
+        if (!equal) noteFailed(ip, candidate.id, t, { hashed: true });
         if (!equal || loadError) return null;
         // Re-check after the await: the file may have been reloaded meanwhile.
         const current = records.get(candidate.id);
@@ -539,6 +562,7 @@ export function createKeyStore(deps, opts = {}) {
         return null;
       }
       noteUsed(rec);
+      lastGood.set(rec.id, t);
       return publicRecord(rec);
     },
 

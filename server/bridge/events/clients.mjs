@@ -163,7 +163,7 @@ export function createEventsSse({ eventLog, bus, keyStore, registry, cfg, clock,
   return async function handle(ctx) {
     const token = ctx.query.get("token");
     const reused = await fromGrant(token, ctx.query);
-    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers });
+    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers, ip: ctx.clientIp });
     ctx.key = key;
     const q = parseStreamQuery(ctx.query, typeof ctx.req.headers["last-event-id"] === "string" ? ctx.req.headers["last-event-id"] : undefined);
     if (registry.full()) throw new BridgeError("RATE_LIMITED", "Too many event connections are open on the Bridge. Close one and try again.", { retryAfterMs: 5000 });
@@ -243,10 +243,10 @@ export function createEventsWs({ eventLog, keyStore, registry, cfg, clock, logge
     let key;
     let q;
     try {
-      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers });
+      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers, ip: req.socket?.remoteAddress });
       q = parseStreamQuery(url.searchParams, undefined);
     } catch (err) {
-      reject(err?.code === "SCOPE_REQUIRED" ? "403 Forbidden" : err?.code === "VALIDATION_FAILED" ? "400 Bad Request" : "401 Unauthorized");
+      reject(err?.code === "SCOPE_REQUIRED" ? "403 Forbidden" : err?.code === "VALIDATION_FAILED" ? "400 Bad Request" : err?.code === "RATE_LIMITED" ? "429 Too Many Requests" : "401 Unauthorized");
       return;
     }
     if (registry.full() || registry.fullFor(key.id)) {

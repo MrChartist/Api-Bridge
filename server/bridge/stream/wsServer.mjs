@@ -24,9 +24,9 @@ export function createWsEndpoint({ hub, bus, keyStore, registry, config: cfg, cl
   async function handleUpgrade({ req, socket, head, url, reject }) {
     let key;
     try {
-      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers });
+      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers, ip: req.socket?.remoteAddress });
     } catch (err) {
-      reject(err?.code === "SCOPE_REQUIRED" ? "403 Forbidden" : "401 Unauthorized");
+      reject(err?.code === "SCOPE_REQUIRED" ? "403 Forbidden" : err?.code === "RATE_LIMITED" ? "429 Too Many Requests" : "401 Unauthorized");
       return;
     }
     if (registry.full() || registry.fullFor?.(key.id)) {
