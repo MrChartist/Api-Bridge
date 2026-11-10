@@ -51,6 +51,7 @@ Summaries without symbol lists, ordered by name. `tag` may repeat or be comma se
 | `symbolCount` | integer or null | no | Static collections: how many symbols. Null for an option universe (it depends on the day). |
 | `universe` | `CollectionUniverse` | no | An option universe: which contracts of one underlying, worked out each time the collection is used. |
 | `previousNames` | array of string | yes |  |
+| `createdBy` | string or null | no | Who made it (key:<id> or local). Only that key, or an admin key, may change or delete it. Null for one made before owners were recorded (admin only). |
 | `viaOldName` | boolean | no | Only when the request used a name the collection had before a rename. |
 | `createdAt` | string (date-time) | yes |  |
 | `updatedAt` | string (date-time) | yes |  |

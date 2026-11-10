@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Data fixes: editing an auto-record rule now takes effect; a damaged `rules.json` or settings file is set aside, not dropped; mixed local and broker history keeps `partial` and the worst data class; daily bars keep the first day of a `from` inside the bar; a dataset job that asks for older bars than it holds is refused; cancel or pause during file assembly stays cancelled or paused; events never lose a pause or feed-down to the throttle; collections record `createdBy` (only the owner or an admin may change one); recordings stop writing a dead feed's last price and hold retention after a clock jump.
+
 - Tests: `npm run test:future` runs the whole suite with the clock moved forward (CI at 100 days); three tests that would have failed
   on 13, 17 and 25 November are fixed; the order-safety rules, the boot-time kill switch and all 20 MCP tools have tests; dashboard
   request bodies are checked against the OpenAPI schemas; the test guard refuses real connections from node's own sockets too.
