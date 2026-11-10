@@ -262,7 +262,7 @@ function savingCard() {
   const range = h("input", { type: "range", min: SHARE_MIN_PERCENT, max: SHARE_MAX_PERCENT, step: 5, value: Math.round(DEFAULT_SHARE * 100), id: "dt-share", class: "dt-range", "aria-describedby": "dt-share-text" });
   const shareText = h("p", { class: "hint", id: "dt-share-text" }, shareSentence(Math.round(DEFAULT_SHARE * 100)));
   const after = h("input", { type: "checkbox", id: "dt-after" });
-  const afterRow = h("label", { class: "check dt-after" }, after, "Only download after market hours");
+  const afterRow = h("label", { class: "check dt-after" }, after, "Only download after market hours (applies to downloads; recordings follow the market by themselves)");
   const note = h("p", { class: "hint dt-share-note", hidden: true }, "Setting the share needs a newer Bridge.");
   let settings = { downloads: null, recorder: null };
   let timer = null;
