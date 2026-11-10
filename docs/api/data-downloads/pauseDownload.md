@@ -41,8 +41,9 @@ The job keeps what it has written and continues from there when resumed.
 | `id` | string | yes |  |
 | `name` | string | yes |  |
 | `status` | `DownloadStatus` | yes |  |
-| `reason` | string or null | no | Why a job is paused or failed: user, kill_switch, session_lost, market_hours, disk_limit, items_failed, restart or internal. |
+| `reason` | string or null | no | Why a job is paused or failed: user, kill_switch, session_lost, market_hours, disk_low, key_revoked, disk_limit, items_failed, restart or internal. |
 | `message` | string or null | no | A plain sentence about the reason. |
+| `createdBy` | string or null | no | The key (key:<id>) or this computer (local) that started the job. Only that key, or an admin, may pause, resume, cancel or rename it. null for a job made before owners were recorded: admin only. |
 | `progress` | object | yes |  |
 | `items` | array of object | no | Left out of the list answer unless include=items. |
 | `request` | object | yes | The request as the Bridge understood it. |

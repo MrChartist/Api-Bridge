@@ -83,7 +83,8 @@ describe("a plain download", () => {
     await waitStatus(m.manager, job.id);
     expect(m.history.calls.length).toBeGreaterThan(0);
     for (const c of m.history.calls) expect(c.opts).toMatchObject({ priority: "background", purpose: "analysis", accountId: "acc1" });
-    expect(m.history.calls.some((c) => c.opts.backgroundShare !== undefined)).toBe(false);
+    // the scheduler re-checks the product's floor (never below half of any window) when it takes the budget
+    for (const c of m.history.calls) expect(c.opts.backgroundShare).toBe(0.5);
   });
 
   it("never stores the bar that is still forming", async () => {

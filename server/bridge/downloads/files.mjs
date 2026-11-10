@@ -10,11 +10,11 @@ import { dirname, join } from "node:path";
 
 export const JOB_ID_RE = /^dl_[0-9a-f]{12}$/;
 
-/** Write JSON atomically: a temp file in the same folder, then a rename. */
-export async function writeJsonAtomic(file, value) {
+/** Write JSON atomically: a temp file in the same folder, then a rename. `compact` skips the indentation (job state: thousands of items). */
+export async function writeJsonAtomic(file, value, { compact = false } = {}) {
   await mkdir(dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Math.random().toString(16).slice(2, 8)}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(tmp, `${compact ? JSON.stringify(value) : JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await rename(tmp, file);
 }
 

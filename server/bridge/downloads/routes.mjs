@@ -51,7 +51,17 @@ function flag(q, name) {
  */
 export function createDownloadRoutes(deps, { downloads }) {
   const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
-  const callOpts = (ctx) => ({ allowedAccounts: allowedAccountsFor(ctx) });
+  const callOpts = (ctx) => ({ allowedAccounts: allowedAccountsFor(ctx), actor: actorOf(ctx) });
+  /** Who is asking: the key's id (or "local" for this computer's control token) and whether it is an admin. Owners and admins may change a job. */
+  const actorOf = (ctx) => ({ id: ctx.principal?.kind === "key" ? `key:${ctx.principal.id}` : "local", admin: ctx.scopes?.has("admin") === true });
+  /** Deletes, cancels, renames and new jobs are written to the audit log (never the request body). A failed audit write does not undo the action. */
+  const audit = async (ctx, type, data) => {
+    try {
+      await deps.audit?.append?.({ type, actor: { kind: ctx.principal?.kind ?? "anonymous", id: ctx.principal?.id ?? "anonymous" }, source: ctx.source ?? "rest", requestId: ctx.requestId, data });
+    } catch (err) {
+      ctx.log?.warn?.("audit append failed for a download action", { type, err });
+    }
+  };
 
   /** Headers for a stream the handler writes itself (the pipeline's base headers, this request's id, rate-limit headers). */
   const streamHeaders = (ctx, extra) => ({ ...BASE_HEADERS, "X-Request-Id": ctx.requestId, "Cache-Control": "no-store", ...ctx.responseHeaders, ...extra });
@@ -62,6 +72,7 @@ export function createDownloadRoutes(deps, { downloads }) {
       if (body && typeof body === "object" && typeof body.account === "string") ctx.requireAccountAccess(body.account);
       if (flag(ctx.query, "dryRun")) return { data: await downloads.estimate(body, callOpts(ctx)), meta: meta(ctx, { dryRun: true }) };
       const { job } = await downloads.create(body, callOpts(ctx));
+      await audit(ctx, "download.created", { id: job.id, name: job.name, dataset: job.dataset, symbols: job.request?.symbols?.length ?? null, intervals: job.request?.intervals ?? null, backup: job.request?.backup === true });
       return json({ data: job, meta: meta(ctx) }, { status: 202, headers: { Location: `/v1/downloads/${job.id}` } });
     },
 
@@ -82,19 +93,29 @@ export function createDownloadRoutes(deps, { downloads }) {
 
     get: (ctx) => ({ data: downloads.get(ctx.params.downloadId), meta: meta(ctx) }),
     async patch(ctx) {
-      return { data: await downloads.patchJob(ctx.params.downloadId, ctx.body), meta: meta(ctx) };
+      const data = await downloads.patchJob(ctx.params.downloadId, ctx.body, { actor: actorOf(ctx) });
+      await audit(ctx, "download.changed", { id: data.id });
+      return { data, meta: meta(ctx) };
     },
     async pause(ctx) {
-      return { data: await downloads.pause(ctx.params.downloadId), meta: meta(ctx) };
+      const data = await downloads.pause(ctx.params.downloadId, { actor: actorOf(ctx) });
+      await audit(ctx, "download.paused", { id: data.id });
+      return { data, meta: meta(ctx) };
     },
     async resume(ctx) {
-      return { data: await downloads.resume(ctx.params.downloadId), meta: meta(ctx) };
+      const data = await downloads.resume(ctx.params.downloadId, { actor: actorOf(ctx) });
+      await audit(ctx, "download.resumed", { id: data.id });
+      return { data, meta: meta(ctx) };
     },
     async cancel(ctx) {
-      return { data: await downloads.cancel(ctx.params.downloadId), meta: meta(ctx) };
+      const data = await downloads.cancel(ctx.params.downloadId, { actor: actorOf(ctx) });
+      await audit(ctx, "download.cancelled", { id: data.id, createdBy: data.createdBy });
+      return { data, meta: meta(ctx) };
     },
     async remove(ctx) {
+      const before = downloads.get(ctx.params.downloadId);
       await downloads.remove(ctx.params.downloadId);
+      await audit(ctx, "download.deleted", { id: before.id, name: before.name, dataset: before.dataset, createdBy: before.createdBy });
       return undefined;
     },
     files: (ctx) => ({ data: downloads.files(ctx.params.downloadId), meta: meta(ctx, { manifestUrl: `/v1/downloads/${ctx.params.downloadId}/files/manifest.json` }) }),
@@ -132,14 +153,18 @@ export function createDownloadRoutes(deps, { downloads }) {
     },
     getDataset: (ctx) => ({ data: downloads.getDataset(ctx.params.name), meta: meta(ctx) }),
     async patchDataset(ctx) {
-      return { data: await downloads.patchDataset(ctx.params.name, ctx.body), meta: meta(ctx) };
+      const data = await downloads.patchDataset(ctx.params.name, ctx.body, { actor: actorOf(ctx) });
+      await audit(ctx, "dataset.changed", { name: ctx.params.name, newName: data.name !== ctx.params.name ? data.name : undefined });
+      return { data, meta: meta(ctx) };
     },
     async removeDataset(ctx) {
       await downloads.removeDataset(ctx.params.name);
+      await audit(ctx, "dataset.deleted", { name: ctx.params.name });
       return undefined;
     },
     async updateDataset(ctx) {
       const { job, existing } = await downloads.updateDataset(ctx.params.name, callOpts(ctx));
+      if (!existing) await audit(ctx, "download.created", { id: job.id, name: job.name, dataset: job.dataset, update: true });
       return json({ data: job, meta: meta(ctx, { existing }) }, { status: 202, headers: { Location: `/v1/downloads/${job.id}` } });
     },
 

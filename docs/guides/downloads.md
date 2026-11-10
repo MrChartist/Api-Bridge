@@ -114,13 +114,26 @@ library cannot say (for example the price for the ATM strike is delayed), the jo
 
 ```json
 "downloads": { "enabled": true, "maxConcurrentJobs": 1, "maxSymbolsPerJob": 500, "retentionDays": null,
-               "maxDiskMb": 5000, "maxBudgetShare": 0.3, "afterHoursOnly": false, "localFirst": true }
+               "maxDiskMb": 5000, "minFreeDiskMb": 500, "maxQueuedJobs": 20, "maxQueuedJobsPerKey": 8,
+               "maxStoredJobs": 500, "pauseOnKeyRevoked": true, "maxBudgetShare": 0.3, "afterHoursOnly": false, "localFirst": true }
 ```
 
 - `maxDiskMb`: writing stops at this size of the downloads folder; the job fails with `reason: disk_limit` and resumes once there is room.
   A job that would not fit is refused up front.
 - `retentionDays`: finished jobs older than this are deleted with their files. Datasets are never deleted by retention.
 - Jobs need the `read` scope (and the accounts the key may use). Deleting needs an admin key from this computer.
+- `minFreeDiskMb` (500): a job pauses with `reason: disk_low` before the disk that holds the data folder drops under this, and continues
+  by itself once there is clearly more room. A job that would leave less than this free is refused up front. `0` switches it off.
+- `maxQueuedJobs` (20) and `maxQueuedJobsPerKey` (8): jobs that are waiting, running or paused. A new job over either answers `429`. One key
+  cannot take every place. `maxStoredJobs` (500) bounds finished jobs too; delete old ones or set `retentionDays`.
+  The disk check counts what the waiting jobs are still expected to write, not only what is on disk.
+- Who may change what: a job belongs to the key that started it (`createdBy`). Only that key, or an admin key, may pause, resume, cancel or
+  rename it. The same holds for a dataset: only its creator or an admin may write into it with a new job, rename it or tag it. Any read key can read
+  both and can ask for a dataset's update (it runs the stored request, nothing the caller chose). Another job never rewrites what a dataset updates from.
+- `pauseOnKeyRevoked` (true): when a key is revoked, its open jobs are paused (`reason: key_revoked`); an admin can resume or cancel them.
+- Starting, pausing, resuming, cancelling, renaming and deleting are written to the audit log (`download.*`, `dataset.*`).
+- Every broker call carries the scheduler's floor, so live traffic that spends the budget between the pacer's check and the call is never pushed
+  under half of any window. The file of a dataset job carries the dataset's own labels (its worst class), not the older job's.
 
 ## Command line
 

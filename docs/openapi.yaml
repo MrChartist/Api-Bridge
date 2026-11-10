@@ -8458,8 +8458,11 @@ components:
           type: object
           properties:
             usedBytes: { type: integer }
+            queuedBytes: { type: integer, description: "What the jobs already waiting or running are still expected to write." }
             maxBytes: { type: integer }
-            wouldExceed: { type: boolean }
+            freeBytes: { type: [integer, "null"], description: "Free space on the disk that holds the data folder; null when the system cannot say." }
+            minFreeBytes: { type: integer, description: "downloads.minFreeDiskMb in bytes: a job pauses rather than leave less than this free." }
+            wouldExceed: { type: boolean, description: "True when the job would pass the disk limit or leave less than the free-disk floor." }
         notes: { type: array, items: { type: string } }
     DownloadJob:
       type: object
@@ -8468,8 +8471,9 @@ components:
         id: { type: string }
         name: { type: string }
         status: { $ref: "#/components/schemas/DownloadStatus" }
-        reason: { type: [string, "null"], description: "Why a job is paused or failed: user, kill_switch, session_lost, market_hours, disk_limit, items_failed, restart or internal." }
+        reason: { type: [string, "null"], description: "Why a job is paused or failed: user, kill_switch, session_lost, market_hours, disk_low, key_revoked, disk_limit, items_failed, restart or internal." }
         message: { type: [string, "null"], description: "A plain sentence about the reason." }
+        createdBy: { type: [string, "null"], description: "The key (key:<id>) or this computer (local) that started the job. Only that key, or an admin, may pause, resume, cancel or rename it. null for a job made before owners were recorded: admin only." }
         progress:
           type: object
           properties:
@@ -8538,6 +8542,7 @@ components:
         bytes: { type: integer }
         gaps: { type: integer, description: "Stretches with missing bars, over all files." }
         lastJobId: { type: [string, "null"] }
+        createdBy: { type: [string, "null"], description: "The key that created the dataset. Only that key, or an admin, may write into it with a new job, rename it or tag it; any read key may ask for its update." }
         activeJobId: { type: [string, "null"], description: "A job that is queued, running or paused for this dataset." }
         files:
           type: array
