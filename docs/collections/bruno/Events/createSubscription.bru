@@ -1,0 +1,38 @@
+meta {
+  name: Send events to a URL, signed (this computer only)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/subscriptions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "url": "<url>",
+    "topics": [
+      "<topics>"
+    ],
+    "secret": "xxxxxxxxxxxxxxxx"
+  }
+}
+
+docs {
+  Send events to a URL, signed (this computer only)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted
+  (the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers
+  verify `X-Bridge-Signature` (see docs/guides/events.md).
+
+  Reference: docs/api/events/createSubscription.md in the repository.
+}

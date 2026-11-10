@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-161 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+165 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -62,24 +62,6 @@ Instrument search, resolution and symbol conversion.
 | [GET /v1/symbols/validate](instruments/validateSymbolGet.md) | Check one symbol (canonical form, lot size, tradable) | `read` |
 | [POST /v1/symbols/validate](instruments/validateSymbols.md) | Check up to 200 symbols in one call | `read` |
 
-## Collections
-
-Named, tagged lists of instruments and option universes (rolling expiries, at-the-money strikes) that downloads, recordings and sheets use instead of pasted symbols.
-
-| Call | What it does | Needs |
-|---|---|---|
-| [GET /v1/collections](collections/listCollections.md) | List collections (static lists and option universes) | `read` |
-| [POST /v1/collections](collections/createCollection.md) | Create a collection | `paper` |
-| [POST /v1/collections/import](collections/importCollections.md) | Make collections from CSV or JSON | `paper` |
-| [GET /v1/collections/{name}](collections/getCollection.md) | One collection with its symbols or universe | `read` |
-| [PATCH /v1/collections/{name}](collections/updateCollection.md) | Change a collection, or rename it (send `name`) | `paper` |
-| [DELETE /v1/collections/{name}](collections/deleteCollection.md) | Delete a collection | `paper` |
-| [GET /v1/collections/{name}/resolve](collections/resolveCollection.md) | The concrete symbols of a collection right now | `read` |
-| [POST /v1/collections/{name}/duplicate](collections/duplicateCollection.md) | Copy a collection under a new name | `paper` |
-| [GET /v1/collections/{name}/export](collections/exportCollection.md) | A collection as a CSV or JSON file | `read` |
-| [GET /v1/collections/{name}/usage](collections/getCollectionUsage.md) | What is made from this collection | `read` |
-| [GET /v1/collections/{name}/estimate](collections/estimateCollection.md) | Size of downloading a collection (symbols x intervals x days) | `read` |
-
 ## Market data
 
 Quotes, LTP, depth, history, expiries and option chains, served streaming-first within broker limits.
@@ -106,6 +88,28 @@ WebSocket and SSE live data.
 | [GET /v1/stream](streaming/openStream.md) | WebSocket stream (upgrade) | no key |
 | [GET /v1/stream/sse](streaming/openSse.md) | Server-Sent Events stream (same messages as the WebSocket) | no key |
 | [GET /v1/stream/stats](streaming/getStreamStats.md) | Upstream feeds, subscriptions and clients | `read` |
+
+## Events
+
+Bridge events out, without polling. An SSE or WebSocket stream with cursor replay, and signed webhooks with retries and a dead-letter list. Events are read-only notifications; none can approve an order and none carries a secret.
+
+| Call | What it does | Needs |
+|---|---|---|
+| [GET /v1/events/stream](events/openEventStream.md) | Server-Sent Events stream of Bridge events, with replay from a cursor | no key |
+| [GET /v1/events/ws](events/openEventSocket.md) | WebSocket stream of Bridge events (upgrade), same events and cursor as the SSE stream | no key |
+| [GET /v1/events/topics](events/listEventTopics.md) | The topics this key may receive | `read` |
+| [GET /v1/events](events/listEvents.md) | Replay events as JSON (the polling twin of the stream) | `read` |
+| [GET /v1/events/status](events/getEventsStatus.md) | The event log, open connections and the webhook queue | `admin` |
+| [GET /v1/subscriptions](events/listSubscriptions.md) | Webhook subscriptions | `admin` |
+| [POST /v1/subscriptions](events/createSubscription.md) | Send events to a URL, signed (this computer only) | `admin`, this computer only |
+| [GET /v1/subscriptions/{subscriptionId}](events/getSubscription.md) | One webhook subscription with its health | `admin` |
+| [PATCH /v1/subscriptions/{subscriptionId}](events/updateSubscription.md) | Change a subscription (this computer only) | `admin`, this computer only |
+| [DELETE /v1/subscriptions/{subscriptionId}](events/deleteSubscription.md) | Remove a subscription, its queue, dead letters, log and stored secret | `admin` |
+| [POST /v1/subscriptions/{subscriptionId}/test](events/testSubscription.md) | Send one signed test event now (this computer only) | `admin`, this computer only |
+| [GET /v1/subscriptions/{subscriptionId}/deliveries](events/listSubscriptionDeliveries.md) | The delivery log, newest first | `admin` |
+| [GET /v1/subscriptions/{subscriptionId}/dead-letters](events/listSubscriptionDeadLetters.md) | Events that could not be delivered, newest first | `admin` |
+| [DELETE /v1/subscriptions/{subscriptionId}/dead-letters](events/clearSubscriptionDeadLetters.md) | Forget this subscription's dead letters | `admin` |
+| [POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry](events/retrySubscriptionDeadLetter.md) | Put a dead letter back in the queue (this computer only) | `admin`, this computer only |
 
 ## Portfolio
 

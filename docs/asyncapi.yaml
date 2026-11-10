@@ -133,6 +133,44 @@ channels:
       error: { $ref: "#/components/messages/error" }
       goAway: { $ref: "#/components/messages/goAway" }
 
+  events:
+    address: /v1/events/ws
+    title: Events WebSocket
+    description: |
+      One-way event feed with cursor replay. Query parameters: `token` (single-use stream token) or an Authorization header,
+      `topics` (default `*`), `accounts` (narrowing) and `since` (a cursor). Messages are JSON text frames; the only frame a
+      client may send is `{"op":"ping"}`. Nothing a client sends changes the Bridge.
+    servers:
+      - $ref: "#/servers/local-ws"
+    messages:
+      eventsReady: { $ref: "#/components/messages/eventsReady" }
+      eventsEvent: { $ref: "#/components/messages/eventsEvent" }
+      eventsGoAway: { $ref: "#/components/messages/eventsGoAway" }
+    bindings:
+      ws:
+        method: GET
+        query:
+          type: object
+          properties:
+            token: { type: string, maxLength: 512, description: Single-use stream token from POST /v1/stream/token. }
+            topics: { type: string, description: "Comma-separated filters: a topic, a prefix such as `order.*`, or `*`." }
+            since: { type: string, description: "A cursor (an event id). Replay the kept events after it, then go live." }
+            accounts: { type: string }
+        bindingVersion: 0.1.0
+  eventsSse:
+    address: /v1/events/stream
+    title: Events over Server-Sent Events
+    description: |
+      The same feed as `events`. Each event: `id: <cursor>`, `event: <topic>`, `data: <envelope JSON>`; the first is
+      `event: ready`. EventSource reconnects with `Last-Event-ID`, which the Bridge treats as `since`, so nothing is missed
+      as long as the cursor is still kept (`ready.gap` says when it is not). A `go_away` event precedes a close.
+    servers:
+      - $ref: "#/servers/local-http"
+    messages:
+      eventsReady: { $ref: "#/components/messages/eventsReady" }
+      eventsEvent: { $ref: "#/components/messages/eventsEvent" }
+      eventsGoAway: { $ref: "#/components/messages/eventsGoAway" }
+
 operations:
   receiveSubscribe:
     action: receive
@@ -232,6 +270,23 @@ operations:
       - $ref: "#/channels/sse/messages/status"
       - $ref: "#/channels/sse/messages/error"
       - $ref: "#/channels/sse/messages/goAway"
+
+  sendEvents:
+    action: send
+    channel: { $ref: "#/channels/events" }
+    summary: Bridge events, after the replay of anything missed. `ready` first, then events in cursor order.
+    messages:
+      - $ref: "#/channels/events/messages/eventsReady"
+      - $ref: "#/channels/events/messages/eventsEvent"
+      - $ref: "#/channels/events/messages/eventsGoAway"
+  sendEventsSse:
+    action: send
+    channel: { $ref: "#/channels/eventsSse" }
+    summary: Bridge events as SSE.
+    messages:
+      - $ref: "#/channels/eventsSse/messages/eventsReady"
+      - $ref: "#/channels/eventsSse/messages/eventsEvent"
+      - $ref: "#/channels/eventsSse/messages/eventsGoAway"
 
 components:
   securitySchemes:
@@ -378,6 +433,28 @@ components:
       payload: { $ref: "#/components/schemas/GoAway" }
       examples:
         - payload: { type: go_away, seq: 9001, reason: shutdown, message: "The Bridge is restarting. Reconnect in a few seconds.", reconnectAfterMs: 3000 }
+
+    # ── events out (docs/guides/events.md) ──
+    eventsReady:
+      name: ready
+      title: Events ready
+      summary: First message. Says where the log is and whether anything was missed.
+      payload: { $ref: "#/components/schemas/EventsReady" }
+      examples:
+        - payload: { type: ready, cursor: "1042", oldest: "37", replayed: 3, gap: false, gapReason: null, topics: ["order.*"] }
+    eventsEvent:
+      name: event
+      title: Bridge event
+      summary: One event. On SSE the `event` name is the topic and `id` the cursor; on the WebSocket `type` is `event`.
+      payload: { $ref: "#/components/schemas/EventsEvent" }
+      examples:
+        - payload: { type: event, id: "1043", topic: order.updated, time: "2026-11-09T04:01:02.000Z", apiVersion: v1, data: { orderId: PAPER-20261109-0003, accountId: paper, mode: paper, status: filled, filledQuantity: 65, avgPrice: 182.4, source: rest } }
+    eventsGoAway:
+      name: go_away
+      title: Events going away
+      payload: { $ref: "#/components/schemas/EventsGoAway" }
+      examples:
+        - payload: { type: go_away, reason: slow_consumer, message: "This connection reads events too slowly. Reconnect with the last cursor you saw.", reconnectAfterMs: 1000 }
 
   schemas:
     Symbol:
@@ -639,3 +716,34 @@ components:
               description: "shutdown: the Bridge is stopping or restarting (WebSocket close 1001). slow_consumer: the client fell too far behind (close 4008). key_revoked: the API key was revoked or expired (close 4001); do not reconnect with it."
             message: { type: string }
             reconnectAfterMs: { type: [integer, "null"], description: Suggested wait before reconnecting; null means do not reconnect. }
+
+    EventsReady:
+      type: object
+      required: [cursor, oldest, replayed, gap, topics]
+      properties:
+        type: { const: ready, description: "WebSocket only." }
+        cursor: { type: string, description: The newest event the Bridge has now. Also the SSE `id` of this message, so a reconnect without events still resumes here. }
+        oldest: { type: [string, "null"], description: The oldest event still kept. }
+        replayed: { type: integer, minimum: 0, description: How many events follow because of `since`. }
+        gap: { type: boolean, description: "true: events between your cursor and `oldest` are gone, or your cursor is newer than anything this Bridge knows. Read your state from REST again." }
+        gapReason: { type: [string, "null"], enum: [retention, cursor_ahead, null] }
+        topics: { type: array, items: { type: string } }
+    EventsEvent:
+      type: object
+      description: Read-only notification. It never carries a secret, a key or an order-approval token.
+      required: [id, topic, time, apiVersion, data]
+      properties:
+        type: { const: event, description: "WebSocket only." }
+        id: { type: string, description: The cursor. Also the id to de-duplicate on. }
+        topic: { type: string, examples: [order.updated] }
+        time: { type: string, format: date-time }
+        apiVersion: { const: v1 }
+        data: { type: object, additionalProperties: true }
+    EventsGoAway:
+      type: object
+      required: [reason, message, reconnectAfterMs]
+      properties:
+        type: { const: go_away, description: "WebSocket only." }
+        reason: { type: string, enum: [shutdown, slow_consumer, key_revoked] }
+        message: { type: string }
+        reconnectAfterMs: { type: [integer, "null"], description: null means do not reconnect with this key. }

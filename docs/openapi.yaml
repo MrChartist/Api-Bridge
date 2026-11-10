@@ -103,6 +103,8 @@ tags:
     description: Quotes, LTP, depth, history, expiries and option chains, served streaming-first within broker limits.
   - name: Streaming
     description: WebSocket and SSE live data.
+  - name: Events
+    description: Bridge events out, without polling. An SSE or WebSocket stream with cursor replay, and signed webhooks with retries and a dead-letter list. Events are read-only notifications; none can approve an order and none carries a secret.
   - name: Portfolio
     description: Positions, holdings and funds per account.
   - name: Orders
@@ -2156,6 +2158,374 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/StreamStats" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/stream:
+    get:
+      tags: [Events]
+      operationId: openEventStream
+      summary: Server-Sent Events stream of Bridge events, with replay from a cursor
+      description: |
+        `GET /v1/events/stream?token=<stream token>&topics=order.*,download.*&since=<cursor>`. Credentials as for the price
+        stream: a single-use token from `POST /v1/stream/token`, or an `Authorization` / `X-API-Key` header from scripts.
+        The first event is `ready` (`cursor`, `oldest`, `replayed`, `gap`). Each later event has `id` = its cursor, `event` =
+        its topic and `data` = the envelope `{ id, topic, time, apiVersion, data }`. After a drop, EventSource sends
+        `Last-Event-ID` by itself and the stream replays what was missed. A read key never receives admin-only topics, and a
+        key limited to some accounts only receives events about those accounts. Events are read-only notifications.
+        Full message formats: docs/asyncapi.yaml.
+      x-module: events
+      security: []
+      parameters:
+        - name: token
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/EventTopics"
+        - $ref: "#/components/parameters/EventSince"
+        - $ref: "#/components/parameters/EventAccounts"
+      responses:
+        "200":
+          description: Event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/ws:
+    get:
+      tags: [Events]
+      operationId: openEventSocket
+      summary: WebSocket stream of Bridge events (upgrade), same events and cursor as the SSE stream
+      description: |
+        `ws://127.0.0.1:4300/v1/events/ws?token=<stream token>&topics=order.*&since=<cursor>`. Server frames:
+        `ready`, `event` (the envelope plus `type: "event"`), `go_away`, `pong`, `error`. The only message a client may send
+        is `{"op":"ping"}`; nothing a client sends changes the Bridge.
+      x-module: events
+      x-websocket: true
+      security: []
+      parameters:
+        - name: token
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/EventTopics"
+        - $ref: "#/components/parameters/EventSince"
+        - $ref: "#/components/parameters/EventAccounts"
+      responses:
+        "101":
+          description: Switching to the WebSocket protocol.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/topics:
+    get:
+      tags: [Events]
+      operationId: listEventTopics
+      summary: The topics this key may receive
+      description: A read key sees no admin-only topic. A filter may be a topic, a prefix such as `order.*`, or `*`.
+      x-module: events
+      x-scope: read
+      responses:
+        "200":
+          description: Topics.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/EventTopic" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events:
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: Replay events as JSON (the polling twin of the stream)
+      description: |
+        The same events, filters and cursor as the stream, in one answer. With `since`, the events after that cursor,
+        oldest first; without it, the newest `limit` events. `meta.cursor` is the cursor to ask with next time;
+        `meta.gap` is true when events between your cursor and the oldest kept one are gone (read your state from REST again).
+      x-module: events
+      x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/EventTopics"
+        - $ref: "#/components/parameters/EventSince"
+        - $ref: "#/components/parameters/EventAccounts"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: Events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/EventEnvelope" } }
+                  meta: { $ref: "#/components/schemas/EventsMeta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/events/status:
+    get:
+      tags: [Events]
+      operationId: getEventsStatus
+      summary: The event log, open connections and the webhook queue
+      x-module: events
+      x-scope: admin
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/EventsStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/subscriptions:
+    get:
+      tags: [Events]
+      operationId: listSubscriptions
+      summary: Webhook subscriptions
+      description: The URL's path and the signing secret are never returned, only the host.
+      x-module: events
+      x-scope: admin
+      responses:
+        "200":
+          description: Subscriptions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Subscription" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Events]
+      operationId: createSubscription
+      summary: Send events to a URL, signed (this computer only)
+      description: |
+        The target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted
+        (the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers
+        verify `X-Bridge-Signature` (see docs/guides/events.md).
+      x-module: events
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubscriptionCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Subscription" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/subscriptions/{subscriptionId}:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionIdPath"
+    get:
+      tags: [Events]
+      operationId: getSubscription
+      summary: One webhook subscription with its health
+      x-module: events
+      x-scope: admin
+      responses:
+        "200":
+          description: The subscription.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Subscription" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Events]
+      operationId: updateSubscription
+      summary: Change a subscription (this computer only)
+      description: Only the fields sent change. A new `url` or `secret` is a new target, so this works from this computer only.
+      x-module: events
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubscriptionUpdate" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Subscription" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Events]
+      operationId: deleteSubscription
+      summary: Remove a subscription, its queue, dead letters, log and stored secret
+      x-module: events
+      x-scope: admin
+      responses:
+        "204":
+          description: Removed.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/subscriptions/{subscriptionId}/test:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionIdPath"
+    post:
+      tags: [Events]
+      operationId: testSubscription
+      summary: Send one signed test event now (this computer only)
+      description: One attempt, not queued and not retried; it appears in the delivery log. At most one test every two seconds per subscription.
+      x-module: events
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The result of the attempt (`ok` false is still a 200 here; read `code`).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/SubscriptionTestResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/subscriptions/{subscriptionId}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionIdPath"
+    get:
+      tags: [Events]
+      operationId: listSubscriptionDeliveries
+      summary: The delivery log, newest first
+      description: Every attempt with its outcome, HTTP status and a short failure code. No receiver answer text, URL path or secret.
+      x-module: events
+      x-scope: admin
+      parameters:
+        - name: outcome
+          in: query
+          schema: { type: string, enum: [delivered, retry, dead, failed] }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: Attempts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/DeliveryRecord" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/subscriptions/{subscriptionId}/dead-letters:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionIdPath"
+    get:
+      tags: [Events]
+      operationId: listSubscriptionDeadLetters
+      summary: Events that could not be delivered, newest first
+      x-module: events
+      x-scope: admin
+      responses:
+        "200":
+          description: Dead letters.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/DeadLetter" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Events]
+      operationId: clearSubscriptionDeadLetters
+      summary: Forget this subscription's dead letters
+      x-module: events
+      x-scope: admin
+      responses:
+        "200":
+          description: How many were removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, required: [removed], properties: { removed: { type: integer } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionIdPath"
+      - name: deliveryId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^dlv_[0-9a-f]{12}$' }
+    post:
+      tags: [Events]
+      operationId: retrySubscriptionDeadLetter
+      summary: Put a dead letter back in the queue (this computer only)
+      x-module: events
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "202":
+          description: Queued again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, required: [id, status], properties: { id: { type: string }, status: { type: string, enum: [queued] } } }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -5405,6 +5775,26 @@ components:
         trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the
         header is absent.
       schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9_.:-]+$" }
+    EventTopics:
+      name: topics
+      in: query
+      description: 'Comma-separated topic filters: a topic, a prefix such as `order.*`, or `*` (default).'
+      schema: { type: string, maxLength: 1000 }
+    EventSince:
+      name: since
+      in: query
+      description: "A cursor (an event `id`). Events after it are replayed first, then live ones. `0` = everything kept. Without it the stream is live only; SSE also reads `Last-Event-ID`."
+      schema: { type: string, pattern: '^\d{1,15}$' }
+    EventAccounts:
+      name: accounts
+      in: query
+      description: Only events about these accounts (comma-separated). A key never sees more than its own accounts.
+      schema: { type: string, maxLength: 3200 }
+    SubscriptionIdPath:
+      name: subscriptionId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^sub_[a-z2-7]{8}$' }
 
   responses:
     Problem:
@@ -6448,6 +6838,179 @@ components:
             slowDisconnects: { type: integer }
             opened: { type: integer }
 
+    EventTopic:
+      type: object
+      required: [topic, scope, accountScoped, description]
+      properties:
+        topic: { type: string, examples: [order.updated] }
+        scope: { type: string, enum: [read, admin], description: "The lowest scope that receives it." }
+        accountScoped: { type: boolean, description: "The data names an `accountId`; a key limited to some accounts only receives its own." }
+        description: { type: string }
+    EventEnvelope:
+      type: object
+      description: One event, as sent on the stream, in a webhook body and by `GET /v1/events`. Read-only; it never carries a secret, a key or an order-approval token.
+      required: [id, topic, time, apiVersion, data]
+      properties:
+        id: { type: string, description: "The cursor. Opaque; give it back as `since` or `Last-Event-ID`. Also the id to de-duplicate webhook deliveries on.", examples: ["1042"] }
+        topic: { type: string, examples: [order.updated] }
+        time: { type: string, format: date-time, description: "When the Bridge saw the event (UTC)." }
+        apiVersion: { type: string, enum: [v1] }
+        data: { type: object, additionalProperties: true, description: "The event's fields (see docs/guides/events.md). Anything that looked like a secret was removed." }
+    EventsMeta:
+      allOf:
+        - $ref: "#/components/schemas/Meta"
+        - type: object
+          properties:
+            cursor: { type: string, description: "Ask with this next time." }
+            latest: { type: string, description: "The newest event the Bridge has." }
+            oldest: { type: [string, "null"], description: "The oldest event still kept." }
+            gap: { type: boolean, description: "Events between your cursor and `oldest` are gone, or your cursor is newer than anything known." }
+            gapReason: { type: [string, "null"], enum: [retention, cursor_ahead, null] }
+            hasMore: { type: boolean }
+    EventsStatus:
+      type: object
+      properties:
+        log:
+          type: object
+          properties:
+            latest: { type: integer }
+            oldest: { type: [integer, "null"] }
+            kept: { type: integer }
+            retain: { type: integer }
+            recorded: { type: integer }
+            throttled: { type: integer }
+            writeErrors: { type: integer }
+            listeners: { type: integer }
+        clients:
+          type: object
+          properties:
+            connections: { type: integer }
+            sse: { type: integer }
+            ws: { type: integer }
+            maxConnections: { type: integer }
+        webhooks:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            subscriptions: { type: integer }
+            active: { type: integer }
+            pending: { type: integer }
+            inflight: { type: integer }
+            deadLetters: { type: integer }
+            oldestPendingAt: { type: [string, "null"], format: date-time }
+            allowPrivateTargets: { type: boolean }
+            storageErrors: { type: integer }
+        limits: { type: object, additionalProperties: { type: integer } }
+    SubscriptionCreate:
+      type: object
+      additionalProperties: false
+      required: [url, topics, secret]
+      properties:
+        url: { type: string, maxLength: 2048, description: "https:// on a public address. No user name or password. The config file can allow http and private addresses; cloud metadata addresses are always refused." }
+        topics:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: string }
+          description: 'Topics, prefixes such as `order.*`, or `*`. See `GET /v1/events/topics`.'
+        secret: { type: string, minLength: 16, maxLength: 256, writeOnly: true, description: "The signing secret. Write-only: stored encrypted, never returned." }
+        active: { type: boolean, default: true }
+        label: { type: string, maxLength: 60 }
+        accounts:
+          description: 'Only events about these accounts (default "*").'
+          oneOf:
+            - { type: string, enum: ["*"] }
+            - { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/AccountId" } }
+    SubscriptionUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        url: { type: string, maxLength: 2048 }
+        topics: { type: array, minItems: 1, maxItems: 50, items: { type: string } }
+        secret: { type: string, minLength: 16, maxLength: 256, writeOnly: true }
+        active: { type: boolean, description: "false pauses delivery; queued events wait." }
+        label: { type: [string, "null"], maxLength: 60 }
+        accounts:
+          oneOf:
+            - { type: string, enum: ["*"] }
+            - { type: array, minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/AccountId" } }
+    Subscription:
+      type: object
+      required: [id, target, host, topics, accounts, active, signing, createdAt, updatedAt, health, pending, deadLetters]
+      properties:
+        id: { type: string, pattern: '^sub_[a-z2-7]{8}$' }
+        label: { type: [string, "null"] }
+        target: { type: string, description: "Scheme and host, with an ellipsis when the URL has a path or query (which may be a secret).", examples: ["https://hooks.example.com/…"] }
+        host: { type: string }
+        topics: { type: array, items: { type: string } }
+        accounts: { oneOf: [{ type: string, enum: ["*"] }, { type: array, items: { type: string } }] }
+        active: { type: boolean }
+        signing:
+          type: object
+          properties:
+            algorithm: { type: string, enum: [hmac-sha256] }
+            version: { type: string, enum: [v1] }
+            replayWindowSec: { type: integer, description: "Receivers should refuse a timestamp further than this from their own clock." }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        health:
+          type: object
+          properties:
+            state: { type: string, enum: [unverified, ok, failing, paused, needs-secret], description: "needs-secret: the stored signing secret is missing (set it again with PATCH)." }
+            delivered: { type: integer }
+            failed: { type: integer, description: "Failed attempts (a retried event counts each time)." }
+            deadLettered: { type: integer }
+            consecutiveFailures: { type: integer }
+            lastDeliveredAt: { type: [string, "null"], format: date-time }
+            lastFailureAt: { type: [string, "null"], format: date-time }
+            lastFailure:
+              type: [object, "null"]
+              properties:
+                code: { type: string }
+                status: { type: [integer, "null"] }
+                message: { type: string }
+        pending: { type: integer, description: "Events waiting to be sent or retried." }
+        deadLetters: { type: integer }
+    SubscriptionTestResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        status: { type: [integer, "null"], description: "The receiver's HTTP status." }
+        code: { type: [string, "null"], description: "A short failure code (http_4xx, http_5xx, timeout, connect_failed, tls_failed, blocked_address ...)." }
+        message: { type: string }
+        durationMs: { type: integer }
+        deliveryId: { type: string }
+        willRetry: { type: boolean, description: "Always false: a test is not queued." }
+    DeliveryRecord:
+      type: object
+      properties:
+        id: { type: string }
+        deliveryId: { type: string }
+        eventId: { type: string }
+        topic: { type: string }
+        attempt: { type: integer }
+        at: { type: string, format: date-time }
+        outcome: { type: string, enum: [delivered, retry, dead, failed] }
+        ok: { type: boolean }
+        status: { type: [integer, "null"] }
+        code: { type: [string, "null"] }
+        message: { type: [string, "null"] }
+        durationMs: { type: [integer, "null"] }
+        nextAttemptAt: { type: [string, "null"], format: date-time }
+        test: { type: boolean }
+    DeadLetter:
+      type: object
+      properties:
+        id: { type: string, pattern: '^dlv_[0-9a-f]{12}$' }
+        eventId: { type: string }
+        topic: { type: string }
+        attempts: { type: integer }
+        createdAt: { type: string, format: date-time }
+        deadAt: { type: string, format: date-time }
+        reason: { type: string, description: "http_4xx, redirect_refused, blocked_address, overflow, expired, or the last retryable failure." }
+        status: { type: [integer, "null"] }
+        message: { type: string }
     Position:
       type: object
       required: [symbol, product, netQty, avgPrice, pnl]

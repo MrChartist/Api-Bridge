@@ -1,0 +1,27 @@
+meta {
+  name: Events that could not be delivered, newest first
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/v1/subscriptions/:subscriptionId/dead-letters
+  body: none
+  auth: bearer
+}
+
+params:path {
+  subscriptionId: <subscriptionId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Events that could not be delivered, newest first
+
+  - An API key with the `admin` scope.
+
+  Reference: docs/api/events/listSubscriptionDeadLetters.md in the repository.
+}

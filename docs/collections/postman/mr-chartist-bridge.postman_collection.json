@@ -1820,6 +1820,443 @@
       "name": "Streaming"
     },
     {
+      "description": "Bridge events out, without polling. An SSE or WebSocket stream with cursor replay, and signed webhooks with retries and a dead-letter list. Events are read-only notifications; none can approve an order and none carries a secret.",
+      "item": [
+        {
+          "name": "Server-Sent Events stream of Bridge events, with replay from a cursor",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Server-Sent Events stream of Bridge events, with replay from a cursor\n\n- No API key needed.\n\n`GET /v1/events/stream?token=<stream token>&topics=order.*,download.*&since=<cursor>`. Credentials as for the price\nstream: a single-use token from `POST /v1/stream/token`, or an `Authorization` / `X-API-Key` header from scripts.\nThe first event is `ready` (`cursor`, `oldest`, `replayed`, `gap`). Each later event has `id` = its cursor, `event` =\nits topic and `data` = the envelope `{ id, topic, time, apiVersion, data }`. After a drop, EventSource sends\n`Last-Event-ID` by itself and the stream replays what was missed. A read key never receives admin-only topics, and a\nkey limited to some accounts only receives events about those accounts. Events are read-only notifications.\nFull message formats: docs/asyncapi.yaml.\n\nReference: docs/api/events/openEventStream.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "events",
+                "stream"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "token",
+                  "value": "<hook token>"
+                },
+                {
+                  "description": "Comma-separated topic filters: a topic, a prefix such as `order.*`, or `*` (default).",
+                  "disabled": true,
+                  "key": "topics",
+                  "value": "<topics>"
+                },
+                {
+                  "description": "A cursor (an event `id`). Events after it are replayed first, then live ones. `0` = everything kept. Without it the stream is live only; SSE also reads `Last-Event-ID`.",
+                  "disabled": true,
+                  "key": "since",
+                  "value": "<since>"
+                },
+                {
+                  "description": "Only events about these accounts (comma-separated). A key never sees more than its own accounts.",
+                  "disabled": true,
+                  "key": "accounts",
+                  "value": "<accounts>"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/events/stream"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The topics this key may receive",
+          "request": {
+            "description": "The topics this key may receive\n\n- An API key with the `read` scope (any key).\n\nA read key sees no admin-only topic. A filter may be a topic, a prefix such as `order.*`, or `*`.\n\nReference: docs/api/events/listEventTopics.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "events",
+                "topics"
+              ],
+              "raw": "{{baseUrl}}/v1/events/topics"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Replay events as JSON (the polling twin of the stream)",
+          "request": {
+            "description": "Replay events as JSON (the polling twin of the stream)\n\n- An API key with the `read` scope (any key).\n\nThe same events, filters and cursor as the stream, in one answer. With `since`, the events after that cursor,\noldest first; without it, the newest `limit` events. `meta.cursor` is the cursor to ask with next time;\n`meta.gap` is true when events between your cursor and the oldest kept one are gone (read your state from REST again).\n\nReference: docs/api/events/listEvents.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "events"
+              ],
+              "query": [
+                {
+                  "description": "Comma-separated topic filters: a topic, a prefix such as `order.*`, or `*` (default).",
+                  "disabled": true,
+                  "key": "topics",
+                  "value": "<topics>"
+                },
+                {
+                  "description": "A cursor (an event `id`). Events after it are replayed first, then live ones. `0` = everything kept. Without it the stream is live only; SSE also reads `Last-Event-ID`.",
+                  "disabled": true,
+                  "key": "since",
+                  "value": "<since>"
+                },
+                {
+                  "description": "Only events about these accounts (comma-separated). A key never sees more than its own accounts.",
+                  "disabled": true,
+                  "key": "accounts",
+                  "value": "<accounts>"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "100"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/events"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The event log, open connections and the webhook queue",
+          "request": {
+            "description": "The event log, open connections and the webhook queue\n\n- An API key with the `admin` scope.\n\nReference: docs/api/events/getEventsStatus.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "events",
+                "status"
+              ],
+              "raw": "{{baseUrl}}/v1/events/status"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Webhook subscriptions",
+          "request": {
+            "description": "Webhook subscriptions\n\n- An API key with the `admin` scope.\n\nThe URL's path and the signing secret are never returned, only the host.\n\nReference: docs/api/events/listSubscriptions.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send events to a URL, signed (this computer only)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"url\": \"<url>\",\n  \"topics\": [\n    \"<topics>\"\n  ],\n  \"secret\": \"xxxxxxxxxxxxxxxx\"\n}"
+            },
+            "description": "Send events to a URL, signed (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted\n(the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers\nverify `X-Bridge-Signature` (see docs/guides/events.md).\n\nReference: docs/api/events/createSubscription.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One webhook subscription with its health",
+          "request": {
+            "description": "One webhook subscription with its health\n\n- An API key with the `admin` scope.\n\nReference: docs/api/events/getSubscription.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change a subscription (this computer only)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Change a subscription (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOnly the fields sent change. A new `url` or `secret` is a new target, so this works from this computer only.\n\nReference: docs/api/events/updateSubscription.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove a subscription, its queue, dead letters, log and stored secret",
+          "request": {
+            "description": "Remove a subscription, its queue, dead letters, log and stored secret\n\n- An API key with the `admin` scope.\n\nReference: docs/api/events/deleteSubscription.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send one signed test event now (this computer only)",
+          "request": {
+            "description": "Send one signed test event now (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOne attempt, not queued and not retried; it appears in the delivery log. At most one test every two seconds per subscription.\n\nReference: docs/api/events/testSubscription.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId",
+                "test"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId/test",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The delivery log, newest first",
+          "request": {
+            "description": "The delivery log, newest first\n\n- An API key with the `admin` scope.\n\nEvery attempt with its outcome, HTTP status and a short failure code. No receiver answer text, URL path or secret.\n\nReference: docs/api/events/listSubscriptionDeliveries.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId",
+                "deliveries"
+              ],
+              "query": [
+                {
+                  "disabled": true,
+                  "key": "outcome",
+                  "value": "delivered"
+                },
+                {
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "100"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId/deliveries",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Events that could not be delivered, newest first",
+          "request": {
+            "description": "Events that could not be delivered, newest first\n\n- An API key with the `admin` scope.\n\nReference: docs/api/events/listSubscriptionDeadLetters.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId",
+                "dead-letters"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId/dead-letters",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forget this subscription's dead letters",
+          "request": {
+            "description": "Forget this subscription's dead letters\n\n- An API key with the `admin` scope.\n\nReference: docs/api/events/clearSubscriptionDeadLetters.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId",
+                "dead-letters"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId/dead-letters",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Put a dead letter back in the queue (this computer only)",
+          "request": {
+            "description": "Put a dead letter back in the queue (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/events/retrySubscriptionDeadLetter.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "subscriptions",
+                ":subscriptionId",
+                "dead-letters",
+                ":deliveryId",
+                "retry"
+              ],
+              "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId/dead-letters/:deliveryId/retry",
+              "variable": [
+                {
+                  "key": "subscriptionId",
+                  "value": "<subscriptionId>"
+                },
+                {
+                  "key": "deliveryId",
+                  "value": "<deliveryId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Events"
+    },
+    {
       "description": "Positions, holdings and funds per account.",
       "item": [
         {

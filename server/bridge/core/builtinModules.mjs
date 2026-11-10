@@ -20,5 +20,7 @@ import sources from "../sources/module.mjs";
 import backup from "../backup/module.mjs";
 import notify from "../notify/module.mjs";
 import library from "../library/module.mjs";
+import events from "../events/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, library]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, library, events]);
+

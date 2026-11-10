@@ -119,9 +119,9 @@
         "Accounts",
         "Keys",
         "Instruments",
-        "Collections",
         "Market data",
         "Streaming",
+        "Events",
         "Portfolio",
         "Orders",
         "Paper",
@@ -140,7 +140,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "161 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "165 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -241,105 +241,6 @@
       "path": "docs/api/backup/getBackup.md",
       "text": "GET /v1/backup. This computer only, admin key.",
       "title": "The last backup, the schedule and the copies kept on this computer"
-    },
-    {
-      "headings": [
-        "POST /v1/collections"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/createCollection.md",
-      "text": "POST /v1/collections. A static collection holds a list of symbols.",
-      "title": "Create a collection"
-    },
-    {
-      "headings": [
-        "DELETE /v1/collections/{name}"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/deleteCollection.md",
-      "text": "DELETE /v1/collections/{name}. Refused with 409 while a download, recording or rule that is running uses it, unless force=true.",
-      "title": "Delete a collection"
-    },
-    {
-      "headings": [
-        "POST /v1/collections/{name}/duplicate"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/duplicateCollection.md",
-      "text": "POST /v1/collections/{name}/duplicate. Without a name the copy is called -copy (then -copy2 ...).",
-      "title": "Copy a collection under a new name"
-    },
-    {
-      "headings": [
-        "GET /v1/collections/{name}/estimate"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/estimateCollection.md",
-      "text": "GET /v1/collections/{name}/estimate. Rows, bytes and broker calls before you start.",
-      "title": "Size of downloading a collection (symbols x intervals x days)"
-    },
-    {
-      "headings": [
-        "GET /v1/collections/{name}/export"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/exportCollection.md",
-      "text": "GET /v1/collections/{name}/export. JSON is the definition (a universe stays a universe) and imports back with POST /v1/collections/import.",
-      "title": "A collection as a CSV or JSON file"
-    },
-    {
-      "headings": [
-        "GET /v1/collections/{name}"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/getCollection.md",
-      "text": "GET /v1/collections/{name}.",
-      "title": "One collection with its symbols or universe"
-    },
-    {
-      "headings": [
-        "GET /v1/collections/{name}/usage"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/getCollectionUsage.md",
-      "text": "GET /v1/collections/{name}/usage. The downloads, recordings, auto-record rules and datasets that use it.",
-      "title": "What is made from this collection"
-    },
-    {
-      "headings": [
-        "POST /v1/collections/import"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/importCollections.md",
-      "text": "POST /v1/collections/import. JSON: a collection ({ name, kind, symbols | universe }), a plain list of symbols (with name in the query), a file that GET /v1/collections/{name}/export wrote, or { collections: [...] }.",
-      "title": "Make collections from CSV or JSON"
-    },
-    {
-      "headings": [
-        "GET /v1/collections"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/listCollections.md",
-      "text": "GET /v1/collections. Summaries without symbol lists, ordered by name.",
-      "title": "List collections (static lists and option universes)"
-    },
-    {
-      "headings": [
-        "GET /v1/collections/{name}/resolve"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/resolveCollection.md",
-      "text": "GET /v1/collections/{name}/resolve. A static collection answers its list.",
-      "title": "The concrete symbols of a collection right now"
-    },
-    {
-      "headings": [
-        "PATCH /v1/collections/{name}"
-      ],
-      "kind": "endpoint",
-      "path": "docs/api/collections/updateCollection.md",
-      "text": "PATCH /v1/collections/{name}. A rename keeps the collection's id and its old name keeps working.",
-      "title": "Change a collection, or rename it (send `name`)"
     },
     {
       "headings": [
@@ -617,6 +518,141 @@
       "path": "docs/api/errors.md",
       "text": "Every error is application/problem+json with code, status, detail, retryable and requestId. The code is stable (codes are added, never renamed); detail is for people. retryable answers one question: is it safe to send exactly this request again? A write whose outcome is unknown...",
       "title": "Error codes"
+    },
+    {
+      "headings": [
+        "DELETE /v1/subscriptions/{subscriptionId}/dead-letters"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/clearSubscriptionDeadLetters.md",
+      "text": "DELETE /v1/subscriptions/{subscriptionId}/dead-letters.",
+      "title": "Forget this subscription's dead letters"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/createSubscription.md",
+      "text": "POST /v1/subscriptions. The target is an outside URL, so this works from this computer only.",
+      "title": "Send events to a URL, signed (this computer only)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/deleteSubscription.md",
+      "text": "DELETE /v1/subscriptions/{subscriptionId}.",
+      "title": "Remove a subscription, its queue, dead letters, log and stored secret"
+    },
+    {
+      "headings": [
+        "GET /v1/events/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/getEventsStatus.md",
+      "text": "GET /v1/events/status.",
+      "title": "The event log, open connections and the webhook queue"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/getSubscription.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}.",
+      "title": "One webhook subscription with its health"
+    },
+    {
+      "headings": [
+        "GET /v1/events/topics"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listEventTopics.md",
+      "text": "GET /v1/events/topics. A read key sees no admin-only topic.",
+      "title": "The topics this key may receive"
+    },
+    {
+      "headings": [
+        "GET /v1/events"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listEvents.md",
+      "text": "GET /v1/events. The same events, filters and cursor as the stream, in one answer.",
+      "title": "Replay events as JSON (the polling twin of the stream)"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}/dead-letters"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptionDeadLetters.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}/dead-letters.",
+      "title": "Events that could not be delivered, newest first"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}/deliveries"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptionDeliveries.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}/deliveries. Every attempt with its outcome, HTTP status and a short failure code.",
+      "title": "The delivery log, newest first"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptions.md",
+      "text": "GET /v1/subscriptions. The URL's path and the signing secret are never returned, only the host.",
+      "title": "Webhook subscriptions"
+    },
+    {
+      "headings": [
+        "GET /v1/events/ws"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/openEventSocket.md",
+      "text": "GET /v1/events/ws. ws://127.0.0.1:4300/v1/events/ws?token=&topics=order.*&since=.",
+      "title": "WebSocket stream of Bridge events (upgrade), same events and cursor as the SSE stream"
+    },
+    {
+      "headings": [
+        "GET /v1/events/stream"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/openEventStream.md",
+      "text": "GET /v1/events/stream. GET /v1/events/stream?token=&topics=order.,download.&since=.",
+      "title": "Server-Sent Events stream of Bridge events, with replay from a cursor"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/retrySubscriptionDeadLetter.md",
+      "text": "POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry.",
+      "title": "Put a dead letter back in the queue (this computer only)"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions/{subscriptionId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/testSubscription.md",
+      "text": "POST /v1/subscriptions/{subscriptionId}/test. One attempt, not queued and not retried; it appears in the delivery log.",
+      "title": "Send one signed test event now (this computer only)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/updateSubscription.md",
+      "text": "PATCH /v1/subscriptions/{subscriptionId}. Only the fields sent change.",
+      "title": "Change a subscription (this computer only)"
     },
     {
       "headings": [
@@ -1639,7 +1675,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 157 requests in 22 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 160 requests in 22 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
       "title": "API collections"
     },
     {
@@ -1720,26 +1756,6 @@
     },
     {
       "headings": [
-        "Five minutes",
-        "The option universe",
-        "How the expiry is chosen",
-        "How the strikes and the at-the-money strike are chosen",
-        "How honest it is about the price",
-        "Using a collection",
-        "In Excel and Google Sheets",
-        "Tags",
-        "All the operations",
-        "For other parts of the Bridge",
-        "Settings",
-        "Limits, and what is not done"
-      ],
-      "kind": "guide",
-      "path": "docs/guides/collections.md",
-      "text": "A collection is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python library can then say collection: \"nifty-weekly\" instead of pasting the same symbols again. There are two kinds: Collections live in collections.json in your data...",
-      "title": "Collections: lists of instruments and option universes"
-    },
-    {
-      "headings": [
         "Symbols",
         "Endpoints",
         "Which account",
@@ -1798,8 +1814,26 @@
     },
     {
       "headings": [
+        "Listen live: SSE and WebSocket",
+        "Cursors and replay",
+        "Which events, and who sees them",
+        "Webhooks: the Bridge calls you",
+        "What your server receives",
+        "Check the signature",
+        "Retries, dead letters and the log",
+        "Where a webhook may point",
+        "The secret",
+        "Settings",
+        "Troubleshooting"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/events.md",
+      "text": "The Bridge can tell your own programs when something happens: an order was filled, a broker login ended, a data download finished, the kill switch was turned on. You can listen live (a stream), ask for what you missed (replay), or have the Bridge call your program (a signed...",
+      "title": "Events out: react to the Bridge without polling"
+    },
+    {
+      "headings": [
         "The Excel workbook",
-        "A collection instead of typed symbols",
         "The key",
         "Refreshing, and how often",
         "What a sheet costs, measured",
@@ -2015,7 +2049,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/streaming.md",
-      "text": "One port serves both. Messages are described in asyncapi.yaml. The token is single use and must be used within 60 seconds; the connection then lives on with the key's scopes. A client that can send headers may use Authorization: Bearer on the upgrade request instead. Revoking...",
+      "text": "One port serves both. Messages are described in asyncapi.yaml. This page is about prices; for events (orders, logins, downloads, the kill switch) with replay and signed webhooks, see events.md. The token is single use and must be used within 60 seconds; the connection then lives...",
       "title": "Live streaming: WebSocket and SSE"
     },
     {

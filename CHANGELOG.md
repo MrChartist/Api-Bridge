@@ -7,6 +7,12 @@
   last-close price). `GET/POST /v1/collections`, `.../{name}` (rename, tags), `/resolve`, `/estimate`, `/usage`, `/export`,
   `/duplicate`, `POST /v1/collections/import`; `deps.library` for downloads and recordings; `mc-bridge collections`; bus topic
   `collection.changed`; `/xl/quotes?collection=<name>` for Excel and Sheets; config `library`.
+- Events out ([docs/guides/events.md](docs/guides/events.md)): `GET /v1/events/stream` (SSE) and `/v1/events/ws` with cursor replay
+  that survives a restart, topic and per-key account filters (a read key never sees admin-only topics), `GET /v1/events` as a
+  polling twin, and signed webhooks (`/v1/subscriptions`, `mc-bridge subscriptions`) with a durable outbox, backoff retries, a
+  dead-letter list, a delivery log and test send. Targets must be https on public addresses (no redirects, checked again at
+  every delivery); the secret is write-only. Events are read-only: none carries a secret or an approval token. Receiver
+  snippets for Node, Python and the shell are run in the tests. New `download.*` and `recording.*` bus topics.
 - Developer files generated from `docs/openapi.yaml`: Postman and Bruno collections (`docs/collections/`), one Markdown page
   per endpoint and the error codes (`docs/api/`), `docs/llms.txt`, `docs/llms-full.txt` and a search index. The curl
   examples in them and in the quickstart run in the tests; `npm run docs:generate` rewrites everything and `npm run

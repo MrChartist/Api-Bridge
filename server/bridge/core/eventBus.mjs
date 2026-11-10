@@ -39,6 +39,9 @@
  *  hook.stale          { hookId?, label?, source?, reason?, symbol?, side? }          an alert was too old to trade on
  *  hook.failed         { hookId?, label?, source?, reason, code?, symbol?, side? }    an accepted alert's order could not be made
  *  collection.changed  { action: "created"|"updated"|"renamed"|"deleted", id, name, kind, tags, from?, imported? }   a collection was written (no symbol lists)
+ *  download.progress   { id, name, status, progress }  throttled; download.done / download.failed { id, name, status, reason? }   (downloads module)
+ *  recording.started|stopped|gap|disk_low  { id, name, kind, ... }                                                              (recorder module)
+ *  The events module (events/catalog.mjs) offers most of these topics to other programs; ticks and key events are never offered.
  */
 export const TOPICS = Object.freeze([
   "tick",
@@ -66,6 +69,13 @@ export const TOPICS = Object.freeze([
   "hook.stale",
   "hook.failed",
   "collection.changed",
+  "download.progress",
+  "download.done",
+  "download.failed",
+  "recording.started",
+  "recording.stopped",
+  "recording.gap",
+  "recording.disk_low",
 ]);
 
 /**

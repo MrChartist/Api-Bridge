@@ -67,6 +67,7 @@ data/
 | `symbols/` | symbols | `symbols` (SymbolService) | `/v1/instruments/*`, `/v1/symbols/convert` |
 | `market/` | market | `marketData` (MarketDataService) | `/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain` (all take `purpose`) |
 | `stream/` | stream | `streamHub` (StreamHub) | WS `/v1/stream`, `/v1/stream/sse`, `/v1/stream/stats` |
+| `events/` | events | (routes only; listens to the event bus) | WS `/v1/events/ws`, `/v1/events/stream` (SSE), `/v1/events*`, `/v1/subscriptions*` (signed webhooks out) |
 | `orders/` | orders | `orders` (OrderService) | `/v1/orders*`, `/v1/trades`, `/v1/positions`, `/v1/holdings`, `/v1/funds`, `/v1/tickets/*` |
 | `paper/` | paper | `paper` (PaperEngine) | `/v1/paper/*` |
 | `safety/` | safety | `safety` (SafetyGuard), `audit` (AuditLog) | `/v1/safety*`, `/v1/audit*` |
