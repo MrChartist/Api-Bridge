@@ -184,8 +184,9 @@ must be updated at each roll (the create response warns 7 days ahead).
 | Secret address | A 256-bit token in the URL; only its hash is stored |
 | Passphrase | In the message; 128 random bits, shown once, stored hashed, compared in constant time. A wrong one is `401`; 30 wrong ones a minute from one address answer `429` |
 | Sender addresses | `"sourceIpPreset": "tradingview"` accepts only the four TradingView addresses above, plus any in `allowSourceIps` and the global `hooks.allowSourceIps`. Behind a tunnel the Bridge sees the tunnel, not TradingView: set `hooks.clientIpHeader` (`cf-connecting-ip` for Cloudflare Tunnel; trusted only when the connection comes from this computer) or every alert is refused |
-| Age limit | `maxAgeSec` (default 120): an alert whose `time` is older is refused as stale, one more than a minute in the future too. If fresh alerts are refused, check this computer's clock |
+| Age limit | `maxAgeSec` (default 120): an alert whose `time` is older is refused as stale. One more than a minute in the future is refused too, but listed as `refused` with `cause: "future"` and the summary "Its time is ahead of this computer's clock" (not "too old"). If fresh alerts are refused, check this computer's clock |
 | No double orders | An alert is identified by `id` + `time` + `symbol` + `side`: a resend is acknowledged as a duplicate and places nothing. The memory is a small file in your data folder (`hooks-seen.json`, bounded, hashes only), so a restart does not forget. The order itself carries a derived `clientOrderId` (`mcb-<hook>-<hash>`) and a stable Idempotency-Key, so even a lost memory cannot place the same alert twice that day |
+| Alerts a minute | `hooks.maxSignalsPerMinute` (30) counts only alerts that passed every check, so unreadable, refused or repeated alerts never use it up. A good alert over the limit is held (queued, up to `hooks.rateWaitSec`, 60 by default) and handled when a slot frees up: TradingView does not resend a refused alert, so a `429` would lose it. The reply is `202` with `heldSeconds`, and the Alerts list shows it as queued with the reason. A held alert is still refused as too old if it is older than `maxAgeSec` by the time it runs. Past the wait, or with `rateWaitSec: 0`, the answer is `429` |
 | Burst of alerts | Orders are paced by the account's order-rate cap. An alert that meets it waits (queued, up to `hooks.burstWaitSec`, 30 by default) and is placed when a slot frees up, instead of being refused; past that wait, or when the queue (`hooks.queueSize`) is full, it is refused with a clear reason and nothing is placed |
 | The hook's own limits | Account, allowed symbols, lots cap, product, order type and side are fixed on the hook; everything else is refused, never trimmed |
 | Paper first | Alerts are paper unless the hook is live. A paper hook refuses an alert that says `"mode": "live"` |
@@ -228,6 +229,7 @@ Per hook (`POST /v1/hooks`): `source: "tradingview"`, `maxAgeSec` (5 to 3600, de
 | `clientIpHeader` | `null` | Header that carries the real sender address behind a local tunnel |
 | `presets.tradingview` | built in | `{ "ips": [...], "verifiedAt": "2026-11-09", "source": "https://..." }`: the address list, shown in the dashboard and by `GET /v1/hooks/presets`; edit it when TradingView's page changes |
 | `burstWaitSec` | `30` | How long an alert may wait for an order-rate slot; `0` turns waiting off |
+| `rateWaitSec` | `60` | How long an alert over `maxSignalsPerMinute` is held (queued) and then handled, instead of refused; `0` refuses at once |
 | `signalsKept` | `100` | Alerts remembered per hook for the Alerts list (memory only) |
 | `dedupeWindowMs`, `queueSize`, `maxSignalsPerMinute` | as in the config reference | |
 
@@ -342,12 +344,14 @@ messages inside `hooks.dedupeWindowMs` count as one. Words the Bridge does not u
 `queued` → `processing` → `placed` | `duplicate` | `awaiting_confirmation` | `rejected` | `failed` |
 `outcome_unknown`. Each step is in the audit log as `hook.signal` with the hook id, symbol, order id and reason. A
 full queue answers `429` with a message that says so (never unbounded); each hook is limited to
-`hooks.maxSignalsPerMinute`. The kill switch refuses every signal. An order that meets the account's order-rate cap
+`hooks.maxSignalsPerMinute`, which counts only alerts that passed every check (a malformed, refused or repeated alert
+does not use it up); an alert over it is held for up to `hooks.rateWaitSec` (60 s) and then handled, because TradingView
+does not resend a refused alert. The kill switch refuses every signal. An order that meets the account's order-rate cap
 waits for a free slot (`hooks.burstWaitSec`) instead of being refused.
 
 `GET /v1/hooks/{hookId}/signals` lists the recent alerts of a hook (newest first, at most `hooks.signalsKept`, memory
 only) with an `outcome` (`placed`, `queued`, `awaiting_confirmation`, `duplicate`, `stale`, `rejected`, `refused`,
-`failed`, `outcome_unknown`, `dropped`), a plain-words `summary`, the reason and the order id, plus counts that also
+`failed`, `outcome_unknown`, `dropped`), a plain-words `summary` (a placed alert says how much and at what price: "Placed a paper order: BUY 2 lots NSE:M&M at 2900"), the reason and the order id. A `refused` entry has `cause`: `future` (its time is ahead of this computer's clock), `policy` (against the hook's own rules, such as a live alert on a paper hook) or none (it could not be read). Counts also
 include wrong passphrases and refused addresses (counted, never listed, never with a body).
 `POST /v1/hooks/{hookId}/test` sends a realistic (or your own pasted) alert through the real pipeline as a **paper** order
 and answers with the outcome. Alerts refused at the door (unreadable, stale, queue full) and rejected orders are announced on the event bus as

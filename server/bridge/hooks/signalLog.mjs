@@ -30,11 +30,14 @@ const clip = (s, n) => (typeof s === "string" ? s.slice(0, n) : null);
 export function plainSummary(e) {
   const what = [e.side, e.symbol].filter(Boolean).join(" ");
   const why = e.reason ? ` ${e.reason}` : "";
+  // How much, and at what price, when the alert said so ("BUY 2 lots NSE:M&M at 2900").
+  const size = Number.isFinite(e.lots) ? `${e.lots} ${e.lots === 1 ? "lot" : "lots"}` : Number.isFinite(e.quantity) ? `${e.quantity} shares or units` : "";
+  const detail = [e.side, size, e.symbol].filter(Boolean).join(" ") + (Number.isFinite(e.price) ? ` at ${e.price}` : "");
   switch (e.outcome) {
     case "placed":
-      return `Placed a ${e.mode ?? "paper"} order${what ? `: ${what}` : ""}.`;
+      return `Placed a ${e.mode ?? "paper"} order${detail ? `: ${detail}` : ""}.`;
     case "queued":
-      return "Received. Waiting its turn.";
+      return e.code === "HOOK_RATE_HELD" ? "Received. This hook is over its alerts-per-minute limit, so it is held until a slot frees up." : "Received. Waiting its turn.";
     case "processing":
       return "Received. Being checked now.";
     case "awaiting_confirmation":
@@ -44,6 +47,9 @@ export function plainSummary(e) {
     case "stale":
       return `Too old, so nothing was placed.${why}`;
     case "refused":
+      // `cause` says which kind of refusal: a clock problem and a rule of the hook are not "could not be read".
+      if (e.cause === "future") return `Its time is ahead of this computer's clock, so nothing was placed.${why}`;
+      if (e.cause === "policy") return `Against this hook's rules, so nothing was placed.${why}`;
       return `The alert could not be read, so nothing was placed.${why}`;
     case "rejected":
       return `Not placed.${why}`;
@@ -90,13 +96,13 @@ export function createSignalLog({ keep = 100, now = () => Date.now() } = {}) {
   return {
     /**
      * An alert passed the receive checks and was queued (one entry per order it holds).
-     * @param {string} hookId @param {{ signalId: string, index: number, at: number, symbol?: string, side?: string | null, id?: string | null, time?: string | null, mode?: string | null, test?: boolean }} s
+     * @param {string} hookId @param {{ signalId: string, index: number, at: number, symbol?: string, side?: string | null, id?: string | null, time?: string | null, mode?: string | null, test?: boolean, lots?: number | null, quantity?: number | null, price?: number | null, code?: string | null, reason?: string | null }} s
      */
     accepted(hookId, s) {
       const h = slot(hookId);
       bump(h, "received");
       if (s.index === 0) bump(h, "accepted");
-      push(h, finish({ signalId: s.signalId, index: s.index, at: s.at, outcome: "queued", code: null, reason: null, symbol: clip(s.symbol, 64), side: s.side ?? null, id: clip(s.id, 128), time: clip(s.time, 40), mode: s.mode ?? null, orderId: null, ticketId: null, test: s.test === true, finishedAt: null }));
+      push(h, finish({ signalId: s.signalId, index: s.index, at: s.at, outcome: "queued", code: clip(s.code ?? null, 40), reason: clip(s.reason ?? null, 300), symbol: clip(s.symbol, 64), side: s.side ?? null, id: clip(s.id, 128), time: clip(s.time, 40), mode: s.mode ?? null, orderId: null, ticketId: null, test: s.test === true, finishedAt: null, lots: s.lots ?? null, quantity: s.quantity ?? null, price: s.price ?? null }));
     },
 
     /** A repeat of an alert already seen (same identity). @param {string} hookId @param {{ signalId: string, at: number, symbol?: string, side?: string | null, id?: string | null, time?: string | null, test?: boolean }} s */
@@ -110,7 +116,8 @@ export function createSignalLog({ keep = 100, now = () => Date.now() } = {}) {
     /**
      * An alert that was refused at the door. kind: stale | bad_request | queue_full | rate | auth | address | key_revoked.
      * Only stale, bad_request and queue_full make a list entry (they carry an alert the person can fix); the others are counts.
-     * @param {string} hookId @param {string} kind @param {{ at: number, code?: string | null, reason?: string | null, symbol?: string | null, side?: string | null, id?: string | null, time?: string | null, test?: boolean }} s
+     * `cause` (optional) tells a refusal for the alert's time ("future") or a rule of the hook ("policy") from one that could not be read.
+     * @param {string} hookId @param {string} kind @param {{ at: number, code?: string | null, reason?: string | null, symbol?: string | null, side?: string | null, id?: string | null, time?: string | null, test?: boolean, cause?: string | null }} s
      */
     refused(hookId, kind, s) {
       const h = slot(hookId);
@@ -125,7 +132,7 @@ export function createSignalLog({ keep = 100, now = () => Date.now() } = {}) {
       bump(h, "received");
       const outcome = kind === "stale" ? "stale" : kind === "queue_full" ? "rejected" : "refused";
       bump(h, kind === "stale" ? "stale" : kind === "queue_full" ? "queueFull" : "badRequest");
-      push(h, finish({ signalId: null, index: 0, at: s.at, outcome, code: clip(s.code ?? null, 40), reason: clip(s.reason ?? null, 300), symbol: clip(s.symbol, 64), side: s.side ?? null, id: clip(s.id, 128), time: clip(s.time, 40), mode: null, orderId: null, ticketId: null, test: s.test === true, finishedAt: s.at }));
+      push(h, finish({ signalId: null, index: 0, at: s.at, outcome, code: clip(s.code ?? null, 40), reason: clip(s.reason ?? null, 300), symbol: clip(s.symbol, 64), side: s.side ?? null, id: clip(s.id, 128), time: clip(s.time, 40), mode: null, orderId: null, ticketId: null, test: s.test === true, finishedAt: s.at, ...(s.cause ? { cause: s.cause } : {}) }));
     },
 
     /**

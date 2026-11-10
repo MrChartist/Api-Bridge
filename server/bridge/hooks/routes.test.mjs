@@ -3,6 +3,7 @@ import { sign } from "../auth/hmac.mjs";
 import { startTestBridge } from "./__fixtures__/testBridge.mjs";
 import { createAutomationRegistry } from "../readiness/automations.mjs";
 import { hooksRuntimeFor } from "./module.mjs";
+import { createHookRateLimiter } from "./routes.mjs";
 
 let b;
 const json = { "content-type": "application/json" };
@@ -243,9 +244,9 @@ describe("POST /hooks/{source}/{token}", () => {
     expect(tickets[0]).toMatchObject({ source: "webhook", order: { account: "paper", symbol: "NSE:RELIANCE" } });
   });
 
-  it("rate-limits a noisy hook", async () => {
+  it("rate-limits a noisy hook (with holding switched off)", async () => {
     await b.close();
-    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2 } } });
+    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2, rateWaitSec: 0 } } });
     const h = await createHook({});
     const codes = [];
     for (let i = 0; i < 3; i += 1) codes.push((await b.request({ method: "POST", path: h.path, headers: json, body: alert({ id: `x${i}` }) })).status);
@@ -376,5 +377,31 @@ describe("live hooks are readiness automations", () => {
     const { default: hooksModule } = await import("./module.mjs");
     await hooksModule.start(b.app.deps);
     expect(registry.list().map((a) => a.id)).toEqual([live.id]);
+  });
+});
+
+describe("the per-hook minute limiter: reserve()", () => {
+  it("takes the next slot now or later, refuses past the wait, and gives a slot back", () => {
+    let t = 1_000_000;
+    const rl = createHookRateLimiter({ now: () => t });
+    const a = rl.reserve("h", 2, 60_000);
+    const b = rl.reserve("h", 2, 60_000);
+    expect([a.waitMs, b.waitMs]).toEqual([0, 0]);
+    t += 1000;
+    const c = rl.reserve("h", 2, 60_000); // the third waits until the first leaves the minute: 59 s from now
+    expect(c.ok).toBe(true);
+    expect(c.waitMs).toBe(59_000);
+    t += 1000;
+    const d = rl.reserve("h", 2, 60_000); // the fourth waits for the second's slot: it left 60 s after its own time
+    expect(d.waitMs).toBe(58_000 + 1000 - 1000); // 1_060_000 - 1_002_000
+    const tooFar = rl.reserve("h", 2, 1000);
+    expect(tooFar).toMatchObject({ ok: false });
+    expect(tooFar.retryAfterMs).toBeGreaterThan(1000);
+    rl.undo("h", d.slot);
+    expect(rl.reserve("h", 2, 60_000).waitMs).toBe(d.waitMs); // the slot is free again
+    // a wait of 0 behaves like the old take(): over the limit is refused
+    const strict = createHookRateLimiter({ now: () => t });
+    expect(strict.reserve("s", 1, 0).ok).toBe(true);
+    expect(strict.reserve("s", 1, 0).ok).toBe(false);
   });
 });

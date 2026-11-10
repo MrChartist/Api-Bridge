@@ -4834,6 +4834,7 @@ paths:
                   signalId: { type: string }
                   duplicate: { type: boolean, description: The same alert was already received (same id and time for TradingView); nothing new was queued. }
                   dropped: { type: integer, description: Orders in the alert that were dropped before queueing (for example over the per-alert cap). }
+                  heldSeconds: { type: integer, description: "Present when the hook is over `hooks.maxSignalsPerMinute`: the alert is held about this long and then handled (up to `hooks.rateWaitSec`; beyond that the answer is 429)." }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -10004,6 +10005,7 @@ components:
           type: object
           properties:
             maxSignalsPerMinute: { type: integer }
+            rateWaitSec: { type: integer, description: "How long an alert over the per-minute limit is held before it is refused; 0 = refuse at once." }
             bodyLimitBytes: { type: integer }
             queueSize: { type: integer }
             burstWaitSec: { type: integer }
@@ -10015,7 +10017,7 @@ components:
         queued/processing: received, not finished. placed: an order was placed (paper or live). awaiting_confirmation: a
         person must confirm it in the Bridge. duplicate: seen before, not placed twice. stale: older than maxAgeSec.
         rejected: the hook's rules, the safety checks or the broker said no (see reason). refused: the alert could not be
-        read (a 400). failed / outcome_unknown / dropped: see reason.
+        read, its time is ahead of this computer's clock, or it is against the hook's rules (a 400; see `cause`). failed / outcome_unknown / dropped: see reason.
 
     HookSignal:
       type: object
@@ -10034,6 +10036,10 @@ components:
         id: { type: [string, "null"], description: "The alert's own id." }
         time: { type: [string, "null"], description: "The alert's own time." }
         mode: { type: [string, "null"] }
+        lots: { type: [number, "null"], description: "Lots the alert asked for, when it said so." }
+        quantity: { type: [number, "null"], description: "Quantity the alert asked for, when it said so." }
+        price: { type: [number, "null"], description: "Price the alert carried, when it had one." }
+        cause: { type: string, enum: [future, policy], description: "Only on a refused alert: `future` = its time is ahead of this computer's clock, `policy` = against the hook's rules (mode or account). Absent = it could not be read." }
         orderId: { type: [string, "null"] }
         ticketId: { type: [string, "null"] }
         test: { type: boolean }

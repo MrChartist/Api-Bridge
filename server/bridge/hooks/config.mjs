@@ -6,13 +6,15 @@
  *     "concurrency": 2,                 // signals processed at the same time (orders are still rate-capped by safety)
  *     "dedupeWindowMs": 120000,         // the same alert seen again inside this window is acknowledged as a duplicate
  *     "signatureToleranceS": 300,       // generic hooks: |now - t| allowed in X-MCB-Signature (at most 5 minutes)
- *     "maxSignalsPerMinute": 30,        // per hook; more answers 429
+ *     "maxSignalsPerMinute": 30,        // per hook, counting only alerts that pass every check; more are held (rateWaitSec)
  *     "maxHooks": 100,
  *     "allowSourceIps": [],             // global allowlist added to every hook's own list
  *     "clientIpHeader": null            // "cf-connecting-ip" | "x-forwarded-for" | "x-real-ip": trusted ONLY when the
  *                                       //  TCP peer is loopback (a local tunnel such as cloudflared), never otherwise
  *     "burstWaitSec": 30,               // an alert that meets the per-account order-rate cap waits (queued) up to this long
  *                                       //  for a free slot, then is reported as rejected; 0 turns the waiting off
+ *     "rateWaitSec": 60,                // an alert over maxSignalsPerMinute is held (queued) up to this long and then
+ *                                       //  handled, because TradingView does not resend; past it, 429; 0 = always 429
  *     "signalsKept": 100,               // recent alerts remembered per hook for GET /v1/hooks/{id}/signals (memory only)
  *     "presets": {                      // address lists a hook can switch on; editable, with the date you last checked them
  *       "tradingview": { "ips": ["52.89.214.238", "..."], "verifiedAt": "2026-11-09", "source": "https://..." }
@@ -35,6 +37,7 @@ export const HOOKS_DEFAULTS = Object.freeze({
   allowSourceIps: [],
   clientIpHeader: null,
   burstWaitSec: 30,
+  rateWaitSec: 60,
   signalsKept: 100,
 });
 
@@ -70,6 +73,7 @@ export const HOOKS_CONFIG_SCHEMA = z
     allowSourceIps: z.array(ipEntrySchema).max(100).default([]),
     clientIpHeader: z.enum(["cf-connecting-ip", "x-forwarded-for", "x-real-ip"]).nullable().default(null),
     burstWaitSec: z.number().int().min(0).max(300).default(HOOKS_DEFAULTS.burstWaitSec),
+    rateWaitSec: z.number().int().min(0).max(300).default(HOOKS_DEFAULTS.rateWaitSec),
     signalsKept: z.number().int().min(10).max(1000).default(HOOKS_DEFAULTS.signalsKept),
     presets: z
       .object({

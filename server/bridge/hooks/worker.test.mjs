@@ -37,6 +37,31 @@ async function run(hookDef, signal) {
   return { hook, rec: worker.get(j.signalId)[0] };
 }
 
+describe("signal worker: held alerts (a hook over its per-minute limit)", () => {
+  it("INT-09: jobs enqueued with a delay show as queued with the reason, count against the queue size, then run", async () => {
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
+    const j = job(hook, sig({ quantity: 1 }));
+    worker.enqueue([j], { delayMs: 80, reason: "held for the limit" });
+    expect(worker.get(j.signalId)[0]).toMatchObject({ status: "queued", code: "HOOK_RATE_HELD", reason: "held for the limit" });
+    expect(worker.stats()).toMatchObject({ waitingForSlot: 1, queued: 0 });
+    // held jobs use the queue: queueSize is 5, so only 4 more fit
+    const more = Array.from({ length: 5 }, () => job(hook, sig({ quantity: 1 })));
+    expect(() => worker.enqueue(more, { delayMs: 80 })).toThrow(expect.objectContaining({ code: "RATE_LIMITED" }));
+    await worker.idle();
+    expect(worker.get(j.signalId)[0]).toMatchObject({ status: "placed" });
+    expect(orders.all()).toHaveLength(1);
+  });
+
+  it("INT-09: stopping drops held jobs and says so (they were acknowledged)", async () => {
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
+    const j = job(hook, sig({ quantity: 1 }));
+    worker.enqueue([j], { delayMs: 60_000, reason: "held" });
+    await worker.stop({ timeoutMs: 50 });
+    expect(worker.get(j.signalId)[0]).toMatchObject({ status: "dropped", code: "SHUTDOWN" });
+    expect(orders.all()).toHaveLength(0);
+  });
+});
+
 describe("signal worker: hook mapping and caps", () => {
   it("places a paper order through OrderService with source webhook and the hook as principal", async () => {
     const { hook, rec } = await run({ maxLotsPerSignal: 5 }, sig({ quantity: 3 }));
