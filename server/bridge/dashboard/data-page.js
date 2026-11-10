@@ -34,6 +34,7 @@ import {
   collectionToCsv,
   collectionToJson,
   collectionView,
+  copyName,
   createDataClient,
   datasetView,
   defaultUniverse,
@@ -52,6 +53,7 @@ import {
   formatCount,
   isUnavailable,
   jobView,
+  loadFullCollection,
   needsLogin,
   noLogin,
   parseCollectionImport,
@@ -73,6 +75,8 @@ import {
   shareSentence,
   slug,
   staleAtmNotice,
+  staticCount,
+  symbolsLoaded,
   sortJobs,
   symbolLabel,
   tagCounts,
@@ -605,7 +609,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
   const count = () => {
     if (st.collection) {
       const c = colByName(st.collection);
-      return c?.kind === "option-universe" ? (universeSize(c.universe).count ?? 40) : (c?.symbols?.length ?? c?.count ?? 0);
+      return c?.kind === "option-universe" ? (universeSize(c.universe).count ?? 40) : (staticCount(c) ?? 0);
     }
     return st.symbols.length;
   };
@@ -997,7 +1001,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
         let n = 0;
         if (b.collection) {
           const c = collections.find((x) => x.name === b.collection);
-          n = c?.kind === "option-universe" ? (universeSize(c.universe).count ?? 0) : (c?.symbols?.length ?? 0);
+          n = c?.kind === "option-universe" ? (universeSize(c.universe).count ?? 0) : (staticCount(c) ?? 0);
         } else if (b.universe) n = universeSize(b.universe).count ?? 0;
         else n = b.symbols?.length ?? 0;
         const e = estimateRecording({ kind: f.kind, symbolCount: n, everySec: Number(f.everySec) || 30, format: f.format });
@@ -1142,7 +1146,7 @@ export async function renderRecordings() {
       }
     }
     const c = collections.find((x) => x.name === collection);
-    const plan = presetPlan(p, { collection, collectionSize: c ? (c.kind === "option-universe" ? universeSize(c.universe).count : (c.symbols?.length ?? 0)) : 0 });
+    const plan = presetPlan(p, { collection, collectionSize: c ? (c.kind === "option-universe" ? universeSize(c.universe).count : (staticCount(c) ?? 0)) : 0 });
     const unavailable = (e) => isUnavailable(e);
     const done = await modal({
       title: p.title,
@@ -1451,6 +1455,8 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
     tags: (collection?.tags ?? []).join(", "),
     kind: collection?.kind ?? kind,
     symbols: (collection?.symbols ?? []).join("\n"),
+    // an edit of a fixed list must start from the full list; the list route does not send the symbols
+    symbolsLoaded: !edit || symbolsLoaded(collection),
     u: collection?.universe ? { ...defaultUniverse(collection.universe.underlying), ...collection.universe } : defaultUniverse("NIFTY"),
     range: collection?.universe?.strikes?.from !== undefined,
   };
@@ -1638,7 +1644,17 @@ export async function renderCollections() {
   const names = () => cols.map((c) => c.name);
   const toWizard = (c) => go(`#/data/downloads?collection=${encodeURIComponent(c.name)}`);
 
-  async function openDetails(c) {
+  async function openDetails(listed) {
+    // The list route sends only symbolCount. Load the full record so the symbols, the estimate, Edit and Export are the real ones.
+    let c = listed;
+    let loadError = null;
+    if (!symbolsLoaded(listed)) {
+      try {
+        c = await loadFullCollection(client, listed);
+      } catch (e) {
+        loadError = friendlyError(e);
+      }
+    }
     const v = collectionView(c);
     const usage = usageOf(c.name, lists);
     const body = h("div", { class: "dt-sheet dt-fields" });
@@ -1648,14 +1664,15 @@ export async function renderCollections() {
       showResolve(symbolsBox, c.name, { sample: 12, onData: (d) => ((c._resolved = d), paintEst()) });
     } else {
       const sy = c.symbols ?? [];
-      put(symbolsBox, h("p", { class: "dt-preview-count" }, h("strong", {}, plural(sy.length, "symbol"))), h("div", { class: "chips dt-sample" }, sy.slice(0, 24).map((s) => chip(symbolLabel(s))), sy.length > 24 ? chip(`+${formatInt(sy.length - 24)} more`) : null));
+      if (loadError) put(symbolsBox, h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, `Could not load the ${plural(staticCount(listed) ?? 0, "symbol")}`), h("span", { class: "detail" }, `${loadError.title}. Close this and try again. Nothing was changed.`))));
+      else put(symbolsBox, h("p", { class: "dt-preview-count" }, h("strong", {}, plural(sy.length, "symbol"))), h("div", { class: "chips dt-sample" }, sy.slice(0, 24).map((s) => chip(symbolLabel(s))), sy.length > 24 ? chip(`+${formatInt(sy.length - 24)} more`) : null));
     }
     // The size estimate: symbols x bars x days.
     const ivSel = select(INTERVALS.map((i) => [i.id, i.label]), "5m", { id: "co-iv" });
     const rgSel = select(RANGES.filter((r) => r.id !== "custom").map((r) => [r.id, r.label]), "1y", { id: "co-rg" });
     const est = h("p", { class: "dt-estimate-main", "aria-live": "polite" });
     const paintEst = () => {
-      const n = c.kind === "option-universe" ? (c._resolved?.symbols?.length ?? universeSize(c.universe).count ?? 0) : (c.symbols?.length ?? 0);
+      const n = c.kind === "option-universe" ? (c._resolved?.symbols?.length ?? universeSize(c.universe).count ?? 0) : (staticCount(c) ?? 0);
       const d = rangeDates(rgSel.value, Date.now(), [ivSel.value]);
       const e = estimateJob({ symbols: n, intervals: [ivSel.value], from: d.from, to: d.to });
       setText(est, e.ok ? `${estimateLines(e).size} ${estimateLines(e).calls}` : "Nothing to estimate yet.");
@@ -1668,11 +1685,9 @@ export async function renderCollections() {
       { class: "dt-sheet-acts" },
       btn("Download history", "small primary", () => (close(), toWizard(c)), "download"),
       btn("Record", "small tinted", () => (close(), openRecordingSheet({ mode: "once", collections: cols, preset: { collection: c.name, kind: c.kind === "option-universe" ? "chain" : "quotes" }, onSaved: () => go("#/data/recordings") })), "record"),
-      btn("Edit", "small", () => (close(), openCollectionSheet({ collection: c, names: names(), onSaved: refresh })), "pencil"),
+      btn("Edit", "small", () => (close(), openCollectionSheet({ collection: c, names: names(), onSaved: refresh })), "pencil", { disabled: Boolean(loadError) }),
       btn("Duplicate", "small", async (e) => {
-        let n = `${c.name} copy`;
-        let i = 2;
-        while (names().includes(n)) n = `${c.name} copy ${i++}`;
+        const n = copyName(c.name, names());
         const r = await run(e.currentTarget, async () => {
           const { name: _n, ...rest } = c;
           delete rest._resolved;
@@ -1686,8 +1701,8 @@ export async function renderCollections() {
         }, { ok: `Made ${n}.` });
         if (r) close();
       }),
-      btn("Export CSV", "small", () => saveText(collectionToCsv(c, c._resolved), `${slug(c.name)}.csv`, "text/csv"), "download"),
-      btn("Export JSON", "small", () => saveText(collectionToJson(c), `${slug(c.name)}.json`, "application/json"), "download"),
+      btn("Export CSV", "small", () => saveText(collectionToCsv(c, c._resolved), `${slug(c.name)}.csv`, "text/csv"), "download", { disabled: Boolean(loadError) }),
+      btn("Export JSON", "small", () => saveText(collectionToJson(c), `${slug(c.name)}.json`, "application/json"), "download", { disabled: Boolean(loadError) }),
       btn("Delete", "small plain destructive", async (e) => {
         const used = usageOf(c.name, lists);
         if (!(await confirmSheet({ title: `Delete ${c.name}?`, text: `${usageText(used)} Downloads and files already made are kept. Auto-record rules that use it will stop finding symbols.`, confirm: "Delete collection" }))) return;
@@ -1696,7 +1711,7 @@ export async function renderCollections() {
       }, "trash"),
     );
     let close = () => {};
-    body.append(h("p", { class: "hint" }, [v.kindWord, v.description].filter(Boolean).join(" · ")), v.tags.length ? chipsOf(v.tags) : null, symbolsBox, h("div", { class: "dt-estimate-box" }, h("strong", {}, "What a download would cost"), h("div", { class: "form-grid" }, field("Bar size", ivSel), field("How far back", rgSel)), est), h("p", { class: "dt-usage" }, usageText(usage)), acts);
+    body.append(...[h("p", { class: "hint" }, [v.kindWord, v.description].filter(Boolean).join(" · ")), v.tags.length ? chipsOf(v.tags) : null, symbolsBox, h("div", { class: "dt-estimate-box" }, h("strong", {}, "What a download would cost"), h("div", { class: "form-grid" }, field("Bar size", ivSel), field("How far back", rgSel)), est), h("p", { class: "dt-usage" }, usageText(usage)), acts].filter(Boolean));
     return modal({
       title: c.name,
       body: (cl) => {
@@ -1752,7 +1767,7 @@ export async function renderCollections() {
     if (!file) return;
     const text = await file.text();
     const base = file.name.replace(/\.[^.]+$/, "").slice(0, 40);
-    const r = parseCollectionImport(text, base);
+    const r = parseCollectionImport(text, base, /\.csv$/i.test(file.name) ? { csv: true } : {});
     if (r.error) return toast(r.error, { tone: "error" });
     let name = r.body.name || base;
     let i = 2;
