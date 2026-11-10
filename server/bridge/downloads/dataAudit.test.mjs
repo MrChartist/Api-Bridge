@@ -73,16 +73,19 @@ describe("RDATA-07 cancel or pause while a job is finishing", () => {
   it("cancel during the assembly of a combined file ends cancelled and leaves no orphan file", async () => {
     const { m, id, result } = await bootCombined((mm, jid) => mm.manager.cancel(jid));
     expect(result.status).toBe("cancelled");
-    await new Promise((r) => setTimeout(r, 50));
-    expect(m.manager.get(id).status).toBe("cancelled");
     const dir = join(m.dataDir, "downloads", "jobs", id);
-    expect(readdirSync(dir).filter((n) => n.endsWith(".csv") || n.endsWith(".tmp"))).toEqual([]);
+    const leftovers = () => readdirSync(dir).filter((n) => n.endsWith(".csv") || n.endsWith(".tmp"));
+    // The assembly finishes on its own timing (slow on a busy machine): wait for the cleanup instead of a fixed sleep.
+    await eventually(() => leftovers().length === 0, { ms: 5000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 150)); // a late assembly would write its file in this window
+    expect(m.manager.get(id).status).toBe("cancelled");
+    expect(leftovers()).toEqual([]);
   });
 
   it("pause during the assembly stays paused, and a resume assembles the file", async () => {
     const { m, id, result } = await bootCombined((mm, jid) => mm.manager.pause(jid));
     expect(result.status).toBe("paused");
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 250)); // long enough for a late assembly to (wrongly) change the state
     expect(m.manager.get(id)).toMatchObject({ status: "paused", reason: "user" });
     await m.manager.resume(id);
     const fin = await waitStatus(m.manager, id);
