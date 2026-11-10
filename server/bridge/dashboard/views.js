@@ -219,6 +219,16 @@ export const PAGES = [
     ],
   },
   {
+    id: "data", label: "Data", icon: "download", tint: "blue", group: "Bridge", title: "Data", sub: "Save history, record what brokers do not keep, and keep it all tidy",
+    defaultTab: "downloads",
+    tabs: [
+      { id: "downloads", label: "Downloads", page: "data", sub: "Save history for your symbols as files, without slowing live prices", command: "Data downloads", icon: "download", tint: "blue", keywords: "data downloads history download csv bars candles save export amibroker wizard", render: dataTab("renderDownloads") },
+      { id: "recordings", label: "Recordings", page: "data-recordings", sub: "Record option chains and prices by yourself every trading day", command: "Data recordings", icon: "activity", tint: "red", keywords: "recordings record auto record option chain rules schedule market hours disk", render: dataTab("renderRecordings") },
+      { id: "datasets", label: "Datasets", page: "data-datasets", sub: "Histories you keep up to date, fetching only what is new", command: "Datasets", icon: "list", tint: "indigo", keywords: "datasets update incremental tags history", render: dataTab("renderDatasets") },
+      { id: "collections", label: "Collections", page: "data-collections", sub: "Named lists of symbols and option universes that everything can reuse", command: "Collections", icon: "inbox", tint: "teal", keywords: "collections watchlist option universe strikes expiry atm tags import export symbols list", render: dataTab("renderCollections") },
+    ],
+  },
+  {
     id: "api", advanced: true, label: "API", icon: "keys", tint: "pink", key: 2, group: "Bridge", title: "API", sub: "Keys, integrations, a test console and the request log",
     defaultTab: "keys",
     tabs: [
@@ -2145,6 +2155,16 @@ async function renderSourcesQuotas() {
   const m = await import("./quotas-view.js");
   m.configureQuotas({ segmented });
   return m.renderQuotas();
+}
+
+// ── Data (data-page.js, data-core.js: loaded when the page is opened) ──
+
+function dataTab(name) {
+  return async () => {
+    const m = await import("./data-page.js");
+    m.configureData({ segmented });
+    return m[name]();
+  };
 }
 
 // ── Orders ──
