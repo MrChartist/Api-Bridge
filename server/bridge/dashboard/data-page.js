@@ -4,7 +4,7 @@
 // a card keeps its DOM node for as long as its job exists, so a focused button, an open file list or a half-typed
 // field never loses its place.
 
-import { alertBox, api, app, currentKey, emptyState, friendlyError, h, icon, iconTile, ICONS, modal, optional, toast } from "./app.js";
+import { alertBox, api, app, copyButton, currentKey, emptyState, friendlyError, h, icon, iconTile, ICONS, modal, optional, toast } from "./app.js";
 import { countTo, patchList, setAttr, setClass, setText } from "./motion.js";
 import { createPoller } from "./sources-ui.js";
 import {
@@ -17,6 +17,8 @@ import {
   LAYOUTS,
   MAX_SYMBOLS,
   RANGES,
+  ZIP_MAX_BYTES,
+  zipName,
   rangeLimitNote,
   RECORD_PRESETS,
   COMMON_UNDERLYINGS,
@@ -40,6 +42,7 @@ import {
   estimateWarning,
   filterItems,
   formatBytes,
+  folderPath,
   formatCount,
   isUnavailable,
   jobView,
@@ -505,6 +508,7 @@ function paintRec(el, rec, ops, nowMs) {
 
 /** A sheet that lists a job's or recording's files, each with a download button, and says what the data class means. */
 async function openFiles({ title, kind, id, cls, manifestUrl }) {
+  const where = folderPath(app.state.meta?.dataDir, kind, id);
   const listBox = h("div", { class: "dt-files" }, h("p", { class: "hint" }, "Loading files…"));
   const what = h("details", { class: "dt-what" }, h("summary", {}, "What do these labels mean?"), h("ul", { class: "dt-guide" }, CLASS_GUIDE.map((c) => h("li", {}, h("strong", {}, c.label), h("span", {}, c.note)))));
   const head = h("div", { class: "dt-fields" }, h("p", { class: "dt-files-head" }, "These files are labelled", classPill(cls).el), h("p", { class: "hint" }, cls.note));
@@ -515,7 +519,30 @@ async function openFiles({ title, kind, id, cls, manifestUrl }) {
     const files = Array.isArray(res.data) ? res.data : [];
     if (!files.length) listBox.replaceChildren(emptyState("inbox", "No files yet", kind === "downloads" ? "Files appear here as each symbol finishes." : "A file is made for each trading day once the first row is written.", null, { compact: true }));
     else {
+      const total = files.reduce((n, f) => n + (Number(f.bytes) || 0), 0);
+      const zipAll = files.length > 1
+        ? btn(`Download all ${files.length} files as one .zip`, "primary", (e) => run(e.currentTarget, async () => {
+            if (total > ZIP_MAX_BYTES) throw new Error(`These files are ${formatBytes(total)}, too big to pack in the browser. Download them one by one, or copy the folder below.`);
+            const parts = [];
+            for (const f of files) {
+              const res = await fetch(`/v1/${kind}/${encodeURIComponent(id)}/files/${encodeURIComponent(f.name)}`, { headers: { Authorization: `Bearer ${currentKey()}`, "X-MCB-Client": "dashboard" } });
+              if (!res.ok) throw new Error(`The Bridge answered ${res.status} for ${f.name}.`);
+              parts.push({ name: f.name, data: new Uint8Array(await res.arrayBuffer()) });
+            }
+            const blob = new Blob([(await import("./xlsx-core.js")).zipStore(parts)], { type: "application/zip" });
+            const url = URL.createObjectURL(blob);
+            const a = h("a", { href: url, download: zipName(title, id), hidden: true });
+            document.body.append(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 15_000);
+          }), "download")
+        : null;
+      const folder = where
+        ? h("div", { class: "dt-folder" }, h("span", { class: "hint" }, "Saved on this computer in"), h("code", { class: "dev-code", tabindex: "0" }, where), copyButton(where, { label: "Copy folder", toastLabel: "Folder copied", ariaLabel: "Copy the folder these files are saved in" }))
+        : null;
       listBox.replaceChildren(
+        ...[zipAll, folder].filter(Boolean),
         h(
           "div",
           { class: "list dt-file-list" },

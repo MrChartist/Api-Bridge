@@ -25,6 +25,7 @@ import {
   failureWords,
   filterItems,
   formatBytes,
+  folderPath,
   formatCount,
   formatDuration,
   isUnavailable,
@@ -39,6 +40,7 @@ import {
   RANGES,
   rangeDates,
   rangeLimitNote,
+  zipName,
   recordingProblem,
   recordingView,
   resolveModel,
@@ -633,5 +635,20 @@ describe("long ranges", () => {
     expect(rangeLimitNote("2021-11-08", "2026-11-09", ["5m"])).toMatch(/Bars of 5m usually go back about 2 years/);
     expect(rangeLimitNote("2021-11-08", "2026-11-09", ["1d"])).toBe("");
     expect(rangeLimitNote("", "2026-11-09", ["5m"])).toBe("");
+  });
+});
+
+describe("where the files are", () => {
+  it("labels demo data as sample data, never real-time", () => {
+    expect(classInfo({ dataClass: "realtime", source: "demo" })).toMatchObject({ id: "sample", label: "Sample data", tone: "" });
+    expect(classInfo({ dataClass: "realtime", source: "demo (sample prices)" }).id).toBe("sample");
+    expect(classInfo({ dataClass: "realtime", source: "dhan" }).label).toBe("Real-time");
+  });
+  it("names the folder and the zip", () => {
+    expect(folderPath("/home/me/bridge/data/", "downloads", "dl_abc")).toBe("/home/me/bridge/data/downloads/dl_abc");
+    expect(folderPath("C:\\Bridge\\data", "recordings", "rec_1")).toBe("C:\\Bridge\\data\\recordings\\rec_1");
+    expect(folderPath(undefined, "downloads", "x")).toBe("");
+    expect(zipName("Nifty 50 / 5-minute bars", "dl_1")).toBe("Nifty-50-5-minute-bars.zip");
+    expect(zipName("", "dl_1")).toBe("dl_1.zip");
   });
 });

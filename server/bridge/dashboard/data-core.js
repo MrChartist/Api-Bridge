@@ -93,6 +93,8 @@ export function agoText(iso, nowMs = Date.now()) {
  */
 export function classInfo({ dataClass, delaySec = null, source = "" } = {}) {
   const from = source ? ` Source: ${source}.` : "";
+  // Demo mode makes its prices up on this computer: never call that real-time.
+  if (/^demo\b/i.test(String(source ?? ""))) return { id: "sample", label: "Sample data", tone: "", note: "Made up on this computer so you can try things out. It is not market data and must not be used as if it were." };
   if (dataClass === "realtime") return { id: "realtime", label: "Real-time", tone: "ok", note: `Recorded or fetched from your own broker account as it happened. Fine for any use.${from}` };
   if (dataClass === "delayed") {
     const mins = Number.isFinite(Number(delaySec)) && Number(delaySec) > 0 ? Math.round(Number(delaySec) / 60) : 15;
@@ -101,6 +103,15 @@ export function classInfo({ dataClass, delaySec = null, source = "" } = {}) {
   if (dataClass === "eod") return { id: "eod", label: "End of day", tone: "warn", note: `One set of values per day, published after the close. Fine for study; never used for orders, risk checks, paper fills or alerts.${from}` };
   return { id: "unknown", label: "Not labelled", tone: "", note: "The Bridge did not say how current this data is, so treat it as study data only." };
 }
+/** Where a job's or recording's files are on this computer: "<data folder>/downloads/<id>" (the folder is known only on this computer). */
+export function folderPath(dataDir, kind, id) {
+  const root = String(dataDir ?? "").replace(/[\\/]+$/, "");
+  const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
+  return root ? `${root}${sep}${kind}${sep}${id}` : "";
+}
+/** The files of one job as a ZIP, built in the browser: names, and whether it is small enough to build in memory (200 MB). */
+export const ZIP_MAX_BYTES = 200 * 1024 * 1024;
+export const zipName = (title, id) => `${String(title || id || "files").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "files"}.zip`;
 /** The three classes in the order a person reads them (for the "what do these mean" note). */
 export const CLASS_GUIDE = Object.freeze([classInfo({ dataClass: "realtime" }), classInfo({ dataClass: "delayed" }), classInfo({ dataClass: "eod" })]);
 

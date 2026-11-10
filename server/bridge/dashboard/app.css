@@ -2973,6 +2973,9 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .dt-wiz-foot button { min-width: 96px; }
 @media (max-width: 719px) { .dt-wiz-foot button { flex: 1 1 0; min-width: 0; white-space: normal; line-height: 1.2; } }
 .dt-err:empty { display: none; }
+.dt-files { display: flex; flex-direction: column; gap: 10px; }
+.dt-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.dt-folder code { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; font: 500 12px/1.4 var(--font-mono); }
 .dt-files-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: var(--t-callout); color: var(--label-2); }
 .dt-file { align-items: center; }
 .dt-what { font: var(--t-subhead); color: var(--label-2); }
