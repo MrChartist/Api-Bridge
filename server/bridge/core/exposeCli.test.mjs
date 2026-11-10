@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -38,6 +38,32 @@ describe("mc-bridge expose (non-interactive)", () => {
     expect(t).toMatch(/Restart the Bridge to apply this/);
     expect(t).toMatch(/ports 80 and 443 only/);
     expect(s.err).toEqual([]);
+  });
+
+  it("INT-08: --yes --dry-run prints the change and writes nothing: not the config, not a backup copy", async () => {
+    const s = setup({ server: { port: 4300 } });
+    const before = readFileSync(s.file, "utf8");
+    expect(await runCli(["expose", "alerts"], flags(s, { provider: "cloudflare", host: "hooks.example.com", "dry-run": true }), s.io)).toBe(0);
+    expect(readFileSync(s.file, "utf8")).toBe(before);
+    expect(readdirSync(s.dir).filter((f) => f.includes("bak"))).toEqual([]);
+    expect(s.text()).toMatch(/This will change/);
+    expect(s.text()).toMatch(/hooks\.example\.com/);
+    expect(s.text()).toMatch(/Dry run: nothing was written\./);
+    expect(s.text()).not.toMatch(/Saved to/);
+    const j = setup({});
+    expect(await runCli(["expose", "alerts"], flags(j, { provider: "cloudflare", host: "hooks.example.com", "dry-run": true, json: true }), j.io)).toBe(0);
+    const out = JSON.parse(j.out.join("\n"));
+    expect(out).toMatchObject({ dryRun: true, file: j.file });
+    expect(out.wouldChange.length).toBeGreaterThan(0);
+    expect(j.config().server?.publicIngress).toBeUndefined();
+    // turning off previews too
+    const on = setup({});
+    await runCli(["expose", "alerts"], flags(on, { provider: "cloudflare", host: "hooks.example.com" }), on.io);
+    const written = readFileSync(on.file, "utf8");
+    const off = { ...on, out: [], text: () => off.out.join("\n") };
+    expect(await runCli(["expose", "off"], flags(on, { "dry-run": true }), { ...on.io, out: (x) => off.out.push(x) })).toBe(0);
+    expect(readFileSync(on.file, "utf8")).toBe(written);
+    expect(off.text()).toMatch(/Dry run: this would turn off/);
   });
 
   it("--allow-ips none leaves the sender allowlist alone; a custom list is validated", async () => {
@@ -231,6 +257,31 @@ describe("mc-bridge doctor: exposure checks and --strict", () => {
     const row = rows.find((r) => r.check === "expose-alerts-open");
     expect(row).toMatchObject({ level: "warn", blocking: true });
     expect(row.fix).toBeTruthy();
+  });
+
+  it("INT-07: doctor warns about a host name on the main listener, and --strict fails with live trading on", async () => {
+    const mk = (extra) => loadConfig({ raw: { dataDir: join(mkdtempSync(join(tmpdir(), "mcb-exdoc2-")), "data"), server: { allowedHosts: ["hooks.example.com"] }, ...extra }, env: {} }).config;
+    const checks = await runDoctor({ config: mk({}), env: {}, portCheck: false });
+    expect(checks.find((c) => c.check === "expose-main-tunnel")).toMatchObject({ level: "warn" });
+    const liveCfg = mk({ safety: { liveTrading: true }, accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["rest"], registeredIp: "203.0.113.10" } }] });
+    const s = setup({ dataDir: liveCfg.dataDir, server: { allowedHosts: ["hooks.example.com"] }, safety: { liveTrading: true }, accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["rest"], registeredIp: "203.0.113.10" } }] });
+    expect(await runCli(["doctor"], { config: s.file, strict: true, "no-port-check": true }, s.io)).toBe(1);
+    expect(s.text()).toMatch(/BLOCK\s+expose-main-tunnel/);
+    const plain = setup({ dataDir: liveCfg.dataDir, server: { allowedHosts: ["hooks.example.com"] } });
+    expect(await runCli(["doctor"], { config: plain.file, strict: true, "no-port-check": true }, plain.io)).toBe(0);
+    expect(plain.text()).toMatch(/WARN\s+expose-main-tunnel/);
+  });
+
+  it("INT-14: a fresh data folder gets one master-key warning, not a second one about a key that does not exist", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-exdoc3-"));
+    const { config } = loadConfig({ raw: { dataDir: join(dir, "data") }, env: {} });
+    const fresh = (await runDoctor({ config, env: {}, portCheck: false })).filter((c) => c.check === "master-key");
+    expect(fresh.map((c) => c.message)).toEqual([expect.stringMatching(/^No master key yet/)]);
+    mkdirSync(join(dir, "data"), { recursive: true });
+    writeFileSync(join(dir, "data", "master.key"), "k".repeat(44), { mode: 0o600 });
+    const there = (await runDoctor({ config, env: {}, portCheck: false })).filter((c) => c.check === "master-key");
+    expect(there.map((c) => c.message).join("\n")).toMatch(/The master key sits in the data folder next to secrets\.enc/);
+    expect(there.map((c) => c.message).join("\n")).not.toMatch(/No master key yet/);
   });
 
   it("runDoctor reads the hooks of the data folder: a live hook without confirmation is flagged", async () => {

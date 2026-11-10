@@ -44,7 +44,7 @@ Usage:
                                    without exposing the dashboard; asks questions unless --yes (restart the Bridge after)
   mc-bridge expose check [--public-url <url> --allow-outbound] [--json]
                                    test that only the intended routes answer; --allow-outbound lets it call the public url
-  mc-bridge expose status | off [alerts|sheets]
+  mc-bridge expose status | off [alerts|sheets]   (add --dry-run to preview a change without writing it)
   mc-bridge backup [--out FILE] [--include-secrets]   one archive of your data folder (never the master key; never overwrites)
   mc-bridge backup list | verify FILE                 the copies kept in the data folder; check an archive
   mc-bridge restore FILE [--dry-run] [--yes]          put a backup back (the Bridge must be stopped; makes a safety copy first)
@@ -141,7 +141,8 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       const tooOpen = process.platform !== "win32" && mode & 0o077;
       add(tooOpen ? "fail" : "ok", "master-key", tooOpen ? `${keyFile} is readable by other users (mode ${mode.toString(8)}); run chmod 600` : `Key file ${keyFile}`);
     } else add("warn", "master-key", `No master key yet; ${keyFile} will be created (mode 600) when you first connect a broker. '${cliCommand(env)} init' creates one outside the data folder now.`);
-    if (sameFolder) {
+    // Only when the key file really exists: on a fresh data folder neither file is there yet, and the line above already says so.
+    if (sameFolder && existsSync(keyFile)) {
       add("warn", "master-key", `The master key sits in the data folder next to secrets.enc, so a backup, cloud sync or zip of ${dataDir} carries both and the encryption adds nothing. Move it outside (for example ${process.platform === "win32" ? "%APPDATA%\\MrChartist\\master.key" : "~/.config/mc-bridge/master.key"}) and set "masterKeyFile" in bridge.config.json (or MCB_MASTER_KEY_FILE), or use MCB_MASTER_KEY.`);
     }
     if (process.platform === "win32") add("warn", "master-key", "File permissions are not checked on Windows. Restrict the key file to your user: icacls <file> /inheritance:r /grant:r %USERNAME%:F");

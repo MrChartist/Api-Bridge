@@ -389,6 +389,18 @@ export function exposureChecks(config, { hooks = [], keys = null, now = Date.now
     const shared = hosts.filter((h) => (s.allowedHosts ?? []).includes(h));
     if (shared.length) warn(`expose-${key}-shared-host`, `${shared.join(", ")} is allowed on the main listener as well as the ${label} listener, so a tunnel pointed at the wrong port would reach the API.`, `Remove it from server.allowedHosts; only ${path}.allowedHosts needs it.`, Boolean(live));
   }
+  // A real host name on the MAIN listener means a tunnel (or a proxy) can be pointed at the API port itself. The alerts
+  // and Sheets listeners exist so that nothing has to be. (A name that is also on one of them already has its own warning.)
+  const onOwnListener = new Set([...(pi.allowedHosts ?? []), ...(si.allowedHosts ?? [])]);
+  const tunnelled = (s.allowedHosts ?? []).filter((h) => !isWildcardish(h) && !isLoopbackHost(h) && !onOwnListener.has(h));
+  if (tunnelled.length) {
+    warn(
+      "expose-main-tunnel",
+      `server.allowedHosts names ${tunnelled.join(", ")}, so the main API port answers requests addressed to ${tunnelled.length === 1 ? "that name" : "those names"}. A tunnel pointed at it would put the API (and any read key's reach) on a public name.`,
+      "Point the tunnel at the Sheets or alerts listener instead (mc-bridge expose sheets / alerts), and remove the name from server.allowedHosts.",
+      Boolean(live),
+    );
+  }
   if ((s.allowedHosts ?? []).some(isWildcardish)) warn("expose-main-wildcard", `server.allowedHosts has entries that can never match (${(s.allowedHosts ?? []).filter(isWildcardish).join(", ")}).`, "Use plain host names without wildcards, schemes or paths.");
 
   if (pi.enabled && (pi.allowedHosts ?? []).some((h) => !isLoopbackHost(h)) && !hk.clientIpHeader && isLoopbackHost(pi.host)) {

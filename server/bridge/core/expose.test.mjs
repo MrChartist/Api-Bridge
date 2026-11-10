@@ -249,6 +249,21 @@ describe("doctor exposure rules", () => {
     expect(find(checks, "expose-alerts-shared-host")).toMatchObject({ level: "warn", blocking: true });
   });
 
+  it("INT-07: a real host name on the main listener warns (a tunnel could be pointed at the API port), blocking with live trading", () => {
+    const only = exposureChecks(cfg({ server: { allowedHosts: ["hooks.example.com"] } }));
+    expect(find(only, "expose-main-tunnel")).toMatchObject({ level: "warn" });
+    expect(find(only, "expose-main-tunnel").blocking).toBeUndefined();
+    expect(find(only, "expose-main-tunnel").message).toMatch(/hooks\.example\.com/);
+    expect(find(only, "expose-main-tunnel").fix).toMatch(/Sheets or alerts listener/);
+    expect(find(exposureChecks(cfg({ ...live, server: { allowedHosts: ["hooks.example.com"] } })), "expose-main-tunnel").blocking).toBe(true);
+    // loopback names, wildcards (their own warning) and names already covered by the shared-host warning say nothing more
+    expect(find(exposureChecks(cfg({ server: { allowedHosts: ["localhost", "127.0.0.1"] } })), "expose-main-tunnel")).toBeUndefined();
+    expect(find(exposureChecks(cfg({ server: { allowedHosts: ["*"] } })), "expose-main-tunnel")).toBeUndefined();
+    const shared = exposureChecks(cfg({ ...live, server: { allowedHosts: ["hooks.example.com"], publicIngress: { enabled: true, allowedHosts: ["hooks.example.com"] } }, hooks: { clientIpHeader: "cf-connecting-ip" } }));
+    expect(find(shared, "expose-main-tunnel")).toBeUndefined();
+    expect(find(shared, "expose-alerts-shared-host")).toBeTruthy();
+  });
+
   it("flags live webhooks without confirmation: blocking when there is also no allowlist", () => {
     const base = { ...live, ...ingress(), hooks: { clientIpHeader: "cf-connecting-ip" } };
     const bad = exposureChecks(cfg(base), { hooks: [{ source: "gocharting", mode: "live", requireConfirmation: false, allowSourceIps: [] }] });
