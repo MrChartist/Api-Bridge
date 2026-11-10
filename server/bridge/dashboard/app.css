@@ -3018,6 +3018,9 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .gs-titles h2 { margin: 0; font: var(--t-headline); letter-spacing: -0.014em; text-wrap: balance; }
 .gs-titles p { margin: 2px 0 0; font: var(--t-subhead); color: var(--label-2); }
 .gs-side { display: flex; align-items: center; gap: 6px; flex: none; }
+.gs-goals { display: grid; gap: 8px; margin-top: 12px; }
+.gs-q { margin: 0; font: var(--t-subhead); font-weight: 600; color: var(--label-2); }
+.gs-goals .chips { padding: 0; }
 .gs-count { font: var(--t-label); font-variant-numeric: tabular-nums; color: hsl(var(--accent-ink)); background: hsl(var(--accent) / 0.12); padding: 3px 10px; border-radius: 99px; white-space: nowrap; }
 .gs-bar { height: 4px; margin: 14px 0 6px; border-radius: 99px; background: var(--fill-2); overflow: hidden; }
 .gs-bar > i { display: block; height: 100%; width: 0; border-radius: inherit; background: hsl(var(--accent)); transition: width 300ms var(--ease-std); }

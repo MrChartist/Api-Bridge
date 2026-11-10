@@ -133,3 +133,50 @@ describe("where step 2 leads", () => {
     expect(derive({ keys: [key()] })).toEqual(derive({ keys: [key()] }));
   });
 });
+
+describe("goals: three steps for what the person wants", () => {
+  const goalDone = (goal, over = {}) => G.deriveGoal(goal, { demo: false, accounts: [], keys: [], requests: [], orders: [], downloads: [], rules: [], recordings: [], subs: [], ownKeyId: "own", now: NOW, ...over });
+  const ids = (r) => r.steps.map((s) => s.id);
+  const doneIds = (r) => r.steps.filter((s) => s.done).map((s) => s.id);
+
+  it("offers five goals, each with its own steps; the API goal is the original five", () => {
+    expect(G.GOALS.map((g) => g.id)).toEqual(["excel", "history", "record", "api", "events"]);
+    expect(ids(goalDone("api"))).toEqual(["account", "key", "call", "order", "sources"]);
+    expect(ids(goalDone("excel"))).toEqual(["account", "excelKey", "excel"]);
+    expect(ids(goalDone("history"))).toEqual(["account", "download", "files"]);
+    expect(ids(goalDone("record"))).toEqual(["account", "rule", "recorded"]);
+    expect(ids(goalDone("events"))).toEqual(["key", "receiver", "delivered"]);
+    expect(goalDone("history").total).toBe(3);
+    expect(goalDone("history").progress).toBe("0 of 3");
+    expect(ids(goalDone("nonsense"))).toEqual(ids(goalDone("api")));
+  });
+  it("excel: an Excel key, then a spreadsheet call to /xl/ with a key", () => {
+    expect(doneIds(goalDone("excel", { demo: true, keys: [key({ clientKind: "excel" })] }))).toEqual(["account", "excelKey"]);
+    expect(doneIds(goalDone("excel", { keys: [key({ clientKind: "script" })] }))).toEqual([]);
+    expect(G.sheetCallSeen([call({ path: "/xl/ltp" })])).toBe(true);
+    expect(G.sheetCallSeen([call({ path: "/xl/ltp", client: "dashboard" }), call({ path: "/xl/ltp", status: 401 }), call({ path: "/v1/ltp" })])).toBe(false);
+    expect(goalDone("excel", { requests: [call({ path: "/xl/quotes" })] }).steps[2].done).toBe(true);
+  });
+  it("history: a download exists, then one is finished", () => {
+    expect(doneIds(goalDone("history", { downloads: [{ id: "a", status: "running" }] }))).toEqual(["download"]);
+    expect(goalDone("history", { demo: true, downloads: [{ id: "a", status: "done" }] }).complete).toBe(true);
+    expect(doneIds(goalDone("history", { downloads: null }))).toEqual([]);
+  });
+  it("record: a rule that is on, then a file written", () => {
+    expect(doneIds(goalDone("record", { rules: [{ id: "r", enabled: false }] }))).toEqual([]);
+    expect(doneIds(goalDone("record", { rules: [{ id: "r", enabled: true }] }))).toEqual(["rule"]);
+    expect(doneIds(goalDone("record", { rules: [{ id: "r" }], recordings: [{ id: "x", rows: 0 }] }))).toEqual(["rule"]);
+    expect(doneIds(goalDone("record", { rules: [{ id: "r" }], recordings: [{ id: "x", rows: 12 }] }))).toEqual(["rule", "recorded"]);
+  });
+  it("events: a key, a receiver, then a delivery or a working test", () => {
+    expect(doneIds(goalDone("events", { keys: [key()], subs: [{ id: "s", health: { state: "unverified" } }] }))).toEqual(["key", "receiver"]);
+    expect(goalDone("events", { keys: [key()], subs: [{ id: "s", health: { state: "ok", delivered: 0 } }] }).complete).toBe(true);
+    expect(doneIds(goalDone("events", { subs: null }))).toEqual([]);
+  });
+  it("keeps one dismiss slot per goal, the old slot for the API goal", () => {
+    expect(G.dismissSlot("api")).toBe(G.DISMISS_SLOT);
+    expect(G.dismissSlot("excel")).toBe(`${G.DISMISS_SLOT}.excel`);
+    expect(G.stepDoneText("key", 1)).toMatch(/^Step 1 done: you have an API key/);
+    expect(G.stepDoneText("rule", 2)).toBe("Step 2 done.");
+  });
+});

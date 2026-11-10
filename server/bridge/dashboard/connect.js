@@ -143,7 +143,7 @@ export async function renderConnect() {
         h("div", { class: "cn-test" }, h("div", { class: "cn-go" }, test, h("span", { class: "cn-small" }, "Asks the Bridge for a price with this key, the way your tool will.")), result),
         h("p", { class: "cn-small cn-cannot-line" }, caps.cannot),
         developer ? h("p", { class: "cn-small cn-next" }, "Next: have the Bridge tell your program when an order changes or a download finishes, instead of asking again and again.") : null,
-        h("div", { class: "cn-foot" }, again, developer ? h("button", { type: "button", class: "btn tinted small", onclick: () => openDevelopers("#/developers?view=events") }, "Receive order events") : null, h("button", { type: "button", class: "btn plain small", onclick: () => openDevelopers("#/developers") }, "Developers"), h("button", { type: "button", class: "btn plain small", onclick: () => openDevelopers("#/api/keys") }, "Manage keys")),
+        h("div", { class: "cn-foot" }, again, developer ? h("a", { class: "btn tinted small", href: "#/developers?view=events" }, "Receive order events") : null, h("a", { class: "btn plain small", href: "#/developers" }, "Developers"), h("a", { class: "btn plain small", href: "#/api/keys" }, "Manage keys")),
       ),
     );
   }
@@ -168,12 +168,6 @@ export async function renderConnect() {
   if (asked && connectTool(asked)) options(asked);
   else chooser();
   return root;
-}
-
-/** The Developers and API pages are in the Advanced view: turn it on, then go there (the choice stays, and Account menu, View undoes it). */
-function openDevelopers(hash) {
-  setMode("advanced");
-  location.hash = hash;
 }
 
 /** Simple view, Sources: where prices come from in one sentence, and one way to the detailed pages. */
