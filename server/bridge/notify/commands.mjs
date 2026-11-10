@@ -44,9 +44,13 @@ export function parseCommand(text, botUsername) {
   return { command, args, known: COMMANDS.includes(command) };
 }
 
-/** "NIFTY" -> "NSE:NIFTY", "nse:reliance" -> "NSE:RELIANCE". Anything with another shape is passed on and refused by the market service. */
+/**
+ * "NIFTY" -> "NSE:NIFTY", "nse:reliance" -> "NSE:RELIANCE". A chart ticker keeps its "!" ("NIFTY1!" -> "NSE:NIFTY1!"; the
+ * symbol service turns it into the real contract, as it does for /xl and MCP). Anything with another shape is passed on
+ * and refused by the market service.
+ */
 export function normaliseSymbol(raw) {
-  const s = String(raw ?? "").trim().toUpperCase().replace(/[^A-Z0-9:&_.-]/g, "");
+  const s = String(raw ?? "").trim().toUpperCase().replace(/[^A-Z0-9:&_.!-]/g, "");
   if (!s) return "";
   return s.includes(":") ? s : `NSE:${s}`;
 }

@@ -36,6 +36,10 @@ describe("parsing", () => {
     expect(normaliseSymbol("bse:sensex")).toBe("BSE:SENSEX");
     expect(normaliseSymbol("rel;iance")).toBe("NSE:RELIANCE");
     expect(normaliseSymbol("  ")).toBe("");
+    // INT-13: a chart ticker keeps its "!" (it used to become NSE:NIFTY1, which does not exist)
+    expect(normaliseSymbol("NIFTY1!")).toBe("NSE:NIFTY1!");
+    expect(normaliseSymbol("nse:banknifty2!")).toBe("NSE:BANKNIFTY2!");
+    expect(normaliseSymbol("NIFTY1!;DROP")).toBe("NSE:NIFTY1!DROP");
   });
   it("the command list has no way to trade, approve or manage keys", () => {
     expect(COMMANDS).toEqual(["price", "positions", "orders", "funds", "status", "help", "kill"]);
