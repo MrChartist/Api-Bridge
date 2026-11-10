@@ -464,6 +464,236 @@ For `client` and `consumer-cap`, slow the tool down or raise that key's quota (d
 
 ---
 
+<!-- docs/guides/orders.md -->
+
+# Orders: paper, live, confirmation and what to do when the result is unknown
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)). On Windows, `curl` in PowerShell is something else: see [windows.md](windows.md).
+
+This page is the whole story of an order in one place: how to send a paper order, what live trading needs, when a person has to approve
+an order on this computer, how the words people type are read, how to ask for a position size instead of a quantity, how a retry
+stays safe, and what `OUTCOME_UNKNOWN` means. The details of each piece are in [safety.md](safety.md), [alert-orders.md](alert-orders.md)
+and the [API reference](../api/README.md); this page tells you which one to open and in what order.
+
+The examples use the demo Bridge (`mc-bridge start --demo`), its practice account `demo-paper` and a key in `MCB_API_KEY`
+([quickstart.md](quickstart.md) makes one). With your own config, use your own account id. Examples use `NSE:RELIANCE`, which
+exists on every day; a futures symbol needs a live expiry date, and its value is often above the default per-order limit.
+
+## Paper first
+
+Every order is **paper** unless the request says `"mode": "live"` and every live opt-in below is in place. A paper order is filled
+by a simulator on this computer, priced from the real market data (or the demo data in demo mode). It never reaches a broker.
+Every order result says `"mode": "paper"` or `"mode": "live"`, and a request that asks for live and misses an opt-in is refused
+with a clear code. It is never quietly turned into a paper order.
+
+## Place a paper order
+
+There is no default product and no default order type: you say both.
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+curl -s -X POST http://127.0.0.1:4300/v1/orders \
+  -H "Authorization: Bearer $MCB_API_KEY" \
+  -H "Idempotency-Key: first-order-0001" \
+  -H "Content-Type: application/json" \
+  -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"}'
+```
+
+The answer is `201` with the order: its `orderId` (`PAPER-...` for paper, `ord_...` for live), `status`, `filledQuantity`,
+`avgPrice`, `mode` and a `warnings` list (for example that a market order is protected). `quantity` is in units and must be a
+multiple of the lot size; or send `lots` instead (not both). A limit order also needs `price`, a stop order `triggerPrice`.
+
+Read it back, and the list:
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+curl -s -H "Authorization: Bearer $MCB_API_KEY" "http://127.0.0.1:4300/v1/orders?limit=5"
+curl -s -H "Authorization: Bearer $MCB_API_KEY" "http://127.0.0.1:4300/v1/positions?account=demo-paper"
+```
+
+An order that is still open is cancelled with `DELETE /v1/orders/{orderId}` (send an `Idempotency-Key` here too) and changed
+with `PATCH /v1/orders/{orderId}` (`quantity`, `price`, `triggerPrice`, `orderType` or `validity`). A modify passes the same checks
+as a new order, on the order as it would stand after the change. A cancel passes none of them except the order rate, so you can
+always reduce risk, even with the kill switch on.
+
+In Python the same is `bridge.orders.place(...)`: see [python.md](python.md). It generates the idempotency key and client order id for you.
+
+### The words you can write
+
+You may write the words people already use. The Bridge reads them, uses the canonical word and says so in `meta.normalised`.
+Case does not matter.
+
+| You write | The Bridge uses | Field |
+|---|---|---|
+| `MIS` | `INTRADAY` | `product` |
+| `NRML`, `CARRYFORWARD` | `MARGIN` | `product` |
+| `DELIVERY` | `CNC` | `product` |
+| `CNC`, `MTF` | unchanged | `product` |
+| `MKT` | `MARKET` | `orderType` |
+| `SLM`, `SL_M`, `STOP_LOSS_MARKET` | `SL-M` | `orderType` |
+| `STOPLOSS`, `STOP_LOSS` | `SL` | `orderType` |
+
+`mode` is never rewritten: `"live"` must be written exactly like that. Symbols are read loosely too (`NSE:M_M` for `NSE:M&M`,
+`NSE_EQ:RELIANCE`, `NSE:NIFTY1!`); [alert-orders.md](alert-orders.md#words-the-order-routes-understand) has the table, and
+[symbols.md](symbols.md) explains how an instrument is written and why an expired contract is not found.
+
+## Check an order before you send it
+
+`POST /v1/orders/preview` takes the same body, runs every check and places nothing. It tells you the resolved symbol and lot size,
+the last price, the estimated value, the margin estimate, every warning, and whether a person must confirm the order
+(`requiresHumanConfirmation`, and the `ticketId` when one was opened). A refused order says why in `detail`: a price more than
+3 percent from the last price, a value above the per-order limit, more lots than allowed. The limits are `safety.*` in
+[config.md](config.md#safety) and the table in [safety.md](safety.md#checks-on-every-order-paper-and-live).
+
+## Live orders
+
+Live means a real order at a real broker, with real money. It needs **all** of these. Each one is a separate switch that only
+you can turn on, from this computer:
+
+1. `"safety": { "liveTrading": true }` in `bridge.config.json`. The environment can never turn this on.
+2. The account's `"live": { "enabled": true }` in the same file. A paper account can never have it.
+3. The request's source (`rest`, `webhook`, `mcp`, `cli`) listed in that account's `live.allowedSources` (`["rest"]` by default).
+4. An API key with the `live` scope, made on this computer (`mc-bridge keys create --label live --scope live`).
+5. `"mode": "live"` in the request.
+6. A person's confirmation for orders from AI assistants and for hooks set to require it (next section).
+7. An `Idempotency-Key` header or a `clientOrderId`. A live order without one is refused, so a retry cannot double it.
+8. Every safety check: kill switch off, order rate, daily order count, daily loss, order value, lots, price band, market hours,
+   freeze quantity.
+
+A request that misses one is refused: `PAPER_ONLY` when the config or account is not enabled, `SCOPE_REQUIRED` when the key has no
+`live` scope, `CONFIRMATION_REQUIRED` when a person has not approved it, `KILL_SWITCH_ACTIVE`, `MARKET_CLOSED`, `INVALID_ORDER` for a
+failed check. [troubleshooting.md](troubleshooting.md) has the fix for each.
+
+What else live needs, outside the Bridge:
+
+- **A registered static IP.** Brokers accept API orders only from an address you registered with them. Data calls work from anywhere.
+  [deployment.md](deployment.md) explains the options, and the readiness check on the dashboard tells you before an order fails.
+- **A logged-in broker session** for the day ([accounts.md](accounts.md)).
+- **A broker whose live orders the Bridge supports.** Live order mapping exists for Dhan (the only broker checked end to end with a
+  live account), Zerodha and Upstox (checked against recorded samples only, with a warning on every live order). For every other
+  broker a live order is refused with `CAPABILITY_UNSUPPORTED` before anything is sent (paper orders work for every broker). [BROKERS.md](../BROKERS.md) has the current table.
+
+A sensible order of work: run the same flow on paper for as long as you like, then add the opt-ins one at a time, then send one small
+live order and check it in your broker's own app. Nothing in the Bridge advises on what to trade.
+
+## Tickets: approval stays on this computer
+
+Some orders are not sent until a person approves them **on the computer that runs the Bridge**:
+
+- orders from an **AI assistant**: any key made with `--client mcp`, on every route (REST included), not only on the MCP endpoint;
+- orders from an alert **hook** set to require confirmation;
+- paper orders from an assistant too, unless `orders.confirmPaperFromMcp` is `false`.
+
+The steps:
+
+1. The assistant (or hook) **previews** the order. The Bridge opens a **ticket** holding the exact order and its checks, and answers
+   with a `ticketId` and `requiresHumanConfirmation: true`. Sending the order without a confirmation is refused with
+   `CONFIRMATION_REQUIRED`.
+2. You see it on the dashboard: **Orders, Pending confirmations**. Check the symbol, side, size, price and the checks.
+3. You **confirm** (or **decline**, with an optional short reason). Confirming gives a single-use `confirmToken`, valid for
+   `orders.confirmTokenTtlMs` (60 seconds), tied to that exact order, that account and the key that prepared it.
+4. The assistant sends the order again with the `confirmToken`. The token is used up as the order leaves.
+
+A ticket expires after `orders.ticketTtlMs` (60 seconds). The client that prepared a ticket can never confirm it. Confirming and
+declining need an admin key **used from this computer** (the dashboard does this for you). They are not available to an AI
+assistant, a webhook or any other automation, so there is no call in the Python or Node library that confirms a ticket. See
+[safety.md](safety.md#declining-a-pending-confirmation) for the exact rules (what a declined ticket looks like, the audit trail) and
+[mcp.md](mcp.md) for the assistant's side, including the two settings (`mcp.toolsets` with `orders`, and `mcp.orderAccounts`) that
+must be in the config before an assistant has order tools at all.
+
+## Be at a size, or send several orders
+
+A strategy alert says "be long 3 lots", not "buy 1". `POST /v1/orders/to-target` reads the position for that symbol and product,
+works out the difference and places only that. A target of `7` long, `0` flat, `-50` short. If the position cannot be read the
+answer is `POSITION_UNKNOWN` and **nothing is sent**: unknown is never treated as flat.
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+curl -s -X POST http://127.0.0.1:4300/v1/orders/to-target \
+  -H "Authorization: Bearer $MCB_API_KEY" -H "Idempotency-Key: target-0001" -H "Content-Type: application/json" \
+  -d '{"account":"demo-paper","symbol":"NSE:INFY","targetQuantity":3,"product":"INTRADAY","orderType":"MARKET","dryRun":true}'
+```
+
+`"dryRun": true` works everything out and runs the checks without placing anything. Leave it out to place the order. Asking again
+with the same key returns the first answer, even if the position has changed.
+
+`POST /v1/orders/batch` sends up to 20 orders in one request, one after the other (a hedge and a main order). The legs do not know
+about each other and nothing is rolled back. **Read `data.ok` and each leg's `status`**: the HTTP code is `201` only when every leg
+was placed, `207` when some went out and some did not, `422` when none did. `POST /v1/margin/basket` estimates the margin of a basket
+without placing anything. All three, with their rules, are in [alert-orders.md](alert-orders.md).
+
+## Idempotency: a retry must not place a second order
+
+A network can fail after the order left. Retrying then would place it twice, unless every attempt carries the same name.
+
+- Send an **`Idempotency-Key`** header (8 to 255 letters, digits and `_ . : -`; a UUID works) on every write. The SDKs do it for you.
+- The same key with the **same body** returns the first answer with the header `Idempotency-Replayed: true`. It never reaches
+  the broker twice.
+- The same key with a **different body** is `409 IDEMPOTENCY_KEY_REUSED`. Use a new key for a new order.
+- A `clientOrderId` (your own id, letters, digits, `_` and `-`, up to 64) names the order for you: `GET /v1/orders/by-client-id/{id}`
+  finds it later. It is unique per account per day.
+- A live order needs the key or a `clientOrderId`. Without one it is refused.
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+curl -si -X POST http://127.0.0.1:4300/v1/orders -H "Authorization: Bearer $MCB_API_KEY" \
+  -H "Idempotency-Key: first-order-0001" -H "Content-Type: application/json" \
+  -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"}' | grep -i "^HTTP\|^idempotency-replayed"
+```
+
+The same request as the first example, sent again, answers `Idempotency-Replayed: true`, and the paper book has one order, not two.
+
+## Statuses
+
+| `status` | Meaning |
+|---|---|
+| `pending` | Accepted by the Bridge, no answer from the broker or the simulator yet |
+| `open` | Working at the broker (or resting in the paper book) |
+| `trigger_pending` | A stop order waiting for its trigger price |
+| `partially_filled` | Some of the quantity has traded |
+| `filled` | All traded |
+| `cancelled` | Cancelled |
+| `rejected` | Refused by the broker, the simulator or a Bridge check; `statusMessage` says why |
+| `expired` | A day order that ended with the session |
+| `outcome_unknown` | The Bridge sent it and does not know whether the broker took it. See below |
+
+A sliced order (when `orders.sliceAboveFreeze` splits an order above the exchange's freeze quantity) shows one entry per part in
+`legs`. `GET /v1/orders/{orderId}` refreshes a live order from the broker. The stream sends `order.updated` events as an order changes
+([streaming.md](streaming.md), [events.md](events.md)).
+
+## OUTCOME_UNKNOWN: the broker did not say
+
+A live order is one call to the broker. If the call times out (after `orders.liveCallTimeoutMs`, 15 seconds) or fails without a clear
+answer, the Bridge cannot know whether the order exists. It answers `504 OUTCOME_UNKNOWN`, marks the order `outcome_unknown`, sends the
+event `order.outcome_unknown` and **never sends it again by itself**. A Bridge that stops while an order is on its way marks it the same way
+on the next start.
+
+What the Bridge does: every `orders.reconcileIntervalMs` (3 seconds) it looks in the broker's order book for exactly one order that
+matches what it sent (same instrument, side and quantity, not placed earlier than it sent it, and the same price for a priced order).
+One match: the order is updated and the problem is over. None, or more than one: it keeps looking, up to `orders.reconcileGiveUpMs`
+(10 minutes), and then leaves the order as `outcome_unknown`, so that nobody is told it failed when it may not have.
+
+What you do:
+
+1. **Do not send it again.** Not with the same key and not with a new one, until you know.
+2. Look at the Bridge's record: `GET /v1/orders/{orderId}` (the `504` names the `orderId`), or `GET /v1/orders/by-client-id/{clientOrderId}`.
+   It may already have moved to `open` or `filled`.
+3. Open your **broker's own order book** (its app or web page). That is the truth. Check by symbol, side, quantity and time.
+4. Found: nothing to do; the Bridge's record catches up. Not found after the broker's page is current: the order does not exist, and you
+   may send a new order with a **new** `Idempotency-Key`. If you cannot tell, leave it, and check again after the reconcile window.
+
+In a batch, a leg in this state shows `"status": "outcome_unknown"`; an alert shows the signal as `outcome_unknown`. The same rule
+applies to both. Paper orders never have this state: the simulator answers at once.
+
+## If something goes wrong
+
+- **Stop everything:** the kill switch (dashboard, Safety, or `mc-bridge kill`) stops every new order at once, including orders waiting
+  in the queue. Cancels still work.
+- **A refusal you do not understand:** [troubleshooting.md](troubleshooting.md) lists every code with its fix.
+- **What was sent:** every order step is in the audit log ([safety.md](safety.md#audit-log)), and `GET /v1/trades` lists the fills.
+
+---
+
 <!-- docs/guides/troubleshooting.md -->
 
 # Troubleshooting
@@ -1232,7 +1462,319 @@ listed in `SHA256SUMS.txt`.
 | Anything else | Run `mc-bridge doctor` (or, in the download folder, the start file again) and [open an issue](https://github.com/MrChartist/api-bridge-v2/issues) with what it prints. Never paste your keys. |
 
 For developers: `git clone`, `npm ci`, `npm run dev`; see the [quickstart](quickstart.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md).
-Docker: see the [README](../../README.md#docker).
+Docker: see [docker.md](docker.md). Upgrading: see [upgrading.md](upgrading.md).
+
+---
+
+<!-- docs/guides/docker.md -->
+
+# Docker
+
+> `mc-bridge ...` on this page means the command inside the container: `docker compose exec bridge mc-bridge ...` ([running it in other set-ups](README.md#running-mc-bridge)).
+
+The repository has a `Dockerfile` and a `docker-compose.yml`. They run the Bridge in a container on your own computer, reachable on
+`127.0.0.1:4300` only. This page says what they do, how to start, where the data lives, how to run commands, back up and upgrade.
+It is written from those files and from `docker/entrypoint.sh`; the facts here are checked against them by a test
+(`scripts/docker-guide.test.mjs`).
+
+**Status.** The compose file is accepted by `docker compose config`. Nothing in this repository's tests or CI builds and runs the image,
+and Docker Desktop on Mac and Windows reaches the container from an address range the Bridge allows by a rule marked in the code as needing
+verification (see "The dashboard" below). So treat Docker as a recipe: start in demo mode, then with paper accounts, and test your own
+set-up before any real money. Docker is not needed for anything else in this project; the [quickstart](quickstart.md) runs it with Node
+directly, and a [hardened server recipe](vps.md) shows Docker behind a proxy.
+
+## Start
+
+From the repository folder:
+
+```sh
+docker compose up -d            # builds the image the first time, then starts it
+docker compose logs bridge      # the first start prints your admin key, once
+```
+
+The first start finds no settings file in the data volume, so the entrypoint runs `mc-bridge init --yes` for you: it writes
+`/data/bridge.config.json` with one paper account and **live trading off**, creates the master key, and prints an admin key. Copy that key
+from the log; it is not shown again. Then open <http://127.0.0.1:4300/dashboard> in your browser **on this computer** and paste the key.
+Once you are in, make a new admin key on the dashboard's keys page (or `docker compose exec bridge mc-bridge keys create --label admin
+--scope admin`) and revoke the first, so the one in the log stops working.
+
+For sample prices and no broker, set `MCB_DEMO: "1"` in `docker-compose.yml` (it is `"0"` by default) and run `docker compose up -d`
+again. Demo mode serves generated data and never trades live.
+
+`docker compose ps` shows the container (`mc-bridge`); it has a health check that calls `/v1/health` every 30 seconds.
+
+## What the compose file sets up
+
+| Setting | What it does |
+|---|---|
+| `ports: "127.0.0.1:4300:4300"` | Publishes the port on this computer only. **Never change it to `0.0.0.0`** or drop the address: that would put your API on your network. Every route still needs a key, but a published port is more exposure than you need |
+| `volumes: bridge-data:/data` | Everything the Bridge keeps: settings, API keys (hashed), saved broker logins (encrypted), audit log, paper books, orders, downloads, recordings, backups |
+| `volumes: bridge-secrets:/secrets` | The master key (`/secrets/master.key`) in a volume of its own, apart from `/data`, so a copy of the data volume does not carry the key |
+| `read_only: true`, `tmpfs: /tmp` | The image cannot be changed while it runs; only the two volumes and `/tmp` are writable |
+| `cap_drop: [ALL]`, `no-new-privileges` | The container has no extra Linux powers |
+| `networks: bridge-net`, subnet `172.31.240.0/24`, gateway `172.31.240.1` | A network of its own with a fixed gateway address (see below) |
+| `restart: unless-stopped` | Starts again after a reboot or a crash, until you stop it |
+
+The image is `node:22-alpine` (pinned by digest), the Bridge runs as the unprivileged user `node`, and it installs only the production
+packages.
+
+## The dashboard and "this computer only"
+
+Pages like the dashboard and every admin route answer only a request that arrives as *this computer*. Inside Docker your browser's request
+reaches the container from the network's gateway, not from loopback. So the first-start settings file lists the gateway
+(`172.31.240.1`, and `192.168.65.0/24` for Docker Desktop) under `server.localPeers`, sets `server.host` to `0.0.0.0` inside the container and
+turns on `server.allowNonLoopback`. That is safe only because the compose file publishes the port on `127.0.0.1`. If you change the
+network's subnet or gateway in the compose file, change `server.localPeers` to match, or the dashboard will refuse you. See
+[config.md](config.md#server).
+
+## Running commands in the container
+
+The `mc-bridge` command is in the container. Run it with `docker compose exec`:
+
+```sh
+docker compose exec bridge mc-bridge doctor                  # checks settings, keys, disk, calendar, backup
+docker compose exec bridge mc-bridge keys create --label me --scope read
+docker compose exec -it bridge mc-bridge accounts connect dhan-main      # -it: it asks for fields
+docker compose exec bridge mc-bridge kill                     # the kill switch
+```
+
+In the guides, `mc-bridge ...` means this. A command that needs a key takes `--key` or `MCB_ADMIN_KEY` as usual. Programs outside the container
+(your scripts, Excel) use `http://127.0.0.1:4300` and a key made with `keys create`.
+
+## Add a broker, turn on live trading
+
+Add a broker on the dashboard (**Accounts, Add a broker**): it writes the account to `/data/bridge.config.json`, paper only. Log in from the
+Accounts page or with `accounts connect` above.
+
+Live trading is a setting in that file, by design: `safety.liveTrading`, the account's `live.enabled` and the rest of the list in
+[orders.md](orders.md#live-orders). Edit the file in the volume, then restart:
+
+```sh
+docker compose exec -it bridge vi /data/bridge.config.json
+docker compose restart bridge
+```
+
+Live orders also need your broker's registered static address. A container on your home computer sends orders from your home connection's address,
+which is usually not static: read [deployment.md](deployment.md) first.
+
+## Where things are, logs and the clock
+
+- Logs go to the container's output: `docker compose logs -f bridge`. The log file under `/data/logs` is off in Docker.
+- The container's clock should be right (the host's usually is); order times, the morning checks and session expiry depend on it.
+- To look inside the data volume: `docker compose exec bridge ls /data`.
+
+## Back up and restore
+
+The data is the `bridge-data` volume. Inside the container:
+
+```sh
+docker compose exec bridge mc-bridge backup           # lands in /data/backups inside the volume
+docker cp mc-bridge:/data/backups/. ./bridge-backups/   # copy them out, to another disk
+```
+
+To restore, stop the service first, then run the restore in a one-off container on the same volume:
+
+```sh
+docker compose stop
+docker compose run --rm --no-deps bridge mc-bridge restore <path inside the container> --dry-run
+docker compose run --rm --no-deps bridge mc-bridge restore <path inside the container>
+docker compose up -d
+```
+
+A backup never contains the master key; it is in the `bridge-secrets` volume. Back that volume up **separately** and keep it apart from the
+data backups. Everything about what a backup holds is in [backup.md](backup.md). `docker compose down -v` deletes both volumes and with them
+your keys, saved logins and paper books: do not use `-v` unless you mean it.
+
+## Upgrade
+
+```sh
+git pull
+docker compose up -d --build
+docker compose logs bridge          # look for "Saved a copy of your data before this version runs"
+```
+
+The data volume keeps your data, and the first start of a new version copies it to `/data/backups` before anything is read
+([upgrading.md](upgrading.md)). Upgrade outside market hours and check **Safety** (readiness) afterwards.
+
+## When it does not work
+
+| You see | Cause and fix |
+|---|---|
+| `docker compose up` cannot bind `127.0.0.1:4300` | Another program (or a Bridge started with Node) holds the port. Stop it, or change the left-hand port in the compose file (`"127.0.0.1:4301:4300"`) and use 4301 outside |
+| The dashboard refuses you or says this is not this computer | The gateway address is not in `server.localPeers`: the subnet in the compose file was changed, or Docker Desktop uses another range. Add the address, restart |
+| The admin key scrolled away | `docker compose logs bridge` still has it; or make a new one with `keys create --scope admin` |
+| `read-only file system` errors | Something tried to write outside `/data`, `/secrets` and `/tmp`. Keep your files in the volumes |
+| The container keeps restarting | `docker compose logs bridge`: usually a settings error ([upgrading.md](upgrading.md#settings-that-a-new-version-no-longer-accepts)) |
+| The master key is lost with the `bridge-secrets` volume | Saved broker logins cannot be read; log in again. Keys and paper books are unaffected |
+
+---
+
+<!-- docs/guides/upgrading.md -->
+
+# Upgrading
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
+How to move to a newer version of the Bridge without losing anything, how the Bridge protects your data while you do it, and how to
+go back. Your settings, keys, paper books, orders and audit log live in the **data folder**, not in the program folder, so a new
+program version starts on the same data.
+
+## Which version you have
+
+```sh
+mc-bridge --version              # 2.0.0
+curl -s http://127.0.0.1:4300/v1/health      # "version": "2.0.0", "apiVersion": "v1"
+```
+
+- The **program** follows [semantic versioning](https://semver.org/): `MAJOR.MINOR.PATCH`. A patch fixes things, a minor adds things, and
+  a major may change things.
+- The **API** is versioned by its address: `/v1`. Routes under `/v1` only gain things: a field is not renamed or removed, a route is not
+  removed, an error `code` is never renamed. A change that would break a program goes in a new `/v2` beside the old one. Ignore
+  fields you do not know. Changes that need a migration window are written up in [API-DEPRECATIONS.md](../API-DEPRECATIONS.md), and a
+  response that is affected carries a `Deprecation` header that links to its entry.
+- The **Python and Node libraries** (`sdk/python`, `sdk/node`) have their own version numbers, because they can change without a program
+  release.
+- What changed is in the [changelog](../../CHANGELOG.md): read what is under the new version before you upgrade, and the "Unreleased"
+  section if you run from a git checkout.
+
+## Before you upgrade
+
+1. **Look at the changelog** for your version to the new one. Anything that needs action says so.
+2. **Stop the Bridge** (Ctrl+C in its window, or `docker compose stop`). Upgrade outside market hours if you trade live, and look at the
+   readiness badge afterwards.
+3. **Make a backup you control** (optional but cheap):
+
+   ```sh
+   mc-bridge backup --out ~/Backups/bridge-before-upgrade.tar.gz
+   ```
+
+   It holds your settings and state, not the master key and not downloads or recordings (add `--include-data` for those).
+   Keep a copy of the **master key** somewhere separate, as [backup.md](backup.md) explains; no backup ever contains it.
+
+You do not have to do step 3: the Bridge makes its own copy, next.
+
+## What the Bridge does by itself
+
+The first time a new version starts on a data folder, `mc-bridge start` copies your data **before it reads or changes anything**
+and prints one line:
+
+```text
+Saved a copy of your data before this version runs (2.0.0 to 2.1.0): /home/me/.mc-bridge/data/backups/mc-bridge-backup-20261109-021500-upgrade.tar.gz. Restore it with: mc-bridge restore "..."
+```
+
+- The copy is in `backups/` inside the data folder, named `...-upgrade.tar.gz`. `mc-bridge backup list` shows it as kind `upgrade`.
+- The version that last ran is remembered in `last-version.json` in the data folder; the copy is made when it differs from the running one.
+  A data folder with nothing in it yet gets no copy.
+- It holds your state and **includes** `secrets.enc` (your saved broker logins; the copy sits next to the file it copies, so it adds no
+  exposure) so that going back does not cost you a re-login. It never holds the master key, downloads or recordings.
+- The newest `backup.keep` (5) are kept. Daily backups, copies made before a restore and manual backups are counted separately.
+- It never stops the Bridge from starting. If your settings and state are larger than `backup.maxSizeMb` (500) or the disk lacks room
+  for the copy, you get one line instead and the Bridge starts anyway:
+
+  ```text
+  Warning: no copy of your data was made before this version runs (<why>) Start continues. Run "mc-bridge backup --out <file>" to make one yourself.
+  ```
+
+Stores that changed how they keep their files upgrade them on their own at the next start. A file that cannot be read is set aside and
+reported rather than stopping the start ([operations.md](operations.md#a-damaged-file)).
+
+## Upgrade
+
+| How you installed | How to upgrade |
+|---|---|
+| One-step installer ([install.md](install.md)) | Run the same line again. Your settings and data are kept. Choose a version with `--version` (Mac, Linux) or `MCB_VERSION` (Windows). No release has been published yet, so today this path does not exist |
+| Git checkout | Stop the Bridge, `git pull`, `npm ci`, start it again with `mc-bridge start` (or `npm run bridge -- start`) |
+| A VPS with systemd | `sudo git pull --ff-only && sudo npm ci --omit=dev`, then `sudo systemctl restart mc-bridge` ([vps.md](vps.md#8-updating)) |
+| Docker | `docker compose up -d --build` in the repository folder. The data is in the `bridge-data` volume and survives ([docker.md](docker.md)) |
+
+Then check:
+
+```sh
+mc-bridge doctor                 # settings, keys, disk, calendar, backup: every line should be OK or say what to do
+```
+
+Open the dashboard, look at **Accounts** (log in again if a broker session ended), the readiness badge on **Safety**, and send one paper
+order ([orders.md](orders.md)) before you trust the new version with anything live.
+
+## Settings that a new version no longer accepts
+
+The Bridge checks `bridge.config.json` every time it starts, and a setting it does not know stops the start with a message that
+names it. Nothing is changed in your file; you edit it and start again. These are the messages that exist today. Every setting is
+listed in [config.md](config.md).
+
+**A setting that was removed.** Older, fuller releases accepted these; this version does not have them:
+
+```text
+Error: Your config file has settings that v2 no longer has. Delete them and start again: alerts: this setting was removed in v2 (position alerts are not part of v2); watchlists: this setting was removed in v2 (watchlists are not part of v2); stream.candles: ...
+```
+
+The list of removed settings, each with its reason, is in [config.md](config.md#settings-that-no-longer-exist). Delete the named
+keys. (`mcp.toolsets` with `"options"` is the one removed value rather than key: take `"options"` out of the list.)
+
+**A typo or a setting from a newer version.** A key this version does not know, inside a section:
+
+```text
+Error: Config is not valid: safety: Unrecognized key: "maxOrderValu"
+```
+
+and a section it does not know at the top of the file:
+
+```text
+Error: Unknown config section "fooo".
+```
+
+If you went back to an older version and the file mentions a setting that only the newer one has, you get these messages. Remove the
+setting, or install the newer version again.
+
+**A value that is out of range or the wrong kind:**
+
+```text
+Error: Config is not valid: stream.heartbeatMs: Too small: expected number to be >=1000
+Error: Config is not valid: safety.maxOrderValue: Invalid input: expected number, received string
+```
+
+The message names the full path of the key and says what was wrong; [config.md](config.md) gives the type and range of each. `mc-bridge doctor` runs
+the same check without starting the Bridge.
+
+**A change of default.** When a default changes, it is written up in the changelog and, where an API is affected, in
+[API-DEPRECATIONS.md](../API-DEPRECATIONS.md). One that is already announced: the option-chain implied-volatility model switches its
+default from `legacy-bs-spot` to `b76-forward` on 1 May 2027; set `market.chain.ivModelDefault` to choose now.
+
+## Go back
+
+If something looks wrong after an upgrade, go back to the version you had **and** the data you had. Do these with the Bridge stopped:
+
+1. Find the copy made before the upgrade: `mc-bridge backup list` (kind `upgrade`).
+2. Install the previous version by number (`--version <old>` or `MCB_VERSION`; in a checkout, `git checkout <old tag>` and `npm ci`; in Docker,
+   check out the old version and rebuild).
+3. Look first: `mc-bridge restore <that file> --dry-run` lists what will change.
+4. `mc-bridge restore <that file>`. It asks you to type `RESTORE`, makes a safety copy of the data as it is now, swaps the old data in,
+   and puts everything back if any step fails. It refuses while a Bridge is running on that folder.
+5. Start the old version. Tell us what failed at [the issue tracker](https://github.com/MrChartist/api-bridge-v2/issues). Never paste a key.
+
+**Restore before you start the old program.** A newer version may have changed how files are written, and an older one can misread them. This
+is also why `restore` refuses a backup made by a newer version than the one running:
+
+```text
+This backup was made by Bridge 2.1.0, which is newer than this one (2.0.0). Older programs can misread newer data. Install Bridge 2.1.0 or newer, then restore.
+```
+
+A backup from an **older** version restores fine on a newer one: the stores upgrade their files at the next start.
+
+Downloads and recordings are not in the upgrade copy, so going back does not touch them. A restore from a backup made with
+`--include-data` puts them back and keeps the ones it replaced beside them (`downloads.before-restore-...`); delete those when you have checked.
+
+## Quick checks when an upgrade does not start
+
+| You see | Do |
+|---|---|
+| `Your config file has settings that v2 no longer has` | Delete the named settings ([config.md](config.md#settings-that-no-longer-exist)) |
+| `Config is not valid: ... Unrecognized key` | A typo, or a setting of another version. Remove it |
+| `Unknown config section` | The same, at the top of the file |
+| `Port 4300 is already in use by another program` | Another program holds the port. Close it, or choose another `server.port` |
+| `Another Bridge (process ...) is using this data folder` | The old Bridge is still running. Stop it first ([operations.md](operations.md#one-bridge-per-data-folder)) |
+| The Bridge starts but a broker says `SESSION_EXPIRED` | Log in again on **Accounts**; sessions end every day and an upgrade does not extend them |
+| Webhook subscriptions fail after a restore on another computer | Their secrets are in `secrets.enc`: `mc-bridge subscriptions rotate-secret <id>` ([backup.md](backup.md)) |
 
 ---
 
@@ -1403,6 +1945,228 @@ mc-bridge download datasets | update <dataset>
 
 Line endings: CSV files from downloads end their lines with CRLF (`\r\n`), recordings use LF (`\n`). Both open in Excel; mention it if
 you join the two kinds of file with a tool that cares.
+
+---
+
+<!-- docs/guides/data.md -->
+
+# Saving data: downloads, recordings, collections and datasets
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
+The Bridge can keep data for you as plain files on your own computer. This page ties the four parts together, says which one to use
+for what, and walks through three jobs from start to finish. Each part has its own guide with every option:
+[downloads.md](downloads.md), [recording.md](recording.md), [collections.md](collections.md).
+
+## Which part for which data
+
+| You want | Use | Why |
+|---|---|---|
+| Old candles (1 minute to daily) for some symbols | **Download** | Brokers keep history. The Bridge fetches it in the background and writes CSV, JSONL or an AmiBroker import file |
+| The same candles, kept up to date | **Dataset** (a download with a `dataset` name) | The next run fetches only what is new, from the last stored bar |
+| Old option chains, open-interest snapshots, tick-by-tick prices | **Recording** | Brokers do not keep these. Someone has to write them down while the market is open, so the Bridge does it from its own live data, going forward |
+| The same list of symbols in every job, or "NIFTY weekly, ATM plus or minus 10" that rolls by itself | **Collection** | A named, tagged list. Downloads, recordings, sheets and Python all accept `collection: "<name>"` |
+
+What none of them can do: give you a chain, open interest or ticks from **before** you started recording, or data for a day the Bridge
+was not running (a recording logs that as a gap instead of inventing it).
+
+## What you get, and what it says about itself
+
+- **One data class per file**: `realtime`, `delayed` or `eod`, with the source and the delay. A download from your own broker is
+  `realtime`. A free source can fill in only when you ask for it (`backup: true`), and its files say `delayed` or `eod`. A recording
+  never writes delayed or end-of-day data: it logs a gap instead. Delayed and end-of-day data must never feed an order, a risk check, a
+  paper fill or an alert.
+- **Finished bars only.** The bar that is still forming when a download runs is left out. Times are IST bar-open times.
+- **Gaps are reported, never filled.** A dataset lists its gaps (days with no bar, stretches of missing bars); a thin stock has no
+  1-minute bar when nothing traded. A recording keeps a gap list with the reason (login missing, feed down, computer asleep, disk full).
+- **Where the files are.** Under the data folder (`mc-bridge doctor` prints it): `downloads/jobs/<id>/`, `downloads/datasets/<name>/`
+  and `recordings/<id>/`. You never choose a path through the API. Download them with `mc-bridge download files <id>` (it checks every
+  checksum), through the API, from the dashboard's **Data** page, or just open the folder.
+- **A normal backup leaves them out.** They can be many gigabytes and can be fetched or recorded again. `mc-bridge backup --include-data`
+  adds them ([backup.md](backup.md)).
+
+## Your API budget stays yours
+
+Background work never takes the budget a live read, an order check or another key needs.
+
+- A download or a recording uses at most `downloads.maxBudgetShare` / `recorder.maxBudgetShare` of an account's spare request budget
+  (0.3 by default, from 0.05 to 0.8) and yields at once when something else needs it. Downloads can also wait for after market hours
+  (`downloads.afterHoursOnly`). Both are in [config.md](config.md#downloads) and can be changed while the Bridge runs.
+- **Look before you start:** `mc-bridge download ... --dry-run` starts nothing and prints the rows, the size, the number of broker calls
+  and the time at your share. Parts you already have on this computer cost no call.
+- **Local first.** A range that is already stored is read from disk, and only the missing tail or the gaps go to the broker. This is
+  on for downloads and dataset updates (`downloads.localFirst`). For reading, name the dataset:
+  `GET /v1/history?symbol=...&interval=5m&dataset=<name>` answers from disk with `meta.source: "local"` and `meta.brokerCalls: 0`
+  (`"mixed"` when it had to ask for a missing tail). A plain `GET /v1/history` does the same only if you turn on
+  `market.history.localFirst`, which is off by default.
+- **Calls saved** are counted: `GET /v1/limits?explain=1` shows `savedCalls` (by reason, and what the stream and cache served), and the
+  Data page says "API calls saved today".
+
+## Recipe 1: two years of 5-minute bars for a watchlist
+
+Result: one dataset, `watchlist-5m`, with a CSV file per symbol that you can read in Python and that you can update with one command
+each evening (recipe 3).
+
+**1. Make the list once.** A read key is enough to make and change a collection. Put the key in `MCB_API_KEY`
+([quickstart.md](quickstart.md) makes one). In demo mode the key from the quickstart works.
+
+**2. Estimate, then download.** Use a date two years back. The estimate costs nothing; the download runs in the background and
+`--watch` shows its progress.
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+mc-bridge collections create watchlist --symbols NSE:RELIANCE,NSE:INFY,NSE:HDFCBANK,NSE:TCS,NSE:SBIN --tags cash
+mc-bridge download --collection watchlist --interval 5m --from 2024-11-11 --dataset watchlist-5m --dry-run
+mc-bridge download --collection watchlist --interval 5m --from 2024-11-11 --dataset watchlist-5m --watch
+mc-bridge download datasets
+```
+
+The estimate line looks like `5 symbols x 1 interval: about 187,000 rows, 11 MB on disk. Broker calls: 65...`. How far back a
+broker serves 5-minute bars, and how many days one call may cover, is the broker's rule, not the Bridge's. A symbol the broker has
+less history for just has fewer rows, and a failed item says why (`mc-bridge download show <id>`). Resume a job that stopped with
+`mc-bridge download resume <id>`; it carries on from the last saved window, also after a restart.
+
+**3. Check what you got.** `mc-bridge download datasets` lists it with its row count, data class and gaps. The files are in
+`downloads/datasets/watchlist-5m/` in the data folder:
+
+```text
+NSE_RELIANCE_5m.csv     time,open,high,low,close,volume,oi
+dataset.json            what it is, its coverage and its gaps
+```
+
+**4. Read it in Python.** Install the library once (`pip install "./sdk/python[pandas]"`, [python.md](python.md)).
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```python
+from mrchartist_bridge import Bridge
+
+bridge = Bridge()
+df = bridge.datasets.read("watchlist-5m", "NSE:RELIANCE", "5m", as_dataframe=True)   # from this computer's disk
+print(df.tail(3))
+print(df.attrs["freshness"])          # the data class, source and delay travel with the data
+```
+
+Or with plain pandas on the file: `pd.read_csv(".../downloads/datasets/watchlist-5m/NSE_RELIANCE_5m.csv", parse_dates=["time"])`.
+
+**5. Read the same bars over HTTP, without touching the broker:**
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+curl -s -H "Authorization: Bearer $MCB_API_KEY" \
+  "http://127.0.0.1:4300/v1/history?symbol=NSE:RELIANCE&interval=5m&from=2025-06-02&to=2025-06-03&dataset=watchlist-5m" | grep -o '"source":"local"'
+```
+
+It prints `"source":"local"`: the Bridge answered from the dataset and made no broker call.
+
+## Recipe 2: record index option chains every day, and read them back in Python
+
+Brokers give you today's option chain, not last month's. If you want last month's, record it now. Option chain recording reads the
+Bridge's own live data and needs an **admin key from this computer** (it uses this computer's disk and your broker's budget).
+Set it in `MCB_ADMIN_KEY` (`mc-bridge keys create --label admin --scope admin`; do not keep this key in a script).
+
+**1. Try it for a minute** while the market is open. This records the NIFTY chain, 5 strikes around the at-the-money strike, every 15
+seconds (the shortest a chain allows), all day long until you stop it:
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+mc-bridge record chain NIFTY --every 15 --strikes 5 --all-day
+mc-bridge record list
+```
+
+`record list` shows the recording, its rows and its size. It writes one file per option per IST day to
+`recordings/<id>/`, named like `2026-11-10__NFO_NIFTY-2026-11-17-24200-CE.csv`. The columns are `time, symbol, ltp, bid, ask,
+bidQty, askQty, volume, oi, oiChange, open, high, low, close, iv, delta, gamma, theta, vega, spot, tickAt, source, class`. The class is always `realtime`. Stop the
+trial with `mc-bridge record stop <id>` (the files stay).
+
+**2. Make it daily and automatic.** The preset adds a rule "NIFTY and BANKNIFTY chains, current weekly expiry, ATM plus or minus 10,
+every 30 seconds, during market hours" and turns auto-record on:
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+mc-bridge record preset index-option-chains
+mc-bridge record status
+```
+
+From then on the Bridge starts the recording at each session start and stops it at the close, picks the expiry and the strikes again
+every trading day, resumes after a restart and logs a gap for any time it could not record. If nobody is logged in at the start it
+sends `account.login_needed` once and starts when a feed is available. **The Bridge records only while it runs**, so the computer has to be
+on and the Bridge started during market hours ([windows.md](windows.md#running-at-login), [vps.md](vps.md)). Auto-record is off until a
+person turns it on, and the preset does. Set a limit with `recorder.maxDiskMb` and `keepDays` on the rule so it cannot fill the disk
+([recording.md](recording.md#disk-safety-and-retention)).
+
+**3. The next day, read it back.** The rule's recording is called `rule-index-option-chains`; the trial's id is in `record list`.
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```python
+from mrchartist_bridge import Bridge
+
+bridge = Bridge()
+RECORDING = "rule-index-option-chains"      # or the id that `record list` shows
+
+chain = bridge.recordings.read(RECORDING, as_dataframe=True)   # every day file of it, one table indexed by time (IST)
+print(len(chain), "rows from", chain["symbol"].nunique(), "options")
+print(chain.groupby("symbol")[["ltp", "oi"]].last().head())     # last price and open interest of each option
+```
+
+Plain files work too: every day file is an ordinary CSV, readable in Excel or `pd.read_csv`. Files of finished days may be `.csv.gz` (pandas
+reads them as they are) when compression is on. `tickAt` is when the price itself last changed: a quiet option shows an older `tickAt` than
+`time`. Gaps are in `GET /v1/recordings/{id}`, in `gaps.jsonl` next to the files, and as `recording.gap` events.
+
+## Recipe 3: keep a dataset up to date with a scheduled command
+
+A dataset remembers its last bar. `mc-bridge download update watchlist-5m` fetches only what is after it, and with `--watch` it waits
+for the job and ends with exit code 0 when the job is done and 1 when it is not. That is what a scheduler needs. On the computer that
+runs the Bridge it needs no key (it uses the control token the Bridge keeps in its data folder), so there is no secret in the schedule.
+
+Put the command in a small script. Run it **after the close**, so the day's last bars exist: the forming bar is never written, and an
+update at 16:35 IST has all of today's finished bars.
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+#!/bin/sh
+# update-dataset.sh: fetch what is new for one dataset. Exit 0 only when the update finished.
+mc-bridge download update watchlist-5m --watch || exit 1
+```
+
+**Mac and Linux (cron).** `crontab -e`, then one line (weekdays at 16:35 on this computer's clock; cron uses the computer's own time
+zone, so convert if it is not on IST; use full paths, cron has almost no environment):
+
+```text
+35 16 * * 1-5 /bin/sh /home/you/update-dataset.sh >> /home/you/update-dataset.log 2>&1
+```
+
+If you start the Bridge with its own folder (`MCB_HOME`), put the same `MCB_HOME=...` line at the top of the script. `which mc-bridge`
+gives the path to use when cron cannot find the command; in a git checkout use `npm run bridge --` in the repository folder.
+
+**Windows (Task Scheduler).** Put `mc-bridge download update watchlist-5m --watch` and `exit $LASTEXITCODE` in `update-dataset.ps1`,
+then in PowerShell:
+
+```text
+schtasks /Create /SC WEEKLY /D MON,TUE,WED,THU,FRI /ST 16:35 /TN "Bridge dataset update" /TR "powershell -NoProfile -File C:\Users\you\update-dataset.ps1"
+```
+
+The scheduler runs the script; the **Bridge itself must be running** at that time, because the update is a job inside the Bridge. If it is not,
+the command says so (`The Bridge is not running at ...`) and ends with a non-zero code; look at the log. A holiday is harmless: the job finds
+nothing new and finishes.
+
+**Know when it fails.** `download.failed` and `download.done` are events. To get a message on a failure, subscribe a webhook of yours
+([events.md](events.md)) or a Telegram route ([telegram.md](telegram.md)) to `download.failed`. `mc-bridge download list` and
+`mc-bridge download show <id>` say why a job failed (an expired login, the disk limit, a symbol the broker has no data for), and
+`mc-bridge download resume <id>` tries the failed items again.
+
+**Several datasets.** Give each its own name and one line per dataset, or one script with several `update` lines. Jobs run one at a
+time by default (`downloads.maxConcurrentJobs`) and share the budget cap.
+
+## When something is off
+
+| You see | What it means |
+|---|---|
+| `The Bridge is not running at ...` | Start the Bridge first; background jobs live inside it |
+| A job `paused` with a reason | `user` (you), `kill_switch`, `session_lost` (log in again), `disk_low`, `key_revoked`. After `kill_switch`, `session_lost` and `disk_low` it continues by itself once that is fixed; otherwise `resume` it |
+| A recording `waiting` | Outside the session, a holiday, or no login yet. Its status line says when it starts next |
+| A recording shows a `delayed-source` gap | The only data available was delayed or end of day, which is never recorded |
+| The estimate says the job does not fit | `downloads.maxDiskMb` or `downloads.minFreeDiskMb`: free space or raise the limit ([operations.md](operations.md#disk-space)) |
+| A 400 `VALIDATION_FAILED` naming a symbol | The symbol is not in any connected broker's list, so nothing was created. The answer names the closest real ones. An expired contract needs `--allow-expired` |
 
 ---
 
@@ -1792,6 +2556,640 @@ shows the audit log's size.
 
 ---
 
+<!-- docs/guides/config.md -->
+
+# Configuration reference
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
+Every setting of `bridge.config.json`: what it is, its type, its default and what it does. *This page is generated from the
+Bridge's own settings checker and `scripts/lib/config-descriptions.mjs` (run `npm run docs:generate`); a test fails when a setting
+has no description.*
+
+Most people change very little: a demo or paper Bridge runs with no file at all. For a first set-up use `mc-bridge init`, then
+[accounts.md](accounts.md) to add a broker. Change a setting here only when a guide tells you to, or when you know what it does.
+
+## How the file is read
+
+- **Where it is.** The Bridge looks for `bridge.config.json` in this order: `--config <file>`, the `MCB_CONFIG` variable, the file of that name in the current folder, then the per-user folder (`MCB_HOME`, else `%APPDATA%\MrChartist\Bridge` on Windows, else `~/.mc-bridge`). With none of them it runs on safe defaults: paper only, no accounts, `127.0.0.1:4300`.
+- **Order of precedence.** Built-in defaults, then the file, then the environment. The environment can only change where the Bridge listens and logs, or make it stricter. It can never switch live trading on.
+- **Changes need a restart.** The Bridge reads the file once, when it starts. Accounts added on the dashboard are the exception: they are written to the file and used at once. Stop with Ctrl+C and start again after editing.
+- **Typos are caught.** A key the Bridge does not know, or a value outside its range, stops the start with a message that names the key, for example `Config is not valid: safety: Unrecognized key: "maxOrderValu"`. `mc-bridge doctor` checks the file without starting the Bridge.
+- **Only what you change.** Write only the keys you want to change. Leave the rest out and the defaults below apply. A section you leave out is the same as `{}`.
+- **No secrets.** Broker logins, the master key and webhook secrets never go in this file. They are kept encrypted in the data folder.
+- **Times** are IST (Asia/Kolkata), 24-hour `HH:MM`, unless a setting says this computer's clock. **Money** is in rupees. Names that end in `Ms` are milliseconds, `Sec` or `S` seconds, `Mb` megabytes.
+
+### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `MCB_CONFIG` | The config file to read |
+| `MCB_HOME` | The per-user Bridge folder (config file and data) |
+| `MCB_HOST`, `MCB_PORT` | Override `server.host` and `server.port` |
+| `MCB_DATA_DIR` | Overrides `dataDir` |
+| `MCB_LOG_LEVEL` | Overrides `logging.level` |
+| `MCB_PAPER_ONLY=1` | Forces `safety.liveTrading` off |
+| `MCB_KILL_SWITCH=1` | Starts with the kill switch on (same as `safety.killSwitchOnStart`) |
+| `MCB_DEMO=1` | Demo mode (same as `demo`) |
+| `MCB_MASTER_KEY`, `MCB_MASTER_KEY_FILE` | The master key itself, or the file that holds it. These take precedence over `masterKeyFile` |
+| `MCB_API_KEY`, `MCB_ADMIN_KEY`, `MCB_BRIDGE_URL` | Not settings of the Bridge: what the command line and the SDKs use to reach a running Bridge ([cli.md](cli.md)) |
+
+### Settings that no longer exist
+
+A file that still holds one of these stops the start with a message that lists them (`Your config file has settings that v2 no longer has. Delete them and start again`):
+
+- `alerts`: position alerts are not part of v2
+- `triggers`: GTT, trailing stops and position stops are not part of v2
+- `watchlists`: watchlists are not part of v2
+- `journal`: the trade journal is not part of v2
+- `strategies`: the Bridge does not run strategies in v2 (run a script yourself with the Python SDK)
+- `scanner`: the scanner is not part of v2
+- `analytics`: analytics are not part of v2
+- `studies`: studies are not part of v2
+- `vol`: volatility data is not part of v2
+- `reference`: the reference-data store is not part of v2
+- `participants`: participant open interest is not part of v2
+- `stream.candles`: live candles are not served by the stream
+- `mcp.toolsets` with `"options"`: there are no options tools
+
+## Sections
+
+- [`general`](#general): `dataDir`, `masterKeyFile`, `demo`
+- [`server`](#server)
+- [`cors`](#cors)
+- [`logging`](#logging)
+- [`accounts`](#accounts)
+- [`safety`](#safety)
+- [`morningLogin`](#morninglogin)
+- [`ratelimit`](#ratelimit)
+- [`symbols`](#symbols)
+- [`market`](#market)
+- [`stream`](#stream)
+- [`orders`](#orders)
+- [`paper`](#paper)
+- [`readiness`](#readiness)
+- [`integrations`](#integrations)
+- [`hooks`](#hooks)
+- [`mcp`](#mcp)
+- [`compat`](#compat)
+- [`sources`](#sources)
+- [`backup`](#backup)
+- [`notify`](#notify)
+- [`library`](#library)
+- [`events`](#events)
+- [`downloads`](#downloads)
+- [`recorder`](#recorder)
+- [`storage`](#storage)
+
+## general
+
+Keys that sit at the top of the file, outside any section: where data is kept, where the master key is, and demo mode.
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `dataDir` | text | `"./data"` | The folder for keys, accounts, paper books, orders, audit log, downloads, recordings and backups. A relative path is read from the folder of the config file. MCB_DATA_DIR overrides it. Without a config file the Bridge uses a folder in your user area. |
+| `masterKeyFile` | text; at least 1 character | not set | The file holding the master key that encrypts saved broker logins. A relative path is read from the folder of the config file. MCB_MASTER_KEY or MCB_MASTER_KEY_FILE in the environment take precedence. Without it the key is data/master.key. Keep it outside the data folder, so a backup of the data folder never carries the key. |
+| `demo` | true or false | `false` | Run with sample prices and no real broker. Live trading is off. The same as starting with --demo or MCB_DEMO=1. |
+
+## server
+
+Where the Bridge listens and who may talk to it. The defaults keep it on this computer only. More: [vps.md](vps.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `server.host` | text | `"127.0.0.1"` | The address the Bridge listens on. 127.0.0.1 means this computer only. Anything else needs allowNonLoopback. |
+| `server.port` | whole number, 0 to 65535 | `4300` | The port of the main listener (API and dashboard). 0 lets the system pick a free one. The environment variable MCB_PORT overrides it. |
+| `server.allowNonLoopback` | true or false | `false` | Must be true before the Bridge will listen on anything but this computer. Every route still needs an API key. |
+| `server.remoteDashboard` | true or false | `false` | Serve the dashboard pages to other computers. Only allowed in demo mode (a public demo); the Bridge refuses to start with this on and real accounts. |
+| `server.localPeers` | list of text; at most 8 items | `[]` | Addresses (IPv4 or IPv4/CIDR) that count as this computer for routes that must come from this computer, besides loopback. Only for Docker, where your browser arrives from the container network's gateway. Leave empty otherwise. |
+| `server.allowedHosts` | list of text | `[]` | Extra Host header names the Bridge accepts. Loopback names are always accepted. This is the guard against a web page pointing its own name at 127.0.0.1. |
+| `server.bodyLimitBytes` | whole number, above 0, up to 1048576 | `65536` | The largest request body the Bridge accepts, in bytes. A bigger body is refused. |
+| `server.publicIngress.enabled` | true or false | `false` | Turn on a second listener that serves only the alert routes (hooks), for a tunnel or proxy that receives TradingView alerts. Off by default. |
+| `server.publicIngress.host` | text | `"127.0.0.1"` | The address of the alert listener. Keep it on 127.0.0.1 and point your tunnel at it. |
+| `server.publicIngress.port` | whole number, 0 to 65535 | `4301` | The port of the alert listener. It must differ from the other listeners. |
+| `server.publicIngress.allowedHosts` | list of text | `[]` | Host names the alert listener accepts (your public host name). |
+| `server.sheetsIngress.enabled` | true or false | `false` | Turn on a third listener that serves only GET /xl/* for read-only keys, for Google Sheets through a tunnel. Off by default. |
+| `server.sheetsIngress.host` | text | `"127.0.0.1"` | The address of the Sheets listener. Keep it on 127.0.0.1 and point your tunnel at it. |
+| `server.sheetsIngress.port` | whole number, 0 to 65535 | `4302` | The port of the Sheets listener. It must differ from the other listeners. |
+| `server.sheetsIngress.allowedHosts` | list of text | `[]` | Host names the Sheets listener accepts (your public host name). |
+| `server.sheetsIngress.requestsPerMinute` | whole number, 10 to 6000 | `600` | Requests per minute the Sheets listener accepts from one caller address. Behind a local tunnel every caller shares one address, so this caps them together. |
+
+## cors
+
+Which web pages in a browser may call the Bridge. More: [safety.md](safety.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `cors.allowedOrigins` | list of text | `[]` | Web page origins (scheme://host[:port], no path) that a browser may call the Bridge from. Empty means none. Scripts, Excel, AmiBroker and the dashboard need none. No wildcard is allowed. |
+
+## logging
+
+What the Bridge writes to its log. More: [operations.md](operations.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `logging.level` | one of `debug`, `info`, `warn`, `error`, `silent` | `"info"` | How much the Bridge says: debug, info, warn, error or silent. MCB_LOG_LEVEL overrides it. |
+| `logging.requests` | one of `all`, `errors`, `off` | `"errors"` | Which requests get an access line: errors (status 400 and above, and anything slower than one second), all, or off. |
+| `logging.file` | true or false | not set | Also write logs/bridge.log in the data folder, rotated. When not set it is on for mc-bridge start and off in Docker (use docker logs). |
+| `logging.maxFileMb` | whole number, 1 to 1024 | `10` | The size at which the log file is rotated, in megabytes. |
+| `logging.keepFiles` | whole number, 1 to 50 | `5` | How many rotated log files are kept. |
+
+## accounts
+
+Your broker accounts and the paper account. One entry per account. More: [accounts.md](accounts.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `accounts` | list of settings groups | `[]` | The list of accounts. Each entry has the settings below. Logins never go in this file; they are saved encrypted when you log in. |
+| `accounts[].id` | text; a fixed pattern | required | Your name for the account: 2 to 32 lowercase letters, digits or hyphens. Used as account= in queries and "account" in orders. |
+| `accounts[].broker` | text; a fixed pattern | required | The broker adapter id (dhan, zerodha, upstox and the others in BROKERS.md), or paper for a practice account. |
+| `accounts[].label` | text; at most 60 characters | not set | A name to show on the dashboard and in answers. |
+| `accounts[].holder` | text; at least 1 character, at most 64 characters, a fixed pattern | not set | Whose account this is: any stable label such as self or spouse, never a PAN. Reads are spread over accounts only when they have the same holder. |
+| `accounts[].enabled` | true or false | `true` | false keeps the account in the file but out of use. |
+| `accounts[].live.enabled` | true or false | `false` | Allow live orders on this account. Needs safety.liveTrading too. A paper account can never have it on. |
+| `accounts[].live.allowedSources` | list of choices (`rest`, `webhook`, `mcp`, `cli`, `guard`, `alert`) | `["rest"]` | Which request sources may send live orders on this account: rest, webhook, mcp, cli, guard, alert. Listing mcp still needs a person to confirm each order. |
+| `accounts[].live.registeredIp` | text; at most 64 characters | not set | The static IP address you registered with your broker for orders. Used by the readiness check. |
+| `accounts[].live.backupIp` | text; at most 64 characters | not set | A second registered address, for brokers that allow a primary and a backup. The readiness check accepts either. |
+| `accounts[].marketData.pooling` | true or false | `false` | Let this account's request budget serve reads that did not name an account. Off by default; it also needs your consent in the dashboard. |
+| `accounts[].marketData.poolingWhenTermsUnknown` | true or false | `false` | Also pool when the broker's terms on spreading reads over your accounts are not confirmed (true for every broker today). Your own decision, made in this file only. |
+| `accounts[].limits.dailyMaxOrders` | whole number, above 0 | not set | A stricter daily order count for this account than the global one. |
+| `accounts[].limits.dailyMaxLoss` | number, at least 0 | not set | A stricter daily loss limit (rupees) for this account than the global one. |
+| `accounts[].limits.maxOrderValue` | number, at least 0 | not set | A stricter order value limit (rupees) for this account than the global one. |
+| `accounts[].limits.maxLotsPerOrder` | whole number, above 0 | not set | A stricter lots-per-order limit for this account than the global one. |
+| `accounts[].limits.orderRatePerSecond` | number, above 0, up to 10 | not set | A stricter order rate (orders per second) for this account. The lower of this and the global value applies. |
+
+## safety
+
+The limits every order passes, paper and live. The Bridge applies the stricter of these and an account's own limits. More: [safety.md](safety.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `safety.liveTrading` | true or false | `false` | The master switch for live orders. Off by default. The environment can never turn it on; MCB_PAPER_ONLY=1 forces it off. |
+| `safety.orderRatePerSecond` | number, above 0, up to 10 | `5` | Orders per second per account (place, modify and cancel all count). It cannot be set above 10. |
+| `safety.dailyMaxOrders` | whole number, above 0 | `100` | Orders per account per IST day. An order that passes its checks reserves its place at once. |
+| `safety.dailyMaxLoss` | number, at least 0 | `10000` | The daily loss per account, in rupees, after which new orders are refused. Paper uses realised paper P&L; live uses the broker's day P&L. |
+| `safety.maxOrderValue` | number, at least 0 | `200000` | The largest value of one order, in rupees. A modify is checked on the order as it would stand after the change. |
+| `safety.maxLotsPerOrder` | whole number, above 0 | `10` | The most lots in one order. |
+| `safety.priceBandPct` | number, above 0, up to 20 | `3` | Limit and trigger prices must be within this percentage of the last price. |
+| `safety.marketOrders` | one of `protect`, `reject` | `"protect"` | protect sends a market order as a limit at the last price plus or minus marketProtectionPct (or uses the broker's own protection). reject refuses market orders. |
+| `safety.marketProtectionPct` | number, above 0, up to 10 | `2` | The percentage around the last price used to protect a market order. |
+| `safety.killSwitchOnStart` | true or false | `false` | Start with the kill switch already on (no new orders until you release it). MCB_KILL_SWITCH=1 does the same. |
+
+## morningLogin
+
+The reminder to log in to your brokers on trading mornings. More: [accounts.md](accounts.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `morningLogin.enabled` | true or false | `true` | Send the login reminders. |
+| `morningLogin.remindAt` | text; a fixed pattern | `"08:45"` | The IST time on trading days when the account.login_needed event is emitted for each account that needs a login. The Telegram message has its own time, notify.morning.at. |
+| `morningLogin.warnBeforeEndMinutes` | whole number, 0 to 240 | `30` | Remind again this many minutes before a session that ends before the close. 0 turns the second reminder off. |
+
+## ratelimit
+
+How the Bridge stays inside each broker's request limits and shares them between your tools. These settings can only lower a broker's documented limits, never raise them. More: [rate-limits.md](rate-limits.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `ratelimit.client.perSecond` | number, 0.01 to 10000 | `50` | Requests per second each API key may make to the Bridge. |
+| `ratelimit.client.burst` | whole number, above 0, up to 100000 | not set | The size of a short burst a key may make. When not set it equals perSecond. |
+| `ratelimit.client.perDay` | number, 1 to 100000000 | not set | Requests per IST day each key may make. When not set there is no daily cap. |
+| `ratelimit.client.maxConcurrent` | whole number, 1 to 10000 | not set | Requests one key may have in flight at once. Beyond it the Bridge answers 429. |
+| `ratelimit.client.kindWeights.ui` | number, 1 to 16 | not set | Share of a busy broker queue for keys made for the "ui" kind of client (1 to 16). Defaults when not set: ui 4, mcp 2, excel 1, script 1, other 1. |
+| `ratelimit.client.kindWeights.mcp` | number, 1 to 16 | not set | Share of a busy broker queue for keys made for the "mcp" kind of client (1 to 16). Defaults when not set: ui 4, mcp 2, excel 1, script 1, other 1. |
+| `ratelimit.client.kindWeights.excel` | number, 1 to 16 | not set | Share of a busy broker queue for keys made for the "excel" kind of client (1 to 16). Defaults when not set: ui 4, mcp 2, excel 1, script 1, other 1. |
+| `ratelimit.client.kindWeights.script` | number, 1 to 16 | not set | Share of a busy broker queue for keys made for the "script" kind of client (1 to 16). Defaults when not set: ui 4, mcp 2, excel 1, script 1, other 1. |
+| `ratelimit.client.kindWeights.other` | number, 1 to 16 | not set | Share of a busy broker queue for keys made for the "other" kind of client (1 to 16). Defaults when not set: ui 4, mcp 2, excel 1, script 1, other 1. |
+| `ratelimit.client.keys` | map of settings, by name | `{}` | Budgets for single keys, by the key's 10-character id (the part in mcb_<id>_...). |
+| `ratelimit.client.keys.<name>.perSecond` | number, 0.01 to 10000 | not set | Requests per second for this key. |
+| `ratelimit.client.keys.<name>.burst` | whole number, 1 to 100000 | not set | Burst size for this key. |
+| `ratelimit.client.keys.<name>.perDay` | number, 1 to 100000000 | not set | Requests per IST day for this key. |
+| `ratelimit.client.keys.<name>.weight` | number, 1 to 16 | not set | This key's share of a busy broker queue (1 to 16). |
+| `ratelimit.brokers` | map of settings, by name | `{}` | Lower limits for every account of one broker, by broker id. A value above the documented limit is a config error, so a typo cannot quietly do nothing. |
+| `ratelimit.brokers.<name>.limits` | map of settings, by name | not set | Lower this broker's limits per kind of request. The name is order, quote, depth, history, chain, portfolio, master or other. |
+| `ratelimit.brokers.<name>.limits.<name>.perSecond` | number, above 0, up to 1000 | not set | Requests per second for this kind of request. |
+| `ratelimit.brokers.<name>.limits.<name>.perMinute` | number, above 0, up to 60000 | not set | Requests per minute for this kind of request. |
+| `ratelimit.brokers.<name>.limits.<name>.perDay` | number, above 0, up to 10000000 | not set | Requests per day for this kind of request. |
+| `ratelimit.brokers.<name>.limits.<name>.extraWindows` | list of settings groups; at most 4 items | not set | Extra windows other than second, minute and day (up to 4), for example an hourly cap. |
+| `ratelimit.brokers.<name>.limits.<name>.extraWindows[].windowMs` | whole number, 1000 to 86400000 | required | Length of the extra window in milliseconds. |
+| `ratelimit.brokers.<name>.limits.<name>.extraWindows[].limit` | number, above 0 | required | Requests allowed in the extra window. |
+| `ratelimit.brokers.<name>.groups` | map of settings, by name | not set | Lower limits for a named group of request kinds that share one budget at the broker, as that broker's documentation counts them. |
+| `ratelimit.brokers.<name>.groups.<name>.perSecond` | number, above 0, up to 1000 | not set | Requests per second for this kind of request. |
+| `ratelimit.brokers.<name>.groups.<name>.perMinute` | number, above 0, up to 60000 | not set | Requests per minute for this kind of request. |
+| `ratelimit.brokers.<name>.groups.<name>.perDay` | number, above 0, up to 10000000 | not set | Requests per day for this kind of request. |
+| `ratelimit.brokers.<name>.groups.<name>.extraWindows` | list of settings groups; at most 4 items | not set | Extra windows other than second, minute and day (up to 4), for example an hourly cap. |
+| `ratelimit.brokers.<name>.groups.<name>.extraWindows[].windowMs` | whole number, 1000 to 86400000 | required | Length of the extra window in milliseconds. |
+| `ratelimit.brokers.<name>.groups.<name>.extraWindows[].limit` | number, above 0 | required | Requests allowed in the extra window. |
+| `ratelimit.brokers.<name>.maxQuoteBatch` | whole number, above 0, up to 10000 | not set | How many instruments one request to this broker carries for prices. It can only be lowered. |
+| `ratelimit.brokers.<name>.tier` | text; a fixed pattern | not set | The broker plan your limits come from, for brokers with documented plans. Pick a higher plan only if you have it. Unknown names are refused for a broker entry. |
+| `ratelimit.accounts` | map of settings, by name | `{}` | Lower limits for one account, by account id. A value above the broker's limit is clamped at run time. |
+| `ratelimit.accounts.<name>.limits` | map of settings, by name | not set | Lower this account's limits per kind of request. The name is order, quote, depth, history, chain, portfolio, master or other. |
+| `ratelimit.accounts.<name>.limits.<name>.perSecond` | number, above 0, up to 1000 | not set | Requests per second for this kind of request. |
+| `ratelimit.accounts.<name>.limits.<name>.perMinute` | number, above 0, up to 60000 | not set | Requests per minute for this kind of request. |
+| `ratelimit.accounts.<name>.limits.<name>.perDay` | number, above 0, up to 10000000 | not set | Requests per day for this kind of request. |
+| `ratelimit.accounts.<name>.limits.<name>.extraWindows` | list of settings groups; at most 4 items | not set | Extra windows other than second, minute and day (up to 4), for example an hourly cap. |
+| `ratelimit.accounts.<name>.limits.<name>.extraWindows[].windowMs` | whole number, 1000 to 86400000 | required | Length of the extra window in milliseconds. |
+| `ratelimit.accounts.<name>.limits.<name>.extraWindows[].limit` | number, above 0 | required | Requests allowed in the extra window. |
+| `ratelimit.accounts.<name>.groups` | map of settings, by name | not set | Lower limits for a named group of request kinds that share one budget at the account, as that broker's documentation counts them. |
+| `ratelimit.accounts.<name>.groups.<name>.perSecond` | number, above 0, up to 1000 | not set | Requests per second for this kind of request. |
+| `ratelimit.accounts.<name>.groups.<name>.perMinute` | number, above 0, up to 60000 | not set | Requests per minute for this kind of request. |
+| `ratelimit.accounts.<name>.groups.<name>.perDay` | number, above 0, up to 10000000 | not set | Requests per day for this kind of request. |
+| `ratelimit.accounts.<name>.groups.<name>.extraWindows` | list of settings groups; at most 4 items | not set | Extra windows other than second, minute and day (up to 4), for example an hourly cap. |
+| `ratelimit.accounts.<name>.groups.<name>.extraWindows[].windowMs` | whole number, 1000 to 86400000 | required | Length of the extra window in milliseconds. |
+| `ratelimit.accounts.<name>.groups.<name>.extraWindows[].limit` | number, above 0 | required | Requests allowed in the extra window. |
+| `ratelimit.accounts.<name>.maxQuoteBatch` | whole number, above 0, up to 10000 | not set | How many instruments one request to this account's broker carries for prices. It can only be lowered. |
+| `ratelimit.accounts.<name>.tier` | text; a fixed pattern | not set | The broker plan your limits come from, for brokers with documented plans. Pick a higher plan only if you have it. Unknown names are refused for a broker entry. |
+| `ratelimit.queue.maxQueuedPerAccount` | whole number, above 0, up to 100000 | `5000` | Requests waiting for one account's budget, all kinds together. More are refused with UPSTREAM_RATE_LIMITED. |
+| `ratelimit.queue.maxQueuedPerConsumer` | whole number, above 0, up to 100000 | not set | Requests one key may have waiting per account. When not set it is 200. Beyond it that key is refused. |
+| `ratelimit.queue.ageingMs` | whole number, above 0, up to 600000 | `2000` | Every this many milliseconds a waiting request that is not an order moves up one priority level (never above live). |
+| `ratelimit.queue.maxWaitMs.order` | whole number, 0 to 3600000 | `5000` | How long an order may wait for budget before it is refused, in milliseconds. |
+| `ratelimit.queue.maxWaitMs.live` | whole number, 0 to 3600000 | `15000` | How long a request at the live priority may wait for budget before it is refused, in milliseconds. |
+| `ratelimit.queue.maxWaitMs.interactive` | whole number, 0 to 3600000 | `10000` | How long a request at the interactive priority may wait for budget before it is refused, in milliseconds. |
+| `ratelimit.queue.maxWaitMs.background` | whole number, 0 to 3600000 | `300000` | How long a request at the background priority (downloads, recordings, prefetches) may wait for budget before it is refused, in milliseconds. |
+| `ratelimit.maxInFlightPerAccount` | whole number, above 0, up to 64 | `8` | Broker calls other than orders running at once per account. Orders are never held back by this. |
+| `ratelimit.maxInFlightPerConsumer` | whole number, above 0, up to 64 | not set | Broker calls one key may hold at once while others wait. When not set it is half of maxInFlightPerAccount. |
+| `ratelimit.windowPaddingMs` | whole number, 0 to 1000 | `100` | Extra width added to every sliding window to absorb network delay, in milliseconds. |
+| `ratelimit.backoff.initialMs` | whole number, 100 to 60000 | `1000` | The first wait after a broker asks the Bridge to slow down, in milliseconds. It grows from here. |
+| `ratelimit.backoff.maxMs` | whole number, 1000 to 3600000 | `60000` | The longest wait after repeated slow-down requests, in milliseconds. |
+
+## symbols
+
+How the instrument list (every share, future and option) is loaded and kept. More: [symbols.md](symbols.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `symbols.refreshAfterIst` | text; a fixed pattern | `"08:30"` | An instrument list fetched before this IST time is fetched again once the time has passed, so each trading day starts with the day's list. |
+| `symbols.diskCache` | true or false | `true` | Keep today's instrument list in the data folder so a restart costs no download. |
+| `symbols.failureBackoffMs` | whole number, 1000 to 3600000 | `60000` | After a failed download of an instrument list, wait this long before trying that broker again, in milliseconds. |
+| `symbols.warmOnStart` | true or false | `true` | Load the connected brokers' instrument lists in the background when the Bridge starts. |
+
+## market
+
+How fresh a price must be, how long ranges of history are fetched, and how option chains are built. More: [rate-limits.md](rate-limits.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `market.freshness.ltpMs` | whole number, 0 to 5000 | `1000` | How old a last price may be before the Bridge fetches a new one, when the caller gives no maxAgeMs (milliseconds). It can be tightened freely and loosened only up to the maximum shown. |
+| `market.freshness.quoteMs` | whole number, 0 to 10000 | `2000` | The same for full quotes (milliseconds). |
+| `market.freshness.depthMs` | whole number, 0 to 5000 | `1000` | The same for market depth (milliseconds). Depth older than 5 seconds is never served whatever you set. |
+| `market.freshness.chainMs` | whole number, 0 to 30000 | `3000` | The same for option chains (milliseconds). |
+| `market.freshness.expiriesMs` | whole number, 0 to 3600000 | `300000` | The same for the list of expiry dates (milliseconds). |
+| `market.freshness.historyMs` | whole number, 0 to 600000 | `60000` | The same for history answers (milliseconds). |
+| `market.stale.enabled` | true or false | `true` | When a broker's budget is used up, serve a cached value labelled stale instead of making the caller wait past its deadline. |
+| `market.stale.maxStaleMs` | whole number, 0 to 600000 | `60000` | The oldest cached value that may be served as stale, in milliseconds. Depth is capped at 5 seconds whatever this says. |
+| `market.stale.waitMs` | whole number, 0 to 10000 | `250` | How long a read that has a stale fallback waits for budget before falling back, in milliseconds. |
+| `market.batch.windowMs` | whole number, 0 to 200 | `25` | Price requests that arrive within this many milliseconds are merged into one broker call per account. |
+| `market.batch.maxSymbols` | whole number, 1 to 5000 | `1000` | A merged batch is sent early when it reaches this many symbols. |
+| `market.streamFirst` | true or false | `true` | Answer last prices and quotes from a live stream subscription when there is one, so they cost no broker request. |
+| `market.quietLegMaxAgeMs` | whole number, 0 to 600000 | `60000` | For chains built from the stream: a leg that has not ticked within the chain freshness target is still used up to this age, when its subscription is live on a feed that is ticking now (milliseconds). 0 requires every leg to have ticked recently. |
+| `market.history.maxChunks` | whole number, 1 to 200 | `40` | The most broker calls one history request may make. A longer range returns the newest part with partial: true. |
+| `market.history.maxSpanDays.intraday` | whole number, 1 to 365 | `60` | Days of intraday bars asked from the broker in one call. |
+| `market.history.maxSpanDays.daily` | whole number, 1 to 7300 | `2000` | Days of daily bars asked from the broker in one call. |
+| `market.history.brokers` | map of settings, by name | `{}` | Different spans per broker, by broker id. Use only figures from the broker's own documentation. |
+| `market.history.brokers.<name>.intraday` | whole number, 1 to 365 | not set | Days of intraday bars per call for this broker. |
+| `market.history.brokers.<name>.daily` | whole number, 1 to 7300 | not set | Days of daily bars per call for this broker. |
+| `market.history.localFirst` | true or false | `false` | Answer GET /v1/history from datasets stored on this computer when they cover the range, and ask the broker only for the rest. ?dataset=<name> always reads from that dataset. |
+| `market.chain.source` | one of `auto`, `broker`, `built` | `"auto"` | auto uses the broker's own chain where the account offers one and otherwise builds it from the instrument list plus quotes. broker or built forces one way. |
+| `market.chain.riskFreeRate` | number, 0 to 0.25 | not set | The yearly interest rate (as a decimal, 0.07 is 7 percent) used for computed Greeks. When not set the Bridge uses its built-in rate. |
+| `market.chain.ivModelDefault` | one of `legacy-bs-spot`, `b76-forward` | `"legacy-bs-spot"` | The implied-volatility model used when a request names none. legacy-bs-spot until 1 May 2027, then b76-forward; set b76-forward to switch early. See API-DEPRECATIONS.md. |
+| `market.chain.maxBuiltLegs` | whole number, 2 to 2000 | `400` | The most option instruments a chain built by the Bridge will price. |
+| `market.cache.maxEntries` | whole number, 100 to 1000000 | `20000` | How many answers the in-memory cache keeps. |
+
+## stream
+
+The live price stream over WebSocket and server-sent events. More: [streaming.md](streaming.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `stream.heartbeatMs` | whole number, 1000 to 120000 | `15000` | How often a heartbeat goes to every stream client, in milliseconds. |
+| `stream.maxClients` | whole number, 1 to 1000 | `50` | Open stream connections (WebSocket and server-sent events), all keys together. |
+| `stream.maxClientsPerKey` | whole number, 1 to 1000 | `10` | Open stream connections for one API key. |
+| `stream.maxSymbolsPerClient` | whole number, 1 to 10000 | `500` | Symbols one connection may subscribe to. Beyond it the Bridge answers SUBSCRIPTION_LIMIT. |
+| `stream.maxSymbolsPerRequest` | whole number, 1 to 1000 | `200` | Symbols in one subscribe message or one server-sent-events address. |
+| `stream.maxSubscriptionsPerUpstream` | whole number, above 0; or `null` | `null` | An extra cap on subscriptions per broker feed. When not set the broker's documented limit applies. |
+| `stream.staleAfterMs` | whole number, 5000 to 3600000 | `60000` | A connected feed with no tick for this long is reported as stale, in milliseconds. |
+| `stream.staleRebuildAfterMs` | whole number, 0 to 3600000 | `180000` | During market hours a feed silent this long is treated as a dead connection and rebuilt, in milliseconds. 0 means never. The wait doubles after each silent rebuild, up to 16 times. |
+| `stream.connectTimeoutMs` | whole number, 1000 to 600000 | `45000` | A feed that has not reported connected this long after it was built is rebuilt, in milliseconds. |
+| `stream.upstreamIdleMs` | whole number, 0 to 3600000 | `60000` | Close a broker feed this long after its last subscription went away, in milliseconds. |
+| `stream.unsubscribeLingerMs` | whole number, 0 to 600000 | `0` | Keep a symbol subscribed at the broker this long after the last client left, in milliseconds. |
+| `stream.adapterGraceMs` | whole number, 0 to 600000 | `35000` | Let the broker adapter reconnect by itself for this long before the Bridge rebuilds the feed, in milliseconds. |
+| `stream.backoff.initialMs` | whole number, 100 to 60000 | `1000` | The first wait before reconnecting a broker feed, in milliseconds. It grows from here. |
+| `stream.backoff.maxMs` | whole number, 1000 to 600000 | `30000` | The longest wait between reconnect attempts, in milliseconds. |
+| `stream.maxQueuedMessages` | whole number, 16 to 100000 | `256` | Messages other than ticks waiting for one slow client before that client is dropped. |
+| `stream.highWaterMarkBytes` | whole number, 16384 to 67108864 | `1048576` | Stop writing to a client while this many bytes are still unsent to it. |
+| `stream.maxOpsPerSecond` | whole number, 1 to 1000 | `20` | Messages per second a client may send to the Bridge on one connection. |
+
+## orders
+
+How orders wait for confirmation, how an unknown result is looked up again, and how long order records are kept. Nothing here can switch live trading on. More: [orders.md](orders.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `orders.ticketTtlMs` | whole number, 10000 to 300000 | `60000` | How long a ticket waits for a person to confirm it, in milliseconds. |
+| `orders.confirmTokenTtlMs` | whole number, 10000 to 300000 | `60000` | How long a confirmed ticket's single-use token may be used, in milliseconds. |
+| `orders.confirmPaperFromMcp` | true or false | `true` | Orders prepared by an AI assistant need a person's confirmation even when they are paper orders. |
+| `orders.liveCallTimeoutMs` | whole number, 1000 to 60000 | `15000` | A live order call to the broker that takes longer than this becomes OUTCOME_UNKNOWN, in milliseconds. The Bridge never sends it again by itself. |
+| `orders.reconcileIntervalMs` | whole number, 500 to 60000 | `3000` | How often orders with an unknown outcome are looked up in the broker's order book, in milliseconds. |
+| `orders.reconcileGiveUpMs` | whole number, 10000 to 86400000 | `600000` | Stop looking after this long, in milliseconds. The order then stays outcome_unknown: check your broker's own order book. |
+| `orders.sliceAboveFreeze` | true or false | `false` | Split an order above the exchange's freeze quantity into several orders. When false it is refused instead. |
+| `orders.maxSlices` | whole number, 1 to 40 | `10` | The most orders one sliced order may be split into. |
+| `orders.orderRetentionDays` | whole number, 1 to 90 | `7` | Days that live order records are kept on disk. |
+| `orders.maxOrderLookups` | whole number, 100 to 20000 | `2000` | Paper orders read per account for one listing. |
+
+## paper
+
+The paper-trading engine: starting money, fills, square-off, margin and charges. More: [paper-margin.md](paper-margin.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `paper.startingCapital` | number, 10000 to 1000000000 | `1000000` | Rupees in a new or reset paper account. Demo mode starts with 25 lakh when this is left at its default. |
+| `paper.slippageBps` | number, 0 to 500 | `5` | Market orders that fill without depth fill at the last price plus or minus this many basis points (1 basis point is 0.01 percent). |
+| `paper.useDepth` | true or false | `true` | Fill a market order at the best opposite price when market depth is available. |
+| `paper.pollIntervalMs` | whole number, 250 to 60000 | `2000` | Pending paper orders are priced again at least this often even without new ticks, in milliseconds. |
+| `paper.squareOff.enabled` | true or false | `true` | Close open intraday paper positions automatically at the square-off time. |
+| `paper.squareOff.time` | text; a fixed pattern | `"15:20"` | The IST time of the intraday square-off. |
+| `paper.squareOff.times` | map of name to text | `{}` | Different square-off times per exchange (NSE, BSE, NFO, BFO, MCX, CDS), as HH:MM. Built-in times for MCX and CDS apply under these. |
+| `paper.sessionEnd.time` | text; a fixed pattern, or `null` | `null` | Pending DAY orders expire at this IST time. When not set the exchange's session close from the reference data is used. |
+| `paper.sessionEnd.times` | map of name to text | `{}` | Different expiry times per exchange, as HH:MM. |
+| `paper.margin.model` | one of `portfolio`, `simple` | `"portfolio"` | portfolio margins F&O legs together per underlying with an approximate scan, so hedges count. simple margins every leg by itself with the percentages below. Equity always uses the percentages. |
+| `paper.margin.intradayEquityPct` | number, 0 to 100 | `20` | Percentage of order value blocked for intraday equity. |
+| `paper.margin.futuresPct` | number, 0 to 100 | `15` | Percentage of contract value blocked for futures, in the simple model or when no underlying price is known. |
+| `paper.margin.optionSellPct` | number, 0 to 100 | `15` | Percentage of strike times quantity blocked for option writing, in the simple model or when no underlying price is known. Option buys block the premium. |
+| `paper.brokerage.perOrder` | number, 0 to 1000 | `0` | A flat charge in rupees per filled paper order. |
+| `paper.brokerage.pct` | number, 0 to 5 | `0` | A percentage of turnover charged per filled paper order. |
+| `paper.brokerage.maxPerOrder` | number, at least 0; or `null` | `null` | A cap in rupees on the charge per filled order. null means no cap. |
+| `paper.historyLimit` | whole number, 50 to 100000 | `1000` | Finished orders and trades kept per paper account. Pending orders are always kept. |
+
+## readiness
+
+The trading-readiness check of live accounts: session, registered address, headroom and the kill switch. More: [deployment.md](deployment.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `readiness.enabled` | true or false | `true` | Run the trading-readiness checks. |
+| `readiness.intervalMinutes` | whole number, 1 to 15 | `4` | Minutes between continuous checks inside the window on trading days. |
+| `readiness.window.from` | text; a fixed pattern | `"08:45"` | IST time the continuous checks start. It must be before the end time. |
+| `readiness.window.to` | text; a fixed pattern | `"15:45"` | IST time the continuous checks stop. |
+| `readiness.preOpenAt` | text; a fixed pattern | `"09:00"` | IST time of the pre-open check of every live account. It must lie inside the window. |
+| `readiness.probe.enabled` | true or false | `true` | Make one cheap read call to each live account's broker to prove the session works. |
+| `readiness.probe.timeoutMs` | whole number, 1000 to 30000 | `10000` | How long that read may take before it counts as failed, in milliseconds. |
+| `readiness.probe.cooldownSeconds` | whole number, 30 to 3600 | `30` | The least time between two probes of one account, in seconds. |
+| `readiness.probe.endpointClass` | one of `portfolio`, `other`, `quote` | `"portfolio"` | Which kind of read the probe uses: portfolio, other or quote. |
+| `readiness.egressIp.mode` | one of `off`, `lookup`, `manual` | `"off"` | off makes no outside call. lookup asks the service at lookupUrl for this computer's public address and compares it with the registered one. manual records the address you state in manualIp and can never notice a change. |
+| `readiness.egressIp.lookupUrl` | text; at most 500 characters, or `null` | `null` | The https address of an IPv4-only address-echo service you choose. That service sees your IP every time. Needed when mode is lookup. |
+| `readiness.egressIp.manualIp` | text; at most 64 characters, or `null` | `null` | The address you state this computer uses. Needed when mode is manual. |
+| `readiness.egressIp.timeoutMs` | whole number, 500 to 15000 | `5000` | How long the lookup may take, in milliseconds. |
+| `readiness.egressIp.maxSkewMs` | whole number, 500 to 600000 | `5000` | The clock difference, in milliseconds, above which the readiness card warns that this computer's clock is off. |
+| `readiness.gateAutomated` | true or false | `true` | Refuse automated live orders (alerts) with CANNOT_TRADE while their account cannot trade. false turns the refusal into a warning. |
+| `readiness.staleAfterMinutes` | whole number, 2 to 240 | `10` | A reading older than this is shown as not checked recently. |
+| `readiness.warn.sessionExpiresWithinMinutes` | whole number, 0 to 720 | `60` | Warn when a broker session ends within this many minutes. |
+| `readiness.warn.dailyOrdersLeftPct` | number, 0 to 100 | `10` | Warn when this percentage or less of the daily order count is left. |
+| `readiness.warn.dailyLossLeftPct` | number, 0 to 100 | `20` | Warn when this percentage or less of the daily loss limit is left. |
+| `readiness.notify.cooldownMinutes` | whole number, 1 to 1440 | `15` | The least time between two notifications about the same problem. |
+| `readiness.notify.onRecovery` | true or false | `true` | Notify when an account that could not trade is ready again. |
+| `readiness.notify.preopenOnlyIfFailing` | true or false | `true` | Send the pre-open notification only when something is failing. |
+
+## integrations
+
+Defaults for the spreadsheet routes under /xl (Excel, Google Sheets, AmiBroker). More: [excel-sheets.md](excel-sheets.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `integrations.xl.chainFormat` | one of `csv`, `json` | `"csv"` | The format of /xl/chain answers: csv or json. |
+| `integrations.xl.historyLayout` | one of `standard`, `amibroker` | `"standard"` | The column layout of /xl/history: standard or amibroker. |
+| `integrations.xl.defaultCountback` | whole number, 1 to 5000 | `500` | Bars /xl/history returns when the request gives neither a from date nor a countback. |
+| `integrations.xl.maxSymbols` | whole number, 1 to 200 | `100` | The most symbols one /xl/quotes or /xl/instrument request may list. |
+| `integrations.xl.cacheSeconds` | whole number, 1 to 60 | `5` | The max-age sent, in seconds, when a caller opts in with ?cache=1. |
+
+## hooks
+
+Alert hooks (TradingView, ChartInk and others): queue, duplicate checks, allowed addresses and limits. More: [webhooks.md](webhooks.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `hooks.queueSize` | whole number, 1 to 5000 | `200` | Alerts waiting to be processed. A full queue answers 429. |
+| `hooks.concurrency` | whole number, 1 to 16 | `2` | Alerts processed at the same time. Orders are still capped by the safety order rate. |
+| `hooks.dedupeWindowMs` | whole number, 1000 to 86400000 | `120000` | The same alert seen again inside this window is acknowledged as a duplicate, in milliseconds. |
+| `hooks.signatureToleranceS` | whole number, 30 to 300 | `300` | For signed generic hooks: how many seconds the signed timestamp may differ from this computer's clock. |
+| `hooks.maxSignalsPerMinute` | whole number, 1 to 600 | `30` | Alerts per minute per hook that pass every check. More are held for up to rateWaitSec. |
+| `hooks.maxHooks` | whole number, 1 to 1000 | `100` | The most hooks you may create. |
+| `hooks.allowSourceIps` | list of text; at most 100 items | `[]` | A list of addresses or IPv4 blocks added to every hook's own list of allowed senders. |
+| `hooks.clientIpHeader` | one of `cf-connecting-ip`, `x-forwarded-for`, `x-real-ip`; or `null` | `null` | The header that carries the sender's address behind a local tunnel (cf-connecting-ip, x-forwarded-for or x-real-ip). It is trusted only when the connection itself comes from this computer. |
+| `hooks.burstWaitSec` | whole number, 0 to 300 | `30` | An alert that meets the per-account order-rate cap waits up to this many seconds for a free slot, then is reported as rejected. 0 turns waiting off. |
+| `hooks.rateWaitSec` | whole number, 0 to 300 | `60` | An alert over maxSignalsPerMinute is held up to this many seconds and then handled; past it the answer is 429. 0 means always 429. |
+| `hooks.signalsKept` | whole number, 10 to 1000 | `100` | Recent alerts remembered per hook for the alert history. Kept in memory only. |
+| `hooks.presets.tradingview.ips` | list of text; at least 1 item, at most 50 items | required | The addresses TradingView sends alerts from, used when a hook switches on the tradingview address list. Edit it when TradingView changes its list. Needed whenever you give this preset. |
+| `hooks.presets.tradingview.verifiedAt` | text; at most 40 characters, or `null` | `null` | The date you last checked that list. |
+| `hooks.presets.tradingview.source` | text; at most 300 characters, or `null` | `null` | Where you checked it. |
+
+## mcp
+
+The MCP endpoint for AI assistants. Read-only unless you add order tools here. More: [mcp.md](mcp.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `mcp.enabled` | true or false | `true` | Serve the MCP endpoint. false makes POST /mcp answer 404. |
+| `mcp.toolsets` | list of choices (`market`, `analytics`, `account`, `orders`); at most 4 items | `["market","analytics","account"]` | Which groups of tools assistants get: market, analytics, account, orders. Add orders to let assistants prepare orders (a person still confirms each one). |
+| `mcp.orderAccounts` | list of text; at most 50 items | `[]` | The accounts order tools may name. Empty means no order tools at all, even with orders in toolsets. |
+| `mcp.maxItems` | whole number, 10 to 1000 | `200` | The largest page one tool returns. A cursor fetches the rest. |
+
+## compat
+
+The compatibility REST API at /api/v1 for tools that send the key in the request body. More: [compat-api.md](compat-api.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `compat.enabled` | true or false | `true` | Serve /api/v1. |
+| `compat.account` | text; a fixed pattern | not set | The account compatibility calls act on. When not set, the first account the key may use. |
+| `compat.analyzer` | true or false | `true` | Start in analyzer mode, which is the Bridge's paper mode. Leaving it only asks for live orders; the Bridge's own live rules still decide. |
+
+## sources
+
+Optional free data sources and plugins. Their answers are labelled delayed or end-of-day and never feed orders. More: [sources.md](sources.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `sources.autoFallback` | true or false | `false` | Let reads no broker can answer fall back to an enabled free source. The answer is labelled delayed or end-of-day. |
+| `sources.timeoutMs` | whole number, 100 to 15000 | `5000` | How long one call to a source may take, in milliseconds. |
+| `sources.providers` | map of settings, by name | `{}` | Per-source switches by source id. false keeps a source off whatever the dashboard says. A source may read its own other settings here. |
+| `sources.providers.<name>.enabled` | true or false | not set | false keeps this source off. |
+| `sources.pluginUser.uid` | whole number, 1 to 4294967294 | required | Run plugins as this user id, so a plugin cannot signal the Bridge. Needs the Bridge to run as root; when not permitted, plugins are not started. |
+| `sources.pluginUser.gid` | whole number, 1 to 4294967294 | required | The group id to run plugins as. |
+| `sources.plugins` | list of settings groups; at most 20 items | `[]` | Plugins to start. Each entry names a folder, its sha256 and whether you grant it permission to run. |
+| `sources.plugins[].path` | text; at least 1 character, at most 512 characters | required | The plugin folder. |
+| `sources.plugins[].sha256` | text; a fixed pattern | required | The 64-character checksum of the plugin, printed by mc-bridge sources plugins pin. A plugin that does not match does not run. |
+| `sources.plugins[].granted` | true or false | `false` | true says you read the plugin and allow it to run. |
+| `sources.plugins[].config` | map of name to any value | not set | The plugin's own settings. Never put a secret here. |
+
+## backup
+
+Copies of your data folder: before an upgrade, by hand and on a daily schedule. More: [backup.md](backup.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `backup.keep` | whole number, 1 to 100 | `5` | Automatic copies kept per kind (before an upgrade, before a restore). |
+| `backup.maxSizeMb` | whole number, 10 to 10240 | `500` | Settings and state larger than this are not copied automatically. Downloads and recordings are not counted. |
+| `backup.includeData` | true or false | `false` | Also put downloads and recordings into manual and daily backups. Large. Never in the copy before an upgrade or a restore. |
+| `backup.maxDataFiles` | whole number, 1000 to 5000000 | `50000` | More download and recording files than this and a backup with data is refused with a clear message. |
+| `backup.manualKeep` | whole number, 1 to 100 | `5` | Manual backups kept in the data folder. Backups made with --out are never removed. |
+| `backup.schedule.enabled` | true or false | `false` | Make a daily backup. |
+| `backup.schedule.time` | text; a fixed pattern | `"02:30"` | The time of the daily backup on this computer's clock (HH:MM, 24-hour). |
+| `backup.schedule.keep` | whole number, 1 to 365 | `7` | Daily backups kept. |
+| `backup.schedule.includeSecrets` | true or false | `false` | Also copy the saved broker logins file. It is useless without the original master key. |
+
+## notify
+
+Phone messages (Telegram): which events, quiet hours, pacing and retries. The bot token is never stored here. More: [notifications.md](notifications.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `notify.enabled` | true or false | `true` | Send phone messages. |
+| `notify.events` | map of name to true or false | `{}` | Switch single events on or off by name, for example { "order.placed": true }. Unknown names are refused. |
+| `notify.quietHours.enabled` | true or false | `false` | Hold non-critical messages during quiet hours. |
+| `notify.quietHours.start` | text; a fixed pattern | `"22:00"` | IST time quiet hours start. |
+| `notify.quietHours.end` | text; a fixed pattern | `"07:00"` | IST time quiet hours end. |
+| `notify.morning.enabled` | true or false | `true` | Send the morning message about accounts that are not logged in. |
+| `notify.morning.at` | text; a fixed pattern | `"08:45"` | IST time of the morning message. The event for your own programs has its own time, morningLogin.remindAt. |
+| `notify.morning.secondAt` | text; a fixed pattern | `"09:10"` | IST time of the second nudge at the open. |
+| `notify.morning.endOfDay.enabled` | true or false | `false` | Send an end-of-day summary. |
+| `notify.morning.endOfDay.at` | text; a fixed pattern | `"15:45"` | IST time of the end-of-day summary. |
+| `notify.coalesceSeconds` | whole number, 0 to 600 | `20` | Similar messages arriving within this many seconds are combined into one. |
+| `notify.dedupeSeconds` | whole number, 0 to 3600 | `60` | An identical message inside this window is dropped. |
+| `notify.rateLimitAlert.threshold` | whole number, 1 to 10000 | `20` | Send a rate-limit warning after this many refusals inside the window. |
+| `notify.rateLimitAlert.windowMinutes` | whole number, 1 to 120 | `10` | The window, in minutes, for that count. |
+| `notify.pacing.perChatMs` | whole number, 250 to 60000 | `1100` | The least time between two messages to one chat, in milliseconds. |
+| `notify.pacing.perSecond` | whole number, 1 to 30 | `20` | Messages per second for the whole bot. |
+| `notify.pacing.groupPerMinute` | whole number, 1 to 20 | `18` | Messages per minute to one group chat. |
+| `notify.retry.maxAttempts` | whole number, 1 to 20 | `6` | Times a failed message is tried. |
+| `notify.retry.baseMs` | whole number, 100 to 60000 | `2000` | The first wait before a retry, in milliseconds. It grows from here. |
+| `notify.retry.maxMs` | whole number, 1000 to 3600000 | `300000` | The longest wait between retries, in milliseconds. |
+| `notify.retry.maxAgeMinutes` | whole number, 1 to 1440 | `60` | A message older than this is dropped instead of sent late. |
+| `notify.queue.max` | whole number, 10 to 5000 | `200` | Messages waiting to be sent. When it is full the oldest message that is not critical is dropped. |
+| `notify.inbound.enabled` | true or false | `true` | Answer commands sent to the bot (read-only prices and status). |
+| `notify.inbound.commandsPerMinute` | whole number, 1 to 60 | `10` | Commands per minute the bot answers. |
+| `notify.inbound.pollSeconds` | whole number, 0 to 50 | `25` | How long one wait for new commands lasts, in seconds. |
+| `notify.inbound.allowKill` | true or false | `true` | Let the bot engage the kill switch after a one-time code. Releasing it is never possible from Telegram. |
+| `notify.inbound.maxCommandAgeSeconds` | whole number, 10 to 3600 | `120` | A command older than this is ignored, so a message that waited while the Bridge was off does not run later. |
+
+## library
+
+Collections: named lists of instruments and option universes. More: [collections.md](collections.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `library.enabled` | true or false | `true` | Switch collections on. false makes every use answer a plain error. |
+| `library.maxCollections` | whole number, 1 to 5000 | `200` | How many collections the store holds. |
+| `library.maxSymbols` | whole number, 1 to 50000 | `5000` | The most symbols a collection may hold or resolve to. |
+| `library.maxWeeklyExpiries` | whole number, 1 to 12 | `5` | How many weekly expiries all-weekly stops at. |
+| `library.allowStaleAtm` | true or false | `false` | Let a labelled stale, delayed or end-of-day price be the default basis of an at-the-money strike for callers that do not say. A spreadsheet request always says no. |
+| `library.strikeSteps` | map of name to number, above 0, up to 100000 | `{}` | The strike step of an index, by underlying name, used only when no listed strikes are known. Built in: NIFTY 50, BANKNIFTY 100, FINNIFTY 50, MIDCPNIFTY 25, SENSEX 100, BANKEX 100. A stock's step is never guessed. |
+
+## events
+
+Events out: the event stream with replay, and signed outbound webhooks. More: [events.md](events.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `events.enabled` | true or false | `true` | Serve the event stream and keep the event log. |
+| `events.retain` | whole number, 100 to 100000 | `5000` | Events kept for replay, in memory and on disk. They survive a restart. |
+| `events.maxEventBytes` | whole number, 1024 to 262144 | `16384` | One event's data above this size is replaced by a short note. |
+| `events.heartbeatMs` | whole number, 1000 to 120000 | `15000` | How often a heartbeat goes to event readers, in milliseconds. |
+| `events.maxClients` | whole number, 1 to 1000 | `50` | Open event connections, all keys together. |
+| `events.maxClientsPerKey` | whole number, 1 to 1000 | `5` | Open event connections for one key. |
+| `events.maxBufferedBytes` | whole number, 16384 to 16777216 | `262144` | A reader this far behind is closed. It reconnects with its cursor. |
+| `events.webhooks.enabled` | true or false | `true` | Allow signed outbound webhooks. |
+| `events.webhooks.maxSubscriptions` | whole number, 1 to 200 | `20` | The most webhook subscriptions. |
+| `events.webhooks.allowPrivateTargets` | true or false | `false` | Allow http:// and addresses on this computer or your home network as targets. Cloud metadata addresses are refused even then. Same as mc-bridge subscriptions allow-local. |
+| `events.webhooks.allowedHosts` | list of text; at most 100 items | `[]` | When not empty, a target host must match one entry (example.com or *.example.com). |
+| `events.webhooks.timeoutMs` | whole number, 1000 to 60000 | `10000` | How long a delivery may take, in milliseconds. |
+| `events.webhooks.maxResponseBytes` | whole number, 256 to 65536 | `4096` | How much of a receiver's answer is read, in bytes. |
+| `events.webhooks.concurrency` | whole number, 1 to 64 | `16` | Deliveries running at once, all subscriptions together. |
+| `events.webhooks.perSubscription` | whole number, 1 to 8 | `2` | Deliveries running at once for one subscription, so a receiver that never answers holds only its own slots. |
+| `events.webhooks.breakerAfter` | whole number, 1 to 20 | `3` | After this many failures in a row a subscription gets one attempt per back-off period. |
+| `events.webhooks.replayWindowSec` | whole number, 30 to 3600 | `300` | The age in seconds that receivers are told to accept; also sent in a header. |
+| `events.webhooks.retry.maxAttempts` | whole number, 1 to 50 | `8` | Attempts per delivery before it becomes a dead letter. |
+| `events.webhooks.retry.baseMs` | whole number, 100 to 600000 | `5000` | The first wait before a retry, in milliseconds. It grows from here. |
+| `events.webhooks.retry.maxMs` | whole number, 1000 to 86400000 | `3600000` | The longest wait between retries, in milliseconds. |
+| `events.webhooks.retry.jitter` | number, 0 to 0.5 | `0.2` | Random variation of each wait, as a fraction (0.2 is 20 percent). |
+| `events.webhooks.retry.maxAgeSec` | whole number, 60 to 604800 | `86400` | A delivery older than this stops being retried, in seconds. |
+| `events.webhooks.maxPendingPerSubscription` | whole number, 10 to 10000 | `500` | Deliveries waiting for one subscription. More are dropped. |
+| `events.webhooks.deadLetterMax` | whole number, 10 to 5000 | `200` | Dead letters kept per subscription. |
+| `events.webhooks.deliveryLogMax` | whole number, 50 to 5000 | `500` | Delivery log entries kept per subscription. |
+
+## downloads
+
+Saving history to files, and keeping datasets up to date. More: [downloads.md](downloads.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `downloads.enabled` | true or false | `true` | Switch downloads off completely with false: every route answers CAPABILITY_UNSUPPORTED and nothing runs. |
+| `downloads.maxConcurrentJobs` | whole number, 1 to 4 | `1` | Jobs that run at the same time. They still share one budget share per account. |
+| `downloads.maxSymbolsPerJob` | whole number, 1 to 500 | `500` | The most symbols in one job. The hard limit is 500. |
+| `downloads.retentionDays` | whole number, 1 to 3650; or `null` | `null` | Delete finished jobs and their files after this many days. null keeps them until you delete them. Datasets are never deleted by this. |
+| `downloads.maxDiskMb` | whole number, 1 to 10000000 | `5000` | Writing stops when the downloads folder reaches this size, in megabytes. |
+| `downloads.minFreeDiskMb` | whole number, 0 to 10000000 | `500` | A job pauses while the disk has less than this free, in megabytes. 0 switches the check off. |
+| `downloads.maxQueuedJobs` | whole number, 1 to 500 | `20` | Jobs waiting, running or paused at once, all keys together. A new job over this is refused. |
+| `downloads.maxQueuedJobsPerKey` | whole number, 1 to 500 | `8` | The same limit for the jobs started by one key. |
+| `downloads.maxStoredJobs` | whole number, 1 to 10000 | `500` | Jobs kept in all, finished ones too. Delete old jobs or set retentionDays when it is reached. |
+| `downloads.pauseOnKeyRevoked` | true or false | `true` | Pause a key's open jobs when the key is revoked. |
+| `downloads.maxBudgetShare` | number, 0.05 to 0.8 | `0.3` | The share of an account's spare request budget that downloads may use. A live read, an order check or another key always goes first. This is the default; PATCH /v1/downloads/settings changes it while the Bridge runs. |
+| `downloads.afterHoursOnly` | true or false | `false` | Run only outside market hours. A job started during the session waits. |
+| `downloads.localFirst` | true or false | `true` | Serve ranges already stored in a dataset from disk and fetch only the missing parts. |
+| `downloads.retries` | whole number, 0 to 10 | `4` | Times one broker call is tried again after a temporary error before the item fails. |
+| `downloads.progressThrottleMs` | whole number, 100 to 60000 | `1000` | How often a running job reports download.progress, in milliseconds. |
+
+## recorder
+
+Recording live prices and option chains to files, by hand or by rules every trading day. More: [recording.md](recording.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `recorder.enabled` | true or false | `true` | Switch the recorder off completely with false. |
+| `recorder.maxRecordings` | whole number, 1 to 200 | `10` | Recordings running, paused or waiting at one time. Rules count too. |
+| `recorder.maxDiskMb` | whole number, 10 to 10000000 | `5000` | All recordings together, in megabytes. Writing stops at the limit and never goes beyond it. |
+| `recorder.retentionDays` | whole number, 1 to 3650; or `null` | `null` | Delete day files older than this many days. null keeps everything. |
+| `recorder.compressFinished` | true or false | `false` | Compress the files of finished days with gzip. |
+| `recorder.minFreeDiskMb` | whole number, 0 to 1000000 | `500` | Stop writing when the disk has less than this free, in megabytes. |
+| `recorder.maxBudgetShare` | number, 0.05 to 0.8 | `0.3` | The share of an account's spare request budget a recording may use when it needs the broker. This is the default; PATCH /v1/recordings/settings changes it while the Bridge runs. |
+| `recorder.maxSymbolsPerRecording` | whole number, 1 to 5000 | `1000` | The most symbols one recording may hold. |
+| `recorder.maxStreamSymbols` | whole number, 0 to 5000 | `400` | How many symbols one recording asks the live feed for. |
+| `recorder.gapAfterSec` | whole number, 5 to 3600; or `null` | `null` | Silence longer than this inside a session is logged as a gap, in seconds. null means three times the interval, at least 30. |
+| `recorder.reResolveMinutes` | whole number, 0 to 480 | `30` | A moving universe (an ATM window) is worked out again this often inside the session, in minutes. 0 means once a day. |
+| `recorder.autoRecord.enabled` | true or false | `false` | Record by itself every trading day from the rules. Off until a person turns it on. The switch you set in the dashboard or with mc-bridge record auto is stored in the data folder and wins over this value. |
+| `recorder.autoRecord.rules` | list of settings groups; at most 50 items | `[]` | Rules kept in the config file. Rules made in the dashboard or the API live in the data folder instead. |
+| `recorder.autoRecord.rules[].id` | text; a fixed pattern | not set | A short name for the rule. Made from the name when not given. |
+| `recorder.autoRecord.rules[].name` | text; at least 1 character, at most 60 characters | required | The rule's name. |
+| `recorder.autoRecord.rules[].enabled` | true or false | `true` | Turn the rule off without deleting it. |
+| `recorder.autoRecord.rules[].kind` | one of `quotes`, `chain` | required | quotes records prices; chain records option-chain snapshots. |
+| `recorder.autoRecord.rules[].symbols` | list of text; at least 1 item, at most 2000 items | not set | The symbols to record. Give exactly one of symbols, collection or underlying. |
+| `recorder.autoRecord.rules[].collection` | text; at least 1 character, at most 80 characters | not set | The name of a collection to record. Worked out again every day. |
+| `recorder.autoRecord.rules[].underlying` | one of several forms | not set | One underlying such as NIFTY, or a list of them, with the universe below. |
+| `recorder.autoRecord.rules[].universe.expiries` | one of several forms | `"current-weekly"` | current-weekly, next-weekly, current-monthly, all-weekly, or a list of dates. |
+| `recorder.autoRecord.rules[].universe.strikes` | one of several forms | `{"around":"atm","count":10}` | { around: "atm", count: 10 } or { from, to }. |
+| `recorder.autoRecord.rules[].universe.sides` | list of choices (`CE`, `PE`); at least 1 item, at most 2 items | `["CE","PE"]` | CE, PE or both. |
+| `recorder.autoRecord.rules[].universe.includeUnderlying` | true or false | `true` | Also record the underlying itself. |
+| `recorder.autoRecord.rules[].universe.includeFuture` | true or false | `false` | Also record the future of the chosen expiry month. |
+| `recorder.autoRecord.rules[].everySec` | whole number, 1 to 86400 | required | Seconds between samples. At least 15 for a chain. |
+| `recorder.autoRecord.rules[].schedule` | one of several forms | `"market-hours"` | market-hours (trading days from the calendar) or { days, start, end } in IST. |
+| `recorder.autoRecord.rules[].keepDays` | whole number, 1 to 3650; or `null` | not set | Keep only this many days of this rule's files. |
+| `recorder.autoRecord.rules[].maxDiskMb` | whole number, 1 to 1000000; or `null` | not set | A disk limit for this rule alone, in megabytes. |
+| `recorder.autoRecord.rules[].compress` | true or false | not set | Compress this rule's finished days. |
+| `recorder.autoRecord.rules[].format` | one of `csv`, `jsonl` | `"csv"` | csv or jsonl. |
+
+## storage
+
+Free-disk checks for the folder the Bridge writes to. More: [operations.md](operations.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `storage.minFreeMb` | whole number, 10 to 1000000 | `1024` | Free space below this makes health say degraded and the Bridge warn, in megabytes. |
+| `storage.hardFreeMb` | whole number, 1 to 1000000 | `200` | Free space below this pauses downloads, starts no new download and makes readiness say not ready, in megabytes. It must not be more than minFreeMb. |
+| `storage.checkIntervalSec` | whole number, 5 to 3600 | `30` | How often the free space is measured, in seconds. |
+
+In `ratelimit`, `<name>` stands for a name you choose: a broker id, an account id, a key id, or the kind of request. In lists such as `accounts[]` and `sources.plugins[]`, `[]` stands for one entry of the list.
+
+---
+
 <!-- docs/guides/accounts.md -->
 
 # Brokers and multiple accounts
@@ -1810,7 +3208,7 @@ takes an account out again (not one with live trading set up, and not your last 
 `POST /v1/accounts` with `{ "broker": "dhan" }` (optional `id` and `label`) and `DELETE /v1/accounts/{id}`, both
 admin, this computer only, with an admin key that may use every account.
 
-Or edit the file yourself:
+Or edit the file yourself (a walk-through for Dhan, the broker checked with a live account, is in [dhan.md](dhan.md)):
 
 ```json
 {
@@ -1955,6 +3353,150 @@ need, and what `mc-bridge doctor` checks are in [rate-limits.md](rate-limits.md)
 Your broker accounts are the only real-time source. The Bridge can also read from free data sources and plugins you
 switch on, and labels every answer from them as delayed or end of day. They never answer orders, risk checks, paper
 fills or alerts. See [sources.md](sources.md).
+
+---
+
+<!-- docs/guides/dhan.md -->
+
+# Connect Dhan, step by step
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
+Dhan is the broker this project has checked end to end with a real account (the project maintainer did that before the verification
+ladder existed; the date was not recorded, which [BROKERS.md](../BROKERS.md#verification-ladder) and `server/brokers/verification.json` say too).
+Every other broker is beta or contract-tested against recorded samples. This page walks from nothing to a first real price, a paper order
+priced by Dhan's data, and what live orders need. It describes only what the Dhan adapter (`server/brokers/dhan*.mjs`) and the Bridge do. It has no screenshots, and it does not
+describe Dhan's own web pages, whose menus change: for those use Dhan's documentation, <https://dhanhq.co/docs/v2/>.
+
+Try everything in demo mode first ([quickstart.md](quickstart.md)); the steps below are the same with a real account.
+
+## What you need from Dhan
+
+- **A Client ID** and an **access token**, made on Dhan's web site. The Bridge has no Dhan login call: you paste the Client ID and the token, and
+  every request to Dhan sends them as the `client-id` and `access-token` headers. The adapter's own notes call it a **24-hour** token, so
+  expect to paste a new one each day.
+- **The Data API plan** for prices. Dhan's trading APIs are free; the data APIs (live feed, quotes, history, option chain) cost money
+  (the Bridge's policy table records Rs 499 plus tax a month per account, with Dhan's page as the source; check Dhan's current price).
+  Without the plan the connection test says so: *Dhan token works, but the Data API plan is not active on this account (needed for option chain and quotes).*
+- **For live orders only**, a **static IP address registered with Dhan**. The adapter's own notes say Dhan refuses order calls from any other
+  address. A home connection usually has a changing address: see [deployment.md](deployment.md). Data calls work from anywhere.
+
+## 1. Add the account
+
+On the dashboard open **Accounts**, press **Add a broker** and choose Dhan. The account is saved to your settings file and is **paper only**. Or add it
+to `bridge.config.json` yourself:
+
+```json
+{ "accounts": [
+  { "id": "dhan-main", "broker": "dhan", "label": "Dhan (main)", "holder": "self" },
+  { "id": "paper", "broker": "paper", "label": "Practice account" }
+] }
+```
+
+`id` is your name for the account (2 to 32 lowercase letters, digits, hyphens). Keep a `paper` account beside it: paper orders are priced from the same
+real prices ([orders.md](orders.md)). Restart the Bridge after editing the file by hand.
+
+## 2. Log in
+
+Dhan's login kind is `apiKeyToken`: two fields, `clientId` and `accessToken`. Use one of:
+
+- the dashboard: **Accounts, Log in** on the Dhan account;
+- the terminal, which asks for each field with hidden input so nothing lands in your shell history (needs an admin key in `MCB_ADMIN_KEY`):
+
+  ```sh
+  mc-bridge accounts connect dhan-main
+  ```
+
+- the API, admin key from this computer: `POST /v1/accounts/dhan-main/session` with `{"values": {"clientId": "...", "accessToken": "..."}}`
+  ([accounts.md](accounts.md#2-log-in)).
+
+The values are stored encrypted in your data folder (`secrets.enc`, sealed with the master key) and go only to Dhan, over HTTPS.
+
+## 3. Test it
+
+```sh
+curl -s -X POST -H "Authorization: Bearer $MCB_ADMIN_KEY" http://127.0.0.1:4300/v1/accounts/dhan-main/test
+```
+
+This makes one cheap call to Dhan (its profile) and answers `{"ok": true, "message": "Dhan API connected. Token valid until ..."}` when the token works.
+It says so in plain words when the token is wrong or expired, or when the Data API plan is not active.
+
+## 4. A first real price
+
+```sh
+curl -s -H "Authorization: Bearer $MCB_API_KEY" "http://127.0.0.1:4300/v1/quotes?symbols=NSE:RELIANCE&account=dhan-main"
+```
+
+Look at the `freshness` block of the answer: `source` is `broker`, `broker` is `dhan`, `accountId` is your account, `class` is `realtime` and `official` is true.
+That label is how you know the data is from your own broker and fit for orders. Without `account=` the Bridge uses your first connected account.
+
+## What the Dhan adapter does
+
+| Area | What it does today |
+|---|---|
+| Instruments | Loads Dhan's instrument list (shares, indices, futures, options) and uses it for every symbol, expiry, strike and lot size |
+| Prices | Last price and full quotes (up to 1,000 instruments in a request) and market depth |
+| History | Candles at `1m`, `5m`, `15m`, `60m` and `1d`. For intraday Dhan allows **90 days per call**; the Bridge chunks longer ranges, so a download of a year is a handful of calls ([downloads.md](downloads.md)) |
+| Option chains | Dhan's own chain call, with Greeks from Dhan and IV in percent, for the six index underlyings the adapter has ids for: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX, BANKEX. `GET /v1/expiries?underlying=NIFTY` lists the expiries |
+| Live feed | Dhan's binary WebSocket feed, shared by every tool you run: up to 5 connections of 5,000 instruments, 100 per subscribe message ([streaming.md](streaming.md)) |
+| Portfolio | Positions, holdings, funds, order book and trade book, as they are at Dhan. Dhan's positions and holdings carry no last price, so those fields are empty |
+| Orders | Place, modify and cancel, live, on NSE, BSE, NFO, BFO, MCX and CDS, with products `CNC`, `INTRADAY`, `MARGIN` and `MTF`; order types `LIMIT`, `MARKET`, `SL`, `SL-M`; validity `DAY` or `IOC`. A market order is sent as a protected limit, because the adapter has no native market protection. Dhan allows 25 modifications per order |
+| Errors | Dhan's codes are mapped: an invalid or expired token (DH-901, 807 to 810) becomes `UPSTREAM_AUTH`, rate limits (DH-904, 805, HTTP 429) `UPSTREAM_RATE_LIMIT`, bad input `UPSTREAM_INPUT`, a missing data subscription (DH-902, 806) `UPSTREAM_NOT_SUBSCRIBED` |
+
+Things it does not do: it does not log in for you, create tokens or handle Dhan's two-factor steps; it does not place Dhan's cover or bracket
+orders (the products above are what it sends); and it never retries an order that timed out ([orders.md](orders.md#outcome_unknown-the-broker-did-not-say)).
+
+## Limits, and how the Bridge keeps inside them
+
+These are Dhan's documented limits as recorded in the Bridge's policy table (checked against Dhan's documentation, November 2026; `GET /v1/limits`
+shows what your running Bridge uses). You can lower them, never raise them ([rate-limits.md](rate-limits.md)).
+
+| Kind of request | Limit |
+|---|---|
+| Orders | 10 a second, 250 a minute, 1,000 an hour, 7,000 a day (the Bridge's own cap is lower: 5 a second per account, `safety.orderRatePerSecond`) |
+| Market quote and depth | 1 request a second, up to 1,000 instruments each |
+| Option chain | one unique request every 3 seconds |
+| History | 5 a second, 100,000 a day |
+| Account reads (positions, funds, order book) and other calls | 20 a second |
+
+Because quotes are 1 a second per account, several tools asking at once share that one request through the Bridge's batching and the stream
+instead of each spending it. For many symbols use the stream ([streaming.md](streaming.md)).
+
+## The daily routine
+
+1. Make a new access token on Dhan's site and log in again (dashboard **Accounts**, or `accounts connect`). A broker session is not extended by
+   restarting the Bridge.
+2. The Bridge is not told when your token ends. It finds out when Dhan rejects a call; the account then shows **expired**, reads that need it answer
+   `SESSION_EXPIRED`, and the morning reminder (`account.login_needed`, 08:45 IST on trading days, [accounts.md](accounts.md#3-sessions)) lists it.
+3. The readiness check on the **Safety** page tells you, before an order fails, whether the session and (with the lookup turned on) the registered address are right
+   ([deployment.md](deployment.md#5-the-daily-routine-and-what-the-badge-means)).
+
+## Going live
+
+Live orders on Dhan need every opt-in in [orders.md](orders.md#live-orders): `safety.liveTrading`, the account's `live.enabled`, a `live` key made on this computer,
+`"mode": "live"` and an idempotency key, plus a registered static IP and a logged-in session. Put the registered address in the account's
+`live.registeredIp` (and a second one in `live.backupIp` if you registered one):
+
+```json
+{ "id": "dhan-main", "broker": "dhan", "live": { "enabled": true, "allowedSources": ["rest"], "registeredIp": "203.0.113.10" } }
+```
+
+(`203.0.113.10` is a documentation address; use yours.) Start with one small order, and check it in Dhan's own order book. The kill switch
+([safety.md](safety.md)) stops new orders at once.
+
+## When it does not work
+
+| You see | Cause and fix |
+|---|---|
+| `Dhan token works, but the Data API plan is not active` | Buy or activate Dhan's Data API plan; prices, history and chains need it |
+| `SESSION_EXPIRED` or `UPSTREAM_AUTH` | The token ended or is wrong. Make a new one and log in again |
+| `UPSTREAM_NOT_SUBSCRIBED` | The Data API plan is missing for this account |
+| `UPSTREAM_RATE_LIMIT` or `RATE_LIMITED` | A limit above was reached. Wait for `Retry-After`; use the stream instead of polling |
+| A live order is refused by Dhan with an address message | The Bridge's computer is not on the address registered with Dhan. [deployment.md](deployment.md) |
+| `PAPER_ONLY` on a live order | One of the live opt-ins is missing: [orders.md](orders.md#live-orders) |
+| A sixth feed connection drops the first | Dhan allows 5 connections per account. Run one Bridge per account and share it |
+
+More: [troubleshooting.md](troubleshooting.md), [accounts.md](accounts.md), [BROKERS.md](../BROKERS.md).
 
 ---
 
@@ -3510,6 +5052,172 @@ include wrong passphrases and refused addresses (counted, never listed, never wi
 `POST /v1/hooks/{hookId}/test` sends a realistic (or your own pasted) alert through the real pipeline as a **paper** order
 and answers with the outcome. Alerts refused at the door (unreadable, stale, queue full) and rejected orders are announced on the event bus as
 `hook.rejected` for notifiers, and refusals are audited as `hook.refused` (without the body, at most once a minute per hook and kind).
+
+---
+
+<!-- docs/guides/tradingview.md -->
+
+# TradingView alerts in ten minutes
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)). On Windows `curl` in PowerShell is something else: see [windows.md](windows.md).
+
+This is the short path from nothing to a TradingView alert that places a **paper** order, with the exact messages to paste and the checks that tell
+you it works. The full reference (every field, every protection, going live, all the ways it can fail) is [webhooks.md](webhooks.md); the part about
+reaching the Bridge from the internet is [expose-alerts.md](expose-alerts.md).
+
+An alert never decides anything by itself: it is a request to the Bridge, which applies the same safety checks, rate limits, idempotency and audit log
+as an order sent from a script. A TradingView hook is paper unless you make it live with every opt-in ([orders.md](orders.md#live-orders)). An alert
+cannot approve an order: approval stays on this computer.
+
+## What TradingView needs
+
+From TradingView's own help pages (read on 2026-11-09 and listed with their addresses in [webhooks.md](webhooks.md#what-tradingview-does-checked-against-tradingviews-own-pages)):
+webhook alerts need two-step sign-in on your TradingView account and a plan that includes webhook notifications (check TradingView's pricing page for
+yours), the address must use port 80 or 443, the Bridge must answer within three seconds (it answers in milliseconds), and TradingView cannot add a
+header or sign a request. That is why a TradingView hook uses a secret address **and** a passphrase inside the message.
+
+## 1. Make a paper hook, and test it without TradingView
+
+You need an admin key from this computer in `MCB_ADMIN_KEY` ([quickstart.md](quickstart.md)). This makes the hook, then sends it a test alert through the
+real pipeline. The test always places a **paper** order and needs no internet address:
+
+<!-- runs against a demo Bridge in scripts/guide-recipes.test.mjs -->
+```sh
+HOOK=$(curl -s -X POST http://127.0.0.1:4300/v1/hooks \
+  -H "Authorization: Bearer $MCB_ADMIN_KEY" -H "Idempotency-Key: tv-hook-0001" -H "Content-Type: application/json" \
+  -d '{"source":"tradingview","label":"TradingView paper","account":"demo-paper","orderType":"MARKET","product":"INTRADAY","sourceIpPreset":"tradingview"}')
+HOOK_ID=$(echo "$HOOK" | grep -o '"id":"hk_[a-z0-9]*"' | head -1 | cut -d'"' -f4)
+echo "hook: $HOOK_ID"
+curl -s -X POST "http://127.0.0.1:4300/v1/hooks/$HOOK_ID/test" \
+  -H "Authorization: Bearer $MCB_ADMIN_KEY" -H "Content-Type: application/json" -d '{}'
+```
+
+Use your own account id instead of `demo-paper`. The answer to the first call holds, **shown once**, the hook's `url` (the secret address), its `passphrase` and
+ready-to-paste `templates`; copy them now, because the Bridge keeps only a fingerprint of each. The answer to the second says
+`"outcome": "placed"` and `Placed a paper order: BUY 1 lot NSE:RELIANCE at ...` when the hook works. A test does not prove that TradingView can reach the hook.
+
+The dashboard does the same: **Integrations, Webhooks, Create webhook, TradingView** (in the Simple view press Ctrl K and type the page name, or choose
+Advanced in the account menu: [connect.md](connect.md#simple-and-advanced-view)), then **Alerts, Send a test alert**.
+
+The settings of a hook (all fixed on the hook; an alert cannot change them): `account`, `allowedSymbols` (empty means any), `maxLotsPerSignal` (1 by default;
+a bigger alert is refused, never trimmed), `product`, `orderType` (`LIMIT` or `MARKET`), `side`, `maxAgeSec` (120 by default), `sourceIpPreset`,
+`requireConfirmation` and `mode` (paper by default).
+
+## 2. Let TradingView reach it
+
+`http://127.0.0.1:4300/...` works only on this computer. Follow [expose-alerts.md](expose-alerts.md): `mc-bridge expose alerts` sets up a second, narrow
+listener that serves **only** alert routes (never the dashboard or the API), and you end with an address such as
+`https://alerts.example.com/hooks/tradingview/<token>`. `mc-bridge expose check` tests that only the intended routes answer. Do not put a tunnel in front
+of the main port.
+
+### TradingView's sender addresses
+
+`"sourceIpPreset": "tradingview"` makes the hook accept only requests from the addresses TradingView says it sends webhooks from. These are built into the Bridge,
+with the date they were read and where from, and you can see them in `GET /v1/hooks/presets`:
+
+- `52.89.214.238`
+- `34.212.75.30`
+- `54.218.53.128`
+- `52.32.178.7`
+
+Read on 2026-11-09 from <https://www.tradingview.com/support/solutions/43000529348-about-webhooks/>. IPv6 is not used for webhooks. TradingView can change the list at
+any time. Check that page now and then; when it differs, put the new list in `bridge.config.json` and restart ([config.md](config.md#hooks)):
+
+```json
+{ "hooks": { "presets": { "tradingview": { "ips": ["52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7"], "verifiedAt": "2026-11-09", "source": "https://www.tradingview.com/support/solutions/43000529348-about-webhooks/" } } } }
+```
+
+**Behind a tunnel** the Bridge sees the tunnel's address, not TradingView's, and would refuse every alert. Set `hooks.clientIpHeader` (`cf-connecting-ip` for a
+Cloudflare Tunnel); it is trusted only when the connection itself comes from this computer.
+
+## 3. The alert in TradingView
+
+Open a chart, then the alarm-clock icon (or Alt+A). Choose the condition. On the **Notifications** tab tick **Webhook URL** and paste the hook's address. On the
+**Settings** tab replace the whole **Message** box with one of these, with `YOUR_PASSPHRASE` replaced by the passphrase from step 1. The dashboard prints them with
+your real passphrase, your hook's order type and product already filled in.
+
+**Indicator or price alert** (JSON; numbers such as `{{close}}` have no quotes):
+
+```text
+{
+  "symbol": "{{exchange}}:{{ticker}}",
+  "side": "buy",
+  "lots": 1,
+  "orderType": "limit",
+  "price": {{close}},
+  "product": "MIS",
+  "mode": "paper",
+  "id": "my-alert",
+  "time": "{{timenow}}",
+  "passphrase": "YOUR_PASSPHRASE"
+}
+```
+
+**Strategy alert** (every order fill; TradingView fills in the action, size, price and position):
+
+```text
+{
+  "symbol": "{{exchange}}:{{ticker}}",
+  "side": "{{strategy.order.action}}",
+  "lots": {{strategy.order.contracts}},
+  "orderType": "limit",
+  "price": {{strategy.order.price}},
+  "product": "MIS",
+  "mode": "paper",
+  "marketPosition": "{{strategy.market_position}}",
+  "positionSize": {{strategy.market_position_size}},
+  "id": "{{strategy.order.id}}",
+  "time": "{{timenow}}",
+  "passphrase": "YOUR_PASSPHRASE"
+}
+```
+
+**Plain text** (TradingView then sends `text/plain`): one order, side first, then the symbol and size, then the rest in any order:
+
+```text
+BUY {{exchange}}:{{ticker}} 1 @ {{close}} MIS mode=paper id=my-alert time={{timenow}} passphrase=YOUR_PASSPHRASE
+```
+
+Things that matter in the message:
+
+- **`time` is `{{timenow}}`**, the moment the alert fires. `{{time}}` is the start of the candle and can be hours old, and the Bridge refuses an alert older than
+  `maxAgeSec`. An alert more than a minute in the future is refused too: check this computer's clock.
+- **`symbol` is `{{exchange}}:{{ticker}}`.** A name with no exchange is refused, because the same name can exist on two exchanges. `NSE:M_M` is read as `NSE:M&M`;
+  `NSE:NIFTY1!` is the nearest NIFTY future (send `lots`, the quantity must be a multiple of the lot size). An index cannot be traded. [symbols.md](symbols.md).
+- **`lots` or `quantity`, not both.** For shares 1 lot is 1 share.
+- **`id`** should be unique per alert. The same `id`, `time`, `symbol` and `side` seen again is acknowledged as a duplicate and places nothing, so a resend never
+  doubles an order.
+- **`mode`** `"paper"` (or left out) on a paper hook. A paper hook refuses an alert that says `"live"`.
+- **Pine's `alert()`** sends plain text you build with `str.tostring()`; the placeholders above work in the alert dialog's Message box, not inside `alert()` or a
+  strategy's `alert_message`.
+
+## 4. Is it working?
+
+| Look at | What it tells you |
+|---|---|
+| The hook's **Alerts** list (dashboard), or `GET /v1/hooks/{hookId}/signals` | Every alert the Bridge received, with its outcome: `placed`, `duplicate`, `stale`, `rejected`, `refused`, `queued` (held for a free slot), `awaiting_confirmation`, `outcome_unknown`, and the reason in words |
+| TradingView's alert log, "Webhook status" column | Whether TradingView sent it and what answer it got. TradingView does not document retries: assume it does not resend |
+| `GET /v1/orders` | The paper order. Its `source` is `webhook` and its `clientOrderId` has the form `mcb-<hook>-<hash>` |
+| `mc-bridge expose check` | That the narrow listener serves only the alert routes |
+
+| An alert is refused because | The fix |
+|---|---|
+| `401`: a wrong or missing passphrase | Paste the passphrase from step 1. 30 wrong ones a minute from one address answer `429` |
+| "from an address that is not allowed" | The sender-address list is on and the Bridge sees another address: set `hooks.clientIpHeader` behind a tunnel, or update `hooks.presets.tradingview` |
+| Too old (stale) or ahead of the clock | Use `{{timenow}}`; check this computer's clock; raise `maxAgeSec` only if you know why |
+| Unreadable | An unfilled `{{placeholder}}` (a strategy placeholder in a plain alert), invalid JSON (quote text, leave numbers bare), an unknown field, a missing exchange |
+| Symbol not found | The ticker is not in your broker's list. It is rejected after the `202`, so it shows in the Alerts list, not in TradingView |
+| Over the hook's limits | More lots than `maxLotsPerSignal`, a symbol not in `allowedSymbols`, a product or order type the hook does not allow: refused, never trimmed |
+| `429` | More than `hooks.maxSignalsPerMinute` good alerts a minute: they are held up to `hooks.rateWaitSec` and handled; past that, refused |
+
+Every outcome is in the audit log ([safety.md](safety.md#audit-log)). A held or refused alert is not lost silently: it is listed with its reason.
+
+## 5. Live
+
+A live TradingView hook needs everything in [orders.md](orders.md#live-orders) and [webhooks.md](webhooks.md#what-protects-a-tradingview-hook): a key with the `live`
+scope, live enabled for the account, `"webhook"` in the account's `live.allowedSources`, one of the sender-address list, `requireConfirmation` or an explicit
+`acknowledgeUnsignedLive`, a `maxAgeSec`, and `"mode": "live"` plus `time` in every alert. With `requireConfirmation` the alert only opens a ticket that you confirm
+on this computer. Automated live orders are also refused while the readiness check says the account cannot trade ([deployment.md](deployment.md)). A test alert is always paper.
 
 ---
 
