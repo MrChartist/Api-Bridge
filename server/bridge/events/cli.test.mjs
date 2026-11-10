@@ -1,7 +1,7 @@
 /**
  * `mc-bridge subscriptions ...` against a real Bridge on 127.0.0.1 (the events module with a fake receiver behind it).
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -42,10 +42,56 @@ async function bridge() {
   const err = [];
   const io = (extra = {}) => ({ out: (s) => out.push(s), err: (s) => err.push(s), env: { MCB_ADMIN_KEY: admin }, cwd: dir, sleep: async () => {}, ...extra });
   const run = (args, flags = {}, ioExtra) => runCli(["subscriptions", ...args], { url: `http://127.0.0.1:${port}`, config: join(dir, "bridge.config.json"), ...flags }, io(ioExtra));
-  return { app, receiver, out, err, run, text: () => [...out, ...err].join("\n") };
+  return { app, dir, receiver, out, err, run, text: () => [...out, ...err].join("\n") };
 }
 
 const idOf = (b) => /(sub_[a-z2-7]{8})/.exec(b.text())[1];
+
+describe("mc-bridge subscriptions allow-local", () => {
+  const file = (b) => join(b.dir, "bridge.config.json");
+  const readConfig = (b) => JSON.parse(readFileSync(file(b), "utf8"));
+
+  it("turns on events.webhooks.allowPrivateTargets in the config file, keeps every other setting, and warns in plain words", async () => {
+    const b = await bridge();
+    writeFileSync(file(b), JSON.stringify({ dataDir: join(b.dir, "data"), logging: { level: "silent" }, events: { retain: 777, webhooks: { maxSubscriptions: 3 } } }));
+    expect(await b.run(["allow-local"])).toBe(0);
+    const cfg = readConfig(b);
+    expect(cfg.events).toEqual({ retain: 777, webhooks: { maxSubscriptions: 3, allowPrivateTargets: true } });
+    expect(cfg.logging).toEqual({ level: "silent" });
+    const text = b.text();
+    expect(text).toMatch(/allowPrivateTargets is now true/);
+    expect(text).toMatch(/plain http:\/\/ and to addresses on this computer/);
+    expect(text).toMatch(/only for receivers you run yourself/i);
+    expect(text).toMatch(/Restart the Bridge/);
+    expect(text).toMatch(/allow-local --off/);
+  });
+
+  it("is safe to run twice, and --off turns it back off", async () => {
+    const b = await bridge();
+    expect(await b.run(["allow-local"])).toBe(0);
+    expect(await b.run(["allow-local"])).toBe(0);
+    expect(b.text()).toMatch(/already allowed/);
+    expect(await b.run(["allow-local"], { off: true })).toBe(0);
+    expect(readConfig(b).events.webhooks.allowPrivateTargets).toBe(false);
+    expect(b.text()).toMatch(/public https:\/\/ addresses only again/);
+  });
+
+  it("creates the section when the file has none, and refuses a file it cannot read without changing it", async () => {
+    const b = await bridge();
+    await b.run(["allow-local"]);
+    expect(readConfig(b).events).toEqual({ webhooks: { allowPrivateTargets: true } });
+    writeFileSync(file(b), "{ not json");
+    expect(await b.run(["allow-local"])).toBe(1);
+    expect(b.text()).toMatch(/could not read|could not be read/i);
+    expect(readFileSync(file(b), "utf8")).toBe("{ not json");
+  });
+
+  it("needs no running Bridge and no key", async () => {
+    const b = await bridge();
+    await b.app.close();
+    expect(await b.run(["allow-local"], { url: "http://127.0.0.1:1" }, { env: {} })).toBe(0);
+  });
+});
 
 describe("mc-bridge subscriptions", () => {
   it("adds a webhook, prints the secret once, and the receiver can verify what it is sent", async () => {

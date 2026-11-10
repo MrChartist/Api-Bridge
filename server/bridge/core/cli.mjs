@@ -64,12 +64,13 @@ Usage:
   mc-bridge notify status | test [<id>]
   mc-bridge collections list|show|create|universe|resolve|tag|rename|duplicate|delete|export|import|usage|estimate ...
                                    named lists of instruments and option universes (ATM, rolling expiry) for downloads, recordings and sheets;
-                                   needs --key (or MCB_API_KEY), a paper-scope key to change things. See docs/guides/collections.md
+                                   needs --key (or MCB_API_KEY); a read key may make and change them, deleting needs admin. See docs/guides/collections.md
   mc-bridge subscriptions list | topics | status | show <id> | test <id> | pause <id> | resume <id> | remove <id>
   mc-bridge subscriptions add <https url> --topics order.*,download.* [--label name] [--accounts a,b] [--secret-stdin]
                                    send Bridge events to your own program, signed. The signing secret is made here and printed once
   mc-bridge subscriptions rotate-secret <id> | deliveries <id> [--outcome dead] | dead-letters <id> [--retry <deliveryId> | --retry-all | --clear]
   mc-bridge subscriptions tail [--topics order.*] [--since <cursor>]   print events as they happen
+  mc-bridge subscriptions allow-local [--off]   let webhooks reach a receiver on this computer or your home network (writes the config file; restart)
   mc-bridge download <symbols...> --interval 5m --from 2024-01-01 [--to <date>] [--format csv|jsonl|amibroker] [--dataset <name>]
                    [--layout combined] [--collection <name>] [--dry-run] [--watch]
                                    save history to files on this computer (a background job; never slows live reads)
@@ -629,7 +630,7 @@ export async function runCli(positionals, flags, io) {
       case "subscriptions": {
         const { subscriptionsCommand } = await import("../events/cli.mjs");
         warnKeyOnArgv(flags, io);
-        return await subscriptionsCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), cli: cliCommand(io.env), usage: USAGE });
+        return await subscriptionsCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), cli: cliCommand(io.env), usage: USAGE, configFile: () => configFileForWrites(loadConfig({ path: flags.config, env: io.env, cwd: io.cwd }).source, io.env) });
       }
       case "download":
         return await downloadsCommand(positionals.slice(1), flags, io);

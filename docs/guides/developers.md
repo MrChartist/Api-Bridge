@@ -151,8 +151,8 @@ def verify(secret: str, timestamp: str, signature: str, raw: bytes, tolerance=30
 With curl and openssl you can sign a test body: `printf '%s' "$T.$BODY" | openssl dgst -sha256 -hmac "$SECRET"`.
 The `webhook-receiver` starter is a complete receiver that does all of this. Creating a subscription needs an admin key and works
 from this computer only, because the target is an address the Bridge will call. By default only `https` targets are allowed; a
-receiver on this computer (`http://127.0.0.1:...`) needs `events.webhooks.allowPrivateTargets: true` in the Bridge's config file,
-which cannot be switched on over HTTP. The signing secret must be 16 to 256 characters and is write-only: the Bridge never shows
+receiver on this computer (`http://127.0.0.1:...`) needs `events.webhooks.allowPrivateTargets: true` in the Bridge's config file
+(`mc-bridge subscriptions allow-local` sets it, then restart), which cannot be switched on over HTTP. The signing secret must be 16 to 256 characters and is write-only: the Bridge never shows
 it again.
 
 ## Data downloads

@@ -325,8 +325,9 @@ again before every delivery on the addresses the name points to at that moment:
 - The Bridge never follows a redirect, verifies the receiver's certificate every time, gives up after `timeoutMs` (10 s), reads
   at most 4 KB of the answer and throws it away.
 - Sending to your own computer or network (a receiver on `127.0.0.1` or a LAN address, plain `http://`) needs
-  `events.webhooks.allowPrivateTargets: true` in the config file. It cannot be switched on over HTTP. `allowedHosts` can limit
-  targets to a list of hosts.
+  `events.webhooks.allowPrivateTargets: true` in the config file. The easy way: `mc-bridge subscriptions allow-local` (it edits the
+  file, prints what you are allowing, and asks for a restart; `--off` turns it back off). It cannot be switched on over HTTP.
+  `allowedHosts` can limit targets to a list of hosts.
 
 ### The secret
 

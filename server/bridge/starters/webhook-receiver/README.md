@@ -34,8 +34,8 @@ Node 22 or newer, no packages to install.
 
 `.env` holds `WEBHOOK_SECRET`, made for you when the project was created. The receiver uses it to check every request,
 and `register.mjs` hands the same value to the Bridge once (the Bridge never shows it again). The admin key is never
-written to a file here. By default the Bridge calls only `https` addresses; a receiver on this computer (plain `http`, `127.0.0.1`) works only after you set
-`events.webhooks.allowPrivateTargets: true` in the Bridge's config file and restart it. It cannot be switched on over HTTP.
+written to a file here. By default the Bridge calls only `https` addresses; a receiver on this computer (plain `http`, `127.0.0.1`) works only after you run
+`mc-bridge subscriptions allow-local` (it sets `events.webhooks.allowPrivateTargets: true` in the Bridge's config file) and restart the Bridge. It cannot be switched on over HTTP.
 
 ## The rules the receiver follows
 
