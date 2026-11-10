@@ -346,10 +346,14 @@ describe.skipIf(!posix)("installer scripts (macOS / Linux)", () => {
     const prefix = join(tmp, "android-prefix");
     const tools = join(tmp, "android-tools");
     for (const d of [home, join(prefix, "bin"), tools]) mkdirSync(d, { recursive: true });
-    // A stand-in for Termux's package manager: "installs" Node.js by linking this machine's node and npm into $PREFIX/bin.
-    const npmCli = join(dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js");
-    writeFileSync(join(tools, "pkg"), `#!/bin/sh\necho "pkg $*" >> "${join(tmp, "android-pkg.log")}"\nln -sf "${process.execPath}" "${join(prefix, "bin", "node")}"\nln -sf "${npmCli}" "${join(prefix, "bin", "npm")}"\n`);
+    // A stand-in for Termux's package manager: "installs" Node.js by linking this machine's node into $PREFIX/bin, with a fake npm
+    // beside it. The fake records what the installer asked for and links this checkout's node_modules: the real npm would fetch the
+    // Bridge's parts from the registry, and a test must never need the network (it failed after minutes on an offline machine).
+    const npmLog = join(tmp, "android-npm.log");
+    writeFileSync(join(tools, "pkg"), `#!/bin/sh\necho "pkg $*" >> "${join(tmp, "android-pkg.log")}"\nln -sf "${process.execPath}" "${join(prefix, "bin", "node")}"\ncp "${join(tools, "npm")}" "${join(prefix, "bin", "npm")}"\n`);
+    writeFileSync(join(tools, "npm"), `#!/bin/sh\necho "npm $* (in $PWD)" >> "${npmLog}"\ncase "$1" in\n  ci|install) ln -s "${ROOT}/node_modules" node_modules ;;\n  *) echo "fake npm: $*" >&2; exit 1 ;;\nesac\n`);
     chmodSync(join(tools, "pkg"), 0o755);
+    chmodSync(join(tools, "npm"), 0o755);
     const env = { HOME: home, PREFIX: prefix, PATH: `${join(prefix, "bin")}:${tools}:/usr/bin:/bin`, MCB_TEST_OS: "android", MCB_SOURCE: ROOT, MCB_NODE_DIST: "http://127.0.0.1:9/never", npm_config_cache: join(tmp, "npm-cache") };
     for (const k of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "npm_config_registry"]) if (process.env[k]) env[k] = process.env[k];
     const r = spawnSync("sh", [INSTALL, "--no-start"], { encoding: "utf8", env, timeout: 240_000 });
@@ -357,6 +361,7 @@ describe.skipIf(!posix)("installer scripts (macOS / Linux)", () => {
     expect(r.stdout).toMatch(/Installing Node.js with Termux's package manager/);
     expect(r.stdout).not.toMatch(/Downloading Node.js/);
     expect(readFileSync(join(tmp, "android-pkg.log"), "utf8")).toMatch(/install -y nodejs-lts/);
+    expect(readFileSync(npmLog, "utf8")).toMatch(/^npm ci --omit=dev /m); // the parts were "installed" by the fake, not fetched
     expect(existsSync(join(prefix, "bin", "mc-bridge"))).toBe(true); // already on Termux's PATH
     const shortcut = join(home, ".shortcuts", "Mr Chartist Bridge");
     expect(readFileSync(shortcut, "utf8")).toMatch(/launch\.sh/);

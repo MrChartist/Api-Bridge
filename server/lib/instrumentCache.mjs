@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 import { createSessionCache } from "./boundedCache.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CACHE_DIR = resolve(__dirname, "../../.cache");
+// MCB_INSTRUMENT_CACHE_DIR moves the cache (the test run sets it to its own temp folder, so a run never reads or leaves files in
+// the source tree); without it the cache lives in <repo>/.cache.
+const CACHE_DIR = process.env.MCB_INSTRUMENT_CACHE_DIR ? resolve(process.env.MCB_INSTRUMENT_CACHE_DIR) : resolve(__dirname, "../../.cache");
 try { mkdirSync(CACHE_DIR, { recursive: true }); } catch { /* ignore */ }
 
 // At most MAX_RESIDENT masters stay parsed in memory (least recently used dropped first); an evicted master is
