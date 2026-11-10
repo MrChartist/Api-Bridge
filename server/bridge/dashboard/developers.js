@@ -331,6 +331,7 @@ export async function renderDevelopers() {
           h("div", { class: "dev-links" }, h("a", { class: "btn small tinted", href: OPENAPI_PATH, target: "_blank", rel: "noopener" }, icon("external"), "OpenAPI description"), h("button", { type: "button", class: "small", onclick: () => go("errors") }, icon("info"), "Every error and its fix")),
           deps.snippetBlock(sdk.python[0]),
           deps.snippetBlock(sdk.node[0]),
+          h("p", { class: "dev-small" }, "Events without polling: ", code("GET /v1/events/stream"), " (server-sent, with ", code("since="), " to catch up) and signed webhooks to an address on your own computer or network. The ", code("webhook-receiver"), " starter checks the signature for you."),
           h("p", { class: "dev-small" }, "Promise: routes under /v1 only gain things. A field is never renamed or removed there, and an error code is never renamed; anything breaking would be /v2 beside it. Read the `code` of an error, not its text."),
         ),
       ),

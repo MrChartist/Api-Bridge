@@ -3,6 +3,7 @@
  * project is RUN against a real demo Bridge (loopback only, in this process; the starters run as child processes).
  */
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { runInitStarter, starterList } from "./initStarter.mjs";
 import { STARTERS, STARTER_IDS, newWebhookSecret, planStarter, writeStarter } from "./starters.mjs";
-import { SIGNATURE_HEADER, sign, verifySignature } from "./webhook-receiver/verify.mjs";
+import { SIGNATURE_HEADER, sign, signatureHeaders, verifySignature } from "./webhook-receiver/verify.mjs";
 
 const FAKE_KEY = "mcb_abcdefghij_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-_abcde"; // shape of a key, never valid
 const hasCmd = async (cmd, args = ["--version"]) => (await run(cmd, args, { cwd: tmpdir() }).catch(() => ({ code: 127 }))).code === 0;
@@ -368,13 +369,13 @@ describe("the starters, run against a demo Bridge", () => {
       const body = JSON.stringify({ id: "evt_once", topic: "x", data: {} });
       const t = Math.floor(Date.now() / 1000);
       const post = (b, h) => fetch(url, { method: "POST", body: b, headers: h });
-      const h = { "X-MCB-Signature": `t=${t},v1=${sign(secret, t, body)}` };
+      const h = { ...signatureHeaders(secret, t, body), "X-Bridge-Event-Id": "evt_once" };
       expect(((await (await post(body, h)).json()).duplicate)).toBe(false);
       expect(((await (await post(body, h)).json()).duplicate)).toBe(true);
       // a body changed after signing, and a stale timestamp
       expect((await post(body.replace("evt_once", "evt_twice"), h)).status).toBe(401);
       const old = t - 3600;
-      expect((await post(body, { "X-MCB-Signature": `t=${old},v1=${sign(secret, old, body)}` })).status).toBe(401);
+      expect((await post(body, { ...signatureHeaders(secret, old, body), "X-Bridge-Event-Id": "evt_old" })).status).toBe(401);
       await new Promise((r) => setTimeout(r, 50));
       expect(got.map((e) => e.id).filter((i) => i === "evt_once")).toHaveLength(1);
     } finally {
@@ -391,31 +392,41 @@ describe("the starters, run against a demo Bridge", () => {
 
 describe("webhook signature check (verify.mjs)", () => {
   const body = '{"id":"e1"}';
-  const secret = "whsec_test";
+  const secret = "whsec_test_secret_long_enough";
   const at = 1_800_000_000;
-  const header = (t = at, s = secret) => `t=${t},v1=${sign(s, t, body)}`;
-  const check = (h, extra = {}) => verifySignature({ secret, header: h, rawBody: body, now: at * 1000, ...extra });
+  const check = (o = {}) => verifySignature({ secret, timestamp: String(at), signature: `v1=${sign(secret, at, body)}`, rawBody: body, now: at * 1000, ...o });
 
   it("accepts a good signature and says why it refuses a bad one", () => {
-    expect(check(header())).toEqual({ ok: true, timestamp: at });
-    expect(check(undefined)).toEqual({ ok: false, reason: "missing_header" });
-    expect(check("garbage")).toEqual({ ok: false, reason: "malformed_header" });
-    expect(check(header(at, "other"))).toEqual({ ok: false, reason: "signature_mismatch" });
-    expect(check(header(at - 301))).toEqual({ ok: false, reason: "timestamp_out_of_range" });
-    expect(check(header(at + 301))).toEqual({ ok: false, reason: "timestamp_out_of_range" });
-    expect(check(header(at - 299)).ok).toBe(true);
-    expect(verifySignature({ secret, header: header(), rawBody: `${body} `, now: at * 1000 }).ok).toBe(false);
+    expect(check()).toEqual({ ok: true });
+    expect(check({ signature: undefined })).toEqual({ ok: false, reason: "missing" });
+    expect(check({ timestamp: undefined })).toEqual({ ok: false, reason: "missing" });
+    expect(check({ timestamp: "12ab" })).toEqual({ ok: false, reason: "timestamp" });
+    expect(check({ signature: "garbage" })).toEqual({ ok: false, reason: "mismatch" });
+    expect(check({ signature: `v1=${sign("other", at, body)}` })).toEqual({ ok: false, reason: "mismatch" });
+    expect(check({ timestamp: String(at - 301), signature: `v1=${sign(secret, at - 301, body)}` })).toEqual({ ok: false, reason: "stale" });
+    expect(check({ timestamp: String(at + 301), signature: `v1=${sign(secret, at + 301, body)}` })).toEqual({ ok: false, reason: "stale" });
+    expect(check({ timestamp: String(at - 299), signature: `v1=${sign(secret, at - 299, body)}` }).ok).toBe(true);
+    expect(check({ rawBody: `${body} ` }).ok).toBe(false);
   });
 
   it("accepts either of two secrets while one is being rotated, and either of two v1 entries", () => {
-    expect(verifySignature({ secret: ["old", secret], header: header(), rawBody: body, now: at * 1000 }).ok).toBe(true);
-    expect(check(`t=${at},v1=${"0".repeat(64)},v1=${sign(secret, at, body)}`).ok).toBe(true);
+    expect(check({ secret: ["old-secret-long-enough", secret] }).ok).toBe(true);
+    expect(check({ signature: `v1=${"0".repeat(64)} v1=${sign(secret, at, body)}` }).ok).toBe(true);
+    expect(check({ signature: `v1=${"0".repeat(64)},v1=${sign(secret, at, body)}` }).ok).toBe(true);
   });
 
-  it("matches the Bridge's own signing code, so a header made by the Bridge verifies here", async () => {
-    const { sign: bridgeSign, SIGNATURE_HEADER: name } = await import("../auth/hmac.mjs");
-    const h = bridgeSign("a-secret-that-is-long-enough", at, body);
-    expect(name.toLowerCase()).toBe(SIGNATURE_HEADER);
-    expect(verifySignature({ secret: "a-secret-that-is-long-enough", header: h, rawBody: body, now: at * 1000 }).ok).toBe(true);
+  it("uses the header names the Bridge sends, and a fixed vector computed the documented way", () => {
+    expect(SIGNATURE_HEADER).toBe("x-bridge-signature");
+    expect(signatureHeaders(secret, at, body)).toEqual({ "X-Bridge-Timestamp": String(at), "X-Bridge-Signature": `v1=${sign(secret, at, body)}` });
+    // HMAC-SHA256 over "<timestamp>.<raw body>", lower-case hex
+    expect(sign("k", 1, "b")).toBe(createHmac("sha256", "k").update("1.b").digest("hex"));
+  });
+
+  it("agrees with the Bridge's own outbound signer when this checkout has one", async (ctx) => {
+    const file = join(import.meta.dirname, "..", "events", "signature.mjs");
+    if (!existsSync(file)) return ctx.skip();
+    const bridge = await import(file);
+    const h = bridge.signatureHeaders(secret, at, body);
+    expect(verifySignature({ secret, timestamp: h["X-Bridge-Timestamp"], signature: h["X-Bridge-Signature"], rawBody: body, now: at * 1000 }).ok).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./env.mjs";
-import { verifySignature, SIGNATURE_HEADER } from "./verify.mjs";
+import { EVENT_ID_HEADER, SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignature } from "./verify.mjs";
 
 const env = loadEnv();
 const SECRET = env.WEBHOOK_SECRET;
@@ -50,7 +50,7 @@ export function createReceiver({ secret = SECRET, onEvent = handleEvent } = {}) 
     });
     req.on("end", () => {
       const raw = Buffer.concat(chunks); // the exact bytes: this is what was signed
-      const check = verifySignature({ secret, header: req.headers[SIGNATURE_HEADER], rawBody: raw });
+      const check = verifySignature({ secret, timestamp: req.headers[TIMESTAMP_HEADER], signature: req.headers[SIGNATURE_HEADER], rawBody: raw });
       if (!check.ok) {
         console.warn(`Refused a request: ${check.reason}`);
         res.writeHead(401, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "invalid signature" }));
@@ -63,7 +63,7 @@ export function createReceiver({ secret = SECRET, onEvent = handleEvent } = {}) 
         res.writeHead(400).end();
         return;
       }
-      const duplicate = seenBefore(event.id ?? req.headers["x-mcb-event-id"]);
+      const duplicate = seenBefore(req.headers[EVENT_ID_HEADER] ?? event.id);
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, duplicate }));
       if (!duplicate) setImmediate(() => onEvent(event)); // after the answer: slow work must not delay it
     });

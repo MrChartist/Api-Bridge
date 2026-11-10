@@ -1,7 +1,7 @@
 // Try the receiver without the Bridge: send it a signed sample event, and an unsigned one.   node send-test.mjs
 // Start the receiver first (node receiver.mjs) in another window.
 import { loadEnv } from "./env.mjs";
-import { sign } from "./verify.mjs";
+import { signatureHeaders } from "./verify.mjs";
 
 const env = loadEnv();
 const url = env.RECEIVER_URL ?? `http://${env.RECEIVER_HOST ?? "127.0.0.1"}:${env.RECEIVER_PORT ?? 4600}/events`;
@@ -18,5 +18,5 @@ async function send(label, headers) {
   }
 }
 
-await send("signed event  ", { "X-MCB-Signature": `t=${t},v1=${sign(env.WEBHOOK_SECRET ?? "", t, body)}` });
+await send("signed event  ", { ...signatureHeaders(env.WEBHOOK_SECRET ?? "", t, body), "X-Bridge-Event-Id": JSON.parse(body).id });
 await send("unsigned event", {});

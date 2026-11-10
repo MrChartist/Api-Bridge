@@ -34,8 +34,8 @@ Node 22 or newer, no packages to install.
 
 `.env` holds `WEBHOOK_SECRET`, made for you when the project was created. The receiver uses it to check every request,
 and `register.mjs` hands the same value to the Bridge once (the Bridge never shows it again). The admin key is never
-written to a file here. By default the Bridge calls only `https` addresses; a plain `http` address on this computer works
-only if the Bridge's configuration allows loopback targets (see the events part of `docs/guides/developers.md`).
+written to a file here. By default the Bridge calls only `https` addresses; a receiver on this computer (plain `http`, `127.0.0.1`) works only after you set
+`events.webhooks.allowPrivateTargets: true` in the Bridge's config file and restart it. It cannot be switched on over HTTP.
 
 ## The rules the receiver follows
 
@@ -46,7 +46,8 @@ only if the Bridge's configuration allows loopback targets (see the events part 
 | Answer 2xx first, work afterwards | The Bridge retries anything slower or not 2xx, with growing waits |
 | Remember event ids | The same event can arrive twice; handle it once |
 
-The header is `X-MCB-Signature: t=<seconds>,v1=<hex>`, the HMAC-SHA256 of `<t>.` plus the raw body. The same check in
-Python is in `docs/guides/developers.md`.
+The headers are `X-Bridge-Timestamp: <seconds>` and `X-Bridge-Signature: v1=<hex>`, the HMAC-SHA256 of `<timestamp>.` plus the
+raw body. `X-Bridge-Event-Id` names the event (use it to handle each event once). The same check in Python is in
+`docs/guides/developers.md`.
 
 Edit `handleEvent` in `receiver.mjs` to do your own work.
