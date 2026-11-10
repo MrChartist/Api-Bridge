@@ -35,6 +35,25 @@ Excel 2013 and later on Windows. Functions newer than Excel 2007 (`WEBSERVICE`, 
 with the `_xlfn.` prefix, which is what stops `#NAME?`. If you add your own formulas with these functions by typing
 them in Excel, no prefix is needed; the prefix only matters inside the file.
 
+**A big book is never cut silently.** Each book sheet has room for a fixed number of rows (40 positions, 60 holdings,
+10 funds, 60 orders) and asks the Bridge for no more, so an answer can never pass `WEBSERVICE`'s limit of 32,767
+characters (beyond it Excel shows `#VALUE!`, and the sheet would say `NO ANSWER` although the Bridge is fine). When the
+book is bigger, the Bridge ends the table with one visible row, `(more rows)` with `SHOWING 40 OF 130 ROWS: ...`, and
+the Status line repeats it. The P&L total on Positions then reads `PARTIAL: ...` (it also does when an account could not
+answer), never a smaller number passed off as the total. To see one account's rows alone, ask the Bridge for
+`?account=` or raise `limit` in a request of your own (Power Query, curl, Apps Script have no 32,767 limit).
+
+A broker account that is **logged out** is not left out: it has its own row with its name and
+`SESSION_EXPIRED: <name> is logged out. Log in again on the Accounts page of the dashboard.`, and the Status line says
+`CHECK: 1 row has an error`. A flat book with a green status therefore means a flat book.
+
+Every request the workbook makes ends in `errors=200`, which makes the Bridge answer a refusal (wrong key, key not made
+with Allow in URLs, too many refreshes) as a normal answer holding its reason. The Status line then reads
+`REFUSED: Too many refreshes: wait 3 seconds and try again.` instead of a guess. An answer that is not a Bridge table at
+all (a tunnel's notice page, a login page) reads `CHECK: the answer is not a Bridge table ... It starts: ...` and never
+turns into rows or blank prices. **Not verified in real Excel here:** how `WEBSERVICE` treats other failures (no
+reply, a network error) is Microsoft's behaviour; the workbook shows `NO ANSWER` for those.
+
 Every price row says how current it is: **As of** (IST), **Age (s)**, **Class** (`realtime`, `delayed`, `eod`),
 **Source** (`stream`, `cache`, `broker`) and **Stale**. In demo mode the Status line starts with `DEMO DATA`.
 
@@ -140,7 +159,7 @@ decimal point and no thousands separator; times in IST as `YYYY-MM-DD HH:MM:SS`)
 | Route | What |
 |---|---|
 | `/xl/quotes?symbols=A,B,C&fields=ltp,chg,pct,volume` | One row per symbol, in the order asked, duplicates kept. At most 100 symbols (`integrations.xl.maxSymbols`, up to 200). `fields` chooses value columns from `ltp open high low close chg pct volume oi bid ask`; `as_of age_s class source stale error` always follow (and `demo`, in demo mode only). A bad symbol gives blank values and a text in `error`: it never fails the table |
-| `/xl/positions`, `/xl/holdings`, `/xl/funds`, `/xl/orders` | Your book, fixed columns. Every account the key may use that can answer, or `?account=`. An account that cannot answer (not logged in) gives one row with its name and an `error` |
+| `/xl/positions`, `/xl/holdings`, `/xl/funds`, `/xl/orders` | Your book, fixed columns. Every enabled account the key may use, or `?account=`. An account that cannot answer (logged out, broker down) gives one row with its name and an `error`: it is never left out. `limit=` keeps the first N rows (positions, holdings, funds) and then adds a `(more rows)` row `SHOWING N OF M ROWS: ...` with `X-Truncated` and `X-Total-Rows` |
 | `/xl/instrument?symbol=NSE:RELIANCE&field=lot` | One symbol and one field: a bare number. Several symbols or fields: a table of `lot tick freeze name kind` |
 | `/xl/ltp`, `/xl/quote`, `/xl/chain`, `/xl/history` | Unchanged: one value (`#N/A` on error), the option chain, candles |
 
@@ -156,15 +175,19 @@ Rules these routes keep:
   Errors are never cached.
 - **Errors you can read in a cell.** A refused table request answers a one-row table
   `status,code,message,retry_after_s`, for example `429,RATE_LIMITED,Too many refreshes: wait 3 seconds and try again.,3`,
-  with the real status and a `Retry-After` header.
+  with the real status and a `Retry-After` header. With `?errors=200` the HTTP status is 200 and the table's `status`
+  column still holds the real one (for `WEBSERVICE`, which cannot read an error reply).
 
 ## When something is wrong
 
 | You see | Why | What to do |
 |---|---|---|
 | `#NAME?` in a cell | A workbook made before this version, or a formula typed from an old example, stored without the `_xlfn.` prefix | Download the workbook again. In your own formulas, type them in Excel (it adds the prefix itself) |
-| Status `NO ANSWER` | The request failed: the Bridge is not running, the address or key is wrong or expired, the symbol list made the address longer than 2,048 characters, or the Bridge answered 429 | Check Setup (address, key check line), open the address in a browser or press **Test it** in the dashboard, wait 10 seconds and press F9. `WEBSERVICE` cannot show the reason; the dashboard test and Power Query can |
-| Prices blank in the morning | Your broker session expired overnight, so the Bridge has nothing to read. The table says `SESSION_EXPIRED` in the Error column | Log in on the Accounts page; press F9 |
+| Status `NO ANSWER` | The request got no reply at all: the Bridge is not running, the address is wrong, a tunnel is down, or the symbol list made the address longer than 2,048 characters | Check Setup (address), open the address in a browser or press **Test it** in the dashboard, then press F9 |
+| Status `REFUSED: ...` | The Bridge answered and said no: the key is wrong, expired or not made with Allow in URLs, or too many refreshes | Do what the message says (make a new key; wait N seconds) |
+| Status `CHECK: the answer is not a Bridge table` | Something other than the Bridge answered (a tunnel's notice page, a login page) | Open the address in a browser and follow the tunnel's page, or point the address at the Bridge |
+| Status `SHOWING 40 OF 130 ROWS` and a `PARTIAL` total | The book is bigger than the sheet | Read one account at a time, or use Power Query or Apps Script, which have no row cap |
+| Prices blank in the morning | Your broker session expired overnight, so the Bridge has nothing to read. Quotes say `BROKER_UNAVAILABLE: No connected broker account can supply quotes right now` in the Error column; positions, holdings and funds show a row `SESSION_EXPIRED: <account> is logged out` | Log in on the Accounts page; press F9 |
 | `429` / "Too many refreshes: wait N seconds" | Too many requests from one key (about 50 a second), or your broker's limit | Refresh less often; one sheet is one request, so look for a macro or a loop |
 | `Stale` = true, or `Class` = `delayed` | The value is older than the Bridge's target, or comes from a delayed feed | Do not trade on it; the `As of` time says how old. Press F9 once the market feed is back |
 | `DEMO DATA` | The Bridge is in demo mode: sample prices | Expected until a real broker is connected |
@@ -178,9 +201,15 @@ Rules these routes keep:
 Power Query sends the key in an `Authorization` header, so a plain read key is enough and it never appears in an
 address. [`quotes.pq`](../../integrations/excel/quotes.pq) reads the ranges `BridgeURL`, `BridgeKeyCell` and
 `WatchlistSymbols` that the workbook defines; [`history.pq`](../../integrations/excel/history.pq) and
-[`chain.pq`](../../integrations/excel/chain.pq) read candles and the option chain. Paste one into *Data > Get Data >
-Blank Query > Advanced Editor*, choose **Anonymous** when asked how to connect, and set *Refresh every N minutes* in
-Query Properties.
+[`chain.pq`](../../integrations/excel/chain.pq) read candles and the option chain, from `BridgeURL` and `BridgeKeyCell`
+too. Paste one into *Data > Get Data > Blank Query > Advanced Editor*, choose **Anonymous** when asked how to connect,
+and set *Refresh every N minutes* in Query Properties.
+
+These files read plain named ranges, because Microsoft documents `Excel.CurrentWorkbook` as returning tables, named
+ranges and dynamic arrays; a workbook name that holds a formula (such as `BridgeKey`) is not one, which is why the
+files read `BridgeKeyCell`. A test checks this against the workbook the Bridge writes. **Not tested in real Excel here**
+(no Excel was available): if Power Query cannot find a name, open *Formulas > Name Manager* and check that
+`BridgeURL` and `BridgeKeyCell` exist.
 
 ## Sharing a template
 
