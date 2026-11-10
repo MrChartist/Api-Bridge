@@ -356,7 +356,7 @@ export async function renderDevelopers() {
     const wrap = h("div", { class: "stack dev-events" });
     const subsHost = h("div", { class: "stack" });
     const subsList = h("div", { class: "list dev-list" });
-    const recentList = h("div", { class: "list dev-recent" });
+    const recentList = h("div", { class: "list dev-recent", role: "region", "aria-label": "Recent events", tabindex: "0" });
     const recentNote = h("p", { class: "dev-small", role: "status" });
     const addBtn = h("button", { type: "button", class: "small tinted", onclick: () => openAddReceiver() }, icon("plus"), "Add a receiver");
 
@@ -685,7 +685,7 @@ export async function renderDevelopers() {
     if (state.keysError) {
       wrap.append(alertBox({ title: "Apps need an admin key", detail: "This page lists your API keys, and only an admin key (the one the dashboard signs in with, on this computer) may. Sign in again with mc-bridge open." }, "warn"));
     }
-    const list = h("div", { class: "list dev-list", role: "list", "aria-label": "Apps" });
+    const list = h("div", { class: "list dev-list", role: "group", "aria-label": "Apps" });
     const appsN = h("strong", {}, "0");
     const callsN = h("strong", { class: "dev-calls" }, "0");
     const summary = h("p", { class: "dev-summary" }, appsN, " ", h("span", {}, "apps"), " · ", callsN, " ", h("span", { class: "dev-calls-word" }, "requests today"));

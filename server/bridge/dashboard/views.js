@@ -937,10 +937,11 @@ function setupChrome() {
   if (sb && !sb.dataset.ready) {
     sb.dataset.ready = "1";
     sb.title = `Search pages and actions (${kc.label})`;
-    sb.setAttribute("aria-label", "Search pages and actions");
     sb.setAttribute("aria-keyshortcuts", kc.aria);
     sb.prepend(searchIcon());
     sb.append(kbd(...kc.keys));
+    // The name starts with what is written on the button (voice control says it), then says what it opens.
+    sb.setAttribute("aria-label", `${sb.textContent.replace(/\s+/g, " ").trim()}: pages and actions`);
     sb.addEventListener("click", () => openPalette());
   }
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
@@ -1134,7 +1135,7 @@ function accountRow(a, ctx) {
   const brokerName = a.broker === "demo" ? "Sample data" : broker?.name ?? a.broker;
   const next =
     st.next === "reset"
-      ? { text: "Reset funds", aria: `Reset ${a.label} or add paper money`, cls: "small", run: () => paperResetSheet(a) }
+      ? { text: "Reset funds", aria: `Reset funds for ${a.label}, or add paper money`, cls: "small", run: () => paperResetSheet(a) }
       : st.next === "login"
         ? { text: "Log in", aria: `Log in to ${a.label}`, cls: "small tinted", run: () => loginSheet(a, broker) }
         : { text: "Test", aria: `Test ${a.id}`, cls: "small", run: (btn) => testAccount(a, btn) };
@@ -1937,7 +1938,7 @@ async function drawConsole(accounts) {
     }
     return method.value === "GET" ? `curl -H "Authorization: Bearer $MCB_API_KEY" "${url}"` : parts.join(" ");
   };
-  const curlBtn = copyButton(curlText, { label: "Copy as curl", toastLabel: "curl copied", cls: "small quiet", ariaLabel: "Copy this request as a curl command" });
+  const curlBtn = copyButton(curlText, { label: "Copy as curl", toastLabel: "curl copied", cls: "small quiet", ariaLabel: "Copy as curl: this request" });
 
   const tryFormat = () => {
     try {

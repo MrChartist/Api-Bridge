@@ -2318,7 +2318,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ai-ips { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ai-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; font: var(--t-label); color: hsl(var(--foreground)); }
 .ai-details { min-width: 0; }
-.ai-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: var(--t-subhead); color: hsl(var(--accent)); }
+.ai-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: var(--t-subhead); color: hsl(var(--accent-ink)); }
 .ai-details summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-ctl); }
 .ai-details > :not(summary) { margin-top: 6px; overflow-wrap: anywhere; }
 .ai-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; font: var(--t-body); }
@@ -3109,6 +3109,9 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 
 /* The glossary "?" after a technical word: a small round button, a 44px target on touch. */
 .gl { white-space: normal; }
+/* A link inside a sentence is underlined: colour alone is not enough to find it (and its colour is close to the text). */
+:is(p, li, .hint, .detail, .group-foot) > a:not([class]) { text-decoration: underline; text-underline-offset: 2px; }
+@media (pointer: coarse) { button.gl-btn { position: relative; } button.gl-btn::after { content: ""; position: absolute; inset: -13px; } }
 button.gl-btn { --btn-h: 18px; --btn-px: 0; --btn-fs: 11px; --btn-r: 50%; --btn-fw: 700; --btn-bg: hsl(var(--accent) / 0.14); --btn-bg-h: hsl(var(--accent) / 0.26); --btn-fg: hsl(var(--accent-ink)); --press: 0.9; display: inline-flex; width: 18px; min-height: 18px; margin-inline: 4px 2px; vertical-align: 1px; flex: none; }
 .gl-pop .gl-text, .help-popover .help-lead { margin: 0; padding: 4px 16px 16px; max-width: 320px; font: var(--t-callout); color: var(--label-2); }
 .help-popover .help-lead { max-width: 360px; padding-bottom: 8px; }
