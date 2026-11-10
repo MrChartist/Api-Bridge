@@ -52,7 +52,7 @@ The full walk-through, with the output of every command (a paper order, the sour
 
 ### Docker
 
-`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Set `MCB_DEMO: "1"` in the compose file for demo mode. Without Docker, the [one-step installer](docs/guides/install.md) needs no Node.js.
+`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Set `MCB_DEMO: "1"` in the compose file for demo mode. The [one-step installers](docs/guides/install.md) (no Node.js needed) download from a GitHub release; none has been published yet, so use the steps above until it is.
 
 ## Safety stance
 

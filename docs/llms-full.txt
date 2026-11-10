@@ -503,6 +503,12 @@ your browser already signed in.
 Everything stays on your computer. Orders are **paper** (practice, with virtual money) until you switch real trading on
 yourself in the settings file.
 
+> **No release has been published yet.** Everything on this page except the last line downloads from a GitHub
+> release, and the first release has not been made. Until it is, the links and one-line commands below answer "not
+> found" (or fail with "Could not download"). To run the Bridge today, use a git checkout: install Node.js 22.12 or
+> newer and git, then follow [Five minutes to a first answer](../../README.md#five-minutes-to-a-first-answer). This
+> notice is removed when the first release goes out ([release process](../release-process.md)).
+
 | Your computer | Easiest way |
 |---|---|
 | Windows 10 or 11 | [Setup.exe](#windows-setupexe) (double-click) or [one line in PowerShell](#windows-one-line) |

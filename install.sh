@@ -262,7 +262,7 @@ mcb_fetch_release() {
   ver=$OPT_VERSION
   if [ -n "$ver" ]; then dir="$base/download/v$ver"; echo "    Release v$ver"; else dir="$base/latest/download"; echo "    The newest release"; fi
   mcb_get "$dir/SHA256SUMS.txt" "$WORK/SHA256SUMS.txt" ||
-    mcb_fail "Could not download the list of checksums: $dir/SHA256SUMS.txt" "Check your internet connection. If you asked for a version, check that it exists: https://github.com/MrChartist/api-bridge-v2/releases" "Nothing was installed."
+    mcb_fail "Could not download the list of checksums: $dir/SHA256SUMS.txt" "Check your internet connection. If you asked for a version, check that it exists: https://github.com/MrChartist/api-bridge-v2/releases" "If no release has been published yet, this cannot work: run the Bridge from a git checkout instead (README, Five minutes to a first answer)." "Nothing was installed."
   if [ -z "$ver" ]; then
     name=$(awk '$2 ~ /^\*?mr-chartist-bridge-.*-source\.tar\.gz$/ { f = $2; sub(/^\*/, "", f); print f; exit }' "$WORK/SHA256SUMS.txt")
     [ -n "$name" ] || mcb_fail "The newest release has no installable download listed in its checksums." "Try a version by hand: --version <number> (see https://github.com/MrChartist/api-bridge-v2/releases). Nothing was installed."
