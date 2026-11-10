@@ -20,9 +20,9 @@ Facts that help when writing code against it:
 
 ## API reference
 
-- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 216 operations with schemas, scopes and error codes
+- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 217 operations with schemas, scopes and error codes
 - [AsyncAPI description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/asyncapi.yaml): WebSocket and SSE message formats
-- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (216), grouped by area, each with curl and Python examples
+- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (217), grouped by area, each with curl and Python examples
 - [Error codes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/errors.md): every stable error code with its HTTP status and whether a retry is safe
 - [Postman and Bruno collections](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/collections/README.md): import every request, with paper-mode examples and no real keys
 

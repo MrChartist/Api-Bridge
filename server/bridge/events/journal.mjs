@@ -7,12 +7,13 @@
  * Records are plain JSON objects with a string `id`. Order of `list()` is the order of the latest put of each id.
  */
 import { appendLineSync, compact, readLinesSync } from "../../lib/jsonl.mjs";
+import { noteCorruptLines } from "../../lib/safeStore.mjs";
 
 /**
  * @template {{ id: string }} T
- * @param {{ file: string, logger?: any }} opts
+ * @param {{ file: string, logger?: any, what?: string }} opts  what: names the store in the warning when lines cannot be read
  */
-export function createJournal({ file, logger }) {
+export function createJournal({ file, logger, what = "webhook subscriptions" }) {
   /** @type {Map<string, T>} */
   const items = new Map();
   let lines = 0;
@@ -27,6 +28,8 @@ export function createJournal({ file, logger }) {
       } else if (r?.op === "del" && typeof r.id === "string") items.delete(r.id);
     }
     lines = rows.length + corrupt;
+    // Lines that could not be read are no longer silent: a copy of the file is kept and the loss is reported.
+    noteCorruptLines(file, { what, corrupt, log: logger });
   } catch (err) {
     logger?.warn?.("an events file could not be read; starting empty", { code: err?.code ?? "READ" });
   }

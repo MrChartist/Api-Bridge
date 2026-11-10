@@ -21,6 +21,7 @@ export const ROUTES = Object.freeze([
   ["POST", "/v1/orders/to-target", { scope: "paper" }, "toTarget"],
   ["POST", "/v1/orders/batch", { scope: "paper" }, "batch"],
   ["POST", "/v1/orders/cancel-all", { scope: "paper" }, "cancelAll"],
+  ["POST", "/v1/orders/state/acknowledge", { scope: "admin", loopbackOnly: true, localControl: true, body: "none" }, "acknowledgeOrderState"],
   ["GET", "/v1/orders/by-client-id/:clientOrderId", { scope: "read" }, "getByClientId"],
   ["GET", "/v1/orders/:orderId", { scope: "read" }, "getOrder"],
   ["PATCH", "/v1/orders/:orderId", { scope: "paper" }, "modifyOrder"],

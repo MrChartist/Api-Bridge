@@ -23,6 +23,7 @@ import { randomBytes } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { appendFile, mkdir, open, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { noteWriteFailure, noteWriteOk, registerQuarantine } from "./storageHealth.mjs";
 
 const FILE_MODE = 0o600;
 const DIR_MODE = 0o700;
@@ -86,7 +87,13 @@ export async function appendLine(file, value) {
   await mkdir(dirname(file), { recursive: true, mode: DIR_MODE });
   const repaired = await needsNewline(file);
   const data = `${repaired ? "\n" : ""}${line}\n`;
-  await appendFile(file, data, { encoding: "utf8", mode: FILE_MODE });
+  try {
+    await appendFile(file, data, { encoding: "utf8", mode: FILE_MODE });
+  } catch (err) {
+    noteWriteFailure(file, err);
+    throw err;
+  }
+  noteWriteOk(file);
   return { bytes: Buffer.byteLength(data), repaired };
 }
 
@@ -103,7 +110,13 @@ export async function appendLines(file, values) {
   await mkdir(dirname(file), { recursive: true, mode: DIR_MODE });
   const repaired = await needsNewline(file);
   const data = `${repaired ? "\n" : ""}${lines.join("\n")}\n`;
-  await appendFile(file, data, { encoding: "utf8", mode: FILE_MODE });
+  try {
+    await appendFile(file, data, { encoding: "utf8", mode: FILE_MODE });
+  } catch (err) {
+    noteWriteFailure(file, err);
+    throw err;
+  }
+  noteWriteOk(file);
   return { bytes: Buffer.byteLength(data), repaired, lines: lines.length };
 }
 
@@ -113,14 +126,20 @@ export function appendLineSync(file, value) {
   mkdirSync(dirname(file), { recursive: true, mode: DIR_MODE });
   const repaired = needsNewlineSync(file);
   const data = `${repaired ? "\n" : ""}${line}\n`;
-  const fd = openSync(file, "a", FILE_MODE);
   try {
-    const buf = Buffer.from(data, "utf8");
-    let off = 0;
-    while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off);
-  } finally {
-    closeSync(fd);
+    const fd = openSync(file, "a", FILE_MODE);
+    try {
+      const buf = Buffer.from(data, "utf8");
+      let off = 0;
+      while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off);
+    } finally {
+      closeSync(fd);
+    }
+  } catch (err) {
+    noteWriteFailure(file, err);
+    throw err;
   }
+  noteWriteOk(file);
   return { bytes: Buffer.byteLength(data), repaired };
 }
 
@@ -205,6 +224,35 @@ export function lastWinsIndex(items, key, { isDeleted } = {}) {
   return out;
 }
 
+const RENAME_RETRY_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+/** Block the thread for `ms` (only used between rename retries, at most 100 ms in all). */
+function pause(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    /* no SharedArrayBuffer: retry at once */
+  }
+}
+
+/**
+ * renameSync that tries again a few times on EPERM/EBUSY/EACCES: on Windows an antivirus scanner or the file indexer
+ * can hold the target for a moment. Any other error, or the last failure, is thrown.
+ * @param {string} from @param {string} to
+ * @param {{ rename?: (a: string, b: string) => void, tries?: number, waitMs?: number }} [opts]
+ */
+export function renameWithRetry(from, to, { rename = renameSync, tries = 4, waitMs = 50 } = {}) {
+  for (let i = 1; ; i++) {
+    try {
+      rename(from, to);
+      return;
+    } catch (err) {
+      if (i >= tries || !RENAME_RETRY_CODES.has(err?.code)) throw err;
+      pause(waitMs);
+    }
+  }
+}
+
 /**
  * Write `data` to `path` atomically with mode 0600 (temp file in the same folder, fsync, rename, fsync folder).
  * @param {string} path
@@ -223,7 +271,7 @@ export function writeFileAtomic(path, data) {
     fsyncSync(fd);
     closeSync(fd);
     fd = null;
-    renameSync(tmp, path);
+    renameWithRetry(tmp, path);
   } catch (err) {
     if (fd !== null) {
       try {
@@ -237,8 +285,10 @@ export function writeFileAtomic(path, data) {
     } catch {
       /* ignore */
     }
+    noteWriteFailure(path, err);
     throw err;
   }
+  noteWriteOk(path);
   if (process.platform !== "win32") {
     try {
       const dfd = openSync(dir, "r");
@@ -278,13 +328,15 @@ export function fileStamp(ms) {
 /**
  * Move a file aside as `<file>.corrupt-<stamp>`. Returns the new path, or null when the file does not exist.
  * @param {string} file
- * @param {{ now?: number }} [opts]
+ * Also remembered for /v1/health and `doctor` (storageHealth.mjs quarantined()).
+ * @param {{ now?: number, what?: string, reason?: string }} [opts]
  */
-export function quarantine(file, { now = Date.now() } = {}) {
+export function quarantine(file, { now = Date.now(), what, reason } = {}) {
   if (!existsSync(file)) return null;
   let target = `${file}.corrupt-${fileStamp(now)}`;
   for (let i = 1; existsSync(target); i++) target = `${file}.corrupt-${fileStamp(now)}-${i}`;
   renameSync(file, target);
+  registerQuarantine({ file, movedTo: target, what: what ?? basename(file), reason: reason ?? "was damaged", at: now });
   return target;
 }
 

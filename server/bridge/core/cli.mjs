@@ -49,6 +49,7 @@ Usage:
   mc-bridge restore FILE [--dry-run] [--yes]          put a backup back (the Bridge must be stopped; makes a safety copy first)
   mc-bridge kill [--reason <text>] [--cancel-open] [--key <key>]
   mc-bridge kill release [--key <admin key>]
+  mc-bridge orders acknowledge-state   after a damaged order-records file was set aside: you checked the broker's order book, live orders may go again
   mc-bridge mcp --key <key> [--url http://127.0.0.1:4300] [--config <file>]
   mc-bridge openai-tools [--scope read|paper] [--format responses|chat]
   mc-bridge sources list [--json]
@@ -637,6 +638,11 @@ export async function runCli(positionals, flags, io) {
         return await recordCliCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
+      case "orders": {
+        const { config } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd });
+        const { ordersCommand } = await import("../orders/cli.mjs");
+        return await ordersCommand(positionals.slice(1), flags, io, { dataDir: config.dataDir, baseUrl: bridgeUrl(flags, io, config), usage: USAGE });
+      }
       case "backup":
       case "restore":
         return await backupRestoreCommand(cmd, positionals.slice(1), flags, io);

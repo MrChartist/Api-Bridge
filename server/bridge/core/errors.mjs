@@ -64,6 +64,8 @@ export const ERROR_CODES = Object.freeze({
   UPSTREAM_RATE_LIMITED: { status: 429, title: "The broker's rate limit was reached", retryable: true },
   SUBSCRIPTION_LIMIT: { status: 429, title: "The broker feed subscription limit was reached", retryable: false },
   // Server and upstream
+  DISK_FULL: { status: 507, title: "The Bridge's disk is full, so nothing could be saved", retryable: true },
+  ORDER_STATE_DAMAGED: { status: 503, title: "The record of sent orders was damaged, so live orders are refused until you check the order book", retryable: false },
   INTERNAL: { status: 500, title: "Internal error", retryable: false },
   NOT_IMPLEMENTED: { status: 501, title: "This part of the Bridge is not built yet", retryable: false },
   UPSTREAM_ERROR: { status: 502, title: "The broker returned an error", retryable: false },

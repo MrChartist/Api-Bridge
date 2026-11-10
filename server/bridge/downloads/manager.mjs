@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pipeline } from "node:stream/promises";
 import { z } from "zod";
+import { loadJsonOrQuarantine } from "../../lib/safeStore.mjs";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { INTERVALS, planInterval } from "../market/history.mjs";
@@ -164,8 +165,21 @@ export function createDownloadManager(deps, opts = {}) {
     for (const id of ids) {
       if (!JOB_ID_RE.test(id)) continue;
       try {
-        const job = JSON.parse(await readFile(join(jobDir(id), "job.json"), "utf8"));
-        if (job?.id !== id || !Array.isArray(job.items)) continue;
+        // A job.json that cannot be read is set aside and the job stays in the list as a "damaged" failed job: its files
+        // still count towards the disk cap, so they must stay visible and deletable (DELETE /v1/downloads/<id>).
+        const loaded = loadJsonOrQuarantine(join(jobDir(id), "job.json"), { what: `download job ${id}`, log: logger, now: now(), validate: (v) => (v?.id === id && Array.isArray(v.items)) || "has an unknown format" });
+        if (loaded.missing) continue;
+        let job = loaded.value;
+        if (!job) {
+          let createdAt = nowIso();
+          try {
+            createdAt = new Date((await stat(jobDir(id))).mtimeMs).toISOString();
+          } catch {
+            /* keep now */
+          }
+          job = { id, name: `Damaged download ${id}`, status: "failed", reason: "damaged", message: "The job's settings file could not be read and was set aside. Its saved files are kept; delete the job to free the space.", items: [], outputs: [], request: {}, dataClass: "eod", sources: [], notes: ["The settings of this job were damaged, so its data class and source are unknown."], createdAt, damaged: true };
+          await persistNow(job).catch(() => {});
+        }
         if (job.status === "running") {
           // The Bridge stopped while this job ran: it continues from its last saved window.
           job.status = "queued";

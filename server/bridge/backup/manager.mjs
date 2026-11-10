@@ -8,8 +8,9 @@
  *   backups/status.json                                       last success, last failure, last scheduled day
  *   last-version.json                                         the Bridge version that last ran on this data folder
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { backupSettings } from "./config.mjs";
 import { backupFileName, parseBackupName, writeBackup } from "./archive.mjs";
 import { BACKUPS_DIR, collectDataFiles } from "./paths.mjs";
@@ -27,15 +28,7 @@ export function masterKeyPath({ config, dataDir, env = process.env }) {
 }
 
 function writeJsonAtomic(file, obj) {
-  mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
-  try {
-    chmodSync(file, 0o600);
-  } catch {
-    /* best effort (Windows) */
-  }
+  writeFileAtomic(file, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
 function readJson(file) {

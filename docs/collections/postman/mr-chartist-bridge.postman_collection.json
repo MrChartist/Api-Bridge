@@ -2690,6 +2690,27 @@
           "response": []
         },
         {
+          "name": "Allow live orders again after the order records were damaged",
+          "request": {
+            "description": "Allow live orders again after the order records were damaged\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nWhen the Bridge's record of sent orders (orders/state.json) is damaged it is set aside and live orders are refused\n(`ORDER_STATE_DAMAGED`); paper orders keep working. Check the broker's order book, then call this. Only from this computer.\n\nReference: docs/api/orders/acknowledgeOrderState.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "state",
+                "acknowledge"
+              ],
+              "raw": "{{baseUrl}}/v1/orders/state/acknowledge"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Look up an order by your own clientOrderId",
           "request": {
             "description": "Look up an order by your own clientOrderId\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/orders/getOrderByClientId.md in the repository.",

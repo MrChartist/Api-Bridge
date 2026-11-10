@@ -5,17 +5,18 @@
  */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readdir, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 
 export const JOB_ID_RE = /^dl_[0-9a-f]{12}$/;
 
-/** Write JSON atomically: a temp file in the same folder, then a rename. */
+/**
+ * Write JSON atomically and durably: the one shared helper (temp file, fsync, rename with a retry for Windows, fsync of
+ * the folder). A failed write leaves no temp file behind. The files are small, so the synchronous write is brief.
+ */
 export async function writeJsonAtomic(file, value) {
-  await mkdir(dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Math.random().toString(16).slice(2, 8)}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  await rename(tmp, file);
+  writeFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 /** "NSE:M&M" -> "NSE_M_M": letters, digits, dot, dash and underscore only, never empty, at most 80 characters. */

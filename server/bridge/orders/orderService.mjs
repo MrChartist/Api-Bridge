@@ -110,7 +110,7 @@ export function createOrderService(deps) {
   const idem = createIdempotencyStore({ now });
   const tickets = createTicketBook({ now, ticketTtlMs: cfg.ticketTtlMs, confirmTokenTtlMs: cfg.confirmTokenTtlMs });
   const dataDir = deps.paths?.dataDir ?? config?.dataDir ?? null;
-  const stateFile = dataDir ? createStateFile(join(dataDir, "orders", "state.json"), { logger: log }) : null;
+  const stateFile = dataDir ? createStateFile(join(dataDir, "orders", "state.json"), { logger: log, now }) : null;
 
   /** @type {Map<string, LiveRecord>} live orders by Bridge id */
   const live = new Map();
@@ -958,6 +958,16 @@ export function createOrderService(deps) {
     return o;
   }
 
+  /** A damaged order-records file was set aside (stateFile.mjs): no live order until the owner has checked the order book. */
+  function assertOrderStateUsable() {
+    const d = stateFile?.damage();
+    if (d) {
+      throw new BridgeError("ORDER_STATE_DAMAGED", "The Bridge's record of the orders it sent was damaged and set aside, so it cannot tell whether a live order was already sent. Nothing was sent. Check your broker's order book, then acknowledge: mc-bridge orders acknowledge-state.", {
+        fields: { damagedAt: d.at },
+      });
+    }
+  }
+
   const auditOrder = (o) => ({ symbol: o.symbol, side: o.side, quantity: o.quantity, product: o.product, orderType: o.orderType, price: o.price, triggerPrice: o.triggerPrice, validity: o.validity, clientOrderId: o.clientOrderId, tag: o.tag });
 
   async function place(ctx, raw, opts = {}) {
@@ -990,6 +1000,7 @@ export function createOrderService(deps) {
       if (req.clientOrderId !== undefined) cid = idem.reserveClientId(req.account, req.clientOrderId, fp);
       const p = await prepare(ctx, body, { confirmToken, ticketId, forPlace: true });
       if (p.blocks.length) throw refusalError(p.blocks);
+      if (p.mode === "live") assertOrderStateUsable();
       if (p.mode === "live" && !scopeKey) {
         // A client that retries a live order after a timeout must not be able to send it twice.
         throw new BridgeError("VALIDATION_FAILED", "Live orders need an Idempotency-Key header or a clientOrderId, so a retry cannot place the order twice.", {
@@ -2043,6 +2054,10 @@ export function createOrderService(deps) {
     rejectTicket,
     ticketStatus,
     // ── internal helpers (not part of the contract) ──
+    /** The set-aside order records still waiting for the owner, or null (health, doctor, dashboard). */
+    stateDamage: () => stateFile?.damage() ?? null,
+    /** The owner checked the broker's order book: live orders may go again. @returns {boolean} whether there was damage */
+    acknowledgeStateDamage: () => stateFile?.acknowledge() ?? false,
     /** Run one reconciliation pass now (tests, `doctor`). */
     reconcileNow,
     /** Stop timers and the kill-switch subscription (module stop). */

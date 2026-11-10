@@ -3476,6 +3476,36 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/orders/state/acknowledge:
+    post:
+      tags: [Orders]
+      operationId: acknowledgeOrderState
+      summary: Allow live orders again after the order records were damaged
+      description: |
+        When the Bridge's record of sent orders (orders/state.json) is damaged it is set aside and live orders are refused
+        (`ORDER_STATE_DAMAGED`); paper orders keep working. Check the broker's order book, then call this. Only from this computer.
+      x-module: orders
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Done. `acknowledged` is false when nothing was waiting.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [acknowledged, liveOrders]
+                    properties:
+                      acknowledged: { type: boolean }
+                      liveOrders: { type: string, enum: [allowed] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/orders/by-client-id/{clientOrderId}:
     parameters:
       - name: clientOrderId
@@ -6963,6 +6993,8 @@ components:
         - ORDER_RATE_LIMITED
         - UPSTREAM_RATE_LIMITED
         - SUBSCRIPTION_LIMIT
+        - DISK_FULL
+        - ORDER_STATE_DAMAGED
         - INTERNAL
         - NOT_IMPLEMENTED
         - UPSTREAM_ERROR

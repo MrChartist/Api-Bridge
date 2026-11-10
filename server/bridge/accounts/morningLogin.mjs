@@ -20,8 +20,9 @@
  * The Bridge never logs in by itself and never stores a one-time code: this only reminds. Each reminder is sent once per
  * IST day (the date is kept in <dataDir>/morning-login.json so a restart does not repeat it).
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { z } from "zod";
 import { marketSession } from "../../lib/marketHours.mjs";
 import { isStub } from "../core/contracts.mjs";
@@ -112,10 +113,7 @@ export function createMorningLogin(deps, opts = {}) {
   function persist() {
     if (!file) return;
     try {
-      mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-      const tmp = `${file}.${process.pid}.tmp`;
-      writeFileSync(tmp, JSON.stringify(state), { mode: 0o600 });
-      renameSync(tmp, file);
+      writeFileAtomic(file, JSON.stringify(state));
     } catch (err) {
       log?.warn?.("morning-login state could not be saved", { err: err?.message });
     }

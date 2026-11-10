@@ -13,9 +13,10 @@
  * Both the token and the signing secret are returned exactly once, by create().
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { z } from "zod";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
+import { loadJsonOrQuarantine } from "../../lib/safeStore.mjs";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { IP_PRESET_NAMES, ipEntrySchema } from "./config.mjs";
@@ -131,14 +132,15 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
   let dirty = false;
 
   const load = () => {
-    if (!existsSync(file)) return;
-    let parsed;
-    try {
-      parsed = JSON.parse(readFileSync(file, "utf8"));
-    } catch (err) {
-      throw new BridgeError("INTERNAL", `hooks.json could not be read: ${err.message}`);
-    }
-    if (!parsed || parsed.version !== FILE_VERSION || !Array.isArray(parsed.hooks)) throw new BridgeError("INTERNAL", "hooks.json has an unknown format.");
+    // A damaged or empty hooks.json (a power cut after an un-synced rename) is moved aside and the Bridge starts with
+    // no hooks: the alert URLs are gone with it, so the hooks have to be created again.
+    const { value: parsed, quarantinedTo } = loadJsonOrQuarantine(file, {
+      what: "alert hooks (hooks.json)",
+      log: logger,
+      validate: (v) => (v && v.version === FILE_VERSION && Array.isArray(v.hooks)) || "has an unknown format",
+    });
+    if (quarantinedTo) logger?.warn("The alert hooks have to be created again; the damaged file is kept for reference.", { file: quarantinedTo });
+    if (!parsed) return;
     for (const h of parsed.hooks) {
       if (!h || !HOOK_ID_RE.test(h.id) || !/^[0-9a-f]{64}$/.test(h.tokenHash) || !HOOK_SOURCES.includes(h.source)) {
         logger?.warn("hooks.json: skipping a malformed hook entry");
@@ -165,15 +167,7 @@ export function createHookStore({ dataDir, secrets, now = () => Date.now(), maxH
   };
 
   const persist = () => {
-    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-    const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify({ version: FILE_VERSION, hooks: [...byId.values()] }, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, file);
-    try {
-      chmodSync(file, 0o600);
-    } catch {
-      /* best effort on platforms without POSIX modes */
-    }
+    writeFileAtomic(file, `${JSON.stringify({ version: FILE_VERSION, hooks: [...byId.values()] }, null, 2)}\n`);
     dirty = false;
   };
 

@@ -14,6 +14,7 @@ import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, ope
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { writeFileAtomic } from "../../lib/jsonl.mjs";
+import { loadJsonOrQuarantine } from "../../lib/safeStore.mjs";
 import { csvHeader, countRows, fileNameFor, parseFileName } from "./format.mjs";
 
 const FILE_MODE = 0o600;
@@ -123,6 +124,34 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
       return readdirSync(root).filter((n) => (RECORDING_ID_RE.test(n) || /^rule-[a-z0-9-]{2,41}$/.test(n)) && existsSync(join(root, n, "recording.json")));
     },
     readJson: (id, name, fallback) => readJson(join(dirOf(id), name), fallback),
+    /**
+     * The recording's definition (recording.json). A file that is empty, cut off or has no usable shape is moved aside
+     * and replaced by a stub marked `damaged` (stopped, same id), so the recording stays listed and deletable.
+     */
+    loadDef(id, { log, now = Date.now() } = {}) {
+      const file = join(dirOf(id), "recording.json");
+      const r = loadJsonOrQuarantine(file, {
+        what: `recording ${id} settings`,
+        log,
+        now,
+        validate: (v) => (v && typeof v === "object" && v.id === id && typeof v.kind === "string") || "has an unknown format",
+      });
+      if (r.value) return r.value;
+      if (r.missing) return null;
+      let createdAt;
+      try {
+        createdAt = new Date(statSync(dirOf(id)).mtimeMs).toISOString();
+      } catch {
+        createdAt = new Date(now).toISOString();
+      }
+      const stub = { id, name: `Damaged recording ${id}`, kind: "quotes", source: "manual", status: "stopped", statusReason: "damaged", damaged: true, everySec: 60, sessionOnly: true, format: "csv", target: {}, createdAt };
+      try {
+        writeFileAtomic(file, JSON.stringify(stub));
+      } catch {
+        /* the stub still serves this run */
+      }
+      return stub;
+    },
     writeJson(id, name, value) {
       this.ensure(id);
       writeFileAtomic(join(dirOf(id), name), JSON.stringify(value));

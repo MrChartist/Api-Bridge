@@ -820,6 +820,7 @@ export function createRecorderService(deps, opts = {}) {
 
   function statusText(rec) {
     const d = rec.def;
+    if (d.damaged) return "Damaged: the recording's settings file could not be read and was set aside. Its saved files are kept. Delete it, or start a new recording.";
     if (d.status === "stopped") return d.statusReason === "rule-off" ? "Stopped: the rule is off." : "Stopped.";
     if (d.status === "paused") return "Paused.";
     if (rec.blocked) return `Not writing: ${rec.blocked.message}`;
@@ -841,6 +842,7 @@ export function createRecorderService(deps, opts = {}) {
       kind: d.kind,
       status: state,
       statusText: statusText(rec),
+      ...(d.damaged ? { damaged: true } : {}),
       auto: d.source === "rule",
       ruleId: d.ruleId,
       target: d.target,
@@ -1206,7 +1208,9 @@ export function createRecorderService(deps, opts = {}) {
 
   function loadRecordings() {
     for (const id of store.ids()) {
-      const def = store.readJson(id, "recording.json", null);
+      // A recording.json that cannot be read is set aside and replaced by a "damaged" stub: the recording stays in the
+      // list (with its day files counted and a way to delete it) instead of vanishing and leaving orphan data.
+      const def = store.loadDef(id, { log, now: now() });
       if (!def || def.id !== id) continue;
       const state = store.readJson(id, "state.json", {});
       recs.set(id, makeRuntime(def, state));

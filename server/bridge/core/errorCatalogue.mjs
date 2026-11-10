@@ -151,6 +151,14 @@ export const ERROR_GUIDE = Object.freeze({
     means: "The broker's live feed allows only so many symbols at once and the limit is reached.",
     fix: "Unsubscribe from symbols you no longer need, or use fewer symbols. Waiting alone will not clear it.",
   },
+  DISK_FULL: {
+    means: "The disk the Bridge keeps its data on has no room left, so the change could not be saved. Nothing was accepted that could not be stored (a paper order is not placed unless it is saved).",
+    fix: "Free space on that disk (old downloads and recordings are the usual cause: delete them on the Data page), then repeat the request. `mc-bridge doctor` shows free space and what uses it.",
+  },
+  ORDER_STATE_DAMAGED: {
+    means: "The file that records which orders the Bridge sent was damaged (for example after a power cut) and was set aside. Without it the Bridge cannot tell whether a retried live order was already sent, so live orders are refused. Paper orders still work.",
+    fix: "Open your broker's order book and check what is open. Then, on this computer, run `mc-bridge orders acknowledge-state` (or POST /v1/orders/state/acknowledge with an admin key) to allow live orders again.",
+  },
   INTERNAL: {
     means: "Something went wrong inside the Bridge. The message is hidden on purpose: it could contain private details.",
     fix: "Quote the `requestId` when you report it. The Bridge log on the computer has the cause. Retrying the same request is not guaranteed to help.",
