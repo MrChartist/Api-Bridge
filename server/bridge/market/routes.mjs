@@ -33,7 +33,7 @@ const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
 /** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward. */
 export const LEGACY_IV_DEPRECATION = Date.UTC(2027, 3, 30, 18, 30) / 1000;
-const LEGACY_IV_HEADERS = Object.freeze({ Deprecation: `@${LEGACY_IV_DEPRECATION}`, Link: '</docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"' });
+const LEGACY_IV_HEADERS = Object.freeze({ Deprecation: `@${LEGACY_IV_DEPRECATION}`, Link: '</docs/API-DEPRECATIONS.md#optionchain-ivmodel>; rel="deprecation"' });
 
 /** Optional query value: absent or empty -> undefined. */
 const opt = (q, name) => {

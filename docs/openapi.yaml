@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Mr. Chartist API Bridge
-  version: 1.0.0-draft.1
+  version: 2.0.0
   summary: One local API for all your Indian broker accounts.
   description: |
     The Bridge runs on your own computer (default `http://127.0.0.1:4300`) and holds your connections to several

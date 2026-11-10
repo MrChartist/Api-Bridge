@@ -1,6 +1,6 @@
 # Mr. Chartist API Bridge
 
-> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. MIT licensed, personal use.
+> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. MIT licensed. Broker market data is for the account holder's own use, as the broker terms say.
 
 Facts that help when writing code against it:
 
@@ -33,6 +33,7 @@ Facts that help when writing code against it:
 - [Installing the Bridge](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/install.md): Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling
 - [Data downloads](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/downloads.md): Saving history to files (CSV, JSONL, AmiBroker), datasets that update from their last bar, the API budget share, and the estimate before you start
 - [Backup and restore](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/backup.md): Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer)
+- [Connect a tool](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/connect.md): The dashboard's Connect a tool page: pick Excel, an AI assistant, a script or AmiBroker, get a key with only the access it needs and the setup to paste
 - [Brokers and multiple accounts](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/accounts.md): Adding brokers and several accounts, logging in, sessions, family accounts
 - [How the Bridge handles broker rate limits](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/rate-limits.md): How the Bridge stays inside every broker's limits, spreading reads over your own accounts
 - [Data sources: where prices come from, and how the Bridge labels them](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/sources.md): Where prices come from: your brokers, optional free sources and plugins, what delayed, end-of-day and unofficial mean, how to turn a source on
@@ -41,7 +42,6 @@ Facts that help when writing code against it:
 - [Live streaming: WebSocket and SSE](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/streaming.md): WebSocket and SSE live data
 - [Events out: react to the Bridge without polling](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/events.md): Bridge events out without polling: SSE and WebSocket with cursor replay, signed webhooks with retries and dead letters, receiver code for Node, Python and the shell
 - [Alerts: TradingView, signed generic hooks, ChartInk and GoCharting](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/webhooks.md): TradingView, signed generic, ChartInk and GoCharting alerts
-- [Alerts: TradingView, signed generic hooks, ChartInk and GoCharting](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/webhooks.md): Signed generic, ChartInk and GoCharting alerts
 - [Orders for alerts, sheets and scripts](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/alert-orders.md): Target-size and basket orders, MIS/NRML words, symbol check, basket margin, market calendar
 - [Telegram: alerts on your phone, and prices when you ask](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/telegram.md): Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting
 - [Notifications: how the Bridge tells you things](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/notifications.md): How a message travels (outbox, retries, pacing, quiet hours), the notify settings and routes

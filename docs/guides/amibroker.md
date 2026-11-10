@@ -7,7 +7,7 @@ Everything AmiBroker can reach is read-only: `/xl/*` cannot place orders. Full i
 
 1. Copy `integrations/amibroker/mrchartist-bridge.afl` into AmiBroker's `Formulas\Include` folder.
 2. Create a read-only URL key (AmiBroker cannot send headers):
-   `npx mc-bridge keys create --label amibroker --scope read --allow-query`
+   `mc-bridge keys create --label amibroker --scope read --allow-query`
 3. Store it outside your formulas: the Windows user variable `MCB_AMIBROKER_KEY` (restart AmiBroker), or the only line
    of `%USERPROFILE%\.mc-bridge\amibroker.key`.
 4. Use it:

@@ -4,6 +4,8 @@ One local API in front of your Indian broker accounts, so every tool you run sha
 
 It is for developers, traders and anyone building their own tools (a script, a spreadsheet, an AI assistant, a dashboard) who would rather talk to one steady API than log in to and rate-limit each broker separately.
 
+**Status: beta.** Open source (MIT), self-hosted, runs on your own computer; there is no hosted service. Only Dhan is verified with a live account; the other 40 brokers are beta or contract-tested ([BROKERS.md](docs/BROKERS.md)), and orders are paper unless you turn live trading on yourself. This project is independent: it is not affiliated with, sponsored by or endorsed by any broker, exchange or data provider. It is a connection layer, not a trading desk; see [what it does not do](#what-it-does-not-do).
+
 <p>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/accounts-dark.webp">
@@ -52,7 +54,7 @@ The full walk-through, with the output of every command (a paper order, the sour
 
 ### Docker
 
-`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Set `MCB_DEMO: "1"` in the compose file for demo mode. Without Docker, the [one-step installer](docs/guides/install.md) needs no Node.js.
+`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Set `MCB_DEMO: "1"` in the compose file for demo mode. The [one-step installers](docs/guides/install.md) (no Node.js needed) download from a GitHub release; none has been published yet, so use the steps above until it is.
 
 ## Safety stance
 
@@ -76,8 +78,8 @@ The [docs home](docs/README.md) sorts everything by what you want to do, and [do
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) (it has a quick path for a first pull request) and [SUPPORT.md](SUPPORT.md) for where to ask questions. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## License
+## License, trademarks and logos
 
-MIT, see [LICENSE](LICENSE).
+The code and documentation are MIT, see [LICENSE](LICENSE). Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the MIT licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

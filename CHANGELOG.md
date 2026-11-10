@@ -7,6 +7,7 @@
 - `GET/PATCH /v1/downloads/settings` and `/v1/recordings/settings`: change the background budget share (0.05 to 0.8) and the
   downloads after-hours switch while the Bridge runs; kept in a small file in the data folder, applied without a restart. The
   scheduler's background share ceiling is now 0.8 (default for other jobs stays 0.5).
+- Open-source readiness: THIRD-PARTY-NOTICES.md (`npm run notices`), MIT stated in the AmiBroker include, launcher scripts keep their execute bit, a release-notes script and [docs/release-process.md](docs/release-process.md), SUPPORT.md, one version across package.json, the lockfile, OpenAPI, AsyncAPI and the MCP relay (`docs/CHANGELOG.md` is now `docs/API-DEPRECATIONS.md`), Node.js 22.12 as the stated minimum.
 - Library of collections ([docs/guides/collections.md](docs/guides/collections.md)): named, tagged lists of instruments and option
   universes (`current-weekly`, `current-monthly`, `all-weekly`, dates; ATM +/- N listed strikes, honest about a stale, delayed or
   last-close price). `GET/POST /v1/collections`, `.../{name}` (rename, tags), `/resolve`, `/estimate`, `/usage`, `/export`,
@@ -212,4 +213,4 @@ Initial public release: a local service that connects your Indian broker account
 - Inbound webhooks (signed generic, ChartInk, GoCharting), MCP tools for AI assistants, and a compat API at `/api/v1`.
 - Python and Node SDKs, spreadsheet and AmiBroker integrations, and a minimal dashboard (Accounts, API, Orders, Safety).
 
-API changes that need a migration window are recorded in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+API changes that need a migration window are recorded in [docs/API-DEPRECATIONS.md](docs/API-DEPRECATIONS.md).

@@ -10,6 +10,8 @@ it is specific to one hosting company, and every price, region and broker rule i
 unit with `systemd-analyze verify`, the compose file with `docker compose config`. The Caddyfile and the cloudflared
 sample were not run against the real programs. Test each in your own setup, on paper, before real money.
 
+A separate, optional recipe, [`deploy/hostinger/`](../../deploy/hostinger/README.md), shows a demo-mode copy (sample prices, no broker) behind HTTPS on a private VPS of your own. It is a community recipe for showing the Bridge to others, not a hosted offering and not for real accounts.
+
 ```
    TradingView --HTTPS 443--> Caddy ----> 127.0.0.1:4301  Bridge alerts listener
    you (SSH, over WireGuard if you like) --> 127.0.0.1:4300  Bridge dashboard (never public)
@@ -21,7 +23,7 @@ sample were not run against the real programs. Test each in your own setup, on p
 - A VPS with a **static public IPv4 address** that stays yours (ask the host whether it can change, for example on a
   rebuild). Low latency to your broker helps; an Indian region is common (**needs verification**: location is a
   preference, not a rule here).
-- Ubuntu or Debian LTS, 1 GB RAM is enough for one or two accounts. Node.js 22 or newer.
+- Ubuntu or Debian LTS, 1 GB RAM is enough for one or two accounts. Node.js 22.12 or newer.
 - Keep the clock right and set the zone: `sudo timedatectl set-ntp true && sudo timedatectl set-timezone Asia/Kolkata`.
   Order times, the 09:00 check and session expiries depend on it.
 
@@ -58,7 +60,7 @@ Either systemd (this section) or Docker (section 4).
 
 ```bash
 sudo apt install -y git curl
-# Node.js 22 or newer: install it the way your distribution or nodejs.org describes, then check `node --version`.
+# Node.js 22.12 or newer: install it the way your distribution or nodejs.org describes, then check `node --version`.
 sudo useradd --system --home /var/lib/mc-bridge --shell /usr/sbin/nologin mcbridge
 sudo git clone https://github.com/MrChartist/api-bridge-v2.git /opt/mc-bridge
 cd /opt/mc-bridge && sudo npm ci --omit=dev

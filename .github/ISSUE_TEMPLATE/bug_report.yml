@@ -43,6 +43,11 @@ body:
         - Orders / paper engine / safety
         - Rate limits
         - Webhooks (generic, ChartInk, GoCharting)
+        - Telegram alerts
+        - Events (SSE, WebSocket, outbound webhooks)
+        - Data downloads and datasets
+        - Recorder and collections
+        - Data sources and plugins
         - Excel / Google Sheets / AmiBroker
         - MCP (Claude, other AI tools) / OpenAI tool schemas
         - Node SDK
@@ -74,7 +79,7 @@ body:
     attributes:
       label: Environment
       description: Operating system, Node.js version (`node -v`), and how you run it (start file, npm, Docker).
-      placeholder: "Windows 11, Node 22.11, start-windows.bat"
+      placeholder: "Windows 11, Node 22.12, start-windows.bat"
     validations:
       required: true
   - type: textarea

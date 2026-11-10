@@ -19,7 +19,17 @@
  *    fetches the real tool list. No restart of the AI client is needed.
  *  - Requests run concurrently (JSON-RPC ids keep them apart); each output line is written whole.
  */
+import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+
+/** The version the relay reports in `initialize`: this program's own, from package.json (the relay is part of it). */
+const RELAY_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).version;
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 /** Largest stdin line accepted (bytes of UTF-16 code units, close enough). */
 export const MAX_LINE = 4 * 1024 * 1024;
@@ -104,7 +114,7 @@ export async function runStdio({ baseUrl, apiKey, stdin, stdout, logger, fetch: 
         result: {
           protocolVersion: requested,
           capabilities: { tools: { listChanged: true } },
-          serverInfo: { name: "mr-chartist-bridge-relay", version: "0.1.0" },
+          serverInfo: { name: "mr-chartist-bridge-relay", version: RELAY_VERSION },
           instructions: `${downMessage} Tools appear once the Bridge is running.`,
         },
       });

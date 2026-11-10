@@ -41,6 +41,9 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package.json ($want). Bump the version first." >&2
             exit 1
           fi
+      - name: CHANGELOG.md has the notes for this tag and nothing left under Unreleased
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/release/release-notes.mjs "$GITHUB_REF_NAME" > /dev/null
       - name: Build the downloads
         run: node scripts/release/build-bundles.mjs --out dist
       - name: Check SHA256SUMS.txt against every file in dist
@@ -135,9 +138,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="$(awk '/^## \[/{n++} n==1' CHANGELOG.md)"
-          [ -n "$notes" ] || notes="See CHANGELOG.md."
+          node scripts/release/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
           # The list is checked once more here: what is published is exactly what the installers will be checked against.
           node scripts/release/checksums.mjs verify dist
           gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.zip dist/*.tar.gz dist/install.sh dist/install.ps1 dist/SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --title "Mr. Chartist API Bridge $GITHUB_REF_NAME" --notes "$notes" --verify-tag
+            --repo "$GITHUB_REPOSITORY" --title "Mr. Chartist API Bridge $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag

@@ -9,7 +9,11 @@ The Bridge holds your broker credentials and can place orders, so we take securi
 1. Go to the repository's **Security** tab.
 2. Click **Report a vulnerability** ([direct link](https://github.com/MrChartist/api-bridge-v2/security/advisories/new)).
 
-Include what you found, the steps to reproduce it, the version or commit, and what an attacker could do with it. We aim to acknowledge reports within 3 working days and to agree a disclosure date with you once a fix is ready. We are happy to credit you in the advisory.
+Include what you found, the steps to reproduce it, the version or commit, and what an attacker could do with it. Do not include real broker credentials, keys or account data; a description and a demo-mode reproduction are enough. We are happy to credit you in the advisory.
+
+**What to expect.** This is a volunteer-run project, so these are aims, not guarantees: we acknowledge a report within 3 working days, tell you whether we consider it a vulnerability within 10 working days, and aim to have a fix or a mitigation for a serious one within 30 days. We agree a disclosure date with you once a fix is ready, and we will tell you if we need longer.
+
+**If the "Report a vulnerability" button is not there.** The maintainers may not have switched private reporting on yet. Do not put details in a public issue. Open an issue titled "Security contact request" that says only that you have a report and nothing about what it is, and a maintainer will arrange a private way to receive it. The project publishes no e-mail address or phone number for this; the GitHub form is the only channel.
 
 ## Supported versions
 

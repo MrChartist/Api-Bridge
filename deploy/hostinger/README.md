@@ -1,4 +1,6 @@
-# Public demo on Hostinger (or any Docker server)
+# Optional recipe: a demo on your own VPS (Hostinger or any Docker server)
+
+> **This is an optional community recipe, not a hosted offering.** The Mr. Chartist API Bridge is software you run on your own computer. The project does not run, host or sell any service, public demo or website, and nothing in the Bridge needs this folder. It is here for someone who wants to show a demo copy of their own on a private VPS they rent and control, behind their own domain. Hostinger is named only as one example of a provider; any server with Docker works. It contains no account, address or credential of anyone; replace the example domain with your own. For your real trading, see [docs/guides/vps.md](../../docs/guides/vps.md).
 
 This folder runs a **public, read-only-in-spirit demo** of the Bridge at your own domain, with HTTPS:
 

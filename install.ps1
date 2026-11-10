@@ -74,7 +74,7 @@ function Install-McBridge {
         if ($attempt -lt 3) { Start-Sleep -Seconds (2 * $attempt) }
       }
     }
-    throw "Could not download $What from $Uri. Check your internet connection and try again. (Details: $($lastError.Exception.Message))"
+    throw "Could not download $What from $Uri. Check your internet connection and try again. If no release has been published yet, this cannot work: run the Bridge from a git checkout instead (README, Five minutes to a first answer). (Details: $($lastError.Exception.Message))"
   }
   # A web address, or a file on this computer (a folder laid out like the releases page, for tests and offline mirrors).
   function Get-McbRelease([string]$From, [string]$OutFile, [string]$What) {
