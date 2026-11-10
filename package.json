@@ -34,7 +34,7 @@
     "upstox"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "scripts": {
     "start": "node bin/mc-bridge.mjs start",
@@ -48,7 +48,9 @@
     "check:mjs": "node scripts/check-mjs.mjs",
     "capabilities": "node scripts/generate-broker-capabilities.mjs",
     "docs:generate": "node scripts/gen-collections.mjs && node scripts/gen-docs-index.mjs",
-    "docs:check": "node scripts/gen-collections.mjs --check && node scripts/gen-docs-index.mjs --check"
+    "docs:check": "node scripts/gen-collections.mjs --check && node scripts/gen-docs-index.mjs --check",
+    "notices": "node scripts/release/third-party-notices.mjs",
+    "notices:check": "node scripts/release/third-party-notices.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

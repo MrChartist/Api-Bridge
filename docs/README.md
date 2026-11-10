@@ -31,6 +31,7 @@ All guides, one line each: [guides/README.md](guides/README.md).
 - [broker-contract.md](broker-contract.md): what a broker adapter must provide.
 - [API-DEPRECATIONS.md](API-DEPRECATIONS.md): API changes that need a migration window. Release notes are in the [main changelog](../CHANGELOG.md).
 - [release-process.md](release-process.md): for maintainers, how a version is numbered, checked, tagged and published.
+- [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md): licences of the packages that ship with the Bridge, and the broker names and logos that are not MIT.
 
 ## Generated files
 

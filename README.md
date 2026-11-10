@@ -78,6 +78,6 @@ The [docs home](docs/README.md) sorts everything by what you want to do, and [do
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## License
+## License, trademarks and logos
 
-MIT, see [LICENSE](LICENSE).
+The code and documentation are MIT, see [LICENSE](LICENSE). Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the MIT licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
