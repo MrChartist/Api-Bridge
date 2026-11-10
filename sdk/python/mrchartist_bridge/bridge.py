@@ -85,6 +85,9 @@ class _Transport(BridgeClient):
                 return err.with_hint("%s %s needs a key with the %r scope%s. Create one: mc-bridge keys create --label py --scope %s" % (method, path, need, " (and the call must come from the Bridge's own computer)" if need == "admin" else "", need))
             return err
         if type(err) is NotFound and path.startswith("/v1/"):
+            f = b._get_features()
+            if f is not None and f.serves(method, path):
+                return err  # the route exists on this Bridge: it is the thing you asked for that is missing, and the error says which
             return err.with_hint("This Bridge has no %s %s. It may be older than this library: check bridge.features().bridge_version." % (method, path))
         return err
 
@@ -103,6 +106,17 @@ class Features:
 
     def scope_of(self, method: str, path: str) -> Optional[str]:
         return self._routes.get(_route_key(method, path))
+
+    def serves(self, method: str, path: str) -> bool:
+        """Does a route of this Bridge match this real path (``/v1/collections/nope`` matches ``/v1/collections/:name``)?"""
+        want = [x for x in path.split("?")[0].split("/") if x]
+        for (m, pattern) in self._routes:
+            if m != method.upper():
+                continue
+            have = [x for x in pattern.split("/") if x]
+            if len(have) == len(want) and all(h == ":" or h == w for h, w in zip(have, want)):
+                return True
+        return False
 
     def __repr__(self) -> str:
         return "Features(bridge_version=%r, routes=%d)" % (self.bridge_version, len(self._routes))
@@ -253,6 +267,7 @@ class Bridge:
 
     def _get_features(self) -> Optional[Features]:
         if self._features is None and not self._features_tried:
+            self._features_tried = True  # set first: a 404 on /v1/meta itself asks for the features again while it explains the error
             try:
                 d = self.client.meta()
                 data = d.get("data", d) if isinstance(d, dict) else {}

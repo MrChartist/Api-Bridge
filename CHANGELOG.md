@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Python SDK: recordings and datasets now read the shapes the Bridge really sends (`Recording.symbols/underlying/expiry/collection` from `target`, status `recording|waiting|paused|stopped|blocked`, `Dataset.title` and first/last bar from the files); `NotFound` only says "older Bridge" when the route is missing; `hooks.signals` returns the signal list. The integration tests now cover downloads, datasets, recordings, collections and hooks against a demo Bridge.
 - `Idempotency-Key` now works on the create routes that are not orders (keys, accounts, hooks, notify targets, collections, downloads, dataset updates, subscriptions, recordings, rules, presets): a repeat returns the first answer with `Idempotency-Replayed: true`. Other write routes answer `Idempotency-Ignored: true` when the header is sent.
 - Library of collections ([docs/guides/collections.md](docs/guides/collections.md)): named, tagged lists of instruments and option
   universes (`current-weekly`, `current-monthly`, `all-weekly`, dates; ATM +/- N listed strikes, honest about a stale, delayed or

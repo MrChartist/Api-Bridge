@@ -188,12 +188,17 @@ class DataRoutes:
         self.job_files[jid] = self.make_files(job["request"])
         ds = job["request"].get("dataset")
         if ds:
-            d = self.datasets.setdefault(ds, {"name": ds, "tags": [], "description": None, "dataClass": job["dataClass"], "source": job["source"], "official": job["official"], "delaySec": job["delaySec"], "files": [], "updates": 0})
+            d = self.datasets.setdefault(ds, {"name": ds, "tags": [], "title": None, "dataClass": job["dataClass"], "source": job["source"], "official": job["official"], "delaySec": job["delaySec"], "files": [], "updates": 0})
             d["updates"] += 1
             merged = {f["name"]: f for f in d["files"]}
             merged.update({n_: self.file_rows(n_, c, job["request"]) for n_, c in self.job_files[jid].items()})
             d["files"] = list(merged.values())
-            d["firstBar"], d["lastBar"], d["updatedAt"] = "2025-10-09T14:23:20+05:30", "2025-10-09T14:33:20+05:30", "2026-11-09T10:05:00+05:30"
+            for f in d["files"]:  # the real server keeps the bars per file, not on the dataset
+                f["firstBar"], f["lastBar"] = "2025-10-09T14:23:20+05:30", "2025-10-09T14:33:20+05:30"
+            d["updatedAt"] = "2026-11-09T10:05:00+05:30"
+            d["request"] = {"symbols": sorted({f["symbol"] for f in d["files"]}), "intervals": sorted({f["interval"] for f in d["files"]}), "from": job["request"].get("from")}
+            d["gaps"] = 0
+            d["rows"], d["bytes"] = sum(f.get("rows") or 0 for f in d["files"]), sum(f.get("bytes") or 0 for f in d["files"])
         self.emit("download.done", {"id": jid})
 
     def downloads(self, method: str, parts: List[str], q: Dict[str, str], body: Any) -> Tuple[int, Any]:
@@ -249,8 +254,8 @@ class DataRoutes:
 
     def datasets_route(self, method: str, parts: List[str], q: Dict[str, str], body: Any) -> Tuple[int, Any]:
         if not parts:
-            rows = [d for d in self.datasets.values() if not q.get("tag") or q["tag"] in d["tags"]]
-            return self.ok(rows, nextCursor=None)
+            rows = [{k: v for k, v in d.items() if k != "files"} for d in self.datasets.values() if not q.get("tag") or q["tag"] in d["tags"]]  # the list has no files
+            return self.ok(rows)
         d = self.datasets.get(parts[0])
         if d is None:
             return self.fake.problem(404, "NOT_FOUND", "No dataset %s." % parts[0])
@@ -260,8 +265,11 @@ class DataRoutes:
             new = (body or {}).get("name")
             if "tags" in (body or {}):
                 d["tags"] = body["tags"]
-            if "description" in (body or {}):
-                d["description"] = body["description"]
+            if "title" in (body or {}):
+                d["title"] = body["title"]
+            unknown = set(body or {}) - {"name", "tags", "title"}
+            if unknown:
+                return self.fake.problem(400, "VALIDATION_FAILED", 'Unrecognized key: "%s"' % sorted(unknown)[0])
             if new:
                 self.datasets.pop(d["name"])
                 d["name"] = new
@@ -269,7 +277,7 @@ class DataRoutes:
             return self.ok(d)
         if method == "POST" and parts[1:] == ["update"]:
             jid = self._id("dl")
-            req = {"symbols": sorted({f["symbol"] for f in d["files"]}), "intervals": sorted({f["interval"] for f in d["files"]}), "dataset": d["name"], "from": d["lastBar"]}
+            req = {"symbols": sorted({f["symbol"] for f in d["files"]}), "intervals": sorted({f["interval"] for f in d["files"]}), "dataset": d["name"], "from": max(f["lastBar"] for f in d["files"])}
             job = {"id": jid, "name": "update " + d["name"], "status": "queued", "request": req, "tags": [], "dataClass": d["dataClass"], "source": d["source"], "official": d["official"], "delaySec": d["delaySec"],
                    "createdAt": "2026-11-09T10:10:00+05:30", "manifestUrl": "/v1/downloads/%s/files" % jid, "items": [{"symbol": s, "interval": iv, "status": "queued"} for s in req["symbols"] for iv in req["intervals"]], "notes": []}
             self.jobs[jid] = job
@@ -287,9 +295,15 @@ class DataRoutes:
                 if b.get("everySec", 0) < (15 if b.get("kind") == "chain" else 1):
                     return self.fake.problem(400, "VALIDATION_FAILED", "everySec is too small")
                 rid = self._id("rec")
-                rec = {"id": rid, "name": b.get("name") or rid, "kind": b["kind"], "status": "running", "symbols": b.get("symbols") or [], "underlying": b.get("underlying"), "expiry": b.get("expiry"),
-                       "everySec": b["everySec"], "sessionOnly": b.get("sessionOnly", True), "format": b.get("format", "csv"), "rows": 0, "bytes": 0, "lastWriteAt": None, "gaps": [], "diskBytes": 0,
-                       "dataClass": "realtime", "source": "stream", "collection": b.get("collection"), "files": []}
+                target = {k: b[k] for k in ("symbols", "collection", "underlying", "expiry") if b.get(k)}
+                n = len(b.get("symbols") or [])
+                rec = {"id": rid, "name": b.get("name") or rid, "kind": b["kind"], "status": "recording", "statusText": "Recording.", "auto": False, "ruleId": None, "target": target,
+                       "everySec": b["everySec"], "sessionOnly": b.get("sessionOnly", True), "schedule": "market-hours", "format": b.get("format", "csv"), "createdAt": "2026-11-09T10:00:00.000+05:30",
+                       "dataClass": "realtime", "delaySec": 0, "source": "this Bridge's own live feed and broker reads (real-time class only; delayed and end-of-day data is refused)",
+                       "symbols": {"count": n, "sample": (b.get("symbols") or [])[:5], "resolvedAt": None, "rule": None, "via": None, "notes": [], "stale": False, "problem": None, "onLiveFeed": n, "notOnLiveFeed": 0},
+                       "rows": 0, "bytes": 0, "today": {"date": None, "rows": 0, "bytes": 0, "gaps": 0}, "lastWriteAt": None, "gaps": {"total": 0, "today": 0, "open": None},
+                       "refused": {"total": 0, "last": None}, "apiCalls": {"madeToday": 0, "savedToday": 0},
+                       "disk": {"usedBytes": 0, "limitMb": None, "totalUsedBytes": 0, "totalLimitMb": 5000, "blocked": None}, "keepDays": None, "nextStartAt": None, "issue": None, "filesUrl": "/v1/recordings/%s/files" % rid}
                 self.recordings[rid] = rec
                 self.emit("recording.started", {"id": rid})
                 return self.ok(rec, 201)
@@ -304,7 +318,7 @@ class DataRoutes:
             self.recordings.pop(parts[0])
             return self.ok({"deleted": parts[0]})
         if method == "POST" and rest in (["pause"], ["resume"], ["stop"]):
-            rec["status"] = {"pause": "paused", "resume": "running", "stop": "stopped"}[rest[0]]
+            rec["status"] = {"pause": "paused", "resume": "recording", "stop": "stopped"}[rest[0]]
             if rest[0] == "stop":
                 self.emit("recording.stopped", {"id": rec["id"]})
             return self.ok(rec)
@@ -315,7 +329,7 @@ class DataRoutes:
         return self.nf("route")
 
     def rec_bytes(self, rec: Dict[str, Any]) -> bytes:
-        sym = (rec["symbols"] or ["NSE:X"])[0]
+        sym = (rec["target"].get("symbols") or ["NSE:X"])[0]
         return ("time,symbol,ltp\n2026-11-09T09:15:00+05:30,%s,100.5\n2026-11-09T09:15:30+05:30,%s,100.75\n" % (sym, sym)).encode()
 
     def rec_file(self, rec: Dict[str, Any]) -> Dict[str, Any]:
