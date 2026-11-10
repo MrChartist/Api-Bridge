@@ -140,10 +140,13 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
       const mode = statSync(keyFile).mode & 0o777;
       const tooOpen = process.platform !== "win32" && mode & 0o077;
       add(tooOpen ? "fail" : "ok", "master-key", tooOpen ? `${keyFile} is readable by other users (mode ${mode.toString(8)}); run chmod 600` : `Key file ${keyFile}`);
-    } else add("warn", "master-key", `No master key yet; ${keyFile} will be created (mode 600) when you first connect a broker. '${cliCommand(env)} init' creates one outside the data folder now.`);
-    // Only when the key file really exists: on a fresh data folder neither file is there yet, and the line above already says so.
-    if (sameFolder && existsSync(keyFile)) {
-      add("warn", "master-key", `The master key sits in the data folder next to secrets.enc, so a backup, cloud sync or zip of ${dataDir} carries both and the encryption adds nothing. Move it outside (for example ${process.platform === "win32" ? "%APPDATA%\\MrChartist\\master.key" : "~/.config/mc-bridge/master.key"}) and set "masterKeyFile" in bridge.config.json (or MCB_MASTER_KEY_FILE), or use MCB_MASTER_KEY.`);
+    }
+    const away = `Move it outside (for example ${process.platform === "win32" ? "%APPDATA%\\MrChartist\\master.key" : "~/.config/mc-bridge/master.key"}) and set "masterKeyFile" in bridge.config.json (or MCB_MASTER_KEY_FILE), or use MCB_MASTER_KEY.`;
+    if (!existsSync(keyFile)) {
+      // One warning, not two: on a fresh folder neither file exists yet, so say both things in one line.
+      add("warn", "master-key", `No master key yet; ${keyFile} will be created (mode 600) when you first connect a broker${sameFolder ? `, in the data folder next to secrets.enc, so a backup, cloud sync or zip of ${dataDir} would carry both and the encryption would add nothing. ${away}` : `. '${cliCommand(env)} init' creates one outside the data folder now.`}`);
+    } else if (sameFolder) {
+      add("warn", "master-key", `The master key sits in the data folder next to secrets.enc, so a backup, cloud sync or zip of ${dataDir} carries both and the encryption adds nothing. ${away}`);
     }
     if (process.platform === "win32") add("warn", "master-key", "File permissions are not checked on Windows. Restrict the key file to your user: icacls <file> /inheritance:r /grant:r %USERNAME%:F");
   }

@@ -276,7 +276,8 @@ describe("mc-bridge doctor: exposure checks and --strict", () => {
     const dir = mkdtempSync(join(tmpdir(), "mcb-exdoc3-"));
     const { config } = loadConfig({ raw: { dataDir: join(dir, "data") }, env: {} });
     const fresh = (await runDoctor({ config, env: {}, portCheck: false })).filter((c) => c.check === "master-key");
-    expect(fresh.map((c) => c.message)).toEqual([expect.stringMatching(/^No master key yet/)]);
+    expect(fresh).toHaveLength(1); // before: two warnings, the second about a key that does not exist
+    expect(fresh[0].message).toMatch(/^No master key yet.*next to secrets\.enc/);
     mkdirSync(join(dir, "data"), { recursive: true });
     writeFileSync(join(dir, "data", "master.key"), "k".repeat(44), { mode: 0o600 });
     const there = (await runDoctor({ config, env: {}, portCheck: false })).filter((c) => c.check === "master-key");
