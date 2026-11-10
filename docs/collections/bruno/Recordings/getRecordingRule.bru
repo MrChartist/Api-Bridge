@@ -1,0 +1,27 @@
+meta {
+  name: One rule with today's state
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/v1/recordings/rules/:ruleId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  ruleId: <ruleId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  One rule with today's state
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/recordings/getRecordingRule.md in the repository.
+}

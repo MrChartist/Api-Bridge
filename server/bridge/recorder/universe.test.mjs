@@ -153,4 +153,14 @@ describe("symbols and collections", () => {
     expect(fromLibraryAnswer({ symbols: [NIFTY], atm: { ok: false } }).ok).toBe(false);
     expect(fromLibraryAnswer({}).reason).toMatch(/no symbols/);
   });
+
+  it("never uses a collection resolved from a delayed or end-of-day price, and keeps the library's warnings", () => {
+    const delayed = fromLibraryAnswer({ symbols: [NIFTY], atmSource: { source: "free-source", class: "delayed", delaySec: 900 } });
+    expect(delayed.ok).toBe(false);
+    expect(delayed.reason).toMatch(/not real-time/);
+    expect(fromLibraryAnswer({ symbols: [NIFTY], atmSource: "eod close" }).ok).toBe(false);
+    const live = fromLibraryAnswer({ symbols: [NIFTY], atmSource: { source: "stream", class: "realtime" }, warnings: ["Strikes 24000 missing", { message: "Lot size changed" }] });
+    expect(live.ok).toBe(true);
+    expect(live.notes).toEqual(["Strikes 24000 missing", "Lot size changed"]);
+  });
 });

@@ -1,0 +1,30 @@
+meta {
+  name: Delete a recording and its files
+  type: http
+  seq: 14
+}
+
+delete {
+  url: {{baseUrl}}/v1/recordings/:id
+  body: none
+  auth: bearer
+}
+
+params:path {
+  id: demo
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Delete a recording and its files
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  A recording that belongs to a rule is deleted by deleting the rule (409 otherwise).
+
+  Reference: docs/api/recordings/deleteRecording.md in the repository.
+}

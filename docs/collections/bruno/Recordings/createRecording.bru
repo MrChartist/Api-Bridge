@@ -1,0 +1,33 @@
+meta {
+  name: Start a recording of quotes or an option chain
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/recordings
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "kind": "quotes",
+    "everySec": 1
+  }
+}
+
+docs {
+  Start a recording of quotes or an option chain
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Real-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written. everySec is at least 1 for quotes from the live feed (5 or more to read symbols the feed does not carry) and at least 15 for a chain. With sessionOnly (the default) it records only inside market hours, from the market calendar. One file per symbol per IST trading day.
+
+  Reference: docs/api/recordings/createRecording.md in the repository.
+}

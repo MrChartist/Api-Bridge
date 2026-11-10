@@ -1,0 +1,30 @@
+meta {
+  name: Download one day file as it is on disk
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{baseUrl}}/v1/recordings/:id/files/:name
+  body: none
+  auth: bearer
+}
+
+params:path {
+  id: demo
+  name: <name>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Download one day file as it is on disk
+
+  - An API key with the `read` scope (any key).
+
+  Only names from the file list open. The answer carries X-Data-Class realtime.
+
+  Reference: docs/api/recordings/getRecordingFile.md in the repository.
+}

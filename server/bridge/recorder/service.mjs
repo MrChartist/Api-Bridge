@@ -819,6 +819,7 @@ export function createRecorderService(deps, opts = {}) {
     if (d.status === "stopped") return d.statusReason === "rule-off" ? "Stopped: the rule is off." : "Stopped.";
     if (d.status === "paused") return "Paused.";
     if (rec.blocked) return `Not writing: ${rec.blocked.message}`;
+    if (!d.schedule && rec.phase === "idle") return "Starting.";
     if (rec.phase === "waiting" || rec.phase === "idle") return rec.nextStartMs ? `Waiting for the next session: ${friendlyAt(rec.nextStartMs)}.` : "Waiting for the next trading session.";
     if (rec.resolved && !rec.resolved.ok) return `Waiting to choose the symbols: ${rec.resolved.reason}`;
     if (rec.gap) return `${GAP_REASONS[rec.gap.reason] ?? "No data."} Since ${clock(rec.gap.from)} IST.`;
@@ -1097,6 +1098,20 @@ export function createRecorderService(deps, opts = {}) {
     return { preset: presetId, created: !existing, rule: getRule(rule.id), auto: autoView() };
   }
 
+  /** Recordings and rules that use a collection (all of them when no name is given). */
+  function usageOf(name) {
+    const out = [];
+    for (const r of allRules()) {
+      if (!r.collection || (name && r.collection !== name)) continue;
+      out.push({ type: "recording-rule", module: "recorder", id: r.id, name: r.name, collection: r.collection, kind: r.kind, enabled: r.enabled !== false, status: ruleView(r).state, url: `/v1/recordings/rules/${r.id}` });
+    }
+    for (const rec of recs.values()) {
+      if (rec.def.source !== "manual" || !rec.def.target.collection || (name && rec.def.target.collection !== name)) continue;
+      out.push({ type: "recording", module: "recorder", id: rec.def.id, name: rec.def.name, collection: rec.def.target.collection, kind: rec.def.kind, enabled: rec.def.status === "active", status: view(rec).status, url: `/v1/recordings/${rec.def.id}` });
+    }
+    return out;
+  }
+
   // ───────────────────────────── status line ─────────────────────────────
 
   function status() {
@@ -1242,10 +1257,18 @@ export function createRecorderService(deps, opts = {}) {
     // extras
     openFile,
     callsToday,
+    usageOf,
     sweepNow: () => sweepAll(),
     /** The library of collections, when that module is present (set by the module at start). */
     attach({ library } = {}) {
-      if (library) libraryFn = () => library;
+      if (!library) return;
+      libraryFn = () => library;
+      // Let the library's usage view list the recordings and rules that use a collection (when it has such a hook).
+      try {
+        library.registerUsageProvider?.((name) => usageOf(name));
+      } catch (err) {
+        log.debug("library usage provider not registered", { err: err?.message });
+      }
     },
     start,
     close,

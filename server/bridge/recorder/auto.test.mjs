@@ -66,6 +66,7 @@ describe("auto recording by rules", () => {
     expect(chainCalls.length).toBeGreaterThanOrEqual(3);
     expect(chainCalls[0][2]).toMatchObject({ priority: "background", backgroundShare: 0.3, allowBackup: false });
 
+    await w.svc.patchRule("nifty-chain", { everySec: 1800 }); // fewer passes while the clock jumps to the close
     await w.clock.set(at("2026-11-09T15:30:20"));
     await w.run(60_000, 10_000);
     expect(w.eventsOf("recording.stopped")).toHaveLength(1);
@@ -84,6 +85,7 @@ describe("auto recording by rules", () => {
     await w.svc.setAuto(true);
     await w.run(3 * 60_000, 30_000);
     expect(w.svc.get("rule-nifty-chain").symbols.sample.some((s) => s.includes("2026-11-09"))).toBe(true);
+    await w.svc.patchRule("nifty-chain", { everySec: 1800 }); // fewer passes while the clock jumps two days
     // the weekly expiry was today; the market moved up 500 points overnight; Tuesday 10th is a holiday
     w.md.setPrice(NIFTY, 24512);
     await w.clock.set(at("2026-11-11T09:16:00"));
@@ -255,11 +257,33 @@ describe("rules and presets", () => {
     await w.svc.applyPreset("my-watchlist");
     await w.run(10_000, 1000);
     expect(w.svc.get("rule-my-watchlist").symbols).toMatchObject({ count: 1, via: "library", rule: "static list" });
+    await w.svc.patchRule("my-watchlist", { everySec: 3600 }); // fewer passes while the clock jumps two days
     lib.symbols = [NIFTY, "NSE:RELIANCE"];
     await w.clock.set(at("2026-11-11T09:16:00"));
     await w.run(10_000, 1000);
     expect(w.svc.get("rule-my-watchlist").symbols.count).toBe(2);
     await expect(w.svc.applyPreset("my-watchlist", { collection: "missing" })).resolves.toMatchObject({ created: false });
+  });
+
+  it("a stale ATM from the library (an error) or a delayed one is a logged gap, not a silent guess; usage is registered with the library", async () => {
+    const providers = [];
+    const lib = { mode: "stale", registerUsageProvider: (fn) => providers.push(fn), async resolve() { if (this.mode === "stale") throw new Error("The ATM price is stale; pass allowStale to use it."); return { symbols: [NIFTY], atmSource: { class: "delayed" } }; } };
+    w = bootRecorder({ start: at("2026-11-09T09:15:00"), library: lib });
+    await w.svc.start();
+    await w.svc.applyPreset("my-watchlist");
+    await w.run(2 * 60_000, 15_000);
+    let v = w.svc.get("rule-my-watchlist");
+    expect(v.symbols.count).toBe(0);
+    expect(v.symbols.problem).toMatch(/stale/);
+    expect(v.gaps.open).toMatchObject({ reason: "universe-unresolved" });
+    lib.mode = "delayed";
+    await w.run(2 * 60_000, 15_000);
+    v = w.svc.get("rule-my-watchlist");
+    expect(v.symbols.problem).toMatch(/not real-time/);
+    expect(dataFiles("rule-my-watchlist")).toEqual([]);
+    expect(providers).toHaveLength(1);
+    expect(providers[0]("watchlist")).toMatchObject([{ type: "recording-rule", id: "my-watchlist", collection: "watchlist", enabled: true }]);
+    expect(providers[0]("other")).toEqual([]);
   });
 
   it("the status line counts rules, symbols, size and the last write", async () => {

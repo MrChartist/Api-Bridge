@@ -67,6 +67,7 @@ export function bootRecorder(o = {}) {
       { now: () => clock.now(), statfs: () => state.free, library: () => o.library ?? null },
     );
   let svc = make();
+  svc.attach({ library: o.library });
   const world = {
     dir,
     clock,
@@ -85,6 +86,7 @@ export function bootRecorder(o = {}) {
     async restart() {
       await svc.close();
       svc = make();
+      svc.attach({ library: o.library });
       await svc.start();
       return svc;
     },

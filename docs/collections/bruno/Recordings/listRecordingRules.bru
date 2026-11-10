@@ -1,0 +1,25 @@
+meta {
+  name: The auto-record rules
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/v1/recordings/rules
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The auto-record rules
+
+  - An API key with the `read` scope (any key).
+
+  Rules from this computer's data folder and from recorder.autoRecord.rules in the config file (source config, read-only here).
+
+  Reference: docs/api/recordings/listRecordingRules.md in the repository.
+}

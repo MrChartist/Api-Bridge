@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-150 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+169 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -194,6 +194,32 @@ Events to Telegram and a few read-only Telegram commands. Setup is on this compu
 | [DELETE /v1/notify/targets/{targetId}/chats/{chatKey}](notifications/deleteNotifyChat.md) | Remove a chat from the list | `admin`, this computer only |
 | [GET /v1/notify/events](notifications/getNotifyEvents.md) | Every event with its plain label and whether it is on | `admin` |
 | [PUT /v1/notify/events](notifications/putNotifyEvents.md) | Choose which events are sent, quiet hours and the morning reminder | `admin`, this computer only |
+
+## Recordings
+
+Saves this Bridge's own real-time data going forward (quotes, option chains) to files on this computer, by hand or by rules every trading day. Real-time class only.
+
+| Call | What it does | Needs |
+|---|---|---|
+| [GET /v1/recordings](recordings/listRecordings.md) | List recordings (meta.status is a plain status line) | `read` |
+| [POST /v1/recordings](recordings/createRecording.md) | Start a recording of quotes or an option chain | `admin`, this computer only |
+| [GET /v1/recordings/status](recordings/getRecordingsStatus.md) | One plain line about today's recording, and the numbers behind it | `read` |
+| [GET /v1/recordings/auto](recordings/getRecordingAuto.md) | Whether auto-record is on | `read` |
+| [PUT /v1/recordings/auto](recordings/putRecordingAuto.md) | Turn auto-record on or off | `admin`, this computer only |
+| [GET /v1/recordings/presets](recordings/listRecordingPresets.md) | The one-click presets | `read` |
+| [POST /v1/recordings/presets/{presetId}/apply](recordings/applyRecordingPreset.md) | Create the preset's rule and turn auto-record on | `admin`, this computer only |
+| [GET /v1/recordings/rules](recordings/listRecordingRules.md) | The auto-record rules | `read` |
+| [POST /v1/recordings/rules](recordings/createRecordingRule.md) | Add an auto-record rule | `admin`, this computer only |
+| [GET /v1/recordings/rules/{ruleId}](recordings/getRecordingRule.md) | One rule with today's state | `read` |
+| [PATCH /v1/recordings/rules/{ruleId}](recordings/patchRecordingRule.md) | Change a rule | `admin`, this computer only |
+| [DELETE /v1/recordings/rules/{ruleId}](recordings/deleteRecordingRule.md) | Delete a rule (its files stay unless deleteFiles=true) | `admin`, this computer only |
+| [GET /v1/recordings/{id}](recordings/getRecording.md) | One recording: counters, gaps, disk use, files summary | `read` |
+| [DELETE /v1/recordings/{id}](recordings/deleteRecording.md) | Delete a recording and its files | `admin`, this computer only |
+| [POST /v1/recordings/{id}/pause](recordings/pauseRecording.md) | Pause a recording | `admin`, this computer only |
+| [POST /v1/recordings/{id}/resume](recordings/resumeRecording.md) | Resume a paused recording | `admin`, this computer only |
+| [POST /v1/recordings/{id}/stop](recordings/stopRecording.md) | Stop a recording (final; the files stay) | `admin`, this computer only |
+| [GET /v1/recordings/{id}/files](recordings/listRecordingFiles.md) | The day files of a recording | `read` |
+| [GET /v1/recordings/{id}/files/{name}](recordings/getRecordingFile.md) | Download one day file as it is on disk | `read` |
 
 ## Safety
 

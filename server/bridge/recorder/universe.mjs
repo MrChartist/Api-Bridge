@@ -83,9 +83,17 @@ export function fromLibraryAnswer(res) {
     if (c) symbols.push(c);
     else if (raw) notes.push(`${raw} is not a symbol the Bridge understands and was left out.`);
   }
-  const reason = body.reason ?? body.error ?? null;
-  const ok = body.ok !== false && symbols.length > 0 && !(body.atm && typeof body.atm === "object" && body.atm.ok === false);
-  return { ok, symbols: [...new Set(symbols)], resolvedAt: body.resolvedAt ?? null, rule: typeof body.rule === "string" ? body.rule : body.rule ? JSON.stringify(body.rule) : null, notes: [...notes, ...(Array.isArray(body.notes) ? body.notes : [])], reason: ok ? null : (reason ?? (symbols.length ? "The collection could not be resolved honestly right now." : "The collection has no symbols right now.")) };
+  // The library says where the ATM price came from (atmSource) and warns when it is not a real-time one; a stale ATM
+  // normally arrives as an error, but a delayed or end-of-day source is refused here too.
+  const src = body.atmSource;
+  const srcClass = src && typeof src === "object" ? (src.class ?? src.dataClass ?? null) : null;
+  const srcText = typeof src === "string" ? src : src && typeof src === "object" ? JSON.stringify(src) : "";
+  const notRealtime = (srcClass && srcClass !== "realtime") || /delayed|eod|end-of-day|stale/i.test(typeof src === "string" ? src : "") || src?.stale === true;
+  const warnings = (Array.isArray(body.warnings) ? body.warnings : []).map((x) => (typeof x === "string" ? x : x?.message ?? JSON.stringify(x)));
+  if (notRealtime) notes.push(`The ATM price came from a source that is not real-time (${srcText}).`);
+  const reason = notRealtime ? `The collection was resolved from a price that is not real-time (${srcText}), so it was not used. A recording never guesses from a delayed or end-of-day price.` : (body.reason ?? body.error ?? null);
+  const ok = body.ok !== false && !notRealtime && symbols.length > 0 && !(body.atm && typeof body.atm === "object" && body.atm.ok === false);
+  return { ok, symbols: [...new Set(symbols)], resolvedAt: body.resolvedAt ?? null, rule: typeof body.rule === "string" ? body.rule : body.rule ? JSON.stringify(body.rule) : null, notes: [...notes, ...warnings, ...(Array.isArray(body.notes) ? body.notes : [])], reason: ok ? null : (reason ?? (symbols.length ? "The collection could not be resolved honestly right now." : "The collection has no symbols right now.")) };
 }
 
 /**

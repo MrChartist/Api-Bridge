@@ -1,0 +1,29 @@
+meta {
+  name: The day files of a recording
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/v1/recordings/:id/files
+  body: none
+  auth: bearer
+}
+
+params:path {
+  id: demo
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The day files of a recording
+
+  - An API key with the `read` scope (any key).
+
+  One file per symbol per IST trading day, named YYYY-MM-DD__EXCHANGE_SYMBOL.csv (or .jsonl; .gz after compression). The layout is in docs/guides/recording.md.
+
+  Reference: docs/api/recordings/listRecordingFiles.md in the repository.
+}
