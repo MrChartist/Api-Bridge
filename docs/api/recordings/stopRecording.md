@@ -1,6 +1,6 @@
 # Stop a recording (final; the files stay)
 
-`POST /v1/recordings/{id}/stop`
+`POST /v1/recordings/{recordingId}/stop`
 
 | | |
 |---|---|
@@ -18,7 +18,7 @@ A recording that belongs to a rule is changed through the rule (409 otherwise).
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `recordingId` | path | string | yes |  |
 
 ## Responses
 
@@ -68,7 +68,7 @@ A recording that belongs to a rule is changed through the rule (409 otherwise).
 | `nextStartAt` | string or null | no |  |
 | `issue` | object or null | no |  |
 | `filesUrl` | string | no |  |
-| `files` | object | no | On GET /v1/recordings/{id} only. |
+| `files` | object | no | On GET /v1/recordings/{recordingId} only. |
 
 ## Errors
 
@@ -87,7 +87,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X POST "http://127.0.0.1:4300/v1/recordings/demo/stop" \
+curl -s -X POST "http://127.0.0.1:4300/v1/recordings/<recordingId>/stop" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -98,6 +98,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/recordings/demo/stop")
+response = bridge.request("POST", "/v1/recordings/<recordingId>/stop")
 print(response.body)
 ```

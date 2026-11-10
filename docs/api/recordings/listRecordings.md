@@ -61,7 +61,7 @@ A recording saves this Bridge's own real-time data going forward, because broker
 | `nextStartAt` | string or null | no |  |
 | `issue` | object or null | no |  |
 | `filesUrl` | string | no |  |
-| `files` | object | no | On GET /v1/recordings/{id} only. |
+| `files` | object | no | On GET /v1/recordings/{recordingId} only. |
 
 ## Errors
 

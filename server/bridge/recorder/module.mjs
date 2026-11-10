@@ -31,13 +31,13 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/recordings/rules/:ruleId", READ, "getRule"],
   ["PATCH", "/v1/recordings/rules/:ruleId", ADMIN_LOCAL_JSON, "patchRule"],
   ["DELETE", "/v1/recordings/rules/:ruleId", ADMIN_LOCAL, "deleteRule"],
-  ["GET", "/v1/recordings/:id", READ, "get"],
-  ["DELETE", "/v1/recordings/:id", ADMIN_LOCAL, "remove"],
-  ["POST", "/v1/recordings/:id/pause", ADMIN_LOCAL, "pause"],
-  ["POST", "/v1/recordings/:id/resume", ADMIN_LOCAL, "resume"],
-  ["POST", "/v1/recordings/:id/stop", ADMIN_LOCAL, "stop"],
-  ["GET", "/v1/recordings/:id/files", READ, "files"],
-  ["GET", "/v1/recordings/:id/files/:name", READ, "getFile"],
+  ["GET", "/v1/recordings/:recordingId", READ, "get"],
+  ["DELETE", "/v1/recordings/:recordingId", ADMIN_LOCAL, "remove"],
+  ["POST", "/v1/recordings/:recordingId/pause", ADMIN_LOCAL, "pause"],
+  ["POST", "/v1/recordings/:recordingId/resume", ADMIN_LOCAL, "resume"],
+  ["POST", "/v1/recordings/:recordingId/stop", ADMIN_LOCAL, "stop"],
+  ["GET", "/v1/recordings/:recordingId/files", READ, "files"],
+  ["GET", "/v1/recordings/:recordingId/files/:name", READ, "getFile"],
 ]);
 
 /**

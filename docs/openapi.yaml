@@ -4146,9 +4146,9 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
-  /v1/recordings/{id}:
+  /v1/recordings/{recordingId}:
     parameters:
-      - name: id
+      - name: recordingId
         in: path
         required: true
         schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
@@ -4185,9 +4185,9 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
-  /v1/recordings/{id}/pause:
+  /v1/recordings/{recordingId}/pause:
     parameters:
-      - name: id
+      - name: recordingId
         in: path
         required: true
         schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
@@ -4212,9 +4212,9 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
-  /v1/recordings/{id}/resume:
+  /v1/recordings/{recordingId}/resume:
     parameters:
-      - name: id
+      - name: recordingId
         in: path
         required: true
         schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
@@ -4239,9 +4239,9 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
-  /v1/recordings/{id}/stop:
+  /v1/recordings/{recordingId}/stop:
     parameters:
-      - name: id
+      - name: recordingId
         in: path
         required: true
         schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
@@ -4267,9 +4267,9 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
-  /v1/recordings/{id}/files:
+  /v1/recordings/{recordingId}/files:
     parameters:
-      - name: id
+      - name: recordingId
         in: path
         required: true
         schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
@@ -4294,9 +4294,9 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
-  /v1/recordings/{id}/files/{name}:
+  /v1/recordings/{recordingId}/files/{name}:
     parameters:
-      - name: id
+      - name: recordingId
         in: path
         required: true
         schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
@@ -7503,7 +7503,7 @@ components:
         nextStartAt: { type: [string, "null"] }
         issue: { type: [object, "null"], additionalProperties: true }
         filesUrl: { type: string }
-        files: { type: object, description: "On GET /v1/recordings/{id} only.", properties: { count: { type: integer }, firstDate: { type: [string, "null"] }, lastDate: { type: [string, "null"] } } }
+        files: { type: object, description: "On GET /v1/recordings/{recordingId} only.", properties: { count: { type: integer }, firstDate: { type: [string, "null"] }, lastDate: { type: [string, "null"] } } }
     RecordingGap:
       type: object
       properties:

@@ -1,6 +1,6 @@
 # Download one day file as it is on disk
 
-`GET /v1/recordings/{id}/files/{name}`
+`GET /v1/recordings/{recordingId}/files/{name}`
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ Only names from the file list open. The answer carries X-Data-Class realtime.
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `recordingId` | path | string | yes |  |
 | `name` | path | string | yes |  |
 
 ## Responses
@@ -43,7 +43,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s "http://127.0.0.1:4300/v1/recordings/demo/files/<name>" \
+curl -s "http://127.0.0.1:4300/v1/recordings/<recordingId>/files/<name>" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -54,6 +54,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("GET", "/v1/recordings/demo/files/<name>")
+response = bridge.request("GET", "/v1/recordings/<recordingId>/files/<name>")
 print(response.body)
 ```

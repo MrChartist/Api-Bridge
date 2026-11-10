@@ -1,6 +1,6 @@
 # One recording: counters, gaps, disk use, files summary
 
-`GET /v1/recordings/{id}`
+`GET /v1/recordings/{recordingId}`
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ gaps lists stretches with no data and why (feed silent, login missing, Bridge st
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `recordingId` | path | string | yes |  |
 
 ## Responses
 
@@ -67,7 +67,7 @@ gaps lists stretches with no data and why (feed silent, login missing, Bridge st
 | `nextStartAt` | string or null | no |  |
 | `issue` | object or null | no |  |
 | `filesUrl` | string | no |  |
-| `files` | object | no | On GET /v1/recordings/{id} only. |
+| `files` | object | no | On GET /v1/recordings/{recordingId} only. |
 
 ## Errors
 
@@ -84,7 +84,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s "http://127.0.0.1:4300/v1/recordings/demo" \
+curl -s "http://127.0.0.1:4300/v1/recordings/<recordingId>" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -95,6 +95,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("GET", "/v1/recordings/demo")
+response = bridge.request("GET", "/v1/recordings/<recordingId>")
 print(response.body)
 ```

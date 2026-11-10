@@ -1160,11 +1160,11 @@
     },
     {
       "headings": [
-        "DELETE /v1/recordings/{id}"
+        "DELETE /v1/recordings/{recordingId}"
       ],
       "kind": "endpoint",
       "path": "docs/api/recordings/deleteRecording.md",
-      "text": "DELETE /v1/recordings/{id}. A recording that belongs to a rule is deleted by deleting the rule (409 otherwise).",
+      "text": "DELETE /v1/recordings/{recordingId}. A recording that belongs to a rule is deleted by deleting the rule (409 otherwise).",
       "title": "Delete a recording and its files"
     },
     {
@@ -1178,11 +1178,11 @@
     },
     {
       "headings": [
-        "GET /v1/recordings/{id}"
+        "GET /v1/recordings/{recordingId}"
       ],
       "kind": "endpoint",
       "path": "docs/api/recordings/getRecording.md",
-      "text": "GET /v1/recordings/{id}. gaps lists stretches with no data and why (feed silent, login missing, Bridge stopped, budget in use, disk limit).",
+      "text": "GET /v1/recordings/{recordingId}. gaps lists stretches with no data and why (feed silent, login missing, Bridge stopped, budget in use, disk limit).",
       "title": "One recording: counters, gaps, disk use, files summary"
     },
     {
@@ -1196,11 +1196,11 @@
     },
     {
       "headings": [
-        "GET /v1/recordings/{id}/files/{name}"
+        "GET /v1/recordings/{recordingId}/files/{name}"
       ],
       "kind": "endpoint",
       "path": "docs/api/recordings/getRecordingFile.md",
-      "text": "GET /v1/recordings/{id}/files/{name}. Only names from the file list open.",
+      "text": "GET /v1/recordings/{recordingId}/files/{name}. Only names from the file list open.",
       "title": "Download one day file as it is on disk"
     },
     {
@@ -1223,11 +1223,11 @@
     },
     {
       "headings": [
-        "GET /v1/recordings/{id}/files"
+        "GET /v1/recordings/{recordingId}/files"
       ],
       "kind": "endpoint",
       "path": "docs/api/recordings/listRecordingFiles.md",
-      "text": "GET /v1/recordings/{id}/files. One file per symbol per IST trading day, named YYYY-MM-DDEXCHANGESYMBOL.csv (or .jsonl; .gz after compression).",
+      "text": "GET /v1/recordings/{recordingId}/files. One file per symbol per IST trading day, named YYYY-MM-DDEXCHANGESYMBOL.csv (or .jsonl; .gz after compression).",
       "title": "The day files of a recording"
     },
     {
@@ -1268,11 +1268,11 @@
     },
     {
       "headings": [
-        "POST /v1/recordings/{id}/pause"
+        "POST /v1/recordings/{recordingId}/pause"
       ],
       "kind": "endpoint",
       "path": "docs/api/recordings/pauseRecording.md",
-      "text": "POST /v1/recordings/{id}/pause.",
+      "text": "POST /v1/recordings/{recordingId}/pause.",
       "title": "Pause a recording"
     },
     {
@@ -1286,20 +1286,20 @@
     },
     {
       "headings": [
-        "POST /v1/recordings/{id}/resume"
+        "POST /v1/recordings/{recordingId}/resume"
       ],
       "kind": "endpoint",
       "path": "docs/api/recordings/resumeRecording.md",
-      "text": "POST /v1/recordings/{id}/resume.",
+      "text": "POST /v1/recordings/{recordingId}/resume.",
       "title": "Resume a paused recording"
     },
     {
       "headings": [
-        "POST /v1/recordings/{id}/stop"
+        "POST /v1/recordings/{recordingId}/stop"
       ],
       "kind": "endpoint",
       "path": "docs/api/recordings/stopRecording.md",
-      "text": "POST /v1/recordings/{id}/stop. A recording that belongs to a rule is changed through the rule (409 otherwise).",
+      "text": "POST /v1/recordings/{recordingId}/stop. A recording that belongs to a rule is changed through the rule (409 otherwise).",
       "title": "Stop a recording (final; the files stay)"
     },
     {

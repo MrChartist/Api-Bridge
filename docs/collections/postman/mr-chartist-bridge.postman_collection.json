@@ -3424,13 +3424,13 @@
               "path": [
                 "v1",
                 "recordings",
-                ":id"
+                ":recordingId"
               ],
-              "raw": "{{baseUrl}}/v1/recordings/:id",
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "recordingId",
+                  "value": "<recordingId>"
                 }
               ]
             }
@@ -3450,13 +3450,13 @@
               "path": [
                 "v1",
                 "recordings",
-                ":id"
+                ":recordingId"
               ],
-              "raw": "{{baseUrl}}/v1/recordings/:id",
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "recordingId",
+                  "value": "<recordingId>"
                 }
               ]
             }
@@ -3476,14 +3476,14 @@
               "path": [
                 "v1",
                 "recordings",
-                ":id",
+                ":recordingId",
                 "pause"
               ],
-              "raw": "{{baseUrl}}/v1/recordings/:id/pause",
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/pause",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "recordingId",
+                  "value": "<recordingId>"
                 }
               ]
             }
@@ -3503,14 +3503,14 @@
               "path": [
                 "v1",
                 "recordings",
-                ":id",
+                ":recordingId",
                 "resume"
               ],
-              "raw": "{{baseUrl}}/v1/recordings/:id/resume",
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/resume",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "recordingId",
+                  "value": "<recordingId>"
                 }
               ]
             }
@@ -3530,14 +3530,14 @@
               "path": [
                 "v1",
                 "recordings",
-                ":id",
+                ":recordingId",
                 "stop"
               ],
-              "raw": "{{baseUrl}}/v1/recordings/:id/stop",
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/stop",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "recordingId",
+                  "value": "<recordingId>"
                 }
               ]
             }
@@ -3557,14 +3557,14 @@
               "path": [
                 "v1",
                 "recordings",
-                ":id",
+                ":recordingId",
                 "files"
               ],
-              "raw": "{{baseUrl}}/v1/recordings/:id/files",
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/files",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "recordingId",
+                  "value": "<recordingId>"
                 }
               ]
             }
@@ -3584,15 +3584,15 @@
               "path": [
                 "v1",
                 "recordings",
-                ":id",
+                ":recordingId",
                 "files",
                 ":name"
               ],
-              "raw": "{{baseUrl}}/v1/recordings/:id/files/:name",
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/files/:name",
               "variable": [
                 {
-                  "key": "id",
-                  "value": "demo"
+                  "key": "recordingId",
+                  "value": "<recordingId>"
                 },
                 {
                   "key": "name",

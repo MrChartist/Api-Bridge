@@ -93,7 +93,7 @@ Example:
 | `nextStartAt` | string or null | no |  |
 | `issue` | object or null | no |  |
 | `filesUrl` | string | no |  |
-| `files` | object | no | On GET /v1/recordings/{id} only. |
+| `files` | object | no | On GET /v1/recordings/{recordingId} only. |
 
 ## Errors
 

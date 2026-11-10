@@ -3212,7 +3212,7 @@ A gap is a stretch inside a session when nothing was saved. Each one has a start
 | `bridge-stopped` | the Bridge was not running |
 | `disk-full` | a disk limit was reached |
 
-A gap opens after silence of `recorder.gapAfterSec` (default three intervals, at least 30 seconds), except login-missing and disk-full, which open at once. They are kept in `gaps.jsonl` in the recording's folder, shown in `GET /v1/recordings/{id}`, and sent as `recording.gap` events (`state` open, then closed). A quiet symbol that simply has not traded is not a gap: the feed is alive.
+A gap opens after silence of `recorder.gapAfterSec` (default three intervals, at least 30 seconds), except login-missing and disk-full, which open at once. They are kept in `gaps.jsonl` in the recording's folder, shown in `GET /v1/recordings/{recordingId}`, and sent as `recording.gap` events (`state` open, then closed). A quiet symbol that simply has not traded is not a gap: the feed is alive.
 
 ## Files
 
@@ -3239,7 +3239,7 @@ Columns (CSV; JSON lines use the same names). Empty means "not known":
 - `class`: always `realtime`.
 - `spot`: the underlying's price in the chain snapshot. `iv` is in percent.
 
-List and download files through the API (`GET /v1/recordings/{id}/files`, `.../files/{name}`), the dashboard, or just open them in Excel or Python. A crash can leave the last line unfinished; the next write starts on a fresh line and readers skip the torn one.
+List and download files through the API (`GET /v1/recordings/{recordingId}/files`, `.../files/{name}`), the dashboard, or just open them in Excel or Python. A crash can leave the last line unfinished; the next write starts on a fresh line and readers skip the torn one.
 
 ### Reading them back
 
@@ -3300,8 +3300,8 @@ Reading needs a `read` key. Starting, changing or deleting a recording or a rule
 |---|---|
 | `GET /v1/recordings`, `POST /v1/recordings` | list, start a manual recording |
 | `GET /v1/recordings/status` | the plain line and numbers |
-| `GET /v1/recordings/{id}`, `DELETE`, `POST .../pause`, `.../resume`, `.../stop` | one recording |
-| `GET /v1/recordings/{id}/files`, `.../files/{name}` | the day files |
+| `GET /v1/recordings/{recordingId}`, `DELETE`, `POST .../pause`, `.../resume`, `.../stop` | one recording |
+| `GET /v1/recordings/{recordingId}/files`, `.../files/{name}` | the day files |
 | `GET/PUT /v1/recordings/auto` | the auto-record switch |
 | `GET/POST /v1/recordings/rules`, `GET/PATCH/DELETE /v1/recordings/rules/{ruleId}` | rules |
 | `GET /v1/recordings/presets`, `POST .../presets/{preset}/apply` | presets |

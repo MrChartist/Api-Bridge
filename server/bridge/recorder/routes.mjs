@@ -9,9 +9,9 @@
  *   GET    /v1/recordings/auto, PUT /v1/recordings/auto   the auto-record switch (off until a person turns it on)
  *   GET    /v1/recordings/presets, POST /v1/recordings/presets/{preset}/apply
  *   GET/POST /v1/recordings/rules, GET/PATCH/DELETE /v1/recordings/rules/{ruleId}
- *   GET    /v1/recordings/{id}, DELETE /v1/recordings/{id}
- *   POST   /v1/recordings/{id}/pause | resume | stop
- *   GET    /v1/recordings/{id}/files, GET /v1/recordings/{id}/files/{name}
+ *   GET    /v1/recordings/{recordingId}, DELETE /v1/recordings/{recordingId}
+ *   POST   /v1/recordings/{recordingId}/pause | resume | stop
+ *   GET    /v1/recordings/{recordingId}/files, GET /v1/recordings/{recordingId}/files/{name}
  */
 import { pipeline } from "node:stream/promises";
 import { z } from "zod";
@@ -36,7 +36,7 @@ const presetBody = z.object({ collection: z.string().trim().min(1).max(80).optio
 export function createRecorderRoutes(deps) {
   const svc = () => deps.recorder;
   const recId = (ctx) => {
-    const id = String(ctx.params.id ?? "");
+    const id = String(ctx.params.recordingId ?? "");
     if (!ID_RE.test(id)) throw new BridgeError("NOT_FOUND", "No recording with this id.");
     return id;
   };

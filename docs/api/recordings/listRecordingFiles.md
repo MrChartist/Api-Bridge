@@ -1,6 +1,6 @@
 # The day files of a recording
 
-`GET /v1/recordings/{id}/files`
+`GET /v1/recordings/{recordingId}/files`
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ One file per symbol per IST trading day, named YYYY-MM-DD__EXCHANGE_SYMBOL.csv (
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `recordingId` | path | string | yes |  |
 
 ## Responses
 
@@ -62,7 +62,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s "http://127.0.0.1:4300/v1/recordings/demo/files" \
+curl -s "http://127.0.0.1:4300/v1/recordings/<recordingId>/files" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -73,6 +73,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("GET", "/v1/recordings/demo/files")
+response = bridge.request("GET", "/v1/recordings/<recordingId>/files")
 print(response.body)
 ```

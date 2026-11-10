@@ -213,13 +213,13 @@ Saves this Bridge's own real-time data going forward (quotes, option chains) to 
 | [GET /v1/recordings/rules/{ruleId}](recordings/getRecordingRule.md) | One rule with today's state | `read` |
 | [PATCH /v1/recordings/rules/{ruleId}](recordings/patchRecordingRule.md) | Change a rule | `admin`, this computer only |
 | [DELETE /v1/recordings/rules/{ruleId}](recordings/deleteRecordingRule.md) | Delete a rule (its files stay unless deleteFiles=true) | `admin`, this computer only |
-| [GET /v1/recordings/{id}](recordings/getRecording.md) | One recording: counters, gaps, disk use, files summary | `read` |
-| [DELETE /v1/recordings/{id}](recordings/deleteRecording.md) | Delete a recording and its files | `admin`, this computer only |
-| [POST /v1/recordings/{id}/pause](recordings/pauseRecording.md) | Pause a recording | `admin`, this computer only |
-| [POST /v1/recordings/{id}/resume](recordings/resumeRecording.md) | Resume a paused recording | `admin`, this computer only |
-| [POST /v1/recordings/{id}/stop](recordings/stopRecording.md) | Stop a recording (final; the files stay) | `admin`, this computer only |
-| [GET /v1/recordings/{id}/files](recordings/listRecordingFiles.md) | The day files of a recording | `read` |
-| [GET /v1/recordings/{id}/files/{name}](recordings/getRecordingFile.md) | Download one day file as it is on disk | `read` |
+| [GET /v1/recordings/{recordingId}](recordings/getRecording.md) | One recording: counters, gaps, disk use, files summary | `read` |
+| [DELETE /v1/recordings/{recordingId}](recordings/deleteRecording.md) | Delete a recording and its files | `admin`, this computer only |
+| [POST /v1/recordings/{recordingId}/pause](recordings/pauseRecording.md) | Pause a recording | `admin`, this computer only |
+| [POST /v1/recordings/{recordingId}/resume](recordings/resumeRecording.md) | Resume a paused recording | `admin`, this computer only |
+| [POST /v1/recordings/{recordingId}/stop](recordings/stopRecording.md) | Stop a recording (final; the files stay) | `admin`, this computer only |
+| [GET /v1/recordings/{recordingId}/files](recordings/listRecordingFiles.md) | The day files of a recording | `read` |
+| [GET /v1/recordings/{recordingId}/files/{name}](recordings/getRecordingFile.md) | Download one day file as it is on disk | `read` |
 
 ## Safety
 

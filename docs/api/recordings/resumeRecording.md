@@ -1,6 +1,6 @@
 # Resume a paused recording
 
-`POST /v1/recordings/{id}/resume`
+`POST /v1/recordings/{recordingId}/resume`
 
 | | |
 |---|---|
@@ -16,7 +16,7 @@
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `recordingId` | path | string | yes |  |
 
 ## Responses
 
@@ -66,7 +66,7 @@
 | `nextStartAt` | string or null | no |  |
 | `issue` | object or null | no |  |
 | `filesUrl` | string | no |  |
-| `files` | object | no | On GET /v1/recordings/{id} only. |
+| `files` | object | no | On GET /v1/recordings/{recordingId} only. |
 
 ## Errors
 
@@ -85,7 +85,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X POST "http://127.0.0.1:4300/v1/recordings/demo/resume" \
+curl -s -X POST "http://127.0.0.1:4300/v1/recordings/<recordingId>/resume" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -96,6 +96,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/recordings/demo/resume")
+response = bridge.request("POST", "/v1/recordings/<recordingId>/resume")
 print(response.body)
 ```

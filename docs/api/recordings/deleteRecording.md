@@ -1,6 +1,6 @@
 # Delete a recording and its files
 
-`DELETE /v1/recordings/{id}`
+`DELETE /v1/recordings/{recordingId}`
 
 | | |
 |---|---|
@@ -18,7 +18,7 @@ A recording that belongs to a rule is deleted by deleting the rule (409 otherwis
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `id` | path | string | yes |  |
+| `recordingId` | path | string | yes |  |
 
 ## Responses
 
@@ -45,7 +45,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X DELETE "http://127.0.0.1:4300/v1/recordings/demo" \
+curl -s -X DELETE "http://127.0.0.1:4300/v1/recordings/<recordingId>" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -56,6 +56,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("DELETE", "/v1/recordings/demo")
+response = bridge.request("DELETE", "/v1/recordings/<recordingId>")
 print(response.body)
 ```

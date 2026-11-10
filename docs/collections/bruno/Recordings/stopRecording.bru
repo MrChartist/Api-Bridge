@@ -5,13 +5,13 @@ meta {
 }
 
 post {
-  url: {{baseUrl}}/v1/recordings/:id/stop
+  url: {{baseUrl}}/v1/recordings/:recordingId/stop
   body: none
   auth: bearer
 }
 
 params:path {
-  id: demo
+  recordingId: <recordingId>
 }
 
 auth:bearer {

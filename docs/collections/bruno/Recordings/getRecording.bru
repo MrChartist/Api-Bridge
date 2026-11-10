@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/v1/recordings/:id
+  url: {{baseUrl}}/v1/recordings/:recordingId
   body: none
   auth: bearer
 }
 
 params:path {
-  id: demo
+  recordingId: <recordingId>
 }
 
 auth:bearer {
