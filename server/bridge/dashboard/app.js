@@ -344,12 +344,15 @@ function revalidate(path, served) {
 /**
  * Call the Bridge. Returns { data, headers, status, ms, text, cached? }. With raw: true, error answers are returned
  * too (and nothing is shared or remembered: the test console shows the real call). `fresh: true` skips the memory.
+ * `idempotencyKey` is sent as the Idempotency-Key header (orders always carry one).
  * `paintOld: true` treats this read like a page switch: a remembered answer up to PAINT_FROM_CACHE_MS old (a
  * prefetch, say) is returned at once with `cached: "paint"` while a fresh one is fetched behind it (the caller reads
  * again to get it; the second read joins that request).
  */
-export async function api(path, { method = "GET", body, raw = false, fresh = false, paintOld = false } = {}) {
+export async function api(path, { method = "GET", body, raw = false, fresh = false, paintOld = false, idempotencyKey = null } = {}) {
   const headers = baseHeaders();
+  // A write a person might repeat (a double click, a retry) carries a key, so the Bridge answers the repeat with the first result.
+  if (idempotencyKey && method !== "GET") headers["Idempotency-Key"] = idempotencyKey;
   if (method !== "GET" || raw) {
     if (body !== undefined) headers["Content-Type"] = "application/json";
     const forget = forgetsAnswers(method, path, body);
@@ -950,6 +953,7 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
   trigger?.setAttribute("aria-expanded", "true");
   if (phone) {
     const d = document.getElementById("dialog");
+    scrubOnClose(d);
     d.classList.add("sheet");
     el = h("div", { class: `pop-sheet ${cls}`.trim() }, headEl, body);
     d.replaceChildren(h("div", { class: "sheet-grabber", "aria-hidden": "true" }), el);
@@ -1057,6 +1061,20 @@ export const istDateTime = (iso) => (validDate(iso) ? IST_DATE_TIME.format(new D
 
 // ── Sheet (modal dialog) ──
 
+/**
+ * Empty the shared dialog once it has closed. A sheet can hold a secret shown once (a new API key, a ready-to-paste snippet);
+ * a closed <dialog> is still in the page, so without this the key stays in the DOM (readable by an extension or a saved page)
+ * until another sheet reuses the dialog. A sheet that opens again before the close event arrives is left alone.
+ * Installed once per dialog, before any sheet adds its own close listener.
+ */
+export function scrubOnClose(d) {
+  if (!d || d.scrubsOnClose) return;
+  d.scrubsOnClose = true;
+  d.addEventListener("close", () => {
+    if (!d.open) d.replaceChildren();
+  });
+}
+
 /** While a sheet or the palette is open the page behind it does not scroll. */
 export function lockScroll(on) {
   document.documentElement.classList.toggle("sheet-open", Boolean(on));
@@ -1073,6 +1091,7 @@ export function lockScroll(on) {
  */
 export function modal({ title, body, buttons = [], canClose = null, dirty = null }) {
   const d = document.getElementById("dialog");
+  scrubOnClose(d);
   d.classList.add("sheet");
   return new Promise((resolve) => {
     const token = (modal.token = {});

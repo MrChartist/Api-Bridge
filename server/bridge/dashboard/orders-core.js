@@ -218,6 +218,27 @@ export function placeAgainBody(o, left) {
   return { account: o.accountId, symbol: o.symbol, side: o.side, quantity: left, product: o.product, orderType: o.orderType, validity: o.validity ?? "DAY", mode: "paper", ...(o.price ? { price: o.price } : {}), ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}), ...(o.tag ? { tag: o.tag } : {}) };
 }
 
+/**
+ * One Idempotency-Key per order a person means to place. The same body always gets the same key (a double click, a retry after
+ * a network failure, Undo pressed twice), so the Bridge can answer the repeat with the first order instead of placing a second;
+ * a different body gets a new key (the Bridge refuses one key with two different bodies). Pure apart from crypto.randomUUID.
+ * @param {() => string} [uuid]
+ */
+export function createOrderKeys(uuid = () => globalThis.crypto.randomUUID()) {
+  let lastBody = null;
+  let lastKey = null;
+  return {
+    keyFor(body) {
+      const text = JSON.stringify(body);
+      if (text !== lastBody) {
+        lastBody = text;
+        lastKey = `dash-${uuid()}`;
+      }
+      return lastKey;
+    },
+  };
+}
+
 /** The longest reason a person can give when declining (the API's limit). */
 export const DECLINE_REASON_MAX = 200;
 

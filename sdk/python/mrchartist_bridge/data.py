@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
+from . import frames
 from .errors import BridgeApiError, DownloadFailed, NotFound, WaitTimeout
 from .records import Freshness, ItemProblem, Result, _d, _int, _num, parse_time, problems_from
 
@@ -1304,7 +1305,7 @@ class Collections(_Ns):
             w = csv.writer(buf, lineterminator="\n")
             w.writerow(["symbol"])
             for s in syms:
-                w.writerow([s])
+                w.writerow([frames.guard_formula_text(str(s))])
             text = buf.getvalue()
         else:
             raise ValueError("format must be json or csv")
@@ -1337,9 +1338,9 @@ class Collections(_Ns):
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         syms: List[str] = []
         if lines and re.match(r"^[\"']?symbols?[\"']?(,|$)", lines[0], re.I):
-            syms = [row["symbol" if "symbol" in row else "symbols"].strip() for row in csv.DictReader(io.StringIO("\n".join(lines)), skipinitialspace=True) if row.get("symbol" if "symbol" in row else "symbols")]
+            syms = [frames.unguard_formula_text(row["symbol" if "symbol" in row else "symbols"].strip()) for row in csv.DictReader(io.StringIO("\n".join(lines)), skipinitialspace=True) if row.get("symbol" if "symbol" in row else "symbols")]
         else:
-            syms = [ln.split(",")[0].strip().strip("\"'") for ln in lines]
+            syms = [frames.unguard_formula_text(ln.split(",")[0].strip().strip("\"'")) for ln in lines]
         return self.create(name, syms, description=description, tags=tags)
 
 

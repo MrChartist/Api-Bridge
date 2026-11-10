@@ -150,6 +150,21 @@ describe("mc-bridge init <starter>", () => {
     },
   });
 
+  it("on Windows the next step says py, not python3, and does not rely on && (audit F9)", async () => {
+    const cwd = mkdtempSync(join(work, "cwd-"));
+    const t = io(cwd);
+    expect(await runInitStarter({ id: "python" }, {}, t, { ...deps(), platform: "win32" })).toBe(0);
+    const text = t.lines.join("\n");
+    expect(text).toContain("Next: cd bridge-python\nThen: py main.py");
+    expect(text).not.toContain("python3 main.py");
+    const t2 = io(mkdtempSync(join(work, "cwd-")));
+    await runInitStarter({ id: "curl" }, {}, t2, { ...deps(), platform: "win32" });
+    expect(t2.lines.join("\n")).toContain("Then: bash quote.sh (in Git Bash or WSL)");
+    const t3 = io(mkdtempSync(join(work, "cwd-")));
+    await runInitStarter({ id: "python" }, {}, t3, { ...deps(), platform: "linux" });
+    expect(t3.lines.join("\n")).toContain("Next: cd bridge-python && python3 main.py");
+  });
+
   it("writes a project in ./bridge-<starter>, makes no key without --with-key, and says what to do next", async () => {
     const cwd = mkdtempSync(join(work, "cwd-"));
     const t = io(cwd);
@@ -612,6 +627,121 @@ describe("starter hardening (audit S13)", () => {
     // and it still works against the Bridge
     const ok = await run("bash", ["-c", `. ./lib.sh; bridge GET /v1/health && echo "status=$BRIDGE_STATUS"`], { cwd: dir });
     expect(ok.out).toMatch(/status=200/);
+  });
+
+  describe("a proxy in the environment never sees the key (audit F5)", () => {
+    // A fake proxy: it records every plain request and every CONNECT, and answers 502. The starter must reach the demo Bridge
+    // directly, so nothing arrives here, and the call still works.
+    let proxy;
+    let hits;
+    let proxyEnv;
+    beforeAll(async () => {
+      hits = [];
+      proxy = createServer((req, res) => (hits.push(`${req.method} ${req.url} auth=${req.headers.authorization ?? ""}`), res.writeHead(502).end("no")));
+      proxy.on("connect", (req, socket) => (hits.push(`CONNECT ${req.url}`), socket.end("HTTP/1.1 502 no\r\n\r\n")));
+      await new Promise((r) => proxy.listen(0, "127.0.0.1", r));
+      const url = `http://127.0.0.1:${proxy.address().port}`;
+      // no_proxy is set empty (a sandbox or a person's machine may list loopback there; the starters must not rely on it)
+      proxyEnv = { http_proxy: url, HTTP_PROXY: url, https_proxy: url, HTTPS_PROXY: url, all_proxy: url, ALL_PROXY: url, no_proxy: "", NO_PROXY: "", NODE_USE_ENV_PROXY: "1" };
+    });
+    afterAll(async () => {
+      await new Promise((r) => proxy.close(r));
+    });
+
+    it("python: the call goes straight to a loopback Bridge, not through the proxy", async (ctx) => {
+      if (!(await hasCmd("python3"))) return ctx.skip();
+      hits.length = 0;
+      const r = await run("python3", ["main.py"], { cwd: project("python", { key: readKey }), env: proxyEnv });
+      expect(hits).toEqual([]);
+      expect(r.code, r.err).toBe(0);
+      expect(r.out).toMatch(/is ok/);
+    });
+
+    it("python: only a loopback address skips the proxy", async (ctx) => {
+      if (!(await hasCmd("python3"))) return ctx.skip();
+      const dir = project("python", { key: readKey });
+      const r = await run("python3", ["-c", "from bridge import is_loopback as f\nprint([f(u) for u in ('http://127.0.0.1:4300','http://localhost:4300','http://[::1]:4300','http://192.168.1.5:4300','https://bridge.example.com','http://127.0.0.1.evil.com')])"], { cwd: dir });
+      expect(r.out.trim()).toBe("[True, True, True, False, False, False]");
+    });
+
+    it("curl and node: only a loopback address is treated as this computer", async (ctx) => {
+      const dir = project("node", { key: readKey });
+      const { keepLoopbackDirect } = await import(join(dir, "bridge.mjs"));
+      const before = { NO_PROXY: process.env.NO_PROXY, no_proxy: process.env.no_proxy };
+      try {
+        for (const [url, loop] of [["http://127.0.0.1:4300", true], ["http://localhost:4300", true], ["http://[::1]:4300", true], ["http://127.0.0.1.evil.com", false], ["http://192.168.1.5:4300", false], ["https://bridge.example.com", false]]) {
+          process.env.NO_PROXY = "corp.example.com";
+          process.env.no_proxy = "";
+          keepLoopbackDirect(url);
+          expect(process.env.NO_PROXY.split(",").includes("127.0.0.1"), url).toBe(loop);
+          if (loop) expect(process.env.NO_PROXY).toContain("corp.example.com"); // what was there stays
+        }
+      } finally {
+        for (const [k, v] of Object.entries(before)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+      }
+      if (!(await hasCmd("bash"))) return ctx.skip();
+      const bare = mkdtempSync(join(work, "lib-")); // lib.sh alone: the project's .env would set BRIDGE_URL itself
+      writeFileSync(join(bare, "lib.sh"), readFileSync(join(project("curl"), "lib.sh")));
+      const lib = join(bare, "lib.sh");
+      for (const [url, loop] of [["http://127.0.0.1:4300", 1], ["http://localhost", 1], ["http://[::1]:4300", 1], ["http://127.0.0.1.evil.com", 0], ["http://10.0.0.1:80", 0], ["https://b.example.com", 0]]) {
+        const r = await run("bash", ["-c", `. '${lib}'; echo "$BRIDGE_LOOPBACK"`], { cwd: tmpdir(), env: { BRIDGE_URL: url } });
+        expect(r.out.trim(), url).toBe(String(loop));
+      }
+    });
+
+    it("curl: the call goes straight to a loopback Bridge, not through the proxy", async (ctx) => {
+      if (!(await hasCmd("bash")) || !(await hasCmd("curl"))) return ctx.skip();
+      hits.length = 0;
+      const dir = project("curl", { key: readKey });
+      const q = await run("bash", ["quote.sh"], { cwd: dir, env: proxyEnv });
+      expect(q.code, q.err).toBe(0);
+      const e = await run("bash", ["events.sh", "1"], { cwd: dir, env: proxyEnv });
+      expect(e.code, e.err).toBe(0);
+      expect(hits).toEqual([]);
+    });
+
+    it("curl: a Ctrl+C in the middle of a call leaves no key file in the temporary folder (audit F14)", async (ctx) => {
+      if (process.platform === "win32" || !(await hasCmd("bash")) || !(await hasCmd("curl"))) return ctx.skip();
+      const slow = createServer(() => {}); // never answers
+      await new Promise((r) => slow.listen(0, "127.0.0.1", r));
+      const tmp = mkdtempSync(join(work, "tmpdir-"));
+      const dir = project("curl", { key: FAKE_KEY });
+      writeFileSync(join(dir, ".env"), `BRIDGE_KEY=${FAKE_KEY}\nBRIDGE_URL=http://127.0.0.1:${slow.address().port}\n`);
+      try {
+        const child = spawn("bash", ["-c", `. ./lib.sh; bridge GET /v1/health`], { cwd: dir, env: { ...process.env, TMPDIR: tmp }, stdio: "ignore" });
+        const closed = new Promise((r) => child.on("close", r));
+        await new Promise((r) => setTimeout(r, 700));
+        expect(readdirSync(tmp).length).toBeGreaterThan(0); // the key file exists while the call is running
+        child.kill("SIGINT");
+        await closed;
+        await new Promise((r) => setTimeout(r, 100));
+        expect(readdirSync(tmp)).toEqual([]);
+      } finally {
+        await new Promise((r) => slow.close(r));
+      }
+    });
+
+    it("curl: the key is not on the command line of the events script either", () => {
+      const events = readFileSync(join(project("curl"), "events.sh"), "utf8");
+      expect(events).not.toMatch(/-H "Authorization: Bearer \$BRIDGE_KEY"/);
+      expect(events).toMatch(/-H "@\$keyfile"/);
+    });
+
+    it("node: fetch is told to skip the proxy for a loopback Bridge (node, mcp-client, sheets, webhook-receiver)", async () => {
+      hits.length = 0;
+      const dir = project("node", { key: readKey });
+      const r = await run(process.execPath, ["index.mjs"], { cwd: dir, env: proxyEnv });
+      expect(hits).toEqual([]);
+      expect(r.code, r.err).toBe(0);
+      expect(r.out).toMatch(/is ok/);
+      const sheets = await run(process.execPath, ["check.mjs"], { cwd: project("sheets", { key: readKey }), env: proxyEnv });
+      expect(sheets.code, sheets.err).toBe(0);
+      const mcp = await run(process.execPath, ["mcp.mjs"], { cwd: project("mcp-client", { key: readKey }), env: proxyEnv });
+      expect(mcp.code, mcp.err).toBe(0);
+      const reg = await run(process.execPath, ["register.mjs"], { cwd: project("webhook-receiver"), env: { ...proxyEnv, BRIDGE_URL: base, MCB_ADMIN_KEY: FAKE_KEY } });
+      expect(reg.out).toMatch(/Subscribed|does not have this feature|blocked|UNAUTHENTICATED|refused|answered|Note:/i);
+      expect(hits).toEqual([]);
+    });
   });
 
   it("the receiver's register.mjs says before posting that a plain http address is refused by default", async () => {

@@ -16,6 +16,17 @@ describe("hooks config", () => {
   });
 });
 
+describe("the TradingView list's source link (audit F14)", () => {
+  const preset = (source) => ({ presets: { tradingview: { ips: ["52.89.214.238"], verifiedAt: "2026-11-09", source } } });
+  it("accepts an https address and none, refuses any other scheme", () => {
+    expect(HOOKS_CONFIG_SCHEMA.safeParse(preset("https://www.tradingview.com/support/")).success).toBe(true);
+    expect(HOOKS_CONFIG_SCHEMA.safeParse(preset(null)).success).toBe(true);
+    for (const bad of ["javascript:alert(1)", "data:text/html,x", "http://example.com", "//example.com", "https://a b", "ftp://x"]) {
+      expect(HOOKS_CONFIG_SCHEMA.safeParse(preset(bad)).success, bad).toBe(false);
+    }
+  });
+});
+
 describe("IP allowlists", () => {
   it("normalises entries", () => {
     expect(expandIpList(["FE80::1", "10.1.0.0/16"])).toEqual(["fe80::1", "10.1.0.0/16"]);

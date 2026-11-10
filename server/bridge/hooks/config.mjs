@@ -81,7 +81,8 @@ export const HOOKS_CONFIG_SCHEMA = z
           .object({
             ips: z.array(ipEntrySchema).min(1).max(50),
             verifiedAt: z.string().max(40).nullable().default(null),
-            source: z.string().max(300).nullable().default(null),
+            // shown as a link in the dashboard: only an https address (a javascript: or data: value is refused)
+            source: z.string().max(300).regex(/^https:\/\/[^\s]+$/i, "source must be an https:// address").nullable().default(null),
           })
           .strict()
           .optional(),

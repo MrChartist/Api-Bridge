@@ -24,6 +24,23 @@ BRIDGE_URL="${BRIDGE_URL%/}"
 BRIDGE_STATUS=""
 BRIDGE_BODY=""
 
+# A Bridge on this computer is never reached through a proxy (HTTP_PROXY, http_proxy): the proxy cannot reach 127.0.0.1 and
+# would only see your key. Use bcurl in place of curl for every call to the Bridge.
+_host="${BRIDGE_URL#*://}"
+_host="${_host%%/*}"
+case "$_host" in
+  \[*\]*) _host="${_host%%\]*}]" ;; # [::1] or [::1]:4300
+  *) _host="${_host%%:*}" ;;
+esac
+case "$_host" in
+  localhost | \[::1\]) BRIDGE_LOOPBACK=1 ;;
+  127.*.*.*) case "$_host" in *[!0-9.]*) BRIDGE_LOOPBACK=0 ;; *) BRIDGE_LOOPBACK=1 ;; esac ;;
+  *) BRIDGE_LOOPBACK=0 ;;
+esac
+bcurl() {
+  if [ "$BRIDGE_LOOPBACK" = 1 ]; then curl --noproxy '*' "$@"; else curl "$@"; fi
+}
+
 bridge() {
   local method="$1" path="$2"
   shift 2
@@ -37,8 +54,11 @@ bridge() {
   keyfile="$(mktemp)"
   chmod 600 "$keyfile"
   printf 'Authorization: Bearer %s\n' "$BRIDGE_KEY" >"$keyfile"
+  # Ctrl+C or a kill must not leave the key file behind in the temporary folder.
+  trap 'rm -f "$headers" "$keyfile"; exit 130' INT TERM
   while :; do
-    if ! out="$(curl -sS --max-time 30 -X "$method" -D "$headers" -H "@$keyfile" -H "Accept: application/json" -w $'\n%{http_code}' "$@" "$BRIDGE_URL$path")"; then
+    if ! out="$(bcurl -sS --max-time 30 -X "$method" -D "$headers" -H "@$keyfile" -H "Accept: application/json" -w $'\n%{http_code}' "$@" "$BRIDGE_URL$path")"; then
+      trap - INT TERM
       rm -f "$headers" "$keyfile"
       echo "Could not reach the Bridge at $BRIDGE_URL. Is it running?" >&2
       return 2
@@ -47,6 +67,7 @@ bridge() {
     BRIDGE_BODY="${out%$'\n'*}"
     case "$BRIDGE_STATUS" in
       2??)
+        trap - INT TERM
         rm -f "$headers" "$keyfile"
         return 0
         ;;
@@ -59,6 +80,7 @@ bridge() {
         fi
         ;;
     esac
+    trap - INT TERM
     rm -f "$headers" "$keyfile"
     return 1
   done

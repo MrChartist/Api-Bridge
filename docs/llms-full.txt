@@ -2989,7 +2989,7 @@ Alert hooks (TradingView, ChartInk and others): queue, duplicate checks, allowed
 | `hooks.signalsKept` | whole number, 10 to 1000 | `100` | Recent alerts remembered per hook for the alert history. Kept in memory only. |
 | `hooks.presets.tradingview.ips` | list of text; at least 1 item, at most 50 items | required | The addresses TradingView sends alerts from, used when a hook switches on the tradingview address list. Edit it when TradingView changes its list. Needed whenever you give this preset. |
 | `hooks.presets.tradingview.verifiedAt` | text; at most 40 characters, or `null` | `null` | The date you last checked that list. |
-| `hooks.presets.tradingview.source` | text; at most 300 characters, or `null` | `null` | Where you checked it. |
+| `hooks.presets.tradingview.source` | text; at most 300 characters, a fixed pattern, or `null` | `null` | Where you checked it. |
 
 ## mcp
 

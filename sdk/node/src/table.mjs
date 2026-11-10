@@ -1,6 +1,22 @@
 /** Small table helpers: rows of CSV or JSON-lines files as objects, and CSV text from objects (no dependencies). */
 
+/**
+ * Formula-injection guard for one text cell, the same rule as the Bridge's own CSV: a value starting with = + - @ tab or CR
+ * would run as a formula when the file is opened in a spreadsheet, so it gets a leading apostrophe. Plain numbers written as
+ * text ("-5", "12.5") stay as they are.
+ */
+export function guardFormulaText(s) {
+  return /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
+}
+
+/** Undo guardFormulaText for a value read back from one of our own CSV files (only the apostrophe we put there). */
+export function unguardFormulaText(s) {
+  return /^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s;
+}
+
 function coerce(v) {
+  const plain = unguardFormulaText(v);
+  if (plain !== v) return plain; // a guarded cell is text: it stays text
   if (v === "") return null;
   if (/^-?\d+$/.test(v)) {
     const n = Number(v);
@@ -69,7 +85,7 @@ export function toCsv(rows, columns) {
   const cols = columns ?? (rows.length ? Object.keys(rows[0]) : []);
   const cell = (v) => {
     if (v === null || v === undefined) return "";
-    const s = String(v);
+    const s = typeof v === "string" ? guardFormulaText(v) : String(v);
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return `${[cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\n")}\n`;

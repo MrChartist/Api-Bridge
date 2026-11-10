@@ -19,7 +19,7 @@
  */
 import { resolve } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
-import { STARTERS, STARTER_IDS, STARTER_SCOPES, checkStarter, planStarter, secretIsThere, starterById, writeStarter } from "./starters.mjs";
+import { STARTERS, STARTER_IDS, STARTER_SCOPES, checkStarter, planStarter, secretIsThere, starterById, writeStarter, runCommand, shellWord } from "./starters.mjs";
 
 /** The `--expires` words the keys command takes: 30d, 12h, 90m. Returns an ISO time. */
 function expiry(value, days, now) {
@@ -159,7 +159,12 @@ export async function runInitStarter({ id, folder }, flags, io, deps) {
   const running = deps.probe ? await deps.probe(baseUrl).catch(() => null) : null;
   io.out(running ? `The Bridge is running${running.demo ? " in demo mode" : ""}.` : `The Bridge is not answering at ${baseUrl}. Start it with: ${cli} start${flags.demo ? " --demo" : ""}   (or ${cli} start --demo to try with sample data)`);
   io.out("");
-  io.out(`Next: cd ${name} && ${starter.run}`);
+  const platform = deps.platform ?? process.platform;
+  if (platform === "win32") {
+    // PowerShell 5 and cmd.exe disagree about "&&": two lines work in both.
+    io.out(`Next: cd ${shellWord(name)}`);
+    io.out(`Then: ${runCommand(starter, platform)}`);
+  } else io.out(`Next: cd ${shellWord(name)} && ${runCommand(starter, platform)}`);
   io.out(`Then read ${name}/README.md (three steps) and the Developers page in the dashboard.`);
   return 0;
 }

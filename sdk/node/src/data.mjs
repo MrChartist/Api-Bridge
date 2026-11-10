@@ -26,7 +26,7 @@ import { gunzipSync } from "node:zlib";
 import { BridgeConnectionError } from "./errors.mjs";
 import { ChecksumMismatchError, DownloadFailedError, WaitTimeoutError } from "./errors.mjs";
 import { HistoryAll } from "./history.mjs";
-import { parseTable, toCsv } from "./table.mjs";
+import { parseTable, toCsv, unguardFormulaText } from "./table.mjs";
 
 export { parseTable, toCsv };
 
@@ -57,7 +57,8 @@ const need = (cond, msg) => {
 /** A file name from the Bridge reduced to a plain name: it can never write outside the folder you chose. */
 export function safeName(name) {
   const base = String(name).replace(/\\/g, "/").split("/").pop();
-  if (!base || base === "." || base === "..") throw new TypeError(`the Bridge sent an unusable file name: ${JSON.stringify(name)}`);
+  // A ":" is a Windows drive ("C:x") or a stream name ("a.csv:evil"): path.join would not keep it inside the folder. Server file names never have one.
+  if (!base || base === "." || base === ".." || /[:\0]/.test(base)) throw new TypeError(`the Bridge sent an unusable file name: ${JSON.stringify(name)}`);
   return base;
 }
 
@@ -602,7 +603,7 @@ export class Collections {
     if (lines.length && /^["']?symbols?["']?(,|$)/i.test(lines[0])) {
       const col = lines[0].split(",")[0].replace(/["']/g, "");
       syms = parseTable(lines.join("\n")).map((r) => String(r[col] ?? "").trim()).filter(Boolean);
-    } else syms = lines.map((l) => l.split(",")[0].trim().replace(/^["']|["']$/g, ""));
+    } else syms = lines.map((l) => unguardFormulaText(l.split(",")[0].trim().replace(/^["']|["']$/g, "")));
     return this.create(name, { symbols: syms, description, tags });
   }
 }

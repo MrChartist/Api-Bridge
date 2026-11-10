@@ -230,14 +230,21 @@ export const MAX_SYMBOLS = 500;
  * @returns {{ symbols: string[], duplicates: number, invalid: string[], over: number }}
  */
 export function parseSymbolList(text, { max = MAX_SYMBOLS } = {}) {
+  return collectSymbols(String(text ?? "").split(/[\s,;|]+/), { max, header: true });
+}
+/** One cell is one symbol (a CSV column): no splitting, so a cell like "=cmd|calc" is one bad entry, not two symbols. */
+function parseSymbolCells(cells, { max = MAX_SYMBOLS } = {}) {
+  return collectSymbols(cells, { max, header: false });
+}
+function collectSymbols(tokens, { max, header }) {
   const out = [];
   const seen = new Set();
   const invalid = [];
   let duplicates = 0;
-  for (const raw of String(text ?? "").split(/[\s,;|]+/)) {
-    const t = raw.replace(/^["']|["']$/g, "");
+  for (const raw of tokens) {
+    const t = String(raw).replace(/^["']|["']$/g, "");
     if (!t) continue;
-    if (/^(symbol|symbols|instrument|name|ticker)$/i.test(t) && !out.length) continue; // a CSV header
+    if (header && /^(symbol|symbols|instrument|name|ticker)$/i.test(t) && !out.length) continue; // a CSV header
     const s = canonicalSymbol(t);
     if (!SYMBOL_OK.test(s)) {
       invalid.push(t);
@@ -360,7 +367,7 @@ export function downloadBody(st, d) {
     ...(st.range === "custom" && d.to ? { to: d.to } : {}),
     format: st.format,
     layout: st.layout,
-    ...(String(st.name ?? "").trim() ? { name: st.name.trim() } : {}),
+    ...(stripBidi(st.name).trim() ? { name: stripBidi(st.name).trim() } : {}),
     ...(st.keep && st.dataset ? { dataset: st.dataset } : {}),
   };
 }
@@ -375,6 +382,8 @@ export function collectionBody(f, others = []) {
   if (problem) return { error: { title: problem, detail: undefined } };
   const body = { name: f.name.trim(), description: f.description.trim(), tags: parseTags(f.tags), kind: f.kind };
   if (f.kind === "static") {
+    // Never send a symbol list that was not loaded: it would replace the saved list with whatever is in the box.
+    if (f.symbolsLoaded === false) return { error: { title: "The symbols of this list have not loaded.", detail: "Close this and open the list again. Nothing was changed." } };
     const r = parseSymbolList(f.symbols);
     if (!r.symbols.length) return { error: { title: "Add at least one symbol.", detail: "Paste them one per line, for example NSE:RELIANCE." } };
     body.symbols = r.symbols;
@@ -512,10 +521,49 @@ export function filterItems(items, { tags = [], query = "" } = {}) {
   return (items ?? []).filter((it) => tags.every((t) => (it.tags ?? []).includes(t)) && (!q || `${it.name ?? ""} ${it.description ?? ""} ${(it.tags ?? []).join(" ")}`.toLowerCase().includes(q)));
 }
 
+/**
+ * How many symbols a fixed list holds, or null when unknown. The list route sends only `symbolCount` (no `symbols`); the
+ * single-collection route sends both, so read whichever is there.
+ */
+export function staticCount(c) {
+  if (Array.isArray(c?.symbols)) return c.symbols.length;
+  for (const k of ["symbolCount", "count"]) {
+    const n = c?.[k];
+    if (n !== null && n !== undefined && n !== "" && Number.isFinite(Number(n))) return Number(n);
+  }
+  return null;
+}
+/** Are the symbols of this collection in hand? An option universe has none to load; a fixed list from the list route does not either. */
+export function symbolsLoaded(c) {
+  return c?.kind === "option-universe" || Array.isArray(c?.symbols);
+}
+/**
+ * The collection with its symbols: `c` itself when they are already there, otherwise the full record from
+ * GET /v1/collections/{name} (the list route leaves them out). Throws when it cannot be loaded, so a caller never edits a half copy.
+ */
+export async function loadFullCollection(client, c) {
+  if (symbolsLoaded(c)) return c;
+  const r = await client.collections.get(c.name);
+  const full = r?.data ?? r;
+  if (!full || !symbolsLoaded(full)) throw new Error(`The symbols of ${c?.name ?? "this collection"} could not be loaded.`);
+  return full;
+}
+/** A free name for a copy: "nifty-50-copy", then "nifty-50-copy-2"; always a name the Bridge accepts (no spaces, at most 64 characters). */
+export function copyName(name, taken = []) {
+  const have = new Set((taken ?? []).map((n) => String(n).toLowerCase()));
+  const clean = String(name ?? "").replace(/[^A-Za-z0-9_.-]/g, "-") || "collection";
+  for (let i = 1; i < 1000; i++) {
+    const tail = i === 1 ? "-copy" : `-copy-${i}`;
+    const n = `${clean.slice(0, 64 - tail.length)}${tail}`;
+    if (!have.has(n.toLowerCase())) return n;
+  }
+  return `${clean.slice(0, 50)}-copy-${Date.now()}`;
+}
+
 /** A collection as the row shows it: what it is, how big, and its one-line rule. */
 export function collectionView(c, resolvedCount = null) {
   const universe = c?.kind === "option-universe";
-  const stored = Array.isArray(c?.symbols) ? c.symbols.length : Number.isFinite(Number(c?.count)) ? Number(c.count) : null;
+  const stored = staticCount(c);
   const size = universe ? (resolvedCount ?? universeSize(c.universe).count) : stored;
   return {
     name: c?.name ?? "",
@@ -538,11 +586,93 @@ export function collectionToJson(c) {
   const { name, description = "", tags = [], kind = "static", symbols, universe } = c ?? {};
   return `${JSON.stringify({ name, description, tags, kind, ...(kind === "option-universe" ? { universe } : { symbols: symbols ?? [] }) }, null, 2)}\n`;
 }
+// ── CSV import (the same rules as the Bridge: server/bridge/library/interchange.mjs) ──
+
+const SYMBOL_HEADERS = new Set(["symbol", "ticker", "instrument", "canonical", "symbols"]);
+
+/** RFC 4180 reader: quoted cells, doubled quotes, CRLF or LF. Returns rows of cells; an unclosed quote ends the last cell. */
+export function parseCsvRows(text) {
+  const src = String(text ?? "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  let any = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else quoted = false;
+      } else cell += ch;
+      continue;
+    }
+    if (ch === '"' && cell === "") {
+      quoted = true;
+      any = true;
+    } else if (ch === ",") {
+      row.push(cell);
+      cell = "";
+      any = true;
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && src[i + 1] === "\n") i++;
+      if (any || cell !== "") {
+        row.push(cell);
+        rows.push(row);
+      }
+      row = [];
+      cell = "";
+      any = false;
+    } else {
+      cell += ch;
+      any = true;
+    }
+  }
+  if (any || cell !== "") {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+/** Take off the apostrophe the Bridge (or a spreadsheet) puts before a cell that would look like a formula. */
+const unguardCell = (cell) => {
+  const s = String(cell ?? "").trim();
+  return s.startsWith("'") ? s.slice(1).trim() : s;
+};
+/** The symbol cells of a CSV: the column with a symbol-like header, else column 0 (skipping a first line that is a header with another name). */
+export function symbolColumn(text) {
+  const rows = parseCsvRows(text);
+  if (!rows.length) return { values: [] };
+  const headerIdx = rows[0].findIndex((c) => SYMBOL_HEADERS.has(c.trim().toLowerCase()));
+  let col = 0;
+  let start = 0;
+  if (headerIdx >= 0) {
+    col = headerIdx;
+    start = 1;
+  } else if (!/^[A-Za-z0-9][A-Za-z0-9&_.:-]*$/.test(unguardCell(rows[0][0])) || !SYMBOL_OK.test(canonicalSymbol(unguardCell(rows[0][0])))) start = 1;
+  const values = [];
+  for (let i = start; i < rows.length; i++) {
+    const v = unguardCell(rows[i][col] ?? "");
+    if (v) values.push(v);
+  }
+  return { values };
+}
+/** A first line with a comma and a symbol column name is a CSV table (a plain pasted list "NSE:A, NSE:B" is not). */
+function looksLikeCsvTable(text) {
+  const first = String(text ?? "").replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
+  return first.includes(",") && parseCsvRows(first)[0]?.some((c) => SYMBOL_HEADERS.has(c.trim().toLowerCase()));
+}
+
 /**
  * Read a file or pasted text back into a collection body. JSON with a `kind`, a JSON array of symbols, or a list of
- * symbols (CSV or one per line). Returns { body } or { error }.
+ * symbols (CSV or one per line). A CSV is read like the Bridge reads it: the column named symbol (also ticker, instrument,
+ * canonical), or the first column when there is no such header; every other column is ignored. `opts.csv` forces or
+ * forbids that reading (a `.csv` file name forces it); by default a first line with a comma and a symbol header is a CSV.
+ * Returns { body, skipped? } or { error }.
  */
-export function parseCollectionImport(text, fallbackName = "") {
+export function parseCollectionImport(text, fallbackName = "", opts = {}) {
   const t = String(text ?? "").trim();
   if (!t) return { error: "The file is empty." };
   if (t.startsWith("{") || t.startsWith("[")) {
@@ -563,6 +693,12 @@ export function parseCollectionImport(text, fallbackName = "") {
     }
     const p = parseSymbolList((j.symbols ?? []).join("\n"));
     return p.symbols.length ? { body: { name: String(j.name ?? fallbackName), description: String(j.description ?? ""), tags: parseTags(j.tags), kind: "static", symbols: p.symbols } } : { error: "No symbols found in the file." };
+  }
+  if (opts.csv ?? looksLikeCsvTable(t)) {
+    const { values } = symbolColumn(t);
+    const p = parseSymbolCells(values);
+    if (!p.symbols.length) return { error: "No symbols found. Put the symbols in a column named symbol, for example NSE:RELIANCE." };
+    return { body: { name: fallbackName, description: "", tags: [], kind: "static", symbols: p.symbols }, skipped: p.invalid.length };
   }
   const p = parseSymbolList(t);
   if (!p.symbols.length) return { error: "No symbols found. Use one symbol per line, for example NSE:RELIANCE." };
@@ -902,7 +1038,7 @@ export function defaultRuleName(f) {
  * underlying, expiries, count, symbols: string[], everySec, format, custom, days, start, end, keepDays }.
  */
 export function recordingBody(f, mode = "rule", { enabled = true } = {}) {
-  const b = { name: String(f.name ?? "").trim() || (mode === "rule" ? defaultRuleName(f) : undefined), kind: f.kind, everySec: Number(f.everySec), format: f.format };
+  const b = { name: stripBidi(f.name).trim() || (mode === "rule" ? defaultRuleName(f) : undefined), kind: f.kind, everySec: Number(f.everySec), format: f.format };
   if (b.name === undefined) delete b.name;
   if (f.source === "collection") b.collection = f.collection;
   else if (f.source === "index") {
@@ -1026,11 +1162,26 @@ export const isUnavailable = unavailable;
  * own api(); a test passes a fetch to a fake Bridge. Each method answers { data, meta }.
  * @param {(method: string, path: string, body?: unknown) => Promise<any>} call
  */
+/**
+ * Text direction controls (U+202A to U+202E and U+2066 to U+2069) in a name make the text after it read backwards: a file
+ * called "report \u202Evsc.exe" shows as "report exe.csv". They are removed from names a person types and from names shown.
+ */
+export const stripBidi = (s) => String(s ?? "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "");
+const NAME_KEYS = new Set(["name", "label", "description", "title"]);
+/** The same data with direction controls removed from the text fields people name things in (a copy; the input is not changed). */
+export function scrubNames(value, depth = 0) {
+  if (depth > 8 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => scrubNames(v, depth + 1));
+  const out = {};
+  for (const [k, v] of Object.entries(value)) out[k] = typeof v === "string" && NAME_KEYS.has(k) ? stripBidi(v) : scrubNames(v, depth + 1);
+  return out;
+}
+
 export function createDataClient(call) {
   const e = encodeURIComponent;
   const out = async (method, path, body) => {
     const r = await call(method, path, body);
-    return { data: r?.data ?? null, meta: r?.meta ?? {} };
+    return { data: scrubNames(r?.data ?? null), meta: r?.meta ?? {} };
   };
   const qs = (o) => {
     const p = Object.entries(o ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "");

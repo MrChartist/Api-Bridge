@@ -22,6 +22,8 @@ when you have it.
    bash events.sh 30                     # live events (newer Bridges)
    ```
 
+On Windows the scripts need Git Bash or WSL (they are bash scripts). In PowerShell, use the Python or Node starter instead.
+
 ## What is here
 
 | File | What it is |

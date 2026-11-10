@@ -17,6 +17,8 @@ function loadEnv() {
 
 const env = loadEnv();
 const base = (env.BRIDGE_URL ?? "http://127.0.0.1:4300").replace(/\/+$/, "");
+// Never send the key through a proxy to this computer (Node uses HTTP_PROXY when NODE_USE_ENV_PROXY=1): loopback goes in NO_PROXY.
+if (/^https?:\/\/(localhost|127(?:\.\d{1,3}){3}|\[::1\])(:|\/|$)/i.test(base)) for (const name of ["NO_PROXY", "no_proxy"]) process.env[name] = [process.env[name], "127.0.0.1", "localhost", "::1", "[::1]"].filter(Boolean).join(",");
 if (!env.BRIDGE_KEY) {
   console.error("No BRIDGE_KEY in .env. Make one with: mc-bridge keys create --label sheets --scope read --expires 30d");
   process.exit(1);

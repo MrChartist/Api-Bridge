@@ -25,6 +25,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from dataclasses import fields, is_dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
@@ -121,6 +122,22 @@ def to_dataframe(obj: Any, *, freshness: bool = True) -> Any:
     raise TypeError("cannot make a DataFrame from %s" % type(obj).__name__)
 
 
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+_PLAIN_NUMBER = re.compile(r"^-?\d+(\.\d+)?$")
+
+
+def guard_formula_text(s: str) -> str:
+    """Formula-injection guard for one text cell, the same rule as the Bridge's own CSV: a value starting with ``=`` ``+``
+    ``-`` ``@``, a tab or a carriage return would run as a formula when the file is opened in a spreadsheet, so it gets a
+    leading apostrophe. Plain numbers written as text (``"-5"``, ``"12.5"``) stay as they are."""
+    return "'" + s if s.startswith(_FORMULA_START) and not _PLAIN_NUMBER.match(s) else s
+
+
+def unguard_formula_text(s: str) -> str:
+    """Undo ``guard_formula_text`` for a value read back from one of our own CSV files (only the apostrophe we put there)."""
+    return s[1:] if len(s) > 1 and s[0] == "'" and s[1] in _FORMULA_START else s
+
+
 def _csv_value(v: Any) -> Any:
     if isinstance(v, datetime):
         return v.isoformat()
@@ -128,6 +145,8 @@ def _csv_value(v: Any) -> Any:
         return "true" if v else "false"
     if v is None:
         return ""
+    if isinstance(v, str):
+        return guard_formula_text(v)
     return v
 
 
@@ -207,6 +226,12 @@ def _coerce(v: str) -> Any:
         return v
 
 
+def _read_cell(v: str) -> Any:
+    """A cell from a CSV file: the guard apostrophe comes off (the text stays text), anything else is read as a number when it is one."""
+    plain = unguard_formula_text(v)
+    return plain if plain != v else _coerce(v)
+
+
 def parse_table(text: str, fmt: str = "csv") -> List[Dict[str, Any]]:
     """Rows of a downloaded or recorded file as dicts: ``fmt`` is ``csv`` or ``jsonl``. In CSV, numbers become int or
     float, empty cells ``None``, everything else (times, symbols) stays text. A leading byte-order mark is ignored."""
@@ -215,7 +240,7 @@ def parse_table(text: str, fmt: str = "csv") -> List[Dict[str, Any]]:
         return [json.loads(line) for line in text.splitlines() if line.strip()]
     if fmt != "csv":
         raise ValueError("fmt must be csv or jsonl, not %r" % fmt)
-    return [{k: _coerce(v) if isinstance(v, str) else v for k, v in row.items()} for row in csv.DictReader(io.StringIO(text))]
+    return [{k: _read_cell(v) if isinstance(v, str) else v for k, v in row.items()} for row in csv.DictReader(io.StringIO(text))]
 
 
 def records_to_dataframe(rows: Sequence[Mapping[str, Any]], *, time_col: str = "time") -> Any:

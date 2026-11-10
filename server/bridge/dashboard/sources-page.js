@@ -408,8 +408,11 @@ export async function renderOverview() {
     const reset = h("time", { class: "sx-reset" });
     const gauge = h("span", { class: "sx-gauge" }, meter.el, h("span", { class: "sx-figs" }, h("span", { class: "sx-figs-l" }, num.el, leftText), h("span", { class: "sx-figs-r" }, word, reset)));
     const tile = sourceTile(r);
-    const el = h("button", { type: "button", class: "list-row sx-row", "aria-haspopup": "dialog" }, tile, h("span", { class: "sx-main" }, h("span", { class: "sx-line1" }, title, cls, off), h("span", { class: "sx-line2" }, tag.el, subText)), gauge, chevron());
-    el._parts = { title, cls, off, tag, subText, meter, num, leftText, word, reset, gauge, said: 0 };
+    // What a screen reader adds to the visible words. It is text inside the button, not an aria-label: a label that does not
+    // start with the visible text cannot be activated by voice (WCAG 2.5.3).
+    const said = h("span", { class: "sr-only" });
+    const el = h("button", { type: "button", class: "list-row sx-row", "aria-haspopup": "dialog" }, tile, h("span", { class: "sx-main" }, h("span", { class: "sx-line1" }, title, cls, off), h("span", { class: "sx-line2" }, tag.el, subText)), gauge, said, chevron());
+    el._parts = { title, cls, off, tag, subText, meter, num, leftText, word, reset, gauge, said: 0, saidEl: said };
     return el;
   }
 
@@ -450,7 +453,7 @@ export async function renderOverview() {
     if (p.saidKey !== key || now - p.said > 5000) {
       p.said = now;
       p.saidKey = key;
-      el.setAttribute("aria-label", `${r.name}. ${r.health.word}. ${classLabel(r.cls, r.delaySec)}. ${officialLabel(r.official)}. ${b ? meterSpeech(r) : "No call budget stated"}. Select for details.`);
+      setText(p.saidEl, `. ${b ? meterSpeech(r) : "No call budget stated"}. Select for details.`);
     }
   }
 

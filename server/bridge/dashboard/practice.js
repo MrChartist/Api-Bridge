@@ -3,6 +3,7 @@
 import { alertBox, api, app, h, modal, toast } from "./app.js";
 import { formatFixed } from "./format.js";
 import { practiceOrder } from "./easy-core.js";
+import { createOrderKeys } from "./orders-core.js";
 
 const SLOT = "mcb.dashboard.practiceOrder";
 let deps = { segmented: null };
@@ -55,6 +56,7 @@ export async function practiceOrderSheet({ onPlaced } = {}) {
   side.removeAttribute("aria-label");
   side.setAttribute("aria-labelledby", "po-side-l");
 
+  const keys = createOrderKeys(); // the same order pressed twice is one order
   const placed = await modal({
     title: "Send a practice order",
     body,
@@ -74,7 +76,7 @@ export async function practiceOrderSheet({ onPlaced } = {}) {
             return false;
           }
           try {
-            const res = await api("/v1/orders", { method: "POST", body: r.body });
+            const res = await api("/v1/orders", { method: "POST", body: r.body, idempotencyKey: keys.keyFor(r.body) });
             const o = res.data.data;
             app.local.set(SLOT, JSON.stringify({ symbol: symbol.value.trim().toUpperCase(), side: side.value, quantity: Number(qty.value), account: acc }));
             const fill = o.avgPrice ? ` at ₹${formatFixed(o.avgPrice, 2)}` : "";

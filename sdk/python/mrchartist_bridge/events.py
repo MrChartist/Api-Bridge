@@ -49,6 +49,7 @@ EVENT_TOPIC_HEADER = "X-Bridge-Event-Topic"
 DELIVERY_HEADER = "X-Bridge-Delivery"
 ATTEMPT_HEADER = "X-Bridge-Attempt"
 DEFAULT_TOLERANCE_SEC = 300
+HEALTHY_AFTER = 30.0  # seconds a connection must stay up before a drop is not counted as flapping
 EVENTS_PATH = "/v1/events/stream"
 
 _Secret = Union[str, bytes]
@@ -306,9 +307,9 @@ class EventSubscription:
                 return
             self._res = res
             self.connected = True
+            opened = time.monotonic()
             try:
                 for sid, name, payload, retry in parse_sse(iter(res.readline, b"")):
-                    self._attempt = 0
                     if retry is not None:
                         retry_floor = retry / 1000.0
                     if name == "ready":
@@ -326,6 +327,7 @@ class EventSubscription:
                     ev = _event_from(sid, name, payload)
                     if ev.cursor:
                         self.cursor = ev.cursor
+                    self._attempt = 0  # a real event arrived: the connection is healthy, start the waits again
                     yield ev
                     if self.closed:
                         return
@@ -339,6 +341,10 @@ class EventSubscription:
                     res.close()
                 except Exception:  # noqa: BLE001
                     pass
+                # A connection that stayed up a while was healthy. One that says "ready" and drops at once keeps counting,
+                # so the waits grow instead of staying at about a second.
+                if time.monotonic() - opened >= HEALTHY_AFTER:
+                    self._attempt = 0
             if self.closed or not self.reconnect:
                 return
             if not self._wait_to_retry(retry_floor):

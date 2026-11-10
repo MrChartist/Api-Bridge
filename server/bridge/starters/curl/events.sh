@@ -12,10 +12,15 @@ if [ -z "${BRIDGE_KEY:-}" ]; then
 fi
 echo "Listening for $seconds seconds..."
 tmp="$(mktemp)"
-status="$(curl -sS -N --max-time "$seconds" -H "Authorization: Bearer $BRIDGE_KEY" -H "Accept: text/event-stream" -o "$tmp" -w '%{http_code}' "$BRIDGE_URL/v1/events/stream$query" 2>/dev/null)"
+# The key goes to curl in a private file, not on the command line where `ps` shows it.
+keyfile="$(mktemp)"
+chmod 600 "$keyfile"
+printf 'Authorization: Bearer %s\n' "$BRIDGE_KEY" >"$keyfile"
+trap 'rm -f "$tmp" "$keyfile"; exit 130' INT TERM
+status="$(bcurl -sS -N --max-time "$seconds" -H "@$keyfile" -H "Accept: text/event-stream" -o "$tmp" -w '%{http_code}' "$BRIDGE_URL/v1/events/stream$query" 2>/dev/null)"
 case "$status" in
   404 | 405 | 501) echo "Events: This Bridge does not have this feature yet. Update the Bridge and restart it." ;;
   *) cat "$tmp" ;;
 esac
-rm -f "$tmp"
+rm -f "$tmp" "$keyfile"
 exit 0

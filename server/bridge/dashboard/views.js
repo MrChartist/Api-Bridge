@@ -2173,7 +2173,7 @@ function dataTab(name) {
 
 // ── Orders ──
 
-import { clockText, orderTypeText, placeAgainBody, qtyText, ticketLife } from "./orders-core.js";
+import { clockText, createOrderKeys, orderTypeText, placeAgainBody, qtyText, ticketLife } from "./orders-core.js";
 configureOrdersBook({ segmented });
 configureConnect({ segmented, snippetBlock });
 configureDevelopers({ segmented, snippetBlock, every, stop: () => clearInterval(timer), hashParams: () => hashParams(), setHashParam: (k, v) => setHashParam(k, v) });
@@ -2317,10 +2317,19 @@ function orderActions(o) {
     if (!ok) return;
     // Undo (paper only): place the unfilled part again, as it was. The order goes through every normal check, so a
     // price that is no longer valid is refused and said so. Live orders are never re-sent from a toast.
-    const again = async () => {
+    // One key for this Undo: pressing it twice, or again after a lost answer, can never place two orders. The button is
+    // off while the order is going out and stays off once it was placed.
+    const keys = createOrderKeys();
+    const again = async (ev) => {
+      const button = ev?.currentTarget;
+      if (button?.disabled) return;
+      if (button) button.disabled = true;
       const body = placeAgainBody(o, left);
-      const r = await optional(api("/v1/orders", { method: "POST", body }));
-      if (r.error) return toast(`Could not place ${name} again: ${r.error.message ?? "refused"}`, { tone: "error" });
+      const r = await optional(api("/v1/orders", { method: "POST", body, idempotencyKey: keys.keyFor(body) }));
+      if (r.error) {
+        if (button) button.disabled = false;
+        return toast(`Could not place ${name} again: ${r.error.message ?? "refused"}`, { tone: "error" });
+      }
       const placed = r.data?.data ?? {};
       show().then(() => toast(placed.status === "rejected" ? `Placed again but rejected: ${placed.statusMessage ?? "no reason given"}` : `${name} placed again`, { tone: placed.status === "rejected" ? "warn" : "ok" }));
     };
@@ -3098,7 +3107,7 @@ async function webhookPanel(paperAcc, host) {
       { class: "field wide ai-ips" },
       h("label", { class: "ai-switch", for: "hook-ips" }, h("span", {}, "Only accept alerts from TradingView's own addresses"), h("span", { class: "switch" }, ipSwitch, h("i"))),
       h("p", { class: "muted small" }, ipNote),
-      ipList ? h("details", { class: "ai-details" }, h("summary", {}, `TradingView's addresses, checked ${ipList.verifiedAt ?? "on an unknown date"}${ipList.edited ? " (your edited list)" : ""}`), h("p", { class: "mono small" }, ipList.ips.join("   ")), ipList.source ? h("a", { href: ipList.source, target: "_blank", rel: "noopener" }, "TradingView's own page for this list") : null) : null,
+      ipList ? h("details", { class: "ai-details" }, h("summary", {}, `TradingView's addresses, checked ${ipList.verifiedAt ?? "on an unknown date"}${ipList.edited ? " (your edited list)" : ""}`), h("p", { class: "mono small" }, ipList.ips.join("   ")), /^https:\/\//i.test(ipList.source ?? "") ? h("a", { href: ipList.source, target: "_blank", rel: "noopener noreferrer" }, "TradingView's own page for this list") : null) : null,
     ),
   ];
   const syncSource = () => {
