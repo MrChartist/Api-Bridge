@@ -21,13 +21,14 @@ const TEST_POLICIES = Object.freeze({
   daily: { brokerId: "daily", limits: { quote: v({ perSecond: 10, perDay: 3 }) }, groups: {}, maxQuoteBatch: 1, feed: {}, pooling: "unknown" },
 });
 
-function setup({ accounts = [{ id: "z1", broker: "zerodha" }], ratelimit = {}, policies, start, random = () => 0 } = {}) {
+function setup({ accounts = [{ id: "z1", broker: "zerodha" }], ratelimit = {}, policies, start, random = () => 0, accountsOnBus = true } = {}) {
   const clock = createManualClock(start);
   const logger = createLogger({ level: "silent" });
   const bus = createEventBus({ logger, topics: TOPICS });
   const events = [];
   for (const topic of ["limits.throttled", "account.session_rejected"]) bus.on(topic, (p) => events.push({ topic, ...p }));
-  const accountsSvc = createFakeAccountManager({ accounts, bus });
+  // accountsOnBus false: the account manager does not hear the scheduler's events, so it cannot echo a rejection back as a status change.
+  const accountsSvc = createFakeAccountManager({ accounts, ...(accountsOnBus ? { bus } : {}) });
   // `random` fixes the 0-250 ms back-off jitter (0 by default) so delays are exact; the jitter has its own tests.
   const s = createScheduler({ config: { ratelimit }, logger, bus, clock, accounts: accountsSvc }, { random, ...(policies ? { policies } : {}) });
   /** Broker-call recorder: start times per (account, class). */
@@ -190,6 +191,15 @@ describe("acceptance: priorities", () => {
     expect(starts.map((x) => x.tag)).toEqual(["first", "claims-order", "inter"]);
   });
 
+  it("a read that names priority \"order\" is capped at live: it queues behind a real order that arrived after it", async () => {
+    const { clock, call, starts } = setup({ accounts: [{ id: "s1", broker: "shared" }], policies: TEST_POLICIES });
+    call("s1", "quote", { tag: "first" }); // takes the shared 1 a second; everything after waits for it
+    call("s1", "quote", { priority: "order", tag: "read-claiming-order" }); // arrives first
+    call("s1", "order", { tag: "real-order" }); // arrives second, but is the only one that is an order
+    await clock.advance(5000);
+    expect(starts.map((x) => x.tag)).toEqual(["first", "real-order", "read-claiming-order"]);
+  });
+
   it("limits concurrent reads per account but never holds back orders", async () => {
     const { clock, s } = setup({ accounts: [{ id: "r1", broker: "roomy" }], policies: TEST_POLICIES, ratelimit: { maxInFlightPerAccount: 2 } });
     const release = [];
@@ -330,6 +340,39 @@ describe("acceptance: upstream throttling and sessions", () => {
     expect(events).toContainEqual({ topic: "account.session_rejected", accountId: "z1", broker: "zerodha", code: "SESSION_LOGIN_REQUIRED" });
     // The account is out of pooled routing until it reconnects.
     expect(s.pickAccount({ candidates: ["z1", "z2"], endpointClass: "quote" })).toBe("z2");
+  });
+});
+
+describe("a rejected broker session", () => {
+  // The fake account manager normally hears the rejection on the bus and reports the account as unhealthy itself, which would
+  // hide the scheduler's own record. These tests take it off the bus and make its view of the account always "connected":
+  // only the scheduler's own record of the rejection can then keep the account out of pooled routing.
+  const blind = (accounts) => {
+    accounts.status = () => ({ state: "connected" });
+    return accounts;
+  };
+
+  it("takes the account out of pooled routing on its own record, and a new login puts it back", async () => {
+    const { clock, s, accounts, bus } = setup({ accounts: [{ id: "z1", broker: "zerodha" }, { id: "z2", broker: "zerodha" }], accountsOnBus: false });
+    blind(accounts);
+    expect(s.pickAccount({ candidates: ["z1", "z2"], endpointClass: "quote" })).toBe("z1"); // the baseline: z1 first
+    const p = expect(s.schedule({ accountId: "z1", endpointClass: "portfolio" }, async () => Promise.reject(new SessionRequiredError()))).rejects.toBeInstanceOf(SessionRequiredError);
+    await clock.advance(1);
+    await p;
+    expect(s.pickAccount({ candidates: ["z1", "z2"], endpointClass: "quote" })).toBe("z2");
+    expect(s.pickAccount({ candidates: ["z1"], endpointClass: "quote" })).toBeNull(); // nothing healthy to pool on
+    bus.emit("account.status", { accountId: "z1", session: "connected" });
+    await clock.advance(1);
+    expect(s.pickAccount({ candidates: ["z1", "z2"], endpointClass: "quote" })).toBe("z1");
+  });
+
+  it("a throttle or an ordinary failure does not mark the session rejected", async () => {
+    const { clock, s, accounts } = setup({ accounts: [{ id: "z1", broker: "zerodha" }, { id: "z2", broker: "zerodha" }], accountsOnBus: false });
+    blind(accounts);
+    const p = expect(s.schedule({ accountId: "z1", endpointClass: "portfolio" }, async () => Promise.reject(Object.assign(new Error("boom"), { code: "UPSTREAM_ERROR" })))).rejects.toThrow("boom");
+    await clock.advance(1);
+    await p;
+    expect(s.pickAccount({ candidates: ["z1", "z2"], endpointClass: "quote" })).toBe("z1");
   });
 });
 

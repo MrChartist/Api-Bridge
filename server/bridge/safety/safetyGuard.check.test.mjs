@@ -407,3 +407,50 @@ describe("boot-time kill switch (fail closed)", () => {
     expect((await guard.check(ctx(), paperPlace())).ok).toBe(true);
   });
 });
+
+describe("tightening limits for the rest of the day (nothing at runtime can loosen one)", () => {
+  it("a tighter value applies at once, to one account or to all, and the account's own limit stays the stricter", async () => {
+    const { guard } = rig({ safety: { dailyMaxOrders: 100, maxOrderValue: 100_000 } });
+    const limits = await guard.tightenLimits(ctx(), "live-acc", { dailyMaxOrders: 2 });
+    expect(limits.dailyMaxOrders).toBe(2);
+    for (let n = 0; n < 2; n += 1) guard.recordOrderEvent("live-acc", { action: "place", mode: "live" });
+    expect(rules(await guard.check(ctx(), place()))).toEqual(["dailyMaxOrders"]);
+    expect((await guard.check(ctx(), paperPlace())).ok).toBe(true); // the other account kept its limit
+    const all = await guard.tightenLimits(ctx(), null, { maxOrderValue: 50 });
+    expect(all.maxOrderValue).toBe(50);
+    expect(rules(await guard.check(ctx(), paperPlace({ value: 51 })))).toEqual(["maxOrderValue"]);
+    expect((await guard.check(ctx(), paperPlace({ value: 50 }))).ok).toBe(true);
+  });
+
+  it("refuses to loosen a limit, to tighten an unknown one, a bad number or an unknown account, and says what to do", async () => {
+    const { guard } = rig({ safety: { dailyMaxOrders: 10 } });
+    await expect(guard.tightenLimits(ctx(), "live-acc", { dailyMaxOrders: 11 })).rejects.toMatchObject({ code: "VALIDATION_FAILED", errors: [{ path: "dailyMaxOrders", message: expect.stringMatching(/only be tightened.*edit bridge\.config\.json/) }] });
+    await expect(guard.tightenLimits(ctx(), "live-acc", { dailyMaxOrders: 0 })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(guard.tightenLimits(ctx(), "live-acc", { dailyMaxLoss: -1 })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(guard.tightenLimits(ctx(), "live-acc", { liveTrading: 1 })).rejects.toMatchObject({ errors: [{ path: "liveTrading", message: "not a safety limit" }] });
+    await expect(guard.tightenLimits(ctx(), "live-acc", { marketOrders: "allow" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(guard.tightenLimits(ctx(), "nobody", { dailyMaxOrders: 1 })).rejects.toMatchObject({ code: "ACCOUNT_NOT_FOUND" });
+    await expect(guard.tightenLimits(ctx(), "live-acc", null)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(guard.limits("live-acc").limits.dailyMaxOrders).toBe(10); // nothing was half applied
+    // the same value is allowed (not a loosening), and so is turning market orders off
+    await guard.tightenLimits(ctx(), "live-acc", { dailyMaxOrders: 10, marketOrders: "reject" });
+    const mkt = place({ order: { ...place().order, orderType: "MARKET", price: undefined } });
+    expect(rules(await guard.check(ctx(), mkt))).toEqual(["marketOrders"]);
+  });
+
+  it("is kept across a restart and dropped at the next IST day", async () => {
+    const first = rig({ safety: { dailyMaxOrders: 100 } });
+    await first.guard.tightenLimits(ctx(), null, { dailyMaxOrders: 1 });
+    const second = rig({ dir: first.dir, safety: { dailyMaxOrders: 100 } });
+    expect(second.guard.limits("live-acc").limits.dailyMaxOrders).toBe(1);
+    second.clock.t += 24 * 3_600_000;
+    expect(second.guard.limits("live-acc").limits.dailyMaxOrders).toBe(100);
+  });
+
+  it("when the config is made stricter than today's tightening, the config wins (the stricter of the two)", async () => {
+    const first = rig({ safety: { dailyMaxOrders: 100 } });
+    await first.guard.tightenLimits(ctx(), null, { dailyMaxOrders: 50 });
+    const second = rig({ dir: first.dir, safety: { dailyMaxOrders: 20 } });
+    expect(second.guard.limits("live-acc").limits.dailyMaxOrders).toBe(20);
+  });
+});
