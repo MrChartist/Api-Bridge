@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Dashboard: Data recordings send the bodies the recorder accepts (a contract test checks it); Developers has an Events tab
+  (receivers, secret shown once, test send, deliveries, dead letters, recent events); Get started asks what you want to do;
+  the phone toolbar keeps 44px buttons; the kill switch shows in the toolbar; finished downloads offer one .zip and show their
+  folder (`/v1/meta` adds `dataDir` for this computer only).
 - Library of collections ([docs/guides/collections.md](docs/guides/collections.md)): named, tagged lists of instruments and option
   universes (`current-weekly`, `current-monthly`, `all-weekly`, dates; ATM +/- N listed strikes, honest about a stale, delayed or
   last-close price). `GET/POST /v1/collections`, `.../{name}` (rename, tags), `/resolve`, `/estimate`, `/usage`, `/export`,
