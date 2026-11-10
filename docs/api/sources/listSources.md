@@ -53,6 +53,7 @@ API keys of sources that need one are never returned; `configured` only says whe
 | `terms` | object or null | no | The vendor's terms. Null for your own broker accounts. |
 | `noticeVersion` | string | no | Opt-in sources: the notice version `acknowledge` must equal to turn it on. |
 | `needsKey` | boolean | yes |  |
+| `needsAcknowledgement` | boolean | no | Opt-in sources: true until the notice has been accepted. |
 | `consent` | object or null | no | When you acknowledged the notice, or null. |
 | `version` | string | no | Plugins only: the plugin's own version. |
 | `flags` | array of string | no | Labels every answer from this source carries, for example `plugin`, `unofficial`, `delayed`. |

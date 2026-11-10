@@ -45,6 +45,9 @@ Capabilities come from each adapter's declared contract; limits from the Bridge'
 | `tokenExpiry` | string or null | no | When the broker's session usually ends, as the broker documents it. |
 | `loginUrl` | string | no | The broker's own login page, with {field} placeholders that are all credentialFields (e.g. {apiKey}). Only for brokers that declare one. |
 | `policy` | `BrokerPolicy` | no |  |
+| `demo` | boolean | no | Present and true for the built-in demo broker (sample data). |
+| `available` | boolean | no | Whether this build can talk to the broker. |
+| `note` | string | no | A plain sentence about this broker, when there is one. |
 
 ## Errors
 

@@ -87,6 +87,9 @@ Example:
 | `sourceIpPreset` | one of `tradingview`, `null` | no | Also accept alerts only from this published address list (see /v1/hooks/presets). |
 | `maxAgeSec` | integer or null | no | An alert whose own time is older than this many seconds is refused as stale. TradingView hooks default to 120; null means no age check. |
 | `hasPassphrase` | boolean | no | True for tradingview hooks: alerts must carry the passphrase shown when the hook was created. |
+| `acknowledgeUnsignedLive` | boolean | no | A live hook on an unsigned source was acknowledged as such when it was made. |
+| `createdByKeyId` | string or null | no | The key that made the hook. |
+| `templates` | array of `HookTemplate` | no | Ready-to-paste alert message templates for this source (for tradingview a plain alert |
 | `createdAt` | string (date-time) | yes |  |
 | `lastSignalAt` | string (date-time) or null (date-time) | no |  |
 | `readiness` | `ReadinessState` or null | no | Live hooks: the readiness state of the hook's account (orders are refused with CANNOT_TRADE while it is cannot_trade). null for paper hooks. |
@@ -95,7 +98,6 @@ Example:
 | `signingSecret` | string | no | For generic hooks only. Shown once. |
 | `passphrase` | string | no | For tradingview hooks only. Shown once; only its hash is stored. It goes inside the alert message. |
 | `ipPreset` | `HookIpPreset` | no |  |
-| `templates` | array of `HookTemplate` | no | Ready-to-paste alert message templates for this source (for tradingview a plain alert |
 | `warnings` | array of string | no |  |
 
 ## Errors

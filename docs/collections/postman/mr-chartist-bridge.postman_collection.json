@@ -2526,6 +2526,7 @@
               ],
               "query": [
                 {
+                  "description": "The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it.",
                   "key": "account",
                   "value": "demo-paper"
                 },
@@ -2592,6 +2593,7 @@
               ],
               "query": [
                 {
+                  "description": "The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it.",
                   "key": "account",
                   "value": "demo-paper"
                 }
@@ -2617,6 +2619,7 @@
               ],
               "query": [
                 {
+                  "description": "The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it.",
                   "key": "account",
                   "value": "demo-paper"
                 },

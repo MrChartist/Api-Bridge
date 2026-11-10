@@ -132,3 +132,46 @@ function check(spec, schema, value, path, errors, max, depth) {
     }
   }
 }
+
+/**
+ * The fields of `value` that the schema does not list: `["data.sources", "data.client.burst"]`. A client generated from
+ * the schema drops them, so a real answer should have none. Only objects whose schema lists `properties` (directly, through
+ * `$ref` or `allOf`) are checked; free-form objects (`additionalProperties: true` or a schema, or no `properties`) and
+ * `anyOf`/`oneOf` nodes are left alone.
+ * @returns {string[]}
+ */
+export function undeclaredFields(spec, schema, value, path = "", out = [], depth = 0) {
+  if (depth > 60 || schema === undefined || schema === null || typeof schema !== "object") return out;
+  if (typeof schema.$ref === "string") return undeclaredFields(spec, resolveRef(spec, schema.$ref), value, path, out, depth + 1);
+  const merged = mergeObjectSchemas(spec, schema, depth);
+  if (Array.isArray(value)) {
+    if (merged.items) value.forEach((item, i) => undeclaredFields(spec, merged.items, item, join(path, i), out, depth + 1));
+    return out;
+  }
+  if (!TYPE_CHECKS.object(value) || !merged.props) return out;
+  for (const [k, v] of Object.entries(value)) {
+    if (Object.hasOwn(merged.props, k)) undeclaredFields(spec, merged.props[k], v, join(path, k), out, depth + 1);
+    else if (merged.additional === undefined || merged.additional === false) out.push(join(path, k));
+    else if (typeof merged.additional === "object") undeclaredFields(spec, merged.additional, v, join(path, k), out, depth + 1);
+  }
+  return out;
+}
+
+/** `properties`, `items` and `additionalProperties` of a schema with its `allOf` parts folded in (null props: free-form or unknown). */
+function mergeObjectSchemas(spec, schema, depth = 0) {
+  const parts = [];
+  const walk = (s, d) => {
+    if (!s || typeof s !== "object" || d > 20) return;
+    const n = typeof s.$ref === "string" ? resolveRef(spec, s.$ref) : s;
+    parts.push(n);
+    for (const a of n.allOf ?? []) walk(a, d + 1);
+  };
+  walk(schema, depth);
+  // A node that can be one of several shapes is not checked.
+  if (parts.some((p) => p.anyOf || p.oneOf)) return { props: null };
+  const withProps = parts.filter((p) => p.properties);
+  const items = parts.find((p) => p.items)?.items;
+  const additional = parts.map((p) => p.additionalProperties).find((a) => a !== undefined);
+  if (!withProps.length) return { props: null, items };
+  return { props: Object.assign({}, ...withProps.map((p) => p.properties)), additional, items };
+}

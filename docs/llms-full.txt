@@ -2802,7 +2802,7 @@ receives events about those accounts; events that name no account (the kill swit
 
 | Topic | Who | When |
 |---|---|---|
-| `order.updated` | read | An order (paper or live) changed state: `orderId`, `accountId`, `mode`, `status`, `filledQuantity`, `avgPrice`, `source` |
+| `order.updated` | read | An order (paper or live) changed state: `orderId`, `accountId`, `mode`, `status`, `filledQuantity`, `avgPrice`, `source`; a paper fill also carries `realisedPnl`. One event per change of state: a market order that fills is one `filled` event |
 | `order.outcome_unknown` | read | The broker did not confirm an order. Check the broker before sending it again |
 | `position.converted` | read | A position was moved between products |
 | `account.status` | read | A broker login changed: `connected`, `expired`, `missing`, `error` |

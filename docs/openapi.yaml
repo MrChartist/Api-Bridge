@@ -4400,6 +4400,9 @@ paths:
                       ok: { type: boolean }
                       checked: { type: integer }
                       brokenAt: { type: [integer, "null"] }
+                      day: { type: [string, "null"], description: "The IST day that was checked." }
+                      line: { type: [integer, "null"], description: "When the chain is broken: the line in that day's file." }
+                      reason: { type: [string, "null"], description: "When the chain is broken: what did not match." }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -6901,6 +6904,7 @@ components:
       name: account
       in: query
       required: true
+      description: "The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it."
       schema: { $ref: "#/components/schemas/AccountId" }
     AccountQueryOptional:
       name: account
@@ -7179,6 +7183,17 @@ components:
               to: { type: string }
         demo: { type: boolean, description: "Demo mode only: true. The data is generated sample data, not live market data (every response also carries the header X-MCB-Data: demo)." }
         dataNotice: { type: string, description: "Demo mode only: a plain sentence saying so." }
+        count: { type: integer, description: "Lists that are not paged: how many items there are." }
+        total: { type: integer, description: "Lists: how many items match, before paging." }
+        kept: { type: integer, description: "GET /v1/requests: how many recent requests the Bridge keeps." }
+        resolvedAt: { type: string, format: date-time, description: "Collection resolution: when the symbols were worked out." }
+        manifestUrl: { type: string, description: "Download files: where the job's manifest is." }
+        patterns: { type: string, description: "Event topics: how a topic filter may be written." }
+        state: { type: string, description: "Tickets: which state the list was filtered to." }
+        status: { type: string, description: "Recordings: the plain status sentence (\"Recording today: 3 rules, ...\")." }
+        dataClass: { type: string, enum: [realtime, delayed, eod], description: "Recordings and their files: the data class of what was saved." }
+        layout: { type: string, description: "Recording files: how the files are laid out (one file per trading day)." }
+        auto: { type: boolean, description: "Recording rules: whether auto-record is switched on." }
     ItemError:
       type: object
       required: [code, message]
@@ -7237,6 +7252,13 @@ components:
                 last: { type: [object, "null"] }
         startedAt: { type: string, format: date-time }
         uptimeSeconds: { type: integer }
+        sources:
+          type: object
+          description: How many data sources there are and how many are switched on.
+          properties:
+            enabled: { type: integer }
+            total: { type: integer }
+            autoFallback: { type: boolean }
         demo: { type: boolean, description: "Present and true only in demo mode (sample data, no real broker)." }
         dataNotice: { type: string, description: "In demo mode: a plain sentence saying the data is sample data." }
         services:
@@ -7332,6 +7354,9 @@ components:
         bridgeVersion: { type: string }
         apiVersion: { type: string }
         brokerContractVersion: { type: integer }
+        installDir: { type: string, description: "For callers on this computer: the folder the Bridge runs from." }
+        dataDir: { type: string, description: "For callers on this computer: the data folder." }
+        cliCommand: { type: string, description: "For callers on this computer: how to run a Bridge command in this setup (`mc-bridge`, or `npm run bridge --` from a checkout)." }
         brokers: { type: array, items: { type: string } }
         modules:
           type: array
@@ -7568,6 +7593,9 @@ components:
           type: string
           description: "The broker's own login page, with {field} placeholders that are all credentialFields (e.g. {apiKey}). Only for brokers that declare one."
         policy: { $ref: "#/components/schemas/BrokerPolicy" }
+        demo: { type: boolean, description: "Present and true for the built-in demo broker (sample data)." }
+        available: { type: boolean, description: "Whether this build can talk to the broker." }
+        note: { type: string, description: "A plain sentence about this broker, when there is one." }
     BrokerPolicy:
       type: object
       properties:
@@ -7589,6 +7617,18 @@ components:
             maxSubscriptions: { type: [integer, "null"] }
         pooling: { type: string, enum: [allowed, not-allowed, unknown] }
         maxModificationsPerOrder: { type: [integer, "null"] }
+        brokerId: { type: string }
+        known: { type: boolean, description: "False for a broker the Bridge has no reviewed limits for (it then uses cautious defaults)." }
+        groups: { type: object, additionalProperties: true, description: "Shared limit groups, when the broker counts several kinds of call together." }
+        poolingNote: { type: string, description: "What the broker's published terms say about spreading reads over several accounts." }
+        dataEntitlement:
+          type: object
+          description: Whether the broker's live data needs a paid plan.
+          properties:
+            value: { type: string }
+            verified: { type: boolean }
+            note: { type: string }
+        notes: { type: string, description: "Anything else worth knowing about this broker's limits." }
     SessionState:
       type: object
       required: [state]
@@ -8325,6 +8365,7 @@ components:
         withdrawable: { type: [number, "null"] }
         realisedPnl: { type: [number, "null"] }
         unrealisedPnl: { type: [number, "null"] }
+        charges: { type: [number, "null"], description: "Paper accounts: the estimated charges taken so far." }
 
     OrderStatus:
       type: string
@@ -8689,7 +8730,24 @@ components:
           description: This key's own request budget.
           properties:
             perSecond: { type: number }
+            burst: { type: number }
             remaining: { type: number }
+        accounts:
+          type: array
+          description: Each broker account's remaining budget per kind of call.
+          items:
+            type: object
+            properties:
+              accountId: { type: string }
+              broker: { type: string }
+              classes:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    remaining: { type: number }
+                    limit: { type: number }
+                    resetMs: { type: integer }
         pools:
           type: array
           description: Only with `explain=1`. The shared bucket groups behind the broker accounts.
@@ -8724,19 +8782,29 @@ components:
             properties:
               accountId: { type: string }
               broker: { type: string }
+              healthy: { type: boolean }
+              inFlight: { type: integer }
+              queued: { type: integer }
               classes:
                 type: object
                 additionalProperties:
                   type: object
+                  additionalProperties: true
                   properties:
                     used: { type: number }
                     limit: { type: number }
                     queued: { type: integer }
                     resetMs: { type: integer }
+        generatedAt: { type: string, format: date-time }
+        consumers:
+          type: array
+          description: Who has used the budget (keys and tools), when any have.
+          items: { type: object, additionalProperties: true }
         savings:
           type: object
           description: Broker calls avoided today.
           properties:
+            since: { type: string, format: date-time, description: "When the count started (the start of today, IST)." }
             servedFromLocal: { type: integer, description: "Served from data already stored on this computer (datasets, recordings)." }
             servedFromStream: { type: integer }
             servedFromCache: { type: integer }
@@ -9018,6 +9086,7 @@ components:
             note: { type: string, description: "One plain sentence about what you accept by turning it on." }
         noticeVersion: { type: string, description: "Opt-in sources: the notice version `acknowledge` must equal to turn it on." }
         needsKey: { type: boolean }
+        needsAcknowledgement: { type: boolean, description: "Opt-in sources: true until the notice has been accepted." }
         consent:
           type: [object, "null"]
           description: When you acknowledged the notice, or null.
@@ -9073,6 +9142,7 @@ components:
             symbols: { type: array, items: { type: string } }
             purpose: { $ref: "#/components/schemas/Purpose" }
             maxAgeMs: { type: [integer, "null"] }
+            allowBackup: { type: boolean, description: "Whether sources other than your broker accounts may serve the read." }
         considered:
           type: array
           items:
@@ -9126,6 +9196,10 @@ components:
                     broker: { type: string }
                     poolingPolicy: { type: string, enum: [allowed, not-allowed, unknown], description: "What the broker's published terms say. `not-allowed` is never pooled." }
                     inPool: { type: boolean }
+                    poolingNote: { type: string }
+                    dataEntitlement: { type: object, additionalProperties: true }
+                    optedIn: { type: boolean }
+                    consented: { type: boolean }
         notice:
           type: object
           required: [version, text]
@@ -9168,6 +9242,8 @@ components:
           properties:
             perSecond: { type: number }
             burst: { type: number }
+            perDay: { type: [integer, "null"], description: "A daily cap per key; null means none." }
+            maxConcurrent: { type: integer, description: "Requests in flight at once, per key." }
         kinds:
           type: object
           description: Default fair-queue weight by client kind.
@@ -9219,6 +9295,7 @@ components:
       properties:
         killSwitch: { $ref: "#/components/schemas/KillSwitchState" }
         liveTrading: { type: boolean, description: "Global config switch." }
+        day: { type: string, description: "The IST day the counters are for (YYYY-MM-DD)." }
         accounts:
           type: array
           items:
@@ -9228,6 +9305,9 @@ components:
               liveAllowedByConfig: { type: boolean }
               ordersToday: { type: integer }
               realisedPnlToday: { type: number }
+              paperOrdersToday: { type: integer, description: "Paper orders only; they do not count towards the live limits." }
+              paperRealisedPnlToday: { type: number }
+              ordersLastSecond: { type: integer }
               limits: { type: object }
     ReadinessState:
       type: string
@@ -9313,6 +9393,7 @@ components:
             ip: { type: [string, "null"] }
             clockSkewMs: { type: [integer, "null"] }
             lastError: { type: [string, "null"] }
+            simulated: { type: boolean, description: "Demo mode: the address is a made-up one." }
         schedule: { type: object, additionalProperties: true }
         automations:
           type: object
@@ -9326,6 +9407,7 @@ components:
             targetsListening: { type: array, items: { type: string } }
             warning: { type: [string, "null"] }
             demoOff: { type: boolean }
+            wouldHaveSent: { type: array, items: { type: string }, description: "Demo mode: the messages that would have been sent." }
         method: { type: string }
     ReadinessTransition:
       type: object
@@ -9770,6 +9852,9 @@ components:
         sourceIpPreset: { type: [string, "null"], enum: [tradingview, null], description: "Also accept alerts only from this published address list (see /v1/hooks/presets)." }
         maxAgeSec: { type: [integer, "null"], description: "An alert whose own time is older than this many seconds is refused as stale. TradingView hooks default to 120; null means no age check." }
         hasPassphrase: { type: boolean, description: "True for tradingview hooks: alerts must carry the passphrase shown when the hook was created." }
+        acknowledgeUnsignedLive: { type: boolean, description: "A live hook on an unsigned source was acknowledged as such when it was made." }
+        createdByKeyId: { type: [string, "null"], description: "The key that made the hook." }
+        templates: { type: array, items: { $ref: "#/components/schemas/HookTemplate" }, description: "Alert messages to paste into the sender." }
         createdAt: { type: string, format: date-time }
         lastSignalAt: { type: [string, "null"], format: date-time }
         readiness:

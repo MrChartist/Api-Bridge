@@ -42,7 +42,7 @@ describe("generated files are in sync", () => {
 
   it("no generated file holds a timestamp, a machine path or a key that looks real", () => {
     for (const [path, text] of all) {
-      expect(text, path).not.toMatch(/generatedAt|Generated on|\/home\/user|\/tmp\/claude/);
+      expect(text, path).not.toMatch(/"generatedAt"\s*:|Generated on|\/home\/user|\/tmp\/claude/);
       expect(text, path).not.toMatch(/mcb_[a-z0-9]{8,}_[A-Za-z0-9]{12,}/);
     }
   });

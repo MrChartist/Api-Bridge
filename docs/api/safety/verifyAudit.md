@@ -41,6 +41,9 @@
 | `ok` | boolean | yes |  |
 | `checked` | integer | yes |  |
 | `brokenAt` | integer or null | yes |  |
+| `day` | string or null | no | The IST day that was checked. |
+| `line` | integer or null | no | When the chain is broken: the line in that day's file. |
+| `reason` | string or null | no | When the chain is broken: what did not match. |
 
 ## Errors
 

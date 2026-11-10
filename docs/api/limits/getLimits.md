@@ -43,6 +43,7 @@ With `explain=1` the report also says why a request may have been slow or refuse
 | `safety` | object | no | Effective safety limits per account (the stricter of global and account values). |
 | `brokers` | object | no |  |
 | `client` | object | no | This key's own request budget. |
+| `accounts` | array of object | no | Each broker account's remaining budget per kind of call. |
 | `pools` | array of `LimitsPool` | no | Only with `explain=1`. The shared bucket groups behind the broker accounts. |
 | `consumers` | array of `LimitsConsumer` | no | Only with `explain=1`. Who is waiting in the fair queue and each one's share. |
 | `savedCalls` | object | no | Only with `explain=1`. Broker calls not made today because the data was already on this computer, in the stream or in the cache. |
