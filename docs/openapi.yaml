@@ -9045,6 +9045,7 @@ components:
               symbol: { type: string }
               interval: { type: string }
               name: { type: string }
+              url: { type: string, description: "Where to fetch this file: /v1/datasets/{name}/files/{file}." }
               rows: { type: integer }
               bytes: { type: integer }
               firstBar: { type: [string, "null"] }
