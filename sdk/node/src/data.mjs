@@ -239,7 +239,7 @@ export class Downloads extends FileOwner {
 
   /**
    * Poll until the job is done, failed or cancelled and return it. `onProgress(job)` runs after every poll. A job that
-   * ends failed or cancelled throws DownloadFailedError (with `job.reason`) unless `throwOnFailure: false`. A paused job
+   * ends failed or cancelled throws DownloadFailedError (with `job.failure`: the code, the real text and the fix) unless `throwOnFailure: false`. A paused job
    * keeps waiting (resume it). Running out of `timeoutMs` throws WaitTimeoutError: the job carries on in the Bridge.
    * @param {string|object} job
    * @param {{ timeoutMs?: number, pollMs?: number, onProgress?: (job: any) => void, throwOnFailure?: boolean, signal?: AbortSignal }} [o]
@@ -251,7 +251,7 @@ export class Downloads extends FileOwner {
       const cur = await this.get(id);
       onProgress?.(cur);
       if (TERMINAL_JOB_STATUSES.includes(cur.status)) {
-        if (throwOnFailure && cur.status !== "done") throw new DownloadFailedError(`Download ${id} ended ${cur.status}${cur.reason ? `: ${cur.reason}` : ""}.`, cur);
+        if (throwOnFailure && cur.status !== "done") throw new DownloadFailedError(`Download ${id} ended ${cur.status}${cur.failure ? `: ${cur.failure.message} (${cur.failure.code}). Fix: ${cur.failure.fix}` : cur.reason ? `: ${cur.reason}` : ""}.`, cur);
         return cur;
       }
       if (timeoutMs !== undefined && this.client._now() - t0 >= timeoutMs) {

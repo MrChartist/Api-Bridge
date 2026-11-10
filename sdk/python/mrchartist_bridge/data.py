@@ -178,6 +178,32 @@ class DownloadProgress:
 
 
 @dataclass(frozen=True)
+class FailureReason:
+    """Why a download or a recording did not work, in plain words (``job.failure``, ``recording.problem``).
+
+    ``code`` is an API problem code (see ``GET /v1/errors``) or a reason of the job itself (``disk_limit``, ``disk_full``,
+    ``LOGIN_MISSING`` ...); ``message`` is what really happened and ``fix`` what to do next. For a download, ``symbol``,
+    ``interval`` and ``failed_items`` say which item failed first and how many did; for a recording ``since`` says when."""
+
+    code: str
+    message: str
+    fix: str
+    symbol: Optional[str] = None
+    interval: Optional[str] = None
+    failed_items: int = 0
+    since: Optional[datetime] = None
+
+    @classmethod
+    def from_dict(cls, d: Any) -> Optional["FailureReason"]:
+        if not isinstance(d, Mapping) or not (d.get("code") or d.get("message")):
+            return None
+        return cls(str(d.get("code") or ""), str(d.get("message") or ""), str(d.get("fix") or ""), d.get("symbol"), d.get("interval"), _int(d.get("failedItems")) or 0, parse_time(d.get("since")))
+
+    def __str__(self) -> str:
+        return "%s (%s). Fix: %s" % (self.message, self.code, self.fix)
+
+
+@dataclass(frozen=True)
 class DownloadItem:
     """One symbol and interval of a job."""
 
@@ -186,13 +212,19 @@ class DownloadItem:
     status: str
     rows: int = 0
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    """The problem code of a failed item (for example ``SYMBOL_NOT_FOUND``)."""
+    fix: Optional[str] = None
+    """What to do about a failed item."""
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "DownloadItem":
         err = d.get("error")
+        code = fix = None
         if isinstance(err, Mapping):
+            code, fix = err.get("code"), err.get("fix")
             err = err.get("message") or err.get("code")
-        return cls(str(d.get("symbol")), str(d.get("interval")), str(d.get("status")), _int(d.get("rows")) or 0, str(err) if err else None)
+        return cls(str(d.get("symbol")), str(d.get("interval")), str(d.get("status")), _int(d.get("rows")) or 0, str(err) if err else None, str(code) if code else None, str(fix) if fix else None)
 
 
 @dataclass(frozen=True)
@@ -220,6 +252,8 @@ class DownloadJob:
     dataset: Optional[str] = None
     notes: Tuple[str, ...] = ()
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    failure: Optional[FailureReason] = None
+    """Set when the job failed: the real reason (code, text) and the fix. ``None`` otherwise."""
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "DownloadJob":
@@ -232,6 +266,7 @@ class DownloadJob:
             str(d.get("id")), d.get("name"), str(d.get("status")), DownloadProgress.from_dict(d.get("progress")), tuple(DownloadItem.from_dict(i) for i in d.get("items") or [] if isinstance(i, Mapping)),
             dict(req), cls_, src, official, delay, parse_time(d.get("createdAt")), parse_time(d.get("startedAt")), parse_time(d.get("finishedAt")), d.get("manifestUrl"), str(reason) if reason else None,
             tuple(DataFile.from_dict(f) for f in d.get("files") or []), tuple(str(t) for t in d.get("tags") or ()), d.get("dataset") or req.get("dataset"), tuple(str(n) for n in d.get("notes") or ()), dict(d),
+            FailureReason.from_dict(d.get("failure")),
         )
 
     @property
@@ -370,6 +405,8 @@ class Recording:
     symbol_count: int = 0
     gap_total: int = 0
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    problem: Optional[FailureReason] = None
+    """What is wrong right now (disk full, no login, symbols not chosen ...): code, real text and fix. ``None`` when all is well."""
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Recording":
@@ -393,7 +430,7 @@ class Recording:
         return cls(str(d.get("id")), d.get("name"), str(d.get("kind")), str(d.get("status")), syms, underlying, target.get("expiry", d.get("expiry")), _num(d.get("everySec")),
                    bool(d.get("sessionOnly", True)), d.get("format"), _int(d.get("rows")) or 0, _int(d.get("bytes")) or 0, parse_time(d.get("lastWriteAt")), gap_rows,
                    disk_bytes, cls_, src, d.get("ruleId"), target.get("collection", d.get("collection")),
-                   tuple(DataFile.from_dict(f) for f in d.get("files") or []), d.get("statusText"), _int(status_obj.get("count")) or len(syms), gap_total, dict(d))
+                   tuple(DataFile.from_dict(f) for f in d.get("files") or []), d.get("statusText"), _int(status_obj.get("count")) or len(syms), gap_total, dict(d), FailureReason.from_dict(d.get("problem")))
 
     @property
     def is_running(self) -> bool:
@@ -924,7 +961,8 @@ class Downloads(_Ns, _Files):
                 on_progress(cur)
             if cur.is_final:
                 if raise_on_failure and not cur.is_done:
-                    raise DownloadFailed("Download %s ended %s%s." % (jid, cur.status, (": " + cur.reason) if cur.reason else ""), cur)
+                    why = (": " + str(cur.failure)) if cur.failure else ((": " + cur.reason) if cur.reason else "")
+                    raise DownloadFailed("Download %s ended %s%s." % (jid, cur.status, why), cur)
                 return cur
             if timeout is not None and self._b._clock() - t0 >= timeout:
                 raise WaitTimeout("Download %s is still %s after %.0f s (%d of %d items). It keeps running in the Bridge: look again with bridge.downloads.get(%r)." % (jid, cur.status, timeout, cur.progress.done, cur.progress.total, jid), cur)

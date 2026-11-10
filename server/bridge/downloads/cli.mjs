@@ -75,9 +75,13 @@ export function formatJobs(jobs) {
 export function formatJob(j) {
   const lines = [formatProgress(j), `Name: ${j.name}${j.dataset ? `   Dataset: ${j.dataset}` : ""}`, `Data: ${j.dataClass}${j.source ? ` from ${j.source}` : ""}${j.delaySec ? `, delayed by about ${j.delaySec} s` : ""}${j.official === false ? ", unofficial" : ""}.`];
   if (j.callsSaved) lines.push(`Broker calls saved: ${j.callsSaved}.`);
-  if (j.message) lines.push(`Message: ${j.message}`);
+  if (j.failure) {
+    const f = j.failure;
+    lines.push(`Why it failed: ${f.message} (${f.code})`, `Fix: ${f.fix}`);
+    if (f.failedItems > 1) lines.push(`${f.failedItems} items failed; the first is ${f.symbol} ${f.interval}.`);
+  } else if (j.message) lines.push(`Message: ${j.message}`);
   const bad = (j.items ?? []).filter((i) => i.status === "failed");
-  for (const i of bad.slice(0, 10)) lines.push(`  failed: ${i.symbol} ${i.interval}: ${i.error?.message ?? i.error?.code}`);
+  for (const i of bad.slice(0, 10)) lines.push(`  failed: ${i.symbol} ${i.interval}: ${i.error?.message ?? i.error?.code}${i.error?.code && i.error?.message ? ` (${i.error.code})` : ""}`);
   for (const n of (j.notes ?? []).slice(0, 12)) lines.push(`  note: ${n}`);
   return lines.join("\n");
 }

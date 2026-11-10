@@ -38,6 +38,7 @@ import { JOB_ID_RE, folderBytes, removeQuiet, safeFileName, sha256File, sizeOf, 
 import { createPacer } from "./pacer.mjs";
 import { filterByTags } from "./tagsCompat.mjs";
 import { assertKnownSymbols } from "../symbols/knownSymbols.mjs";
+import { describeFailure, fixFor } from "../core/failureReason.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
@@ -262,6 +263,14 @@ export function createDownloadManager(deps, opts = {}) {
     return { total: items.length, done, failed, rows, bytes, etaSec, current, waiting: rt?.waiting ?? null };
   }
 
+  /** Why a failed job failed: { code, message, fix } of the first failed item (or of the job), plus which item and how many. null unless failed. */
+  function failureOf(job) {
+    if (job.status !== "failed") return null;
+    const bad = job.items.filter((i) => i.status === "failed");
+    if (job.reason === "items_failed" && bad.length) return { ...describeFailure(bad[0].error?.code, bad[0].error?.message), symbol: bad[0].symbol, interval: bad[0].interval, failedItems: bad.length };
+    return describeFailure(job.reason ?? "internal", job.message);
+  }
+
   function publicJob(job, { withItems = true } = {}) {
     const out = {
       id: job.id,
@@ -269,6 +278,7 @@ export function createDownloadManager(deps, opts = {}) {
       status: job.status,
       reason: job.reason ?? null,
       message: job.message ?? null,
+      failure: failureOf(job),
       progress: progressOf(job),
       request: job.request,
       dataset: job.dataset ?? null,
@@ -286,7 +296,7 @@ export function createDownloadManager(deps, opts = {}) {
       manifestUrl: `/v1/downloads/${job.id}/files/manifest.json`,
     };
     if (job.collection) out.collection = job.collection;
-    if (withItems) out.items = job.items.map((it) => ({ symbol: it.symbol, interval: it.interval, status: it.status, rows: it.rows ?? 0, ...(it.error ? { error: it.error } : {}) }));
+    if (withItems) out.items = job.items.map((it) => ({ symbol: it.symbol, interval: it.interval, status: it.status, rows: it.rows ?? 0, ...(it.error ? { error: { ...it.error, fix: fixFor(it.error.code) } } : {}) }));
     return out;
   }
 

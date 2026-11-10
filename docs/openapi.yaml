@@ -8717,7 +8717,8 @@ components:
               interval: { type: string }
               status: { type: string, enum: [pending, running, done, failed] }
               rows: { type: integer }
-              error: { type: object, properties: { code: { type: string }, message: { type: string } } }
+              error: { type: object, properties: { code: { type: string }, message: { type: string }, fix: { type: string, description: What to do about it. } } }
+        failure: { oneOf: [{ $ref: "#/components/schemas/FailureReason" }, { type: "null" }], description: "Set when status is failed: the real reason (the code and text of the first failed item, or of the job) and the fix. null otherwise." }
         request: { type: object, description: "The request as the Bridge understood it." }
         dataset: { type: [string, "null"] }
         collection: { type: object, description: "Present when the symbols came from a collection.", properties: { name: { type: string }, resolvedAt: { type: string }, rule: {} } }
@@ -8732,6 +8733,18 @@ components:
         startedAt: { type: [string, "null"], format: date-time }
         finishedAt: { type: [string, "null"], format: date-time }
         manifestUrl: { type: string }
+    FailureReason:
+      type: object
+      required: [code, message, fix]
+      description: "Why a download or recording did not work, in plain words. code is an API problem code (see GET /v1/errors) or a reason of the job itself (disk_limit, disk_full, internal, LOGIN_MISSING, UNIVERSE_UNRESOLVED, feed-silent ...)."
+      properties:
+        code: { type: string }
+        message: { type: string, description: What happened. The real text, not a generic one. }
+        fix: { type: string, description: What to do next. }
+        symbol: { type: string, description: "Downloads: the first failed item." }
+        interval: { type: string }
+        failedItems: { type: integer, description: "Downloads: how many items failed." }
+        since: { type: [string, "null"], description: "Recordings: when the problem began." }
     DownloadFile:
       type: object
       required: [name, rows, bytes, sha256]
@@ -9475,6 +9488,7 @@ components:
         keepDays: { type: [integer, "null"] }
         nextStartAt: { type: [string, "null"] }
         issue: { type: [object, "null"], additionalProperties: true }
+        problem: { oneOf: [{ $ref: "#/components/schemas/FailureReason" }, { type: "null" }], description: "What is wrong right now (a full disk, no login, symbols that could not be chosen, a silent feed): the real text, its code and the fix. null when all is well." }
         filesUrl: { type: string }
         files: { type: object, description: "On GET /v1/recordings/{recordingId} only.", properties: { count: { type: integer }, firstDate: { type: [string, "null"] }, lastDate: { type: [string, "null"] } } }
     RecordingGap:

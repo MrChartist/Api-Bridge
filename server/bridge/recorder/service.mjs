@@ -32,6 +32,7 @@ import { createSampler } from "./sampler.mjs";
 import { createSessionClock, exchangeOfSymbols, exchangeOfUnderlying } from "./schedule.mjs";
 import { createUniverseResolver } from "./universe.mjs";
 import { assertKnownSymbols } from "../symbols/knownSymbols.mjs";
+import { describeFailure } from "../core/failureReason.mjs";
 
 const MB = 1024 * 1024;
 const PERSIST_EVERY_MS = 10_000;
@@ -835,6 +836,17 @@ export function createRecorderService(deps, opts = {}) {
     return `Recording ${rec.symbols.length} symbol${rec.symbols.length === 1 ? "" : "s"} every ${d.everySec} s${rec.lastWriteMs ? `, last write ${clock(rec.lastWriteMs)} IST` : ""}.`;
   }
 
+  /** What is wrong right now, with the real text and the fix: { code, message, fix, since } or null when all is well (or stopped by hand). */
+  function problemOf(rec) {
+    const d = rec.def;
+    if (d.status !== "active") return null;
+    if (rec.blocked) return { ...describeFailure("disk_full", rec.blocked.message), since: rec.blocked.at };
+    if (rec.resolved && !rec.resolved.ok) return { ...describeFailure("UNIVERSE_UNRESOLVED", rec.resolved.reason), since: rec.resolved.at ?? null };
+    if (rec.lastIssue) return { ...describeFailure(rec.lastIssue.code, rec.lastIssue.message), since: rec.lastIssue.at };
+    if (rec.gap) return { ...describeFailure(rec.gap.reason, rec.gap.detail), since: iso(rec.gap.from) };
+    return null;
+  }
+
   function view(rec, { detail = false } = {}) {
     const d = rec.def;
     const t = now();
@@ -869,6 +881,7 @@ export function createRecorderService(deps, opts = {}) {
       keepDays: d.keepDays ?? cfg.retentionDays,
       nextStartAt: rec.nextStartMs ? iso(rec.nextStartMs) : null,
       issue: rec.lastIssue,
+      problem: problemOf(rec),
       filesUrl: `/v1/recordings/${d.id}/files`,
     };
     if (detail) out.files = { count: files.length, firstDate: files[0]?.date ?? null, lastDate: files.at(-1)?.date ?? null };

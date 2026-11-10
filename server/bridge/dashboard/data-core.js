@@ -568,8 +568,17 @@ const FAIL_WORDS = {
   restart: ["Paused when the Bridge restarted", "Press Resume to carry on where it stopped.", null],
   schedule: ["Waiting for after market hours", "It starts by itself when the market closes. Press Resume to start now.", null],
 };
-/** Why a job stopped, in plain words: { title, fix, route } (route is a dashboard address for the fix, or null). */
+/**
+ * Why a job stopped, in plain words: { title, fix, route, detail?, code? } (route is a dashboard address for the fix, or null).
+ * When the Bridge sent its own `failure` ({ code, message, fix }) the real text and the real code are shown as they are:
+ * `detail` is what happened and `fix` what to do. Older answers fall back to the table below.
+ */
 export function failureWords(job) {
+  const f = job?.failure;
+  if (f && typeof f === "object" && (f.message || f.code)) {
+    const hit = FAIL_WORDS[f.code];
+    return { title: hit ? hit[0] : job?.status === "failed" ? "The download did not finish" : "Stopped", detail: String(f.message ?? ""), code: String(f.code ?? ""), fix: String(f.fix ?? hit?.[1] ?? "Press Retry to try again."), route: hit ? hit[2] : null };
+  }
   const code = job?.error?.code ?? job?.reason ?? job?.code;
   const hit = FAIL_WORDS[code];
   if (hit) return { title: hit[0], fix: hit[1], route: hit[2] };
@@ -686,6 +695,9 @@ const REC_WHY = {
   kill_switch: ["The kill switch is on", "Release it on Safety and the recording continues.", "safety"],
 };
 
+/** Recorder problem codes written another way, mapped to the REC_WHY entry above. */
+const REC_ALIAS = { LOGIN_MISSING: "login_needed", "login-missing": "login_needed", disk_full: "disk_low", "disk-full": "disk_low", "feed-silent": "feed_silent", "feed-down": "feed_silent" };
+
 /** Everything one recording row needs. */
 export function recordingView(rec, nowMs = Date.now()) {
   const code = rec?.reason ?? rec?.error?.code ?? (rec?.status === "disk_low" ? "disk_low" : rec?.loginNeeded ? "login_needed" : null);
@@ -702,7 +714,9 @@ export function recordingView(rec, nowMs = Date.now()) {
   if (Number(rec?.bytes) > 0) stats.push(formatBytes(rec.bytes));
   if (rec?.lastWriteAt) stats.push(`last write ${istClock(rec.lastWriteAt)}`);
   if (gaps) stats.push(plural(gaps, "gap"));
-  const why = code && REC_WHY[code] && (status !== "running" || code === "feed_silent") ? { title: REC_WHY[code][0], fix: REC_WHY[code][1], route: REC_WHY[code][2] } : null;
+  const p = rec?.problem;
+  const own = p && typeof p === "object" && (p.message || p.code) ? { title: (REC_WHY[p.code] ?? REC_WHY[REC_ALIAS[p.code]])?.[0] ?? "The recording has a problem", detail: String(p.message ?? ""), code: String(p.code ?? ""), fix: String(p.fix ?? ""), route: (REC_WHY[p.code] ?? REC_WHY[REC_ALIAS[p.code]])?.[2] ?? null } : null;
+  const why = own ?? (code && REC_WHY[code] && (status !== "running" || code === "feed_silent") ? { title: REC_WHY[code][0], fix: REC_WHY[code][1], route: REC_WHY[code][2] } : null);
   const actions = [];
   if (status === "running" || status === "waiting" || status === "login_needed") actions.push("pause", "stop");
   if (status === "paused") actions.push("resume", "stop");

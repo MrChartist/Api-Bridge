@@ -178,6 +178,8 @@ class DataRoutes:
         if status in ("queued", "running"):
             if self.job_fail and n >= 1:
                 job["status"], job["reason"] = "failed", self.job_fail
+                job["failure"] = {"code": "SESSION_EXPIRED", "message": self.job_fail, "fix": "Log in to your broker again on the Accounts page, then resume the job.",
+                                  "symbol": job["items"][0]["symbol"], "interval": job["items"][0]["interval"], "failedItems": len(job["items"])}
                 self.emit("download.failed", {"id": jid, "reason": self.job_fail})
             elif n >= self.job_polls:
                 self.finish(job)
@@ -190,6 +192,8 @@ class DataRoutes:
         out["progress"] = {"total": total, "done": done, "failed": total if job["status"] == "failed" else 0, "rows": 3 * done, "bytes": 90 * done, "etaSec": None if done == total else 5,
                            "current": {"symbol": job["items"][0]["symbol"], "interval": job["items"][0]["interval"]} if job["status"] == "running" else None}
         out["items"] = [dict(i, status="done" if job["status"] == "done" else i["status"], rows=3 if job["status"] == "done" else 0) for i in job["items"]]
+        if job["status"] == "failed":
+            out["items"] = [dict(i, status="failed", error={"code": "SESSION_EXPIRED", "message": job["reason"], "fix": job["failure"]["fix"]}) for i in out["items"]]
         if job["status"] == "done":
             out["files"] = [self.file_rows(n_, c, job["request"]) for n_, c in self.job_files[jid].items()]
         return out
