@@ -228,7 +228,7 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, 
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
   it("has the pages in two groups, in the order of the sidebar", () => {
-    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "connect", "sources", "data", "api", "orders", "safety"]);
+    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "connect", "developers", "sources", "data", "api", "orders", "safety"]);
     expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["Bridge", "Trade"]);
     // The phone tab bar holds four pages and More: Sources (is the data flowing?) is in it, API (set up once) is under More.
     expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["accounts", "sources", "orders", "safety"]);
@@ -237,7 +237,7 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, 
 
   it("curates the shortcuts", () => {
     const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
-    expect(keys).toEqual({ 1: "accounts", 2: "api", 3: "orders", 4: "safety", 5: "sources", 6: "connect" });
+    expect(keys).toEqual({ 1: "accounts", 2: "api", 3: "orders", 4: "safety", 5: "sources", 6: "connect", 7: "developers" });
   });
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {

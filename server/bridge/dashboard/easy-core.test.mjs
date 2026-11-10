@@ -102,7 +102,7 @@ describe("Simple and Advanced view", () => {
 
   it("keeps the advanced pages in the menu model: API is flagged, Accounts and Orders are not", async () => {
     const { PAGES } = await import("./views.js");
-    expect(PAGES.filter((p) => p.advanced).map((p) => p.id)).toEqual(["api"]);
+    expect(PAGES.filter((p) => p.advanced).map((p) => p.id)).toEqual(["developers", "api"]);
     expect(PAGES.find((p) => p.id === "connect")).toMatchObject({ group: "Bridge", label: "Connect a tool" });
   });
 });

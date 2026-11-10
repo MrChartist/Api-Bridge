@@ -86,6 +86,25 @@
           "response": []
         },
         {
+          "name": "Every error code, what it means and how to fix it",
+          "request": {
+            "description": "Every error code, what it means and how to fix it\n\n- An API key with the `read` scope (any key).\n\nThe catalogue of every problem `code` the Bridge can return, with its HTTP status, whether sending the same request again is safe, a plain explanation and the fix. Generated from the Bridge's own error definitions, so it always matches the version you run.\n\nReference: docs/api/system/listErrorCodes.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "errors"
+              ],
+              "raw": "{{baseUrl}}/v1/errors"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "What is set up to be reached from outside this computer",
           "request": {
             "description": "What is set up to be reached from outside this computer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nPlain-words state of the two optional public listeners (`server.publicIngress` for webhook alerts, `server.sheetsIngress`\nfor Google Sheets), the address patterns to use, and the exposure checks that `mc-bridge doctor` also runs, each with\na one-line fix. It reads the settings the Bridge started with; it changes nothing and calls nothing outside this\ncomputer. Setting up is the terminal command `mc-bridge expose`.\n\nReference: docs/api/system/getExposure.md in the repository.",

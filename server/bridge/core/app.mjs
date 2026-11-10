@@ -25,6 +25,7 @@ import { withAddableAccounts } from "./config.mjs";
 import { SERVICE_CONTRACTS, SERVICES_NOT_IN_V2, isStub } from "./contracts.mjs";
 import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
+import { errorCatalogue } from "./errorCatalogue.mjs";
 import { createEventBus } from "./eventBus.mjs";
 import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
@@ -91,6 +92,8 @@ export const DASHBOARD_FILES = Object.freeze({
   "glossary.js": "text/javascript; charset=utf-8",
   "help.js": "text/javascript; charset=utf-8",
   "connect.js": "text/javascript; charset=utf-8",
+  "developers.js": "text/javascript; charset=utf-8",
+  "developers-core.js": "text/javascript; charset=utf-8",
   "practice.js": "text/javascript; charset=utf-8",
   "motion.js": "text/javascript; charset=utf-8",
   "palette.js": "text/javascript; charset=utf-8",
@@ -239,6 +242,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       return { data: recentRequests.slice(-limit).reverse(), meta: { requestId: ctx.requestId, kept: RECENT_MAX } };
     },
     { scope: "admin", loopbackOnly: true, summary: "Recent requests to this Bridge (memory only, newest first)" },
+  );
+  core.get(
+    "/v1/errors",
+    (ctx) => ({ data: errorCatalogue(), meta: { requestId: ctx.requestId } }),
+    { scope: "read", summary: "Every error code with what it means and how to fix it" },
   );
   // ── Local dashboard (static files, this computer only; the page asks for an API key and keeps it in the tab) ──
   // DASHBOARD_FILES (module scope, above) lists what may be served.

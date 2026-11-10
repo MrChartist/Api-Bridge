@@ -259,6 +259,30 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/errors:
+    get:
+      tags: [System]
+      operationId: listErrorCodes
+      summary: Every error code, what it means and how to fix it
+      description: The catalogue of every problem `code` the Bridge can return, with its HTTP status, whether sending the same request again is safe, a plain explanation and the fix. Generated from the Bridge's own error definitions, so it always matches the version you run.
+      x-module: core
+      x-scope: read
+      responses:
+        "200":
+          description: The error catalogue, by HTTP status then code.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ErrorCatalogueEntry" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/expose:
     get:
       tags: [System]
@@ -8550,6 +8574,17 @@ components:
       type: string
       enum: [quotes, history, expiries, optionChain]
       description: What a source can be asked. All four are read-only; no source places orders.
+    ErrorCatalogueEntry:
+      type: object
+      required: [code, status, title, retryable, retry, means, fix]
+      properties:
+        code: { type: string, description: "The stable `code` in a problem answer." }
+        status: { type: integer, description: "The HTTP status that goes with it." }
+        title: { type: string }
+        retryable: { type: boolean, description: "Whether sending exactly the same request again can succeed." }
+        retry: { type: string, description: "One sentence on whether and when to retry." }
+        means: { type: string, description: "What happened, in plain words." }
+        fix: { type: string, description: "What to do about it." }
     RequestRoute:
       type: object
       description: |

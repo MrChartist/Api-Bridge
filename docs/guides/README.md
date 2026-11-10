@@ -23,6 +23,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [notifications.md](notifications.md) | How a message travels (outbox, retries, pacing, quiet hours), the `notify` settings and routes |
 | [recording.md](recording.md) | Saving real-time prices and option chains to files on your computer, by hand or by rules every trading day: market hours, gaps, disk limits, retention, the file layout, saving API calls |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
+| [developers.md](developers.md) | Start in five minutes, starters (`mc-bridge init`), auth and scopes, limits and retries, errors, pagination, idempotency, events, data downloads, versioning promise |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |
 | [collections.md](collections.md) | Named, tagged lists of instruments and option universes (rolling expiry, ATM strike) for downloads, recordings, sheets and Python; import, export, size estimate |

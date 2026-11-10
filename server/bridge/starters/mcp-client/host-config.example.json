@@ -1,0 +1,10 @@
+{
+  "_note": "For an AI assistant app (Claude Desktop, Cursor and others): add this server, replace the two values, restart the app. Keep the key out of anything you share. The command line `mc-bridge mcp` is the same server over stdio.",
+  "mcpServers": {
+    "bridge": {
+      "command": "node",
+      "args": ["<folder of your Bridge>/bin/mc-bridge.mjs", "mcp"],
+      "env": { "MCB_API_KEY": "<paste your read key here>" }
+    }
+  }
+}

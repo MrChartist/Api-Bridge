@@ -20,9 +20,9 @@ Facts that help when writing code against it:
 
 ## API reference
 
-- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 211 operations with schemas, scopes and error codes
+- [OpenAPI 3.1 description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/openapi.yaml): all 212 operations with schemas, scopes and error codes
 - [AsyncAPI description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/asyncapi.yaml): WebSocket and SSE message formats
-- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (211), grouped by area, each with curl and Python examples
+- [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (212), grouped by area, each with curl and Python examples
 - [Error codes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/errors.md): every stable error code with its HTTP status and whether a retry is safe
 - [Postman and Bruno collections](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/collections/README.md): import every request, with paper-mode examples and no real keys
 
@@ -47,6 +47,7 @@ Facts that help when writing code against it:
 - [Notifications: how the Bridge tells you things](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/notifications.md): How a message travels (outbox, retries, pacing, quiet hours), the notify settings and routes
 - [Recording: save prices and option chains as they happen](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/recording.md): Saving real-time prices and option chains to files on your computer, by hand or by rules every trading day: market hours, gaps, disk limits, retention, the file layout, saving API calls
 - [AmiBroker](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/amibroker.md): AmiBroker AFL and ASCII import
+- [Building on the Bridge: the developer guide](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/developers.md): Start in five minutes, starters (mc-bridge init), auth and scopes, limits and retries, errors, pagination, idempotency, events, data downloads, versioning promise
 - [Python](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/python.md): Python SDK
 - [TypeScript and Node](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/typescript.md): Node and TypeScript SDK
 - [Collections: lists of instruments and option universes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/collections.md): Named, tagged lists of instruments and option universes (rolling expiry, ATM strike) for downloads, recordings, sheets and Python; import, export, size estimate

@@ -10,6 +10,7 @@ API Bridge v2 is one local API in front of your Indian broker accounts. These pa
    - Spreadsheets: [Excel and Google Sheets](guides/excel-sheets.md)
    - Charting and alerts: [AmiBroker](guides/amibroker.md), [signed webhooks, ChartInk and GoCharting](guides/webhooks.md)
    - Your own code: [Python](guides/python.md), [Node and TypeScript](guides/typescript.md), [streaming](guides/streaming.md), [events and signed webhooks](guides/events.md)
+   - Your own code: [the developer guide](guides/developers.md) (starters: `mc-bridge init node`), [Python](guides/python.md), [Node and TypeScript](guides/typescript.md), [streaming](guides/streaming.md)
    - Tools that already speak the apikey-in-body style: [compat REST](guides/compat-api.md)
 3. **[API reference](api/README.md).** One page per endpoint (scope, parameters, answers, error codes, a curl and a Python example), the [error codes](api/errors.md), and the full [OpenAPI](openapi.yaml) and [AsyncAPI](asyncapi.yaml) files. To try calls without code, import a [Postman or Bruno collection](collections/README.md).
 4. **Sources and limits.** [Where prices come from](guides/sources.md) (your broker, optional free sources, plugins; what delayed and end-of-day mean) and [how the Bridge stays inside each broker's limits](guides/rate-limits.md).
