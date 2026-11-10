@@ -11,7 +11,10 @@ On Windows, run the commands in PowerShell, and read [windows.md](windows.md) fo
 | Guide | For |
 |---|---|
 | [quickstart.md](quickstart.md) | Clone, start in demo mode, make a key, get a price, place a paper order, read a stream; and what to do when it does not work |
+| [troubleshooting.md](troubleshooting.md) | What you see, the cause and the fix: by symptom and by error code, with real example answers |
+| [glossary.md](glossary.md) | What the words mean: freshness, data class, ATM, ticket, cursor, dead letter and the rest (generated from the dashboard's own glossary) |
 | [faq.md](faq.md) | Is it free, is my broker supported, why pooling is off, why Yahoo is not real-time, where the data lives, how to reset |
+| [windows.md](windows.md) | PowerShell instead of bash, `curl.exe`, where the files are on Windows, protecting the master key, firewall, start at login |
 | [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
 | [downloads.md](downloads.md) | Saving history to files (CSV, JSONL, AmiBroker), datasets that update from their last bar, the API budget share, and the estimate before you start |
 | [backup.md](backup.md) | Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer) |

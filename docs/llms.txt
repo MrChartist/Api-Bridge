@@ -29,7 +29,10 @@ Facts that help when writing code against it:
 ## Guides
 
 - [Quickstart: five minutes to a first answer](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/quickstart.md): Clone, start in demo mode, make a key, get a price, place a paper order, read a stream; and what to do when it does not work
+- [Troubleshooting](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/troubleshooting.md): What you see, the cause and the fix: by symptom and by error code, with real example answers
+- [Glossary](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/glossary.md): What the words mean: freshness, data class, ATM, ticket, cursor, dead letter and the rest (generated from the dashboard's own glossary)
 - [FAQ](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/faq.md): Is it free, is my broker supported, why pooling is off, why Yahoo is not real-time, where the data lives, how to reset
+- [Windows notes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/windows.md): PowerShell instead of bash, curl.exe, where the files are on Windows, protecting the master key, firewall, start at login
 - [Installing the Bridge](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/install.md): Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling
 - [Data downloads](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/downloads.md): Saving history to files (CSV, JSONL, AmiBroker), datasets that update from their last bar, the API budget share, and the estimate before you start
 - [Backup and restore](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/guides/backup.md): Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer)

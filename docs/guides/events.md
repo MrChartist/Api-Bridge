@@ -90,6 +90,18 @@ while true; do
 done
 ```
 
+The same loop in PowerShell (it needs no `jq`):
+
+```powershell
+$cursor = 0
+while ($true) {
+  $r = Invoke-RestMethod "http://127.0.0.1:4300/v1/events?since=$cursor&topics=order.*" -Headers @{ Authorization = "Bearer $env:KEY" }
+  $r.data | ForEach-Object { $_ | ConvertTo-Json -Compress }
+  $cursor = $r.meta.cursor
+  Start-Sleep 5
+}
+```
+
 ## Which events, and who sees them
 
 `GET /v1/events/topics` lists what your key may receive. A **read** key sees the topics marked read. **Admin-only** topics

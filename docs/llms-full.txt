@@ -461,6 +461,250 @@ For `client` and `consumer-cap`, slow the tool down or raise that key's quota (d
 
 ---
 
+<!-- docs/guides/troubleshooting.md -->
+
+# Troubleshooting
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
+Find what you see, then read the cause and the fix. The first part is by symptom, the second by the error `code` the Bridge
+returns. Every error has a stable `code`, so switch on `code`, never on the wording of `detail`. The list of all codes is in
+[the error codes](../api/errors.md) and in the dashboard (Developers, Errors). The same words are in the Bridge itself:
+`GET /v1/errors`.
+
+When you report a problem, include the `requestId` from the error, what `mc-bridge doctor` prints, and the Bridge version.
+Never paste a key.
+
+## By what you see
+
+| You see | Likely cause | What to do |
+|---|---|---|
+| `mc-bridge: command not found` (or "is not recognized") | In a git checkout the command is not on your PATH | Use `npm run bridge -- <command>`, or `node bin/mc-bridge.mjs <command>`, in the repository folder ([why](README.md#running-mc-bridge)) |
+| Running the project name through npx downloads something unexpected | The name `mc-bridge` on npm belongs to an unrelated package; this project is not published there | Do not run it through npx. Use the installed command or `npm run bridge --` |
+| `curl: ... Invalid ... -s` or `Invoke-WebRequest : A parameter cannot be found` on Windows | `curl` is an alias of `Invoke-WebRequest` in Windows PowerShell 5.1 | Use `Invoke-RestMethod` or `curl.exe` ([windows.md](windows.md)) |
+| "Port 4300 is already in use" | Another program, or a second Bridge, has the port | Close it, or use `MCB_PORT=4301` and set `MCB_BRIDGE_URL` to match ([quickstart](quickstart.md#port-already-in-use)) |
+| "The Bridge is already running ..." | One Bridge per data folder | Use that one: `mc-bridge open` ([operations.md](operations.md#one-bridge-per-data-folder)) |
+| Errors about Node or syntax at start | Node.js older than 22.12 | Check `node -v` and install a current Node.js ([quickstart](quickstart.md#node-version)) |
+| The dashboard asks you to sign in | The sign-in link works once and a tab forgets its key when closed | `mc-bridge open` prints a fresh link ([quickstart](quickstart.md#the-dashboard-asks-you-to-sign-in)) |
+| A guide says "API > Keys" and the dashboard has no API entry | The Simple view hides the API page | Press Ctrl K and type *Keys*, or choose Advanced in the account menu ([connect.md](connect.md#simple-and-advanced-view)) |
+| The dashboard page is blank | The page needs the Bridge on this computer; a browser extension or an old cached page can interfere | Reload with Ctrl+F5, open the dashboard in a private window, and check `mc-bridge doctor` |
+| "DEMO DATA" or `demo: true` everywhere | The Bridge is in demo mode: sample prices | Expected with `--demo`. Add a broker account to see real prices ([accounts.md](accounts.md)) |
+| No prices, `SESSION_EXPIRED`, an account marked "needs login" | The broker login ended (most brokers need a fresh login every day) | Dashboard, Accounts, Log in, or `mc-bridge accounts connect <accountId>` ([accounts.md](accounts.md#2-log-in)) |
+| A price is old, `stale: true`, or `class` is `delayed` or `eod` | The market is closed, the feed is silent, or the answer came from a free delayed source | Read `freshness` on the answer: `source`, `ageMs`, `class`. Delayed and end-of-day data is never used for orders ([sources.md](sources.md)) |
+| An order is refused with `PAPER_ONLY` or `ORDER_GATE_CLOSED` | A live order is missing one of the live opt-ins | The list is in [safety.md](safety.md#live-orders-need-every-one-of-these). Paper orders need none of them |
+| `MARKET_CLOSED` | The exchange is closed (weekend, holiday, outside hours) | `GET /v1/calendar/status` says when it opens next |
+| `LOOPBACK_ONLY` through a tunnel | Admin actions never work from outside this computer | Do it on the computer running the Bridge ([expose-alerts.md](expose-alerts.md)) |
+| An Excel cell shows `#NAME?` or a status `NO ANSWER` | An old workbook, a wrong address or key | [excel-sheets.md](excel-sheets.md#when-something-is-wrong) |
+| `?key=` answers 401 "may not be sent in a web address" | The key was made without `--allow-query` | Make a read key with `keys create --scope read --allow-query --expires 90d` ([excel-sheets.md](excel-sheets.md#the-key)) |
+
+## By error code
+
+Each example below is a real answer from a demo Bridge, trimmed to the fields that matter. All error answers are
+`application/problem+json` with `status`, `code`, `detail`, `retryable` and `requestId`.
+
+### UNAUTHENTICATED (401)
+
+No key, a wrong or expired key, or a revoked one.
+
+```text
+401  {"code":"UNAUTHENTICATED","detail":"Send your Bridge API key as 'Authorization: Bearer <key>'.","retryable":false}
+401  {"code":"UNAUTHENTICATED","detail":"This API key is not valid, has expired or was revoked.","retryable":false}
+```
+
+- The first text means no key arrived in a header the Bridge reads (`Authorization: Bearer <key>` or `X-API-Key: <key>`). Check
+  that your shell variable is not empty (`echo $MCB_API_KEY`; PowerShell `echo $env:MCB_API_KEY`).
+- The second means the key did not match: mistyped, cut off, revoked or expired. A key is shown once; make a new one.
+- If a fresh key is refused, it was made for another data folder than the running Bridge uses: compare the folder `keys create`
+  printed with the Bridge's "Data folder" line.
+- On `/xl/*` with `?key=` the text may say "may not be sent in a web address": the key is fine but was not made with
+  `--allow-query`.
+
+### SCOPE_REQUIRED (403)
+
+The key is valid but may not do this.
+
+```text
+403  {"code":"SCOPE_REQUIRED","detail":"This API key needs the \"paper\" scope.","retryable":false}
+```
+
+A `read` key that places an order gets this. Make a key with the scope the route needs (`x-scope` in the OpenAPI file; the
+dashboard's Developers, Scope finder answers it). Admin and live keys are made on this computer only.
+
+### VALIDATION_FAILED (400): a missing or short Idempotency-Key
+
+```text
+400  {"code":"VALIDATION_FAILED","detail":"Idempotency-Key must be 8-255 letters, digits or _ . : - (a UUID works).",
+      "errors":[{"path":"Idempotency-Key","message":"must be 8-255 letters, digits or _ . : -"}]}
+```
+
+Read `errors[].path` and `errors[].message`: each names a field or header. Retrying the same request fails the same way. A
+live order must carry an `Idempotency-Key` or a `clientOrderId` ([safety.md](safety.md)).
+
+### PAPER_ONLY (403)
+
+```text
+403  {"code":"PAPER_ONLY","detail":"demo-paper is a paper account; it cannot place live orders."}
+```
+
+You sent `"mode": "live"` to a paper account, or live trading is not switched on for it. Send `"mode": "paper"`, or complete the
+live opt-ins on the computer running the Bridge ([safety.md](safety.md#live-orders-need-every-one-of-these)). Nothing in the API
+can switch live trading on.
+
+### SYMBOL_NOT_FOUND (404, or an entry in `errors[]`)
+
+```text
+GET /v1/ltp?symbols=NSE:NOPE      200  {"data":[],"errors":[{"symbol":"NSE:NOPE","code":"SYMBOL_NOT_FOUND",
+                                         "message":"NSE:NOPE is not in any connected broker's instrument master. Try /v1/instruments/search."}]}
+GET /v1/symbols/resolve?q=NSE:NOPE  404  {"code":"SYMBOL_NOT_FOUND","candidates":[]}
+```
+
+A list route (`/v1/ltp`, `/v1/quotes`) answers 200 with the symbols that worked in `data` and the ones that did not in `errors`.
+A route that takes one symbol answers 404. Either way: use `EXCHANGE:SYMBOL` (`NSE:RELIANCE`), search with
+`GET /v1/instruments/search?q=...`, or convert a name with `GET /v1/symbols/resolve?q=...`. A contract that has expired is also
+`SYMBOL_NOT_FOUND`: use a live expiry from `GET /v1/expiries?underlying=NIFTY`.
+
+### INVALID_ORDER (422): the order was too big, or failed another check
+
+```text
+422  {"code":"INVALID_ORDER","detail":"The order value ₹14,63,700 is above the per-order limit of ₹2,00,000."}
+```
+
+Nothing was sent. The default limits are in [safety.md](safety.md#checks-on-every-order-paper-and-live): ₹2,00,000 per order, 10
+lots, 5 orders a second, 100 orders and ₹10,000 loss a day. `POST /v1/orders/preview` checks an order without placing it. Raising
+a limit is done in `bridge.config.json` on the computer running the Bridge.
+
+### MARKET_CLOSED (403)
+
+```text
+GET /v1/calendar/status  {"data":{"exchange":"NSE","status":"closed","reason":"Diwali-Balipratipada","closedBecause":"holiday",
+                          "nextOpen":{"date":"2026-11-11","time":"09:15"}}}
+```
+
+`status`, `reason` and `nextOpen` say why and when. The calendar ships with the Bridge and is marked as needing verification
+against the exchange's own circulars: when it matters, check the exchange.
+
+### RATE_LIMITED (429)
+
+```text
+429  Retry-After: 2
+     {"code":"RATE_LIMITED","retryable":true,"retryAfterMs":951,"scope":"client","limit":{"name":"perSecond","remaining":0}}
+```
+
+Wait `retryAfterMs`. `Retry-After` is the same wait rounded up to whole seconds with up to a quarter more, so many clients do not
+return together. `scope` says whose limit: `client` is this key's own quota, `upstream` and `queue` are the shared broker budget.
+Batch symbols into one call, use the stream instead of polling, or raise the key's quota
+([rate-limits.md](rate-limits.md)). A refused order is not retried blindly: see `ORDER_RATE_LIMITED` and `OUTCOME_UNKNOWN` below.
+
+### KILL_SWITCH_ACTIVE (423)
+
+```text
+423  {"code":"KILL_SWITCH_ACTIVE","detail":"... cancels still work ..."}
+```
+
+Someone (or a setting) engaged the kill switch. It stops new orders; cancels still work. Release it on the computer running the
+Bridge: dashboard, Safety, or `mc-bridge kill release` ([safety.md](safety.md)). It cannot be released through a tunnel. If
+`MCB_API_KEY` in your shell holds a read key, pass an admin key with `--key`, or unset the variable for that command.
+
+### LOOPBACK_ONLY (403)
+
+```text
+403  {"code":"LOOPBACK_ONLY","detail":"This action is only available from this computer"}
+```
+
+Keys, quotas, settings and anything that could move money work only from the computer the Bridge runs on. A request that arrives
+with a forwarding header (`X-Forwarded-For`), or from a host name on `server.allowedHosts`, is treated as coming from outside. Do
+it from the dashboard or the terminal on that computer.
+
+### CANNOT_TRADE (403)
+
+The account is not ready for a live order: a session that ended, a missing static IP registration, or a limit reached. The
+dashboard, Safety, Trading readiness names the exact reason ([deployment.md](deployment.md)). It never blocks a paper order.
+
+### Other codes
+
+Every other code, with its cause and the fix, is in [the error codes](../api/errors.md). The ones that matter most for orders:
+
+| Code | What to do |
+|---|---|
+| `OUTCOME_UNKNOWN` (504) | The broker did not confirm. Do not send it again. Check `GET /v1/orders` and your broker's order book first |
+| `IDEMPOTENCY_KEY_REUSED` (409) | The same `Idempotency-Key` was used with a different body. Use a new key for a new order |
+| `CONFIRMATION_REQUIRED` (422) | A person must approve it on the computer running the Bridge: dashboard, Orders |
+| `SESSION_EXPIRED` (422) | Log in to the broker again: dashboard, Accounts |
+| `DISK_FULL` (507) | Free space; old downloads and recordings are the usual cause ([operations.md](operations.md#disk-space)) |
+
+---
+
+<!-- docs/guides/glossary.md -->
+
+# Glossary
+
+Short meanings for the words these guides and the dashboard use. The dashboard shows the first group as a small **?** next to the
+word; the second group is words the guides use that the dashboard does not mark. *This page is generated from
+`server/bridge/dashboard/glossary.js` (run `npm run docs:generate`); change the words there.*
+
+## Words the dashboard explains
+
+- **AFL**: AmiBroker's own formula language.
+- **Burst**: A short rush of requests that is allowed at once, before the steady limit applies.
+- **CLI**: The command line: typing commands in a terminal window.
+- **Data class**: How current a price is: realtime (your broker's live feed), delayed (minutes late) or eod (end of the day). Only realtime data is used for orders.
+- **Delayed**: Prices that arrive some minutes after the market. Free sources are often delayed, so they are never used for orders.
+- **Endpoint**: One address on the Bridge that answers one kind of question, such as prices or orders.
+- **Fallback**: A second source of prices for when your main one cannot answer. It is labelled and never feeds an order (it is not a file backup).
+- **Fingerprint**: A short code that identifies a key. The Bridge keeps it instead of the key, so nobody can read your key from it.
+- **Hash chain**: A record in which every line depends on the one before it, so any change would show.
+- **Idempotency key**: A label sent with an order so that sending it twice only places it once.
+- **JSON**: A plain text format that programs use to pass data to each other.
+- **Kill switch**: A button that stops every new order from every tool at once. Cancelling orders still works.
+- **Latency**: How long an answer takes to arrive.
+- **LTP**: Last traded price: the price of the most recent trade.
+- **MCP**: A standard way for AI assistants to use tools. The Bridge speaks it, so an assistant can read your data.
+- **OAuth**: A login where you approve access on your broker's own website, so you never type your password here.
+- **Paper trading**: Practice trading with pretend money. Nothing reaches the market.
+- **Pooling**: Your own broker accounts share the work of getting prices. It is off until you accept a notice, and orders never move between accounts.
+- **Quota**: A limit on how many requests one key or tool may make. It stops one busy tool from using up everyone's room.
+- **Scope**: What a key is allowed to do, such as read prices or place practice orders.
+- **SDK**: Ready-made code for a programming language that talks to the Bridge for you.
+- **Static IP**: A fixed internet address that your broker has on record. Some brokers accept orders only from it.
+- **Throttled**: Held back or slowed down so a tool stays inside its limit.
+- **Token**: A secret code that proves who you are, like a password that a program can use.
+- **Tunnel**: A secure link that lets a website reach a program on your own computer.
+- **Upstream**: The broker or data source the Bridge asks, as opposed to your own tools that ask the Bridge.
+- **Webhook**: A web address that one program calls to say something happened. An alert sent to a Bridge hook becomes a practice order unless you chose live trading.
+- **WebSocket**: A connection that stays open, so prices arrive as they change and nobody has to keep asking.
+
+## Words the guides use
+
+- **ATM (at the money)**: The strike nearest the current price of the underlying. A collection works it out from a realtime price each time it is resolved, and says so when the price is delayed or stale.
+- **Canonical symbol**: The one way the Bridge writes an instrument, whichever broker is behind it: `EXCHANGE:NAME`, such as `NSE:RELIANCE`, and for derivatives `NFO:NIFTY-2026-12-29-FUT` or `NFO:NIFTY-2026-12-29-25000-CE` (the dates here only show the format).
+- **CE and PE**: Call (CE) and put (PE): the two kinds of option.
+- **Collection**: A named, tagged list of instruments, or an option universe that works out its symbols when you use it. Downloads, recordings, sheets and Python can all use one instead of a pasted list.
+- **Control token**: A file in the data folder that lets the command line on this computer do a few things (such as the kill switch) without a key. It works only from this computer.
+- **Cursor**: A number that marks your place in the Bridge's event list. Ask for events `since` a cursor to catch up without missing or repeating any.
+- **Dataset**: Downloaded history kept under a name. Updating it fetches only the bars after the last stored one.
+- **Dead letter**: A webhook delivery that kept failing and was given up on. It is kept in a list so you can retry it or clear it.
+- **Demo mode**: `start --demo` runs the Bridge with sample prices made on your computer and one paper account (`demo-paper`). Nothing reaches a broker, and every answer says so.
+- **Expiry**: The date a futures or options contract ends. It is part of the symbol (`YYYY-MM-DD`). A contract that has expired is `SYMBOL_NOT_FOUND`, so list live ones with `GET /v1/expiries`.
+- **Freshness**: The label on every price: where it came from (`source`), how old it is (`ageMs`), whether it is `stale`, and its data class. Read it before you trust a number.
+- **HMAC signature**: A code made from a message and a shared secret. A receiver recomputes it to check that a webhook came from the Bridge and was not changed on the way.
+- **Ingress and egress**: Ingress is traffic coming in to the Bridge from outside, which is off unless you open the separate webhook or Sheets listener. Egress is the internet address your broker sees when the Bridge calls out.
+- **Loopback**: The address `127.0.0.1`, which only this computer can reach. Admin actions work only from there, even when a tunnel forwards other requests.
+- **Lot**: The smallest batch a derivative trades in. `lots` counts batches, `quantity` counts units; the safety limit is also in lots.
+- **Master key**: The key that encrypts the broker logins the Bridge saves. Keep it outside the data folder and back it up separately; without it saved logins cannot be read (you can log in again).
+- **Product (CNC, INTRADAY, MARGIN, MTF)**: How an order is held. `CNC` is delivery shares, `INTRADAY` (also written `MIS`) must close the same day, `MARGIN` (also `NRML`) carries a derivative overnight, and `MTF` is margin-funded delivery. The Bridge accepts the common spellings and shows what it used.
+- **Readiness**: A check, per live-enabled account, of whether a live order could be sent right now: broker session, registered address, headroom and the kill switch. It never changes anything.
+- **Realtime, delayed, eod**: The three data classes. Realtime comes from your own broker's live feed. Delayed arrives some minutes late. Eod is end-of-day data. Only realtime data feeds orders, risk checks, paper fills and alerts.
+- **Snapshot**: The latest known price for each symbol you subscribed to, sent first when a stream opens, before the live ticks.
+- **SSE (server-sent events)**: A one-way live feed over an ordinary web request. The Bridge uses it for events; a WebSocket is the two-way kind.
+- **Stale**: A price older than the Bridge accepts for that kind of data, or from a feed that has gone quiet. It is marked `stale: true` and is never used for an order.
+- **Strike**: The price an option is written at. The symbol carries it before CE or PE.
+- **Tick**: One price update on a stream. A slow reader may skip some; the newest always arrives.
+- **Ticket and confirmation code**: An order that an AI assistant or a hook prepared waits as a ticket until you approve it on the computer running the Bridge. Approving gives a one-time confirmation code that lets exactly that order be sent, once.
+
+More: [the error codes](../api/errors.md), [troubleshooting](troubleshooting.md), the [FAQ](faq.md).
+
+---
+
 <!-- docs/guides/faq.md -->
 
 # FAQ
@@ -536,7 +780,7 @@ encryption master key sits in the data folder next to the secrets, because a bac
 - **A key:** revoke it on the API page (Simple view: Ctrl K, then type *Keys*) or with `npm run bridge -- keys revoke <keyId>`, and make a new one.
 - **Everything, starting fresh:** stop the Bridge (Ctrl+C), then move or delete the data folder. That removes keys, paper
   state, the audit log and any stored broker credentials. To try the Bridge without touching your real folder, point it at an
-  empty one: `MCB_HOME=$(mktemp -d) npm run dev`. If you installed with the one-line installer, `--purge` removes the data
+  empty one: `MCB_HOME=$(mktemp -d) npm run dev` (PowerShell: `$env:MCB_HOME = (New-Item -ItemType Directory (Join-Path $env:TEMP ([guid]::NewGuid()))).FullName; npm run dev`). If you installed with the one-line installer, `--purge` removes the data
   too ([install.md](install.md)).
 
 ## More questions
@@ -544,6 +788,94 @@ encryption master key sits in the data folder next to the secrets, because a bac
 [Quickstart troubleshooting](quickstart.md#troubleshooting) covers a port in use, a key that is not accepted, the dashboard
 asking you to sign in and 429 refusals. For anything else, search the
 [issues](https://github.com/MrChartist/api-bridge-v2/issues) or open one.
+
+---
+
+<!-- docs/guides/windows.md -->
+
+# Windows notes
+
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
+Most examples in these guides are written for a Mac or Linux shell (bash or zsh). On Windows use **PowerShell** (the blue
+window; type *PowerShell* in the Start menu), not Command Prompt. The Bridge itself, the dashboard, the Excel workbook and
+AmiBroker need nothing special. This page covers the places where the shell matters.
+
+*How far to trust this page:* the PowerShell lines follow Microsoft's documented behaviour. The project's automated checks run
+on Linux, so they have not been run on every Windows version. If one fails for you, [open an issue](https://github.com/MrChartist/api-bridge-v2/issues) with the line and what PowerShell said.
+
+## Bash and PowerShell side by side
+
+| In the guides (bash) | In PowerShell |
+|---|---|
+| `export MCB_API_KEY=mcb_...` | `$env:MCB_API_KEY = "mcb_..."` (lasts for this window only) |
+| `echo $MCB_API_KEY` | `echo $env:MCB_API_KEY` |
+| `MCB_PORT=4301 npm run dev` | `$env:MCB_PORT = "4301"; npm run dev` |
+| `MCB_HOME=$(mktemp -d) npm run dev` | `$env:MCB_HOME = (New-Item -ItemType Directory (Join-Path $env:TEMP ([guid]::NewGuid()))).FullName; npm run dev` |
+| `curl -s http://127.0.0.1:4300/v1/health` | `Invoke-RestMethod http://127.0.0.1:4300/v1/health` (or `curl.exe -s ...`) |
+| `-H "Authorization: Bearer $MCB_API_KEY"` | `-Headers @{ Authorization = "Bearer $env:MCB_API_KEY" }` |
+| a `\` at the end of a line | a backtick `` ` `` at the end of a line |
+| `-d '{"a":"b"}'` | `-Body '{"a":"b"}' -ContentType "application/json"` (or build the body from a hashtable with `ConvertTo-Json`) |
+| `... \| jq '.data'` | `... \| Select-Object -ExpandProperty data` (Invoke-RestMethod already turns JSON into objects) |
+
+**`curl` is not curl in Windows PowerShell 5.1.** There it is an alias of `Invoke-WebRequest`, so `curl -s` and `curl -H` fail
+with a confusing error. Either use `Invoke-RestMethod`, or type `curl.exe`, which is the real program that ships with Windows 10
+and 11. With `curl.exe`, JSON bodies in single quotes lose their inner double quotes in Windows PowerShell 5.1: prefer
+`Invoke-RestMethod` with a hashtable body, as the [quickstart](quickstart.md) does. PowerShell 7 does not alias `curl`.
+
+To keep a variable for good (every new window), set it once for your user and open a new window:
+
+```powershell
+[Environment]::SetEnvironmentVariable("MCB_BRIDGE_URL", "http://127.0.0.1:4301", "User")
+```
+
+Keep API keys out of this: a key stored that way is readable by every program you run. Set a key only for the window that needs it.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Settings and data (one-step installer, Setup.exe) | `%APPDATA%\MrChartist\Bridge` (open it with `explorer $env:APPDATA\MrChartist\Bridge`) |
+| The program (one-step installer) | `%LOCALAPPDATA%\MrChartist\Bridge` |
+| Ready-to-run ZIP | the unzipped folder: `bridge.config.json` and the data sit next to `start-windows.bat`, so deleting the folder deletes them too |
+| A git checkout | the data folder printed at start (`Data folder: ...`) |
+| AmiBroker key file | `%APPDATA%\MrChartist\Bridge\amibroker.key` (the older `%USERPROFILE%\.mc-bridge\amibroker.key` is still read) |
+
+`MCB_HOME` moves the settings and data folder; `MCB_MASTER_KEY_FILE` moves the master key file out of the data folder.
+
+## Protecting the master key file
+
+The Bridge cannot check Windows file permissions, so restrict the file yourself (see [safety.md](safety.md#secrets)). In PowerShell:
+
+```powershell
+icacls "$env:APPDATA\MrChartist\keys\master.key" /inheritance:r /grant:r "${env:USERNAME}:F"
+```
+
+In Command Prompt the same line is `icacls "%APPDATA%\MrChartist\keys\master.key" /inheritance:r /grant:r %USERNAME%:F`.
+
+## Firewall and ports
+
+The Bridge listens on `127.0.0.1` (this computer only), and Windows does not normally ask about that. If a Windows Firewall
+prompt appears, you or a setting made the Bridge listen on all addresses (`server.host`); choose **Cancel** unless you meant
+to share it ([safety.md](safety.md) explains what that opens). "Port 4300 is already in use" means another program has the port:
+close it, or pick another with `$env:MCB_PORT = "4301"` and tell every tool the new address (`$env:MCB_BRIDGE_URL`).
+
+## Running at login
+
+The Bridge has no built-in start at login, and a broker login is needed each morning anyway. To start the Bridge window when you
+sign in to Windows, press Win+R, type `shell:startup`, and put a shortcut to `start-windows.bat` (or the **Mr Chartist Bridge**
+shortcut the installer made) in the folder that opens.
+
+## If the one-line installer is blocked
+
+PowerShell's execution policy applies to script files, not to `irm ... | iex` typed in a window, so it normally does not stop
+the installer. A company proxy, antivirus or application-control rule can. If it is blocked, use the **Ready-to-run download**
+in [install.md](install.md), which needs no PowerShell command.
+
+## Files for Excel and AmiBroker
+
+Downloads (`mc-bridge download`) write CSV with Windows line endings (CRLF); recordings write LF. Excel reads both. A script that joins
+or compares files from both should read them in text mode or strip `\r`.
 
 ---
 
@@ -2376,6 +2708,18 @@ while true; do
   cursor=$(echo "$r" | jq -r '.meta.cursor')
   sleep 5
 done
+```
+
+The same loop in PowerShell (it needs no `jq`):
+
+```powershell
+$cursor = 0
+while ($true) {
+  $r = Invoke-RestMethod "http://127.0.0.1:4300/v1/events?since=$cursor&topics=order.*" -Headers @{ Authorization = "Bearer $env:KEY" }
+  $r.data | ForEach-Object { $_ | ConvertTo-Json -Compress }
+  $cursor = $r.meta.cursor
+  Start-Sleep 5
+}
 ```
 
 ## Which events, and who sees them
@@ -4430,7 +4774,7 @@ the sheet. To use a collection in a sheet, see [In Excel and Google Sheets](#in-
 # a key that may write (the paper scope; a read key can only read and resolve)
 mc-bridge keys create --label collections --scope paper
 
-export MCB_API_KEY=mcb_...
+export MCB_API_KEY=mcb_...                        # PowerShell: $env:MCB_API_KEY = "mcb_..."
 mc-bridge collections create banks --symbols NSE:HDFCBANK,NSE:ICICIBANK,NSE:SBIN --tags cash,banks
 mc-bridge collections universe nifty-weekly --underlying NIFTY --expiries current-weekly --strikes atm:10 --tags options
 mc-bridge collections resolve nifty-weekly        # the 43 symbols it means right now, and why
@@ -5787,8 +6131,9 @@ retries an order write blindly.
   cannot be read (you can always log in again).
 - Keep the master key **out of the data folder**. The default `data/master.key` sits next to `secrets.enc`, so one
   backup, cloud sync or zip of the folder leaks both. Set `MCB_MASTER_KEY_FILE` to, for example,
-  `~/.config/mc-bridge/master.key` (Windows: a file under `%APPDATA%` restricted with
-  `icacls <file> /inheritance:r /grant:r %USERNAME%:F`; the Bridge cannot check Windows permissions).
+  `~/.config/mc-bridge/master.key` (Windows: a file under `%APPDATA%`, restricted with `icacls`; the Bridge cannot check
+  Windows permissions. In PowerShell: `icacls <file> /inheritance:r /grant:r "${env:USERNAME}:F"`; in Command Prompt:
+  `icacls <file> /inheritance:r /grant:r %USERNAME%:F`. See [windows.md](windows.md)).
   `mc-bridge doctor` warns while they share a folder.
 - Passwords, PINs and TOTP codes are used once for a broker login and never stored.
 

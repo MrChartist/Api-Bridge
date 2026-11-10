@@ -115,8 +115,9 @@ retries an order write blindly.
   cannot be read (you can always log in again).
 - Keep the master key **out of the data folder**. The default `data/master.key` sits next to `secrets.enc`, so one
   backup, cloud sync or zip of the folder leaks both. Set `MCB_MASTER_KEY_FILE` to, for example,
-  `~/.config/mc-bridge/master.key` (Windows: a file under `%APPDATA%` restricted with
-  `icacls <file> /inheritance:r /grant:r %USERNAME%:F`; the Bridge cannot check Windows permissions).
+  `~/.config/mc-bridge/master.key` (Windows: a file under `%APPDATA%`, restricted with `icacls`; the Bridge cannot check
+  Windows permissions. In PowerShell: `icacls <file> /inheritance:r /grant:r "${env:USERNAME}:F"`; in Command Prompt:
+  `icacls <file> /inheritance:r /grant:r %USERNAME%:F`. See [windows.md](windows.md)).
   `mc-bridge doctor` warns while they share a folder.
 - Passwords, PINs and TOTP codes are used once for a broker login and never stored.
 

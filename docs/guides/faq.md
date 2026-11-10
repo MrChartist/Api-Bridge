@@ -71,7 +71,7 @@ encryption master key sits in the data folder next to the secrets, because a bac
 - **A key:** revoke it on the API page (Simple view: Ctrl K, then type *Keys*) or with `npm run bridge -- keys revoke <keyId>`, and make a new one.
 - **Everything, starting fresh:** stop the Bridge (Ctrl+C), then move or delete the data folder. That removes keys, paper
   state, the audit log and any stored broker credentials. To try the Bridge without touching your real folder, point it at an
-  empty one: `MCB_HOME=$(mktemp -d) npm run dev`. If you installed with the one-line installer, `--purge` removes the data
+  empty one: `MCB_HOME=$(mktemp -d) npm run dev` (PowerShell: `$env:MCB_HOME = (New-Item -ItemType Directory (Join-Path $env:TEMP ([guid]::NewGuid()))).FullName; npm run dev`). If you installed with the one-line installer, `--purge` removes the data
   too ([install.md](install.md)).
 
 ## More questions

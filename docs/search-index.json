@@ -2442,6 +2442,16 @@
     },
     {
       "headings": [
+        "Words the dashboard explains",
+        "Words the guides use"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/glossary.md",
+      "text": "Short meanings for the words these guides and the dashboard use. The dashboard shows the first group as a small ? next to the word; the second group is words the guides use that the dashboard does not mark. This page is generated from server/bridge/dashboard/glossary.js (run npm...",
+      "title": "Glossary"
+    },
+    {
+      "headings": [
         "Windows: Setup.exe",
         "Ready-to-run download",
         "Mac and Linux: one line",
@@ -2669,6 +2679,28 @@
     },
     {
       "headings": [
+        "By what you see",
+        "By error code",
+        "UNAUTHENTICATED (401)",
+        "SCOPE_REQUIRED (403)",
+        "VALIDATION_FAILED (400): a missing or short Idempotency-Key",
+        "PAPER_ONLY (403)",
+        "SYMBOLNOTFOUND (404, or an entry in errors[])",
+        "INVALID_ORDER (422): the order was too big, or failed another check",
+        "MARKET_CLOSED (403)",
+        "RATE_LIMITED (429)",
+        "KILLSWITCHACTIVE (423)",
+        "LOOPBACK_ONLY (403)",
+        "CANNOT_TRADE (403)",
+        "Other codes"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/troubleshooting.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Find what you see, then read the cause and the fix. The first part is by symptom, the second by the error code the Bridge returns. Every error has a stable code, so switch on...",
+      "title": "Troubleshooting"
+    },
+    {
+      "headings": [
         "Downloads, recordings, collections, history and events",
         "Browser apps"
       ],
@@ -2718,6 +2750,21 @@
       "path": "docs/guides/webhooks.md",
       "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). An alert from your own code or a charting site becomes an order through a hook: a URL with a secret token, tied to one account and a set of limits. Every signal goes through the...",
       "title": "Alerts: TradingView, signed generic hooks, ChartInk and GoCharting"
+    },
+    {
+      "headings": [
+        "Bash and PowerShell side by side",
+        "Where things are",
+        "Protecting the master key file",
+        "Firewall and ports",
+        "Running at login",
+        "If the one-line installer is blocked",
+        "Files for Excel and AmiBroker"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/windows.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Most examples in these guides are written for a Mac or Linux shell (bash or zsh). On Windows use PowerShell (the blue window; type PowerShell in the Start menu), not Command...",
+      "title": "Windows notes"
     },
     {
       "headings": [
