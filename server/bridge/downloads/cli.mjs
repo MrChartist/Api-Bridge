@@ -10,8 +10,9 @@
  *   mc-bridge download datasets                           list datasets;   download update <dataset>   fetch what is new
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { BridgeError } from "../core/errors.mjs";
 
 const FINISHED = new Set(["done", "failed", "cancelled"]);
@@ -158,9 +159,8 @@ export async function downloadCommand(args, flags, io, helpers) {
         if (existsSync(target) && flags.force !== true) throw new BridgeError("STATE_CONFLICT", `${target} already exists. Choose another folder, or add --force to replace it.`);
         const bytes = await raw(`/v1/downloads/${id}/files/${encodeURIComponent(f.name)}`);
         if (f.sha256 && createHash("sha256").update(bytes).digest("hex") !== f.sha256) throw new BridgeError("UPSTREAM_ERROR", `${f.name} did not match its checksum. Download it again.`);
-        // written as a .part file and renamed, so an interrupted save never leaves a half file under the real name
-        writeFileSync(`${target}.part`, bytes);
-        renameSync(`${target}.part`, target);
+        // written through the shared durable helper (temp file, fsync, rename), so an interrupted save never leaves a half file under the real name
+        writeFileAtomic(target, bytes);
         io.out(`Saved ${target}${f.sha256 ? " (checksum matches)" : ""}`);
       }
       return 0;

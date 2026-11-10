@@ -377,7 +377,7 @@ export const EVENT_GROUPS = Object.freeze([
   { id: "orders", title: "Orders and trading", blurb: "An order filled or was rejected, a position moved, an account can or cannot trade.", prefixes: ["order.", "position.", "trading.", "ticket.", "hook."] },
   { id: "data", title: "Downloads and recordings", blurb: "A download finished or failed, a recording started, stopped, missed data or is low on disk.", prefixes: ["download.", "recording.", "collection."] },
   { id: "accounts", title: "Accounts and price feeds", blurb: "A broker login changed, a price feed went up or down, a rate limit slowed a request.", prefixes: ["account.", "stream.", "limits."] },
-  { id: "safety", title: "Safety and housekeeping", blurb: "The kill switch changed, a daily limit was reached, a backup finished or failed.", prefixes: ["safety.", "backup.", "config."] },
+  { id: "safety", title: "Safety and housekeeping", blurb: "The kill switch changed, a daily limit was reached, a backup finished or failed, the disk is nearly full, or the computer woke from sleep.", prefixes: ["safety.", "backup.", "config.", "storage.", "system.", "data."] },
 ]);
 
 /** Group the Bridge's topic list (`GET /v1/events/topics`) for the form. Topics no group claims go in a last "Other" group. */

@@ -62,9 +62,12 @@ describe("T-sec-2: route policy", () => {
     expect(bad.map((r) => `${r.method} ${r.pattern}`)).toEqual([]);
   });
 
-  it("the local control token is accepted only on the kill-switch routes and the downloads routes `mc-bridge download` calls (audit S12a)", () => {
+  it("the local control token is accepted only on the kill-switch routes and the downloads routes `mc-bridge download` calls (audit S12a) and order-state acknowledgement", () => {
     const local = routes.filter((r) => r.options.localControl === true).map((r) => `${r.method} ${r.pattern}`);
-    const allowed = [/^(POST|DELETE) \/v1\/safety\/kill-switch$/, /^[A-Z]+ \/v1\/(downloads|datasets)(\/|$)/, /^GET \/v1\/instruments\/export$/];
+    const allowed = [/^(POST|DELETE) \/v1\/safety\/kill-switch$/, /^[A-Z]+ \/v1\/(downloads|datasets)(\/|$)/, /^GET \/v1\/instruments\/export$/,
+      // Acknowledging a damaged order-records file is what `mc-bridge orders acknowledge-state` does on this computer; with the Bridge
+      // stopped it only needs the data folder, so the control token (also in that folder) grants nothing new.
+      /^POST \/v1\/orders\/state\/acknowledge$/];
     expect(local.filter((r) => !allowed.some((re) => re.test(r)))).toEqual([]);
     expect(local.length).toBeGreaterThan(3);
     for (const r of routes.filter((x) => x.options.localControl === true)) expect(r.options.auth ?? "key", `${r.method} ${r.pattern}`).toBe("key");
