@@ -24,7 +24,7 @@ export const USAGE = `Mr. Chartist API Bridge
 Usage:
   mc-bridge init [--yes] [--demo] [--broker <id> [--account <id>] [--label <text>]] [--no-paper] [--force]
                                    first-run setup (alias: setup); asks questions unless --yes
-  mc-bridge init <node|python|curl|sheets|webhook-receiver|mcp-client> [folder] [--with-key] [--scope read|paper] [--expires 30d]
+  mc-bridge init <node|python|curl|sheets|webhook-receiver|mcp-client> [folder] [--with-key] [--scope read|paper] [--expires 30d] [--accounts a,b|all]
                                    a ready project for developers, with this Bridge's address (--list shows them)
   mc-bridge start [--config <file>] [--demo] [--open]
                                    --demo: sample data, no broker, live trading off; --open: open the dashboard,
@@ -403,6 +403,16 @@ export async function runCli(positionals, flags, io) {
             cli: cliCommand(io.env),
             baseUrl: () => bridgeUrl(flags, io, loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list() }).config),
             probe: probeBridge,
+            // The accounts and whether each is connected now (read the way `accounts list` reads them); a person at a terminal is asked which to allow.
+            listAccounts: async () => {
+              const { app } = await bootServices({ ...flags, demo: false }, io);
+              try {
+                return app.deps.accounts.list().map((a) => ({ id: a.id, state: a.session.state }));
+              } finally {
+                await app.close();
+              }
+            },
+            ask: io.prompt ?? (process.stdin.isTTY && process.stdout.isTTY ? (q) => terminalPrompt(q, { hidden: false }) : undefined),
             createKey: async (body) => {
               const { app } = await bootServices({ ...flags, demo: false }, io);
               try {
