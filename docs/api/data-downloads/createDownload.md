@@ -8,8 +8,10 @@
 | Operation | `createDownload` |
 | Scope | `read` |
 | This computer only | no |
+| Idempotency-Key | send one on every write |
 
 - An API key with the `read` scope (any key).
+- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
 Saves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.
 
@@ -17,6 +19,7 @@ Saves candles to files on this computer as a background job. Give `symbols` (can
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
+| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets, collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so with `Idempotency-Ignored: true` in the answer. |
 | `dryRun` | query | boolean | no | `1` or `true` returns the estimate and starts nothing. Default `false`. |
 
 ## Request body
@@ -98,6 +101,8 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 | `INVALID_JSON` | 400 | no |
 | `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
+| `IDEMPOTENCY_IN_PROGRESS` | 409 | yes |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | no |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | no |
 | `RATE_LIMITED` | 429 | yes |
 
@@ -109,6 +114,7 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X POST "http://127.0.0.1:4300/v1/downloads" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: my-order-0001" \
   -d '{"intervals":["1m"],"from":"2026-11-02"}'
 ```
 
@@ -119,6 +125,11 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/downloads", body={"intervals": ["1m"], "from": "2026-11-02"})
+response = bridge.request(
+    "POST",
+    "/v1/downloads",
+    body={"intervals": ["1m"], "from": "2026-11-02"},
+    idempotency_key="my-order-0001",
+)
 print(response.body)
 ```

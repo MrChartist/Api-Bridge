@@ -68,9 +68,16 @@ on the last one. Do not build or read a cursor.
 
 ## Idempotency
 
-Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write. A repeat with the same key and
+Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write and every create listed below. A repeat with the same key and
 the same body returns the first result (the answer has `Idempotency-Replayed: true`); the same key with a different body is
 `IDEMPOTENCY_KEY_REUSED`; while the first is still running you get `IDEMPOTENCY_IN_PROGRESS`, which is safe to retry.
+
+The same header works on the routes where a repeat would make a duplicate: `POST /v1/keys`, `/v1/accounts`, `/v1/hooks`,
+`/v1/notify/targets`, `/v1/collections` (and `/import`, `/{name}/duplicate`), `/v1/downloads`, `/v1/datasets/{name}/update`,
+`/v1/subscriptions`, `/v1/recordings`, `/v1/recordings/rules` and `/v1/recordings/presets/{id}/apply`. There the stored answer
+is kept in memory for 24 hours (a restart forgets it, so look at the list route before you retry after a restart), and a request
+that failed can be retried with the same key. A write route that does not take the header answers with `Idempotency-Ignored: true`
+when you send one, so you know a retry is not protected.
 
 ## Events
 

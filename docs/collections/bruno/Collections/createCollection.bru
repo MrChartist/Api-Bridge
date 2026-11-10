@@ -10,6 +10,10 @@ post {
   auth: bearer
 }
 
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
 auth:bearer {
   token: {{apiKey}}
 }
@@ -24,6 +28,7 @@ docs {
   Create a collection
 
   - An API key with the `paper` scope (or `live`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
   A static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used
   (`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.

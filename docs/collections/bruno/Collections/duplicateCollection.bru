@@ -14,6 +14,10 @@ params:path {
   name: <name>
 }
 
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
 auth:bearer {
   token: {{apiKey}}
 }
@@ -26,6 +30,7 @@ docs {
   Copy a collection under a new name
 
   - An API key with the `paper` scope (or `live`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
   Without a name the copy is called `<name>-copy` (then `-copy2` ...).
 

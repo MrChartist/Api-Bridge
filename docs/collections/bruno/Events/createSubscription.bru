@@ -10,6 +10,10 @@ post {
   auth: bearer
 }
 
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
 auth:bearer {
   token: {{apiKey}}
 }
@@ -29,6 +33,7 @@ docs {
 
   - An API key with the `admin` scope.
   - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
   The target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted
   (the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers

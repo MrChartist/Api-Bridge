@@ -235,8 +235,13 @@
               },
               "raw": "{\n  \"broker\": \"paper\",\n  \"id\": \"paper-2\",\n  \"label\": \"Second paper account\"\n}"
             },
-            "description": "Add a broker or paper account (saved to the config file, usable at once)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nAdds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started\nwithout one), keeping the file's other content, and starts using it without a restart. New accounts are always\npaper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks\n`<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with\nPOST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer\nonly. Audited as `account.added`.\n\nDemo mode saves a real broker's account for the next normal start instead (`savedForLater: true`,\n`account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is\ncontacted. `leaveDemo: true` also removes `\"demo\": true` from the file. Paper accounts are refused in demo mode\n(it has its own), and so is everything when the demo dashboard is served to other computers.\n\nReference: docs/api/accounts/addAccount.md in the repository.",
+            "description": "Add a broker or paper account (saved to the config file, usable at once)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nAdds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started\nwithout one), keeping the file's other content, and starts using it without a restart. New accounts are always\npaper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks\n`<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with\nPOST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer\nonly. Audited as `account.added`.\n\nDemo mode saves a real broker's account for the next normal start instead (`savedForLater: true`,\n`account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is\ncontacted. `leaveDemo: true` also removes `\"demo\": true` from the file. Paper accounts are refused in demo mode\n(it has its own), and so is everything when the demo dashboard is served to other computers.\n\nReference: docs/api/accounts/addAccount.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -442,8 +447,13 @@
               },
               "raw": "{\n  \"label\": \"my-script\",\n  \"scopes\": [\n    \"read\",\n    \"paper\"\n  ],\n  \"accounts\": \"*\",\n  \"clientKind\": \"script\"\n}"
             },
-            "description": "Create an API key\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe key is in the response once and cannot be shown again; only a scrypt hash is stored.\n\nReference: docs/api/keys/createKey.md in the repository.",
+            "description": "Create an API key\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nThe key is in the response once and cannot be shown again; only a scrypt hash is stored.\n\nReference: docs/api/keys/createKey.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -875,8 +885,13 @@
               },
               "raw": "{\n  \"name\": \"<name>\"\n}"
             },
-            "description": "Create a collection\n\n- An API key with the `paper` scope (or `live`).\n\nA static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used\n(`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.\nWriting needs the `paper` scope.\n\nReference: docs/api/collections/createCollection.md in the repository.",
+            "description": "Create a collection\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nA static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used\n(`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.\nWriting needs the `paper` scope.\n\nReference: docs/api/collections/createCollection.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -909,8 +924,13 @@
               },
               "raw": "{}"
             },
-            "description": "Make collections from CSV or JSON\n\n- An API key with the `paper` scope (or `live`).\n\nJSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file\nthat `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with\n`name` in the query (or as JSON `{ format: \"csv\", csv, name }`); the symbols are in a column named `symbol`, or the\nfirst column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`\nis true for a CSV.\n\nReference: docs/api/collections/importCollections.md in the repository.",
+            "description": "Make collections from CSV or JSON\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nJSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file\nthat `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with\n`name` in the query (or as JSON `{ format: \"csv\", csv, name }`); the symbols are in a column named `symbol`, or the\nfirst column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`\nis true for a CSV.\n\nReference: docs/api/collections/importCollections.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -1138,8 +1158,13 @@
               },
               "raw": "{}"
             },
-            "description": "Copy a collection under a new name\n\n- An API key with the `paper` scope (or `live`).\n\nWithout a name the copy is called `<name>-copy` (then `-copy2` ...).\n\nReference: docs/api/collections/duplicateCollection.md in the repository.",
+            "description": "Copy a collection under a new name\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nWithout a name the copy is called `<name>-copy` (then `-copy2` ...).\n\nReference: docs/api/collections/duplicateCollection.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -2010,8 +2035,13 @@
               },
               "raw": "{\n  \"url\": \"<url>\",\n  \"topics\": [\n    \"<topics>\"\n  ],\n  \"secret\": \"xxxxxxxxxxxxxxxx\"\n}"
             },
-            "description": "Send events to a URL, signed (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted\n(the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers\nverify `X-Bridge-Signature` (see docs/guides/events.md).\n\nReference: docs/api/events/createSubscription.md in the repository.",
+            "description": "Send events to a URL, signed (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nThe target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted\n(the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers\nverify `X-Bridge-Signature` (see docs/guides/events.md).\n\nReference: docs/api/events/createSubscription.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -3677,8 +3707,13 @@
               },
               "raw": "{\n  \"token\": \"<hook token>\"\n}"
             },
-            "description": "Add a Telegram bot (or replace the token of the same bot)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe token is checked with Telegram (getMe) and stored encrypted in the secrets store. It is never returned, logged or audited.\n\nReference: docs/api/notifications/createNotifyTarget.md in the repository.",
+            "description": "Add a Telegram bot (or replace the token of the same bot)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nThe token is checked with Telegram (getMe) and stored encrypted in the secrets store. It is never returned, logged or audited.\n\nReference: docs/api/notifications/createNotifyTarget.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -4014,8 +4049,13 @@
               },
               "raw": "{\n  \"kind\": \"quotes\",\n  \"everySec\": 1\n}"
             },
-            "description": "Start a recording of quotes or an option chain\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReal-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written. everySec is at least 1 for quotes from the live feed (5 or more to read symbols the feed does not carry) and at least 15 for a chain. With sessionOnly (the default) it records only inside market hours, from the market calendar. One file per symbol per IST trading day.\n\nReference: docs/api/recordings/createRecording.md in the repository.",
+            "description": "Start a recording of quotes or an option chain\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReal-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written. everySec is at least 1 for quotes from the live feed (5 or more to read symbols the feed does not carry) and at least 15 for a chain. With sessionOnly (the default) it records only inside market hours, from the market calendar. One file per symbol per IST trading day.\n\nReference: docs/api/recordings/createRecording.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -4143,8 +4183,13 @@
               },
               "raw": "{}"
             },
-            "description": "Create the preset's rule and turn auto-record on\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nApplying a preset again does not duplicate its rule (answers 200). my-watchlist reads a collection named watchlist unless the body names another; it needs the library of collections (422 when it is not there).\n\nReference: docs/api/recordings/applyRecordingPreset.md in the repository.",
+            "description": "Create the preset's rule and turn auto-record on\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nApplying a preset again does not duplicate its rule (answers 200). my-watchlist reads a collection named watchlist unless the body names another; it needs the library of collections (422 when it is not there).\n\nReference: docs/api/recordings/applyRecordingPreset.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -4206,8 +4251,13 @@
               },
               "raw": "{\n  \"name\": \"<name>\",\n  \"kind\": \"quotes\",\n  \"everySec\": 1\n}"
             },
-            "description": "Add an auto-record rule\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nFor example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours. The universe is chosen again every day (and every 30 minutes for a moving ATM window); an ATM window is never built from a delayed or stale price.\n\nReference: docs/api/recordings/createRecordingRule.md in the repository.",
+            "description": "Add an auto-record rule\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nFor example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours. The universe is chosen again every day (and every 30 minutes for a moving ATM window); an ATM window is never built from a delayed or stale price.\n\nReference: docs/api/recordings/createRecordingRule.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -4930,8 +4980,13 @@
               },
               "raw": "{\n  \"intervals\": [\n    \"1m\"\n  ],\n  \"from\": \"2026-11-02\"\n}"
             },
-            "description": "Start a history download, or only estimate it with dryRun=1\n\n- An API key with the `read` scope (any key).\n\nSaves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.\n\nReference: docs/api/data-downloads/createDownload.md in the repository.",
+            "description": "Start a history download, or only estimate it with dryRun=1\n\n- An API key with the `read` scope (any key).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nSaves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.\n\nReference: docs/api/data-downloads/createDownload.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -5315,8 +5370,14 @@
         {
           "name": "Fetch what is new since the last stored bar",
           "request": {
-            "description": "Fetch what is new since the last stored bar\n\n- An API key with the `read` scope (any key).\n\nStarts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is already running, that job is returned and `meta.existing` is true.\n\nReference: docs/api/data-downloads/updateDataset.md in the repository.",
-            "header": [],
+            "description": "Fetch what is new since the last stored bar\n\n- An API key with the `read` scope (any key).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nStarts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is already running, that job is returned and `meta.existing` is true.\n\nReference: docs/api/data-downloads/updateDataset.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              }
+            ],
             "method": "POST",
             "url": {
               "host": [
@@ -5906,8 +5967,13 @@
               },
               "raw": "{\n  \"source\": \"generic\",\n  \"label\": \"my alert\",\n  \"account\": \"demo-paper\",\n  \"mode\": \"paper\"\n}"
             },
-            "description": "Create a hook; the URL with its token is shown once\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/webhooks/createHook.md in the repository.",
+            "description": "Create a hook; the URL with its token is shown once\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/webhooks/createHook.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",

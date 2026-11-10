@@ -8,8 +8,10 @@
 | Operation | `updateDataset` |
 | Scope | `read` |
 | This computer only | no |
+| Idempotency-Key | send one on every write |
 
 - An API key with the `read` scope (any key).
+- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
 Starts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is already running, that job is returned and `meta.existing` is true.
 
@@ -17,6 +19,7 @@ Starts a job that continues every series of the dataset from its last stored bar
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
+| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets, collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so with `Idempotency-Ignored: true` in the answer. |
 | `name` | path | string | yes |  |
 
 ## Responses
@@ -68,6 +71,8 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 |---|---|---|
 | `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
+| `IDEMPOTENCY_IN_PROGRESS` | 409 | yes |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | no |
 | `RATE_LIMITED` | 429 | yes |
 
 ## Examples
@@ -76,7 +81,8 @@ curl (set `MCB_API_KEY` to your key first):
 
 ```bash
 curl -s -X POST "http://127.0.0.1:4300/v1/datasets/<name>/update" \
-  -H "Authorization: Bearer $MCB_API_KEY"
+  -H "Authorization: Bearer $MCB_API_KEY" \
+  -H "Idempotency-Key: my-order-0001"
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -86,6 +92,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/datasets/<name>/update")
+response = bridge.request("POST", "/v1/datasets/<name>/update", idempotency_key="my-order-0001")
 print(response.body)
 ```

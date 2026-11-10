@@ -96,7 +96,7 @@ export function createCors({ allowedOrigins = [] }) {
         Vary: "Origin",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-API-Key, X-Request-Id, X-MCB-Signature",
-        "Access-Control-Expose-Headers": "X-Request-Id, RateLimit, RateLimit-Policy, Retry-After, Idempotency-Replayed",
+        "Access-Control-Expose-Headers": "X-Request-Id, RateLimit, RateLimit-Policy, Retry-After, Idempotency-Replayed, Idempotency-Ignored",
         "Access-Control-Max-Age": "600",
       };
     },

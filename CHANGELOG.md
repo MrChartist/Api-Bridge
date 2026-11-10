@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `Idempotency-Key` now works on the create routes that are not orders (keys, accounts, hooks, notify targets, collections, downloads, dataset updates, subscriptions, recordings, rules, presets): a repeat returns the first answer with `Idempotency-Replayed: true`. Other write routes answer `Idempotency-Ignored: true` when the header is sent.
 - Library of collections ([docs/guides/collections.md](docs/guides/collections.md)): named, tagged lists of instruments and option
   universes (`current-weekly`, `current-monthly`, `all-weekly`, dates; ATM +/- N listed strikes, honest about a stale, delayed or
   last-close price). `GET/POST /v1/collections`, `.../{name}` (rename, tags), `/resolve`, `/estimate`, `/usage`, `/export`,

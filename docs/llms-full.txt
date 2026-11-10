@@ -73,7 +73,7 @@ Paper mode is the default. A live order needs: `safety.liveTrading` and the acco
 file, a `live` key, the request source allowed for that account, `"mode": "live"` in the request, and every safety
 check (kill switch, order-rate cap default 5/s per account, daily order and loss limits, value and lot caps, price
 band, market-order protection). Send an `Idempotency-Key` with every order write; a retry with the same key returns
-the first result. A write that times out returns `OUTCOME_UNKNOWN`: check the order book before sending it again.
+the first result (the create routes for keys, downloads, collections, recordings and subscriptions honour it too). A write that times out returns `OUTCOME_UNKNOWN`: check the order book before sending it again.
 
 ### Demo mode
 `mc-bridge start --demo` serves generated sample data from a demo adapter with no broker connected and live
@@ -3933,9 +3933,16 @@ on the last one. Do not build or read a cursor.
 
 ## Idempotency
 
-Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write. A repeat with the same key and
+Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write and every create listed below. A repeat with the same key and
 the same body returns the first result (the answer has `Idempotency-Replayed: true`); the same key with a different body is
 `IDEMPOTENCY_KEY_REUSED`; while the first is still running you get `IDEMPOTENCY_IN_PROGRESS`, which is safe to retry.
+
+The same header works on the routes where a repeat would make a duplicate: `POST /v1/keys`, `/v1/accounts`, `/v1/hooks`,
+`/v1/notify/targets`, `/v1/collections` (and `/import`, `/{name}/duplicate`), `/v1/downloads`, `/v1/datasets/{name}/update`,
+`/v1/subscriptions`, `/v1/recordings`, `/v1/recordings/rules` and `/v1/recordings/presets/{id}/apply`. There the stored answer
+is kept in memory for 24 hours (a restart forgets it, so look at the list route before you retry after a restart), and a request
+that failed can be retried with the same key. A write route that does not take the header answers with `Idempotency-Ignored: true`
+when you send one, so you know a retry is not protected.
 
 ## Events
 
