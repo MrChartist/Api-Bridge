@@ -160,7 +160,7 @@ export function pageCommands(pages) {
       continue;
     }
     p.tabs.forEach((t, i) => {
-      out.push({ id: `page-${p.id}-${t.id}`, group: groupOf(p), label: t.command ?? `${p.label} ${t.label}`, keywords: `${p.label} ${t.label} ${t.page} ${t.keywords ?? ""} go open page tab`, icon: t.icon ?? p.icon, tint: t.tint ?? p.tint, sub: `${p.label} › ${t.label}`, hint: i === 0 ? hint : null, route: `${p.id}/${t.id}` });
+      out.push({ id: `page-${p.id}-${t.id}`, group: groupOf(p), label: t.command ?? `${p.label} ${t.label}`, keywords: `${p.label} ${t.label} ${t.page} ${t.keywords ?? ""} go open page tab`, icon: t.icon ?? p.icon, tint: t.tint ?? p.tint, sub: t.sub ? `${p.label} › ${t.label}: ${t.sub}` : `${p.label} › ${t.label}`, hint: i === 0 ? hint : null, route: `${p.id}/${t.id}` });
       for (const x of t.extras ?? []) out.push({ id: `page-${p.id}-${t.id}-${x.id}`, group: groupOf(p), label: x.label, keywords: `${x.keywords ?? ""} ${t.label}`, icon: x.icon ?? t.icon ?? p.icon, tint: x.tint ?? t.tint ?? p.tint, sub: x.sub ?? `${p.label} › ${t.label}`, hint: null, route: x.route, searchOnly: true });
     });
   }
@@ -183,6 +183,10 @@ function commands() {
     { id: "ready", label: "Check trading readiness now", sub: "Run the session, IP, limits and kill-switch checks", keywords: "safety status session static ip health", icon: "safety", tint: "green", run: () => import("./readiness.js").then((m) => m.checkNow(null)) },
     { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", navigates: true, run: () => ctx.go("api/keys", "#key-label") },
     { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", navigates: true, run: () => ctx.go("api/console") },
+    { id: "new-download", label: "New download", sub: "Save history for your symbols as files", keywords: "download history data bars candles csv save export file", icon: "download", tint: "blue", navigates: true, run: () => ctx.go("data/downloads?new=1") },
+    { id: "record-chains", label: "Record NIFTY and BANKNIFTY option chains", sub: "Every trading day, by itself, during market hours", keywords: "record recording option chain nifty banknifty auto daily save", icon: "activity", tint: "red", navigates: true, run: () => ctx.go("data/recordings?preset=index-chains") },
+    { id: "workbook", label: "Download Excel workbook", sub: "A ready .xlsx that reads prices from this Bridge", keywords: "excel xlsx spreadsheet sheets workbook prices", icon: "download", tint: "green", run: () => import("./workbook.js").then((m) => m.downloadWorkbook()) },
+    { id: "receiver", label: "Add a receiver for order events", sub: "Get a signed message in your program when an order changes", keywords: "webhook events order events subscription receiver notify push signed outgoing", icon: "bolt", tint: "orange", navigates: true, run: () => ctx.go("developers?view=events&add=1") },
     { id: "paper", label: "Place a paper order", sub: "Practice buy or sell with pretend money", keywords: "buy sell trade order practice paper shares stock", icon: "orders", tint: "orange", navigates: true, run: () => ctx.go("orders?practice=1") },
     { id: "help", label: "Something wrong?", sub: "Rate limited, an old price, a key that does not work", keywords: "help problem trouble error rate limited slow old price prices delayed late stale stop why wrong", icon: "info", tint: "blue", run: () => import("./help.js").then((m) => m.openHelp(null)) },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },

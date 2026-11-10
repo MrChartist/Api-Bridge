@@ -306,12 +306,12 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, 
     const cmds = pageCommands(PAGES, "Ctrl");
     const byLabel = Object.fromEntries(cmds.map((c) => [c.label, c]));
     for (const l of ["API keys", "Integrations", "Test console", "Sources and rate limits", "Data providers", "Key quotas", "Why this source?", "Activity", "Trade book", "Python snippet", "Webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
-    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "2"] });
+    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys: One key per tool, with only the access it needs", hint: ["Ctrl", "2"] }); // a tab says what it is for
     expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
     expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
     expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Bridge", "Trade"]);
     expect(rank(cmds, "rate")[0].label).toBe("Sources and rate limits");
-    expect(byLabel["Sources and rate limits"]).toMatchObject({ route: "sources/overview", sub: "Sources › Overview" });
+    expect(byLabel["Sources and rate limits"]).toMatchObject({ route: "sources/overview", sub: "Sources › Overview: How much room your brokers and sources have, and why requests go where they do" });
     expect(byLabel["Why this source?"]).toMatchObject({ route: "sources/overview?trace=1", searchOnly: true });
     expect(rank(cmds, "console")[0].label).toBe("Test console");
     // A scattered in-order match is not enough: three points per query character.

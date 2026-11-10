@@ -14,3 +14,22 @@ describe("toolbar on a phone", () => {
     expect(css).toMatch(/@media \(max-width: 379px\) \{ \.toolbar-budget \{ display: none; \} \}/);
   });
 });
+
+describe("the palette knows the new features", () => {
+  const palette = readFileSync(new URL("palette.js", dir), "utf8");
+  const dataPage = readFileSync(new URL("data-page.js", dir), "utf8");
+  const developers = readFileSync(new URL("developers.js", dir), "utf8");
+  it("has an action for each, and the page they open understands the link", () => {
+    for (const [id, link] of [["new-download", "data/downloads?new=1"], ["record-chains", "data/recordings?preset=index-chains"], ["workbook", "downloadWorkbook"], ["receiver", "developers?view=events&add=1"]]) {
+      expect(palette).toContain(`id: "${id}"`);
+      expect(palette).toContain(link);
+    }
+    expect(dataPage).toContain('pending.get("new")');
+    expect(dataPage).toContain('.get("preset")');
+    expect(developers).toContain('hashParams().get("add")');
+  });
+  it("finds order events and describes each tab", () => {
+    expect(palette).toMatch(/keywords: "webhook events order events/);
+    expect(palette).toContain("`${p.label} › ${t.label}: ${t.sub}`");
+  });
+});

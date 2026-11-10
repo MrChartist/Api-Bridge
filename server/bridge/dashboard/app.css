@@ -719,6 +719,8 @@ div.field.seg-field .segmented button { flex: 1 1 auto; min-width: 0; padding: 0
 .tab-panel { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
 .segmented.page-tabs { flex: none; min-height: var(--page-tabs-h); }
 .segmented.page-tabs button { flex: none; min-height: calc(var(--page-tabs-h) - 4px); padding: 0 16px; font-size: 13px; }
+/* On a phone the clipped end of a page tab strip fades over a wider stretch, so a half-cut name reads as "more this way". */
+@media (max-width: 719px) { .segmented.page-tabs.fade-r { -webkit-mask-image: linear-gradient(to left, transparent, #000 44px); mask-image: linear-gradient(to left, transparent, #000 44px); } }
 .segmented.fade-r, .tabs.fade-r { -webkit-mask-image: linear-gradient(to left, transparent, #000 24px); mask-image: linear-gradient(to left, transparent, #000 24px); }
 .segmented.fade-l, .tabs.fade-l { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px); mask-image: linear-gradient(to right, transparent, #000 24px); }
 :is(.segmented, .tabs).fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); }

@@ -204,7 +204,7 @@ const INTEGRATION_TOOLS = [
 export const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, key: 1, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "connect", label: "Connect a tool", icon: "plug", tint: "green", key: 6, group: "Bridge", keywords: "excel sheets spreadsheet claude chatgpt ai assistant python node script amibroker app key setup integration", title: "Connect a tool", sub: "Give Excel, an AI assistant or a script its own key, with the setup ready to copy", render: renderConnect },
-  { id: "developers", advanced: true, label: "Developers", icon: "console", tint: "purple", key: 7, group: "Bridge", keywords: "developer api key app scope quota snippet curl python node sdk starter openapi errors error codes requests log webhook events", title: "Developers", sub: "Your first call, the key each job needs, your requests live, and every error explained", render: renderDevelopers },
+  { id: "developers", advanced: true, label: "Developers", icon: "console", tint: "purple", key: 7, group: "Bridge", keywords: "developer api key app scope quota snippet curl python node sdk starter openapi errors error codes requests log webhook events order events subscription receiver signed", title: "Developers", sub: "Your first call, the key each job needs, your requests live, and every error explained", render: renderDevelopers },
   // Sources has a place in the phone tab bar and API (set up once, used at a desk) moves to More: whether the data is
   // flowing is the question people open the Bridge on a phone to ask, a key is made once.
   {

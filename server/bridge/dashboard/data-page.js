@@ -936,6 +936,10 @@ export async function renderDownloads() {
   if (pending.get("collection") && collections.some((c) => c.name === pending.get("collection"))) {
     history.replaceState(history.state, "", "#/data/downloads");
     queueMicrotask(() => openWizard({ collection: pending.get("collection") }));
+  } else if (pending.get("new")) {
+    // #/data/downloads?new=1 (the palette's "New download") opens the wizard.
+    history.replaceState(history.state, "", "#/data/downloads");
+    queueMicrotask(() => openWizard());
   }
   return root;
 }
@@ -1256,6 +1260,13 @@ export async function renderRecordings() {
     },
   });
   poll.start();
+  // #/data/recordings?preset=index-chains (the palette's "Record NIFTY and BANKNIFTY option chains") opens that preset.
+  const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("preset");
+  const preset = RECORD_PRESETS.find((p) => p.id === wanted);
+  if (preset) {
+    history.replaceState(history.state, "", "#/data/recordings");
+    queueMicrotask(() => applyPreset(preset));
+  }
   return root;
 }
 

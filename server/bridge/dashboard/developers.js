@@ -432,6 +432,11 @@ export async function renderDevelopers() {
     wrap.append(intro, receivers, recent, how);
     paintSubs();
     paintRecent();
+    // #/developers?view=events&add=1 (the palette's "Add a receiver for order events") opens the form.
+    if (deps.hashParams().get("add")) {
+      deps.setHashParam("add", "");
+      loadEvents().then(() => openAddReceiver());
+    }
     loadEvents().then(() => {
       if (view !== "events") return;
       paintSubs();
