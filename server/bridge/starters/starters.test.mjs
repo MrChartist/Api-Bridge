@@ -4,7 +4,7 @@
  */
 import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -201,6 +201,66 @@ describe("mc-bridge init <starter>", () => {
     const list = io(cwd);
     expect(await runInitStarter({}, { list: true }, list, deps())).toBe(0);
     expect(list.lines.join("\n")).toMatch(/mcp-client/);
+  });
+
+  describe("--force is careful (audit S9)", () => {
+    const posix = process.platform !== "win32";
+
+    it("--with-key --force does not make a key that no file would hold when .env already exists", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      mkdirSync(join(cwd, "a1"));
+      writeFileSync(join(cwd, "a1", ".env"), "BRIDGE_KEY=oldvalue\n");
+      const t = io(cwd);
+      const created = [];
+      expect(await runInitStarter({ id: "node", folder: "a1" }, { "with-key": true, force: true }, t, deps(created))).toBe(0);
+      expect(created).toEqual([]); // before the fix a live key was made and shown nowhere
+      expect(readFileSync(join(cwd, "a1", ".env"), "utf8")).toBe("BRIDGE_KEY=oldvalue\n");
+      expect(t.lines.join("\n")).toMatch(/No key was made: a1\/\.env already exists/);
+      expect(t.lines.join("\n")).not.toMatch(/It is in a1\/\.env only/);
+    });
+
+    it.skipIf(!posix)("refuses a dangling .env link and a linked README without writing through them, and makes no key", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      mkdirSync(join(cwd, "a2"));
+      symlinkSync(join(cwd, "victim.txt"), join(cwd, "a2", ".env")); // dangling
+      writeFileSync(join(cwd, "precious.txt"), "precious");
+      symlinkSync(join(cwd, "precious.txt"), join(cwd, "a2", "README.md"));
+      const t = io(cwd);
+      const created = [];
+      expect(await runInitStarter({ id: "node", folder: "a2" }, { "with-key": true, force: true }, t, deps(created))).toBe(1);
+      expect(created).toEqual([]);
+      expect(t.errs.join("\n")).toMatch(/is a link/);
+      expect(existsSync(join(cwd, "victim.txt"))).toBe(false);
+      expect(readFileSync(join(cwd, "precious.txt"), "utf8")).toBe("precious");
+    });
+
+    it.skipIf(!posix)("refuses a linked sub-folder too", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      mkdirSync(join(cwd, "a3"));
+      mkdirSync(join(cwd, "elsewhere"));
+      symlinkSync(join(cwd, "elsewhere"), join(cwd, "a3", "examples"));
+      const t = io(cwd);
+      expect(await runInitStarter({ id: "node", folder: "a3" }, { force: true }, t, deps())).toBe(1);
+      expect(readdirSync(join(cwd, "elsewhere"))).toEqual([]);
+    });
+
+    it("keeps a .bak of a file it replaces, and does not touch one that is already the same", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      expect(await runInitStarter({ id: "node", folder: "a4" }, {}, io(cwd), deps())).toBe(0);
+      const edited = "// my own work\nconsole.log('mine');\n";
+      writeFileSync(join(cwd, "a4", "index.mjs"), edited);
+      const t = io(cwd);
+      expect(await runInitStarter({ id: "node", folder: "a4" }, { force: true }, t, deps())).toBe(0);
+      expect(readFileSync(join(cwd, "a4", "index.mjs.bak"), "utf8")).toBe(edited);
+      expect(readFileSync(join(cwd, "a4", "index.mjs"), "utf8")).not.toBe(edited);
+      expect(t.lines.join("\n")).toMatch(/index\.mjs replaced; the old file is saved as index\.mjs\.bak/);
+      expect(readdirSync(join(cwd, "a4")).filter((f) => f.endsWith(".bak"))).toEqual(["index.mjs.bak"]); // the unchanged files got no copy
+      // a second round keeps the first copy
+      writeFileSync(join(cwd, "a4", "index.mjs"), "second edit\n");
+      await runInitStarter({ id: "node", folder: "a4" }, { force: true }, io(cwd), deps());
+      expect(readFileSync(join(cwd, "a4", "index.mjs.bak"), "utf8")).toBe(edited);
+      expect(readFileSync(join(cwd, "a4", "index.mjs.bak2"), "utf8")).toBe("second edit\n");
+    });
   });
 
   it("a starter that needs no key says so when --with-key is given", async () => {
