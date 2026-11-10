@@ -2248,6 +2248,18 @@
     },
     {
       "headings": [
+        "Which commands need a key",
+        "What is where",
+        "Exit codes",
+        "Where the Bridge looks"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/cli.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). mc-bridge --help lists every command with its options. This page says what each group is for and, because it trips people up, which credential each one needs. Most commands run...",
+      "title": "The command line"
+    },
+    {
+      "headings": [
         "Five minutes",
         "The option universe",
         "How the expiry is chosen",

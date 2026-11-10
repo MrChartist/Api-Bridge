@@ -24,6 +24,9 @@ on the **Developers** page (`#/developers`): apps, a scope finder, your requests
 3. Or by hand: open the dashboard, **Developers > Create app**, pick what it is for, copy the key (it is shown once)
    and run the curl line.
 
+Which `mc-bridge` commands need no key, which use this computer's control token and which need a read or admin key is in
+[cli.md](cli.md).
+
 The starters use nothing but Node 22, Python 3.9 or `curl`. They are tested against a demo Bridge, and the calls to newer
 features (downloads, events) say plainly "this Bridge does not have it yet" on an older Bridge instead of failing.
 

@@ -168,3 +168,19 @@ describe("the key in an address (D-03, D-05)", () => {
     expect(read("docs/guides/excel-sheets.md")).toMatch(/key in a script property/);
   });
 });
+
+describe("the command line page (D-11)", () => {
+  const cli = read("docs/guides/cli.md");
+  it("says which commands need no key, the control token, a read key or an admin key, and that an exported read key does not stop kill release", () => {
+    for (const s of ["control token", "MCB_ADMIN_KEY", "admin key", "`kill release`"]) expect(cli, s).toContain(s);
+    expect(cli).toMatch(/does\s+\*\*not\*\* stop `kill` and `kill release`/);
+    expect(read("docs/guides/README.md")).toContain("[cli.md](cli.md)");
+  });
+
+  it("every command group it names is in mc-bridge --help", () => {
+    const help = readFileSync(join(ROOT, "server/bridge/core/cli.mjs"), "utf8");
+    for (const cmd of ["init", "start", "open", "keys", "accounts", "doctor", "expose", "backup", "restore", "kill", "orders acknowledge-state", "mcp", "openai-tools", "sources", "notify", "collections", "subscriptions", "download", "record"]) {
+      expect(help, cmd).toContain(`mc-bridge ${cmd}`);
+    }
+  });
+});

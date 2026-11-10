@@ -231,7 +231,7 @@ describe("sources enable / disable", () => {
     writeFileSync(join(a.dir, "data", "control.token"), "mcbctl_local-token\n");
     expect(await run(["disable", "twelvedata"], {}, a)).toBe(1);
     expect(seen.find((r) => r.method === "GET" && r.url === "/v1/sources").auth).toBe("Bearer mcbctl_local-token");
-    expect(a.err.at(-1)).toMatch(/pass --key with an admin key/);
+    expect(a.err.at(-1)).toMatch(/needs an admin key.*pass --key/);
   });
 });
 
