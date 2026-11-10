@@ -22,7 +22,7 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
-import { TEST_TOPIC, canSee, checkTopicPatterns, matchesAny } from "./catalog.mjs";
+import { TEST_TOPIC, canSee, checkTopicPatterns, webhookMatches } from "./catalog.mjs";
 import { toEnvelope } from "./eventLog.mjs";
 import { createJournal } from "./journal.mjs";
 import { FAILURE_TEXT } from "./sender.mjs";
@@ -123,7 +123,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
     return r;
   }
   function checkTopics(raw) {
-    const r = checkTopicPatterns(raw);
+    const r = checkTopicPatterns(raw, { webhook: true });
     if (!r.ok) throw invalid("topics", r.message);
     return r.patterns;
   }
@@ -263,7 +263,7 @@ export function createWebhookService({ cfg, dir, secrets, sender, logger, now = 
       if (!w.enabled || stopped) return;
       let body = null;
       for (const s of subs.list()) {
-        if (!s.active || !matchesAny(s.topics, evt.topic)) continue;
+        if (!s.active || !webhookMatches(s.topics, evt.topic)) continue;
         if (!canSee({ ...ADMIN_ALL, accounts: s.accounts === "*" ? "*" : new Set(s.accounts) }, evt)) continue;
         body ??= JSON.stringify(toEnvelope(evt));
         const pending = outbox.list().filter((i) => i.subId === s.id);

@@ -145,6 +145,11 @@ curl -X POST http://127.0.0.1:4300/v1/subscriptions -H "Authorization: Bearer $A
   -d '{"url":"https://example.com/bridge/events","topics":["order.*","download.*"],"secret":"'"$(openssl rand -hex 32)"'"}'
 ```
 
+A webhook target is an outside service, so `"*"` and a prefix such as `"order.*"` mean the **read** topics only. An admin topic (order
+tickets with symbol, side and size, webhook alert problems, backups, config warnings) is sent only when you list it by its exact name,
+for example `"ticket.prepared"`; the CLI prints a warning when you do. A prefix that matches only admin topics (`"ticket.*"`) is refused.
+The stream (`/v1/events/stream`) is different: it sends what the key behind it may see.
+
 Other commands: `subscriptions list | show | pause | resume | remove | rotate-secret | deliveries | dead-letters | tail`
 (`mc-bridge --help`), and `PATCH`, `DELETE /v1/subscriptions/{id}` over HTTP.
 

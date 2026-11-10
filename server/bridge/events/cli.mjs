@@ -18,6 +18,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { BridgeError } from "../core/errors.mjs";
+import { adminTopicsNamed } from "./catalog.mjs";
 
 const SECRET_FLAGS = ["secret", "signing-secret", "token", "password", "value", "api-key"];
 export const SUBSCRIPTION_SUBCOMMANDS = Object.freeze(["list", "topics", "status", "add", "show", "pause", "resume", "remove", "rotate-secret", "test", "deliveries", "dead-letters", "tail"]);
@@ -113,6 +114,8 @@ export async function subscriptionsCommand(args, flags, io, helpers) {
       const body = { url: id, topics, secret, ...(typeof flags.label === "string" ? { label: flags.label } : {}), ...(typeof flags.accounts === "string" && flags.accounts !== "*" ? { accounts: flags.accounts.split(",").map((a) => a.trim()).filter(Boolean) } : {}) };
       const { data } = await call("POST", "/v1/subscriptions", body);
       io.out(`Created ${data.id} for ${data.target} (${data.topics.join(", ")}).`);
+      const named = adminTopicsNamed(data.topics);
+      if (named.length) io.out(`Warning: ${named.join(", ")} ${named.length === 1 ? "is an admin topic" : "are admin topics"} (order tickets, webhook alerts, backups, config warnings). Their details will be sent to ${data.target}. Remove them with: ${cli} subscriptions show ${data.id}`);
       if (!flags["secret-stdin"]) for (const l of secretBanner(secret)) io.out(l);
       io.out(`Check it works: ${cli} subscriptions test ${data.id}`);
       return 0;

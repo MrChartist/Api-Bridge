@@ -140,9 +140,26 @@ describe("delivery", () => {
     expect(b.receiver.bodies().map((x) => x.data.orderId)).toEqual(["o2"]);
   });
 
-  it("an admin-only topic reaches a webhook (an admin made it), but a confirm token never does", async () => {
+  it("\"*\" and a prefix mean read topics only: order tickets and other admin topics need their exact name (audit S11)", async () => {
     const b = bootWebhooks();
-    await b.svc.create({ ...SUB, topics: ["ticket.*"] });
+    await b.svc.create({ ...SUB, topics: ["*"] });
+    await b.svc.create({ ...SUB, topics: ["ticket.prepared"] });
+    await expect(b.svc.create({ ...SUB, topics: ["ticket.*"] })).rejects.toMatchObject({ code: "VALIDATION_FAILED", detail: expect.stringMatching(/only matches admin topics.*exact name/) });
+    order(b, 1);
+    b.eventLog.record("ticket.prepared", { ticketId: "tkt_9", accountId: "paper", symbol: "NSE:X", side: "BUY", quantity: 5 });
+    b.eventLog.record("backup.completed", { path: "x" });
+    b.eventLog.record("config.warning", { message: "something" });
+    await b.svc.pump();
+    const bySub = b.receiver.calls.map((c) => JSON.parse(c.body).topic);
+    // the "*" subscription got the order only; the named one got the ticket only
+    expect(bySub.sort()).toEqual(["order.updated", "ticket.prepared"]);
+    const star = b.receiver.calls.find((c) => JSON.parse(c.body).topic === "order.updated");
+    expect(star.body).not.toContain("tkt_9");
+  });
+
+  it("an admin-only topic reaches a webhook that names it (an admin made it), but a confirm token never does", async () => {
+    const b = bootWebhooks();
+    await b.svc.create({ ...SUB, topics: ["ticket.prepared"] });
     b.eventLog.record("ticket.prepared", { ticketId: "tkt_1", accountId: "paper", symbol: "NSE:X", side: "BUY", quantity: 1, confirmToken: "mct_abcdefabcdefabcdef", confirmExpiresAt: "x" });
     await b.svc.pump();
     expect(b.receiver.calls).toHaveLength(1);
