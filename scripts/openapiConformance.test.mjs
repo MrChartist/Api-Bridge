@@ -81,6 +81,7 @@ describe("real answers match docs/openapi.yaml", () => {
       estimateCollection: { name: "conf-col", intervals: "1d", days: 30 },
       getDataset: { name: "conf-ds" },
       getDownloadFile: { name: seed.fileName },
+      getDatasetFile: { name: "conf-ds", file: seed.fileName },
       getRecordingFile: { name: "none.csv" },
     }[op.id];
     if (byOp && Object.hasOwn(byOp, p.name)) return byOp[p.name];
