@@ -4213,6 +4213,8 @@ paths:
         and quota state, source settings, pooling consent, paper books, order records and the audit log. It never holds the
         master key. `secrets.enc` (saved broker logins) is included only with `includeSecrets`, and is useful only with the
         original master key. Emits the bus events `backup.completed` or `backup.failed`.
+        Downloads and recordings are left out by default (they are large and can be downloaded or recorded again); send
+        `includeData: true` (or set `backup.includeData`) to add them, streamed.
       x-module: backup
       x-scope: admin
       x-loopback-only: true
@@ -4225,6 +4227,7 @@ paths:
               additionalProperties: false
               properties:
                 includeSecrets: { type: boolean, default: false }
+                includeData: { type: boolean, description: "Also put the downloads and recordings folders in the backup. Default: the `backup.includeData` setting (false)." }
       responses:
         "200":
           description: The backup was written.
@@ -7185,6 +7188,7 @@ components:
         createdAt: { type: string, format: date-time }
         kind: { type: string, enum: [manual] }
         includesSecrets: { type: boolean }
+        includesData: { type: boolean, description: "True when the downloads and recordings folders are in the archive (includeData)." }
         masterKeyIncluded: { type: boolean, enum: [false], description: "Always false: the master key is never part of a backup." }
         restoreCommand: { type: string }
     MetaInfo:

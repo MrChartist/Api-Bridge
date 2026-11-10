@@ -3,7 +3,11 @@
  *
  *   "backup": {
  *     "keep": 5,                 how many automatic snapshots to keep per kind (before an upgrade, before a restore)
- *     "maxSizeMb": 500,          a data folder larger than this is not snapshotted automatically (it is a warning, never a failure to start)
+ *     "maxSizeMb": 500,          settings and state larger than this are not snapshotted automatically (downloads and recordings are not counted)
+ *     "includeData": false,      also put downloads/ and recordings/ into manual and daily backups (large; streamed). Never in the
+ *                                copy before an upgrade or before a restore: those stay small and fast
+ *     "maxDataFiles": 50000,     more downloads and recordings files than this and a backup with data is refused with a clear message
+ *     "manualKeep": 5,           manual backups kept in the data folder (backups made with --out are never removed)
  *     "schedule": {              OFF by default
  *       "enabled": false,
  *       "time": "02:30",         every day at this time on this computer's clock ("HH:MM", 24-hour)
@@ -20,6 +24,9 @@ export const BACKUP_CONFIG_SCHEMA = z
   .object({
     keep: z.number().int().min(1).max(100).default(5),
     maxSizeMb: z.number().int().min(10).max(10_240).default(500),
+    includeData: z.boolean().default(false),
+    maxDataFiles: z.number().int().min(1000).max(5_000_000).default(50_000),
+    manualKeep: z.number().int().min(1).max(100).default(5),
     schedule: z
       .object({
         enabled: z.boolean().default(false),

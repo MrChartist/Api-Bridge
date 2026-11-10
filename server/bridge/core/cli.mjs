@@ -164,6 +164,8 @@ export async function runDoctor({ config, warnings = [], source = null, env = pr
   add(config.accounts.length ? "ok" : "warn", "accounts", config.accounts.length ? `${config.accounts.length} account(s): ${config.accounts.map((a) => `${a.id} (${a.broker})`).join(", ")}` : "No accounts configured yet");
   for (const c of poolingDoctorChecks({ config })) add(c.level, c.check, c.message);
   for (const c of (await import("../backup/doctor.mjs")).backupDoctorChecks({ config, env })) add(c.level, c.check, c.message);
+  // The data folder and the newer parts (lock, disk, files set aside, downloads, recordings, webhooks, collections).
+  for (const c of (await import("../storage/doctor.mjs")).opsDoctorChecks({ config, env })) add(c.level, c.check, c.message, { ...(c.fix ? { fix: c.fix } : {}), ...(c.blocking ? { blocking: true } : {}) });
   try {
     new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata" }).format(new Date());
     add("ok", "timezone", "Asia/Kolkata time zone data available");
@@ -330,7 +332,7 @@ export async function probeBridge(baseUrl) {
     const res = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
     if (!res.ok) return null;
     const body = await res.json();
-    return body?.status === "ok" && typeof body.apiVersion === "string" ? body : null;
+    return (body?.status === "ok" || body?.status === "degraded") && typeof body.apiVersion === "string" ? body : null;
   } catch {
     return null;
   }
