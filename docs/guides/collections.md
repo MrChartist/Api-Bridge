@@ -20,8 +20,8 @@ the sheet. To use a collection in a sheet, see [In Excel and Google Sheets](#in-
 ## Five minutes
 
 ```sh
-# a key that may write (the paper scope; a read key can only read and resolve)
-mc-bridge keys create --label collections --scope paper
+# a read key can make and change collections (the same scope as starting a download); only deleting one needs admin
+mc-bridge keys create --label collections --scope read
 
 export MCB_API_KEY=mcb_...
 mc-bridge collections create banks --symbols NSE:HDFCBANK,NSE:ICICIBANK,NSE:SBIN --tags cash,banks
@@ -160,16 +160,20 @@ downloads module use the same helper, so `GET /v1/datasets?tag=nifty` means the 
 | Size estimate | `GET /v1/collections/{name}/estimate?intervals=&days=` | read |
 | Usage | `GET /v1/collections/{name}/usage` | read |
 | Export (CSV or JSON) | `GET /v1/collections/{name}/export?format=csv\|json&resolved=` | read |
-| Create | `POST /v1/collections` | paper |
-| Change, tag, or **rename** | `PATCH /v1/collections/{name}` with any of `name`, `description`, `tags`, `symbols`, `universe` | paper |
-| Copy | `POST /v1/collections/{name}/duplicate` with an optional `{ "name": "..." }` | paper |
-| Import (CSV or JSON) | `POST /v1/collections/import` | paper |
-| Delete | `DELETE /v1/collections/{name}?force=` | paper |
+| Create | `POST /v1/collections` | read |
+| Change, tag, or **rename** | `PATCH /v1/collections/{name}` with any of `name`, `description`, `tags`, `symbols`, `universe` | read |
+| Copy | `POST /v1/collections/{name}/duplicate` with an optional `{ "name": "..." }` | read |
+| Import (CSV or JSON) | `POST /v1/collections/import` (`replace=true` needs admin, this computer) | read |
+| Delete | `DELETE /v1/collections/{name}?force=` | admin (this computer only) |
 
 `{name}` may also be the collection's id (`col_...`). An **id never changes**. A **rename** keeps the id, and the old name keeps
 finding the collection (the answer says `viaOldName`, with a warning), so a rule written with the old name does not break
-the next morning. A new collection may take over an old name. Writing needs the `paper` scope: a read key reads and resolves only, and an
-`admin`-only key cannot write either (the scope list is in [safety.md](safety.md)).
+the next morning. A new collection may take over an old name. **Scopes.** A collection is only a list of names on this computer: it places no order and moves no money, so making, changing,
+copying and importing one needs the `read` scope, the same as starting a download. It used to need `paper`, which also lets a key
+place paper orders; a script that only keeps a symbol list should not hold that. Deleting a collection, and an import with
+`replace=true`, can destroy work, so they need an `admin` key used from this computer. A collection can feed a recording rule, which writes to your
+disk, so the recorder's own limits (`recorder.maxSymbolsPerRecording`, the disk limits) still apply to whatever a collection
+resolves to. (The scope list is in [safety.md](safety.md).)
 
 **Export and import.** JSON is the definition (a universe stays a universe) and imports back. CSV is the symbols, with the
 columns `symbol,exchange,kind,underlying,expiry,strike,right`; for an option universe it is the symbols as they resolve now

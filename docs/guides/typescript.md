@@ -85,7 +85,7 @@ for await (const ev of bridge.events.subscribe({ topics: ["download.*"], since: 
   `bridge.subscriptions.deadLetters(id)`, `retryDeadLetter`, `retryAllDeadLetters`, `clearDeadLetters`.
 - If the cursor you pass is older than what the Bridge kept, `sub.gap` is true (`onGap` is called): read the current state from the
   API again, then carry on. `bridge.events.poll({ since })` is the same replay as one JSON answer.
-- Reading collections needs a `read` key; changing them needs the `paper` scope.
+- Reading, making and changing collections needs a `read` key (the same as starting a download); deleting one needs `admin`.
 - There is no Parquet or DataFrame in Node: `candles.records()`, `candles.toCsv()` and plain arrays. Python has both.
 
 ## Browser apps

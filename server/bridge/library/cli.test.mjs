@@ -17,7 +17,7 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 beforeEach(async () => {
-  for (const c of (await t.request("/v1/collections", { key: t.keys.read })).json.data) await t.request(`/v1/collections/${c.name}?force=true`, { method: "DELETE", key: t.keys.paper });
+  for (const c of (await t.request("/v1/collections", { key: t.keys.read })).json.data) await t.request(`/v1/collections/${c.name}?force=true`, { method: "DELETE", key: t.keys.admin });
 });
 
 /** The same shape of client the real CLI gets: JSON in, parsed JSON out, a BridgeError on a problem. */
@@ -31,7 +31,7 @@ function connectWith(key) {
   });
 }
 
-async function run(args, flags = {}, key = t.keys.paper) {
+async function run(args, flags = {}, key = t.keys.admin) {
   const out = [];
   const err = [];
   const code = await collectionsCommand(args, flags, { out: (s) => out.push(s), err: (s) => err.push(s), cwd: dir, env: {} }, { connect: connectWith(key), cli: "mc-bridge", usage: "USAGE TEXT" });
@@ -148,10 +148,10 @@ describe("collections command", () => {
     expect(e.out).toMatch(/About [\d,]+ rows, .* as CSV, 4 broker calls\./);
   });
 
-  it("a read-only key can read but the Bridge refuses its writes, and the message says so", async () => {
-    await run(["create", "r"], { symbols: "NSE:RELIANCE" });
+  it("a read key can make collections; deleting one is refused (it needs admin), and the message says so", async () => {
+    await run(["create", "r"], { symbols: "NSE:RELIANCE" }, t.keys.read);
     expect((await run(["list"], {}, t.keys.read)).out).toMatch(/^r /);
-    await expect(run(["create", "x"], { symbols: "NSE:INFY" }, t.keys.read)).rejects.toThrow(/paper|scope/i);
-    expect(existsSync(join(dir, "x"))).toBe(false);
+    await expect(run(["delete", "r"], {}, t.keys.read)).rejects.toThrow(/HTTP 403|scope|admin/i);
+    expect((await run(["list"], {}, t.keys.read)).out).toMatch(/^r /);
   });
 });

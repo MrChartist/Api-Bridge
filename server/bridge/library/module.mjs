@@ -11,10 +11,12 @@ import { LIBRARY_CONFIG_SCHEMA } from "./config.mjs";
 import { createLibraryRoutes } from "./routes.mjs";
 import { createLibraryService } from "./service.mjs";
 
+// A collection is a named list of symbols on this computer: it places no order and moves no money. Making and changing one
+// needs the same scope as starting a download (read); the things that destroy data need an admin key from this computer (delete, and
+// an import that replaces collections: checked in routes.mjs). The old rule asked for the paper (paper trading) scope.
 const READ = Object.freeze({ scope: "read" });
-const WRITE = Object.freeze({ scope: "paper" });
-const WRITE_JSON = Object.freeze({ scope: "paper", body: "json", bodyLimitBytes: 262_144 });
-const IMPORT = Object.freeze({ scope: "paper", body: "json-or-text", bodyLimitBytes: 4_194_304 });
+const WRITE_JSON = Object.freeze({ scope: "read", body: "json", bodyLimitBytes: 262_144 });
+const IMPORT = Object.freeze({ scope: "read", body: "json-or-text", bodyLimitBytes: 4_194_304 });
 
 /** [method, path, route options, handler name] */
 export const ROUTES = Object.freeze([
@@ -23,7 +25,7 @@ export const ROUTES = Object.freeze([
   ["POST", "/v1/collections/import", IMPORT, "import"],
   ["GET", "/v1/collections/:name", READ, "get"],
   ["PATCH", "/v1/collections/:name", WRITE_JSON, "update"],
-  ["DELETE", "/v1/collections/:name", { scope: "paper", body: "none" }, "remove"],
+  ["DELETE", "/v1/collections/:name", { scope: "admin", loopbackOnly: true, body: "none" }, "remove"],
   ["GET", "/v1/collections/:name/resolve", READ, "resolve"],
   ["POST", "/v1/collections/:name/duplicate", WRITE_JSON, "duplicate"],
   ["GET", "/v1/collections/:name/export", READ, "export"],

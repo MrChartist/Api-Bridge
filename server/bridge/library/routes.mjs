@@ -2,18 +2,20 @@
  * Collection routes (docs/openapi.yaml, tag "Collections").
  *
  *   GET    /v1/collections                       list (tag, kind, q filters)                          read
- *   POST   /v1/collections                       create                                               paper
- *   POST   /v1/collections/import                CSV or JSON in                                       paper
+ *   POST   /v1/collections                       create                                               read
+ *   POST   /v1/collections/import                CSV or JSON in (replace=true needs admin)            read
  *   GET    /v1/collections/{name}                one collection (a name, an id, or an earlier name)   read
- *   PATCH  /v1/collections/{name}                change description, tags, symbols, universe, or rename   paper
- *   DELETE /v1/collections/{name}                delete (refused while a download or recording uses it, unless force=true)   paper
+ *   PATCH  /v1/collections/{name}                change description, tags, symbols, universe, or rename   read
+ *   DELETE /v1/collections/{name}                delete (refused while a download or recording uses it, unless force=true)   admin, this computer
  *   GET    /v1/collections/{name}/resolve        the concrete symbols for now                         read
- *   POST   /v1/collections/{name}/duplicate      copy under a new name                                paper
+ *   POST   /v1/collections/{name}/duplicate      copy under a new name                                read
  *   GET    /v1/collections/{name}/export         CSV or JSON out                                      read
  *   GET    /v1/collections/{name}/usage          the downloads, recordings and datasets that use it   read
  *   GET    /v1/collections/{name}/estimate       rows, bytes and broker calls for intervals x days    read
  *
- * Writing needs the `paper` scope (a read key reads and resolves only). Nothing here reaches an order service.
+ * Making and changing a collection needs the `read` scope, the same as starting a download (a collection is a list of names
+ * on this computer; it places no order). Deleting one, and an import that replaces existing collections, need `admin` from this computer.
+ * Nothing here reaches an order service.
  */
 import { BridgeError } from "../core/errors.mjs";
 import { json, noContent, Reply } from "../core/http.mjs";
@@ -123,6 +125,8 @@ export function createLibraryRoutes(deps) {
       }
       if (data === undefined || data === null || data === "") throw invalid("body", "Send the collection as JSON, or CSV text (Content-Type text/plain) with name=<name>.");
       const replace = boolQ(q, "replace");
+      if (replace && ctx.scopes?.has("admin") !== true) throw new BridgeError("SCOPE_REQUIRED", "Replacing existing collections needs an admin key. Import without replace=true to add new ones.");
+      if (replace && !ctx.loopback) throw new BridgeError("LOOPBACK_ONLY", "Replacing existing collections works only from this computer. Import without replace=true to add new ones.");
       const result = lib().importData({ data, format, name, description, tags, replace, skipInvalid: boolQ(q, "skipInvalid") });
       await audit(ctx, "collection.imported", { replace, created: result.created.map((c) => c.name), replaced: result.replaced.map((c) => c.name) });
       return reply(ctx, result, 201);
