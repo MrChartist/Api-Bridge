@@ -32,6 +32,7 @@ const HOSTILE_QUERIES = [
   "symbol=NSE:RELIANCE&field=lot",
   "account=demo-paper&format=json&status=open&limit=5",
   "symbols=%3DPLACE_ORDER(),NSE:NIFTY&format=json&cache=1",
+  "collection=%3DPLACE_ORDER()&format=json",
 ];
 
 /** Reads the integrations routes may make on the order and account services: harmless empty answers. */
@@ -111,8 +112,8 @@ describe("handlers only read", () => {
     }
     expect(calls).toEqual([]);
     // the probe really observed the handlers (not a vacuous pass)
-    expect([...touched].sort()).toEqual(["accounts", "clock", "marketData", "orders", "symbols"]);
-    expect([...USED_SERVICES].sort()).toEqual(["accounts", "clock", "marketData", "orders", "symbols"]);
+    expect([...touched].sort()).toEqual(["accounts", "clock", "library", "marketData", "orders", "symbols"]);
+    expect([...USED_SERVICES].sort()).toEqual(["accounts", "clock", "library", "marketData", "orders", "symbols"]);
     // of the order and account services only the listed read methods were called, and they were called
     expect([...new Set(reads)].sort()).toEqual(["accounts.list", "orders.funds", "orders.holdings", "orders.list", "orders.positions"]);
   });

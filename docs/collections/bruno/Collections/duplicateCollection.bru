@@ -1,0 +1,33 @@
+meta {
+  name: Copy a collection under a new name
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/v1/collections/:name/duplicate
+  body: json
+  auth: bearer
+}
+
+params:path {
+  name: <name>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Copy a collection under a new name
+
+  - An API key with the `paper` scope (or `live`).
+
+  Without a name the copy is called `<name>-copy` (then `-copy2` ...).
+
+  Reference: docs/api/collections/duplicateCollection.md in the repository.
+}

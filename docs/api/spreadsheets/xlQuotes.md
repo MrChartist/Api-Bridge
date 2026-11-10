@@ -18,7 +18,8 @@
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `symbols` | query | string | yes | Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat. |
+| `symbols` | query | string | no | Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat. Give `symbols` or `collection`. |
+| `collection` | query | string, up to 64 characters | no | A collection name from `GET /v1/collections` instead of `symbols`. An option universe is worked out at the time of the request from a live price; a price that is not live is refused. The collection must resolve to at most `integrations.xl.maxSymbols` symbols. Response headers `X-Collection-Resolved-At`, `X-Collection-Atm-Source`, `X-Collection-Rule` and (when there are any) `X-Collection-Warnings` say when and how. |
 | `fields` | query | string | no | Value columns in the order wanted (default ltp,chg,pct,volume). Freshness columns are always added. |
 | `format` | query | one of `csv`, `tsv`, `json` | no | csv (default, CRLF), tsv (tab separated, LF) or json (array of records). Default `"csv"`. |
 | `cache` | query | boolean | no | 1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`. Default `false`. |

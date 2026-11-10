@@ -69,6 +69,7 @@ export const BODIES = Object.freeze({
 export const QUERY_EXTRAS = Object.freeze({
   getHistory: { countback: 50 },
   getOptionChain: { strikes: 5 },
+  xlQuotes: { symbols: "NSE:RELIANCE,NSE:NIFTY" },
   xlChain: { format: "csv" },
   xlHistory: { layout: "standard" },
   listOrders: { limit: 20 },

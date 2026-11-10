@@ -119,6 +119,7 @@
         "Accounts",
         "Keys",
         "Instruments",
+        "Collections",
         "Market data",
         "Streaming",
         "Portfolio",
@@ -139,7 +140,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "150 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "161 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -240,6 +241,105 @@
       "path": "docs/api/backup/getBackup.md",
       "text": "GET /v1/backup. This computer only, admin key.",
       "title": "The last backup, the schedule and the copies kept on this computer"
+    },
+    {
+      "headings": [
+        "POST /v1/collections"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/createCollection.md",
+      "text": "POST /v1/collections. A static collection holds a list of symbols.",
+      "title": "Create a collection"
+    },
+    {
+      "headings": [
+        "DELETE /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/deleteCollection.md",
+      "text": "DELETE /v1/collections/{name}. Refused with 409 while a download, recording or rule that is running uses it, unless force=true.",
+      "title": "Delete a collection"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/{name}/duplicate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/duplicateCollection.md",
+      "text": "POST /v1/collections/{name}/duplicate. Without a name the copy is called -copy (then -copy2 ...).",
+      "title": "Copy a collection under a new name"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/estimate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/estimateCollection.md",
+      "text": "GET /v1/collections/{name}/estimate. Rows, bytes and broker calls before you start.",
+      "title": "Size of downloading a collection (symbols x intervals x days)"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/export"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/exportCollection.md",
+      "text": "GET /v1/collections/{name}/export. JSON is the definition (a universe stays a universe) and imports back with POST /v1/collections/import.",
+      "title": "A collection as a CSV or JSON file"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/getCollection.md",
+      "text": "GET /v1/collections/{name}.",
+      "title": "One collection with its symbols or universe"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/usage"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/getCollectionUsage.md",
+      "text": "GET /v1/collections/{name}/usage. The downloads, recordings, auto-record rules and datasets that use it.",
+      "title": "What is made from this collection"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/import"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/importCollections.md",
+      "text": "POST /v1/collections/import. JSON: a collection ({ name, kind, symbols | universe }), a plain list of symbols (with name in the query), a file that GET /v1/collections/{name}/export wrote, or { collections: [...] }.",
+      "title": "Make collections from CSV or JSON"
+    },
+    {
+      "headings": [
+        "GET /v1/collections"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/listCollections.md",
+      "text": "GET /v1/collections. Summaries without symbol lists, ordered by name.",
+      "title": "List collections (static lists and option universes)"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/resolve"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/resolveCollection.md",
+      "text": "GET /v1/collections/{name}/resolve. A static collection answers its list.",
+      "title": "The concrete symbols of a collection right now"
+    },
+    {
+      "headings": [
+        "PATCH /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/updateCollection.md",
+      "text": "PATCH /v1/collections/{name}. A rename keeps the collection's id and its old name keeps working.",
+      "title": "Change a collection, or rename it (send `name`)"
     },
     {
       "headings": [
@@ -1539,7 +1639,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 146 requests in 21 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 157 requests in 22 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {
@@ -1620,6 +1720,26 @@
     },
     {
       "headings": [
+        "Five minutes",
+        "The option universe",
+        "How the expiry is chosen",
+        "How the strikes and the at-the-money strike are chosen",
+        "How honest it is about the price",
+        "Using a collection",
+        "In Excel and Google Sheets",
+        "Tags",
+        "All the operations",
+        "For other parts of the Bridge",
+        "Settings",
+        "Limits, and what is not done"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/collections.md",
+      "text": "A collection is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python library can then say collection: \"nifty-weekly\" instead of pasting the same symbols again. There are two kinds: Collections live in collections.json in your data...",
+      "title": "Collections: lists of instruments and option universes"
+    },
+    {
+      "headings": [
         "Symbols",
         "Endpoints",
         "Which account",
@@ -1679,6 +1799,7 @@
     {
       "headings": [
         "The Excel workbook",
+        "A collection instead of typed symbols",
         "The key",
         "Refreshing, and how often",
         "What a sheet costs, measured",

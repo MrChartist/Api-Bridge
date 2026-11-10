@@ -60,6 +60,9 @@ Usage:
   mc-bridge notify telegram setup   connect a Telegram bot: the token is read from a hidden prompt, never from the command line
   mc-bridge notify telegram remove <id>
   mc-bridge notify status | test [<id>]
+  mc-bridge collections list|show|create|universe|resolve|tag|rename|duplicate|delete|export|import|usage|estimate ...
+                                   named lists of instruments and option universes (ATM, rolling expiry) for downloads, recordings and sheets;
+                                   needs --key (or MCB_API_KEY), a paper-scope key to change things. See docs/guides/collections.md
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -584,6 +587,8 @@ export async function runCli(positionals, flags, io) {
         warnKeyOnArgv(flags, io);
         return await notifyCommand(positionals.slice(1), flags, io, { connect: () => sourcesClient(flags, io), prompt: terminalPrompt, cli: cliCommand(io.env), usage: USAGE });
       }
+      case "collections":
+        return await collectionsCliCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
       case "backup":
@@ -975,3 +980,14 @@ async function backupRestoreCommand(cmd, args, flags, io) {
   const ctx = { config, configFile: configFileForWrites(source, io.env), bridgeVersion: BRIDGE_VERSION, cli: cliCommand(io.env), probeBridge, localBaseUrl, usesDataDir };
   return cmd === "backup" ? backupCommand(args, flags, io, ctx) : restoreCommand(args, flags, io, ctx);
 }
+
+// === collections ===============================================================================================
+/**
+ * `mc-bridge collections ...` (server/bridge/library/cli.mjs). A separate block: it only hands the command the running Bridge's
+ * client (the same one `notify` and `sources` use) and this file's usage text.
+ */
+async function collectionsCliCommand(args, flags, io) {
+  const { collectionsCommand } = await import("../library/cli.mjs");
+  return await collectionsCommand(args, flags, io, { connect: () => sourcesClient(flags, io), cli: cliCommand(io.env), usage: USAGE });
+}
+// === end collections ===========================================================================================

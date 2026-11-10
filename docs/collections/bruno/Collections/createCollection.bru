@@ -1,0 +1,33 @@
+meta {
+  name: Create a collection
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/collections
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "name": "<name>"
+  }
+}
+
+docs {
+  Create a collection
+
+  - An API key with the `paper` scope (or `live`).
+
+  A static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used
+  (`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.
+  Writing needs the `paper` scope.
+
+  Reference: docs/api/collections/createCollection.md in the repository.
+}

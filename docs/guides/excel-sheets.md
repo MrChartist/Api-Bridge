@@ -35,6 +35,13 @@ them in Excel, no prefix is needed; the prefix only matters inside the file.
 Every price row says how current it is: **As of** (IST), **Age (s)**, **Class** (`realtime`, `delayed`, `eod`),
 **Source** (`stream`, `cache`, `broker`) and **Stale**. In demo mode the Status line starts with `DEMO DATA`.
 
+### A collection instead of typed symbols
+
+`/xl/quotes` also takes `collection=<name>` in place of `symbols=`: a list you keep once in the Bridge (a fixed list, or an
+option universe such as "NIFTY current weekly, ATM +/- 10", worked out at the time of the request). In Power Query or
+`IMPORTDATA` use `/xl/quotes?collection=banks&fields=ltp,chg,pct`; in the workbook replace the `symbols=` part of the request.
+A price that is not live is refused with the reason in a one-row table. See [collections.md](collections.md).
+
 ### The key
 
 The workbook holds **no key** unless you tick "Put this key inside the workbook" when you download it; then the key is

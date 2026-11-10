@@ -97,6 +97,8 @@ tags:
     description: Bridge API keys and their scopes.
   - name: Instruments
     description: Instrument search, resolution and symbol conversion.
+  - name: Collections
+    description: Named, tagged lists of instruments and option universes (rolling expiries, at-the-money strikes) that downloads, recordings and sheets use instead of pasted symbols.
   - name: Market data
     description: Quotes, LTP, depth, history, expiries and option chains, served streaming-first within broker limits.
   - name: Streaming
@@ -1424,6 +1426,340 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { type: array, items: { $ref: "#/components/schemas/SymbolValidation" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections:
+    get:
+      tags: [Collections]
+      operationId: listCollections
+      summary: List collections (static lists and option universes)
+      description: Summaries without symbol lists, ordered by name. `tag` may repeat or be comma separated; a collection must have every tag asked for.
+      x-module: library
+      x-scope: read
+      parameters:
+        - { name: tag, in: query, description: "Tags to match, all of them (comma separated, or repeat the parameter).", schema: { type: string } }
+        - { name: kind, in: query, schema: { type: string, enum: [static, option-universe] } }
+        - { name: q, in: query, description: "Text found in the name, description or a tag.", schema: { type: string, maxLength: 64 } }
+      responses:
+        "200":
+          description: Collections.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Collection" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Collections]
+      operationId: createCollection
+      summary: Create a collection
+      description: |
+        A static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used
+        (`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.
+        Writing needs the `paper` scope.
+      x-module: library
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CollectionCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Collection" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections/import:
+    post:
+      tags: [Collections]
+      operationId: importCollections
+      summary: Make collections from CSV or JSON
+      description: |
+        JSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file
+        that `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with
+        `name` in the query (or as JSON `{ format: "csv", csv, name }`); the symbols are in a column named `symbol`, or the
+        first column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`
+        is true for a CSV.
+      x-module: library
+      x-scope: paper
+      parameters:
+        - { name: name, in: query, description: "Name of the new collection (required for CSV and for a plain list).", schema: { type: string } }
+        - { name: format, in: query, schema: { type: string, enum: [csv, json] } }
+        - { name: tags, in: query, description: "Comma separated tags for a single collection.", schema: { type: string } }
+        - { name: description, in: query, schema: { type: string, maxLength: 500 } }
+        - { name: replace, in: query, description: "Replace a collection of the same name instead of answering 409.", schema: { type: boolean, default: false } }
+        - { name: skipInvalid, in: query, description: "CSV only: skip lines that are not symbols and import the rest.", schema: { type: boolean, default: false } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+          text/plain:
+            schema: { type: string }
+      responses:
+        "201":
+          description: Imported.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    required: [created, replaced, warnings]
+                    properties:
+                      created: { type: array, items: { $ref: "#/components/schemas/Collection" } }
+                      replaced: { type: array, items: { $ref: "#/components/schemas/Collection" } }
+                      warnings: { type: array, items: { type: string } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: "The collection's name or id. A name it had before a rename also finds it (the answer says `viaOldName`)."
+        schema: { type: string, maxLength: 64 }
+    get:
+      tags: [Collections]
+      operationId: getCollection
+      summary: One collection with its symbols or universe
+      x-module: library
+      x-scope: read
+      responses:
+        "200":
+          description: The collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Collection" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Collections]
+      operationId: updateCollection
+      summary: Change a collection, or rename it (send `name`)
+      description: A rename keeps the collection's id and its old name keeps working. The kind cannot change.
+      x-module: library
+      x-scope: paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CollectionPatch" }
+      responses:
+        "200":
+          description: The changed collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Collection" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Collections]
+      operationId: deleteCollection
+      summary: Delete a collection
+      description: Refused with 409 while a download, recording or rule that is running uses it, unless `force=true`.
+      x-module: library
+      x-scope: paper
+      parameters:
+        - { name: force, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "204":
+          description: Deleted.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections/{name}/resolve:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    get:
+      tags: [Collections]
+      operationId: resolveCollection
+      summary: The concrete symbols of a collection right now
+      description: |
+        A static collection answers its list. An option universe is worked out now: the expiry rule rolls on by itself, and
+        the at-the-money strike comes from the live price of the underlying. The answer says which price it used
+        (`atmSource`). A price that is delayed, end-of-day or stale is refused with an error (422 or 503) unless
+        `allowStale=true`, and then it is labelled and warned about. With the market closed the price is the last close and
+        `atmSource` is `last-close`.
+      x-module: library
+      x-scope: read
+      parameters:
+        - { name: allowStale, in: query, description: "Accept a stale, delayed or end-of-day price for the ATM (it is labelled).", schema: { type: boolean } }
+        - { name: requireLive, in: query, description: "Refuse any price that is not live (for a caller that records or downloads at once).", schema: { type: boolean, default: false } }
+        - { name: spot, in: query, description: "Work out the ATM from this price instead of reading one.", schema: { type: number } }
+        - { name: priority, in: query, schema: { type: string, enum: [interactive, background], default: interactive } }
+        - { $ref: "#/components/parameters/AccountQueryOptional" }
+      responses:
+        "200":
+          description: The symbols for now.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CollectionResolution" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections/{name}/duplicate:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      tags: [Collections]
+      operationId: duplicateCollection
+      summary: Copy a collection under a new name
+      description: Without a name the copy is called `<name>-copy` (then `-copy2` ...).
+      x-module: library
+      x-scope: paper
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          description: The copy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Collection" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections/{name}/export:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    get:
+      tags: [Collections]
+      operationId: exportCollection
+      summary: A collection as a CSV or JSON file
+      description: |
+        JSON is the definition (a universe stays a universe) and imports back with `POST /v1/collections/import`. CSV is the
+        symbols; for an option universe it is the symbols as they resolve now (`X-Resolved-At`).
+      x-module: library
+      x-scope: read
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [json, csv], default: json } }
+        - { name: resolved, in: query, description: "JSON only: write a universe as the static list of this moment.", schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Resolved-At: { description: "Only when a universe was resolved for the file.", schema: { type: string } }
+            Content-Disposition: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { type: object }
+            text/csv:
+              schema: { type: string }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections/{name}/usage:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    get:
+      tags: [Collections]
+      operationId: getCollectionUsage
+      summary: What is made from this collection
+      description: The downloads, recordings, auto-record rules and datasets that use it. A kind marked `not-available` in `sources` is kept by a part of the Bridge that is off, so it is not counted.
+      x-module: library
+      x-scope: read
+      responses:
+        "200":
+          description: Usage.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CollectionUsage" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/collections/{name}/estimate:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    get:
+      tags: [Collections]
+      operationId: estimateCollection
+      summary: Size of downloading a collection (symbols x intervals x days)
+      description: |
+        Rows, bytes and broker calls before you start. An option universe is resolved first (a stale price is accepted for a
+        count and is labelled in `atmSource`). An estimate: a recently listed contract has fewer days than asked, and a broker
+        may keep less intraday history than you ask for.
+      x-module: library
+      x-scope: read
+      parameters:
+        - { name: intervals, in: query, required: true, description: "Comma separated, for example 5m,1d.", schema: { type: string } }
+        - { name: days, in: query, required: true, description: "Calendar days back from today (1 to 3650).", schema: { type: integer, minimum: 1, maximum: 3650 } }
+        - { name: allowStale, in: query, schema: { type: boolean, default: true } }
+      responses:
+        "200":
+          description: The estimate.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CollectionEstimate" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -3118,7 +3454,8 @@ paths:
         - bearerAuth: []
         - apiKeyQuery: []
       parameters:
-        - { name: symbols, in: query, required: true, description: "Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat.", schema: { type: string } }
+        - { name: symbols, in: query, description: "Comma-separated Bridge symbols, for example NSE:RELIANCE,NSE:NIFTY. `symbol` is accepted too and may repeat. Give `symbols` or `collection`.", schema: { type: string } }
+        - { name: collection, in: query, description: "A collection name from `GET /v1/collections` instead of `symbols`. An option universe is worked out at the time of the request from a live price; a price that is not live is refused. The collection must resolve to at most `integrations.xl.maxSymbols` symbols. Response headers `X-Collection-Resolved-At`, `X-Collection-Atm-Source`, `X-Collection-Rule` and (when there are any) `X-Collection-Warnings` say when and how.", schema: { type: string, maxLength: 64 } }
         - { name: fields, in: query, description: "Value columns in the order wanted (default ltp,chg,pct,volume). Freshness columns are always added.", schema: { type: string, example: "ltp,chg,pct,volume,as_of,class" } }
         - { $ref: "#/components/parameters/XlFormat" }
         - { $ref: "#/components/parameters/XlCache" }
@@ -5781,6 +6118,162 @@ components:
         code: { type: string, enum: [SYMBOL_NOT_FOUND, AMBIGUOUS_SYMBOL, VALIDATION_FAILED], description: "Only when valid is false." }
         message: { type: string, description: "Only when valid is false." }
         candidates: { type: array, items: { $ref: "#/components/schemas/SymbolCandidate" }, description: "Only when valid is false: the closest or the ambiguous matches." }
+
+    CollectionUniverse:
+      type: object
+      description: "An option universe: which contracts of one underlying, worked out each time the collection is used."
+      required: [underlying]
+      additionalProperties: false
+      properties:
+        underlying: { type: string, example: NIFTY, description: "An index or stock name, without an exchange prefix." }
+        expiries:
+          description: |
+            `current-weekly` the nearest expiry that has not closed (an underlying with weekly expiries); `next-weekly` the one
+            after it; `current-monthly` the nearest expiry that is the last of its month; `all-weekly` the weekly run, up to
+            `library.maxWeeklyExpiries`; or a list of dates. The dates come from the instrument list, so exchange holiday
+            shifts are followed. An underlying with no weekly expiries answers a weekly rule with an error.
+          oneOf:
+            - { type: string, enum: [current-weekly, next-weekly, current-monthly, all-weekly] }
+            - { type: array, minItems: 1, maxItems: 60, items: { type: string, format: date } }
+          default: current-weekly
+        strikes:
+          description: "`around: atm` takes `count` listed strikes each side of the strike nearest the price; `from`/`to` takes the listed strikes between two prices and needs no price."
+          oneOf:
+            - type: object
+              required: [around]
+              additionalProperties: false
+              properties:
+                around: { type: string, enum: [atm] }
+                count: { type: integer, minimum: 1, maximum: 200, default: 10 }
+            - type: object
+              required: [from, to]
+              additionalProperties: false
+              properties:
+                from: { type: number }
+                to: { type: number }
+        sides: { type: array, items: { type: string, enum: [CE, PE] }, default: [CE, PE] }
+        includeUnderlying: { type: boolean, default: true }
+        includeFuture: { type: boolean, default: false, description: "Add the future that expires in the month of each chosen expiry (else the nearest)." }
+
+    Collection:
+      type: object
+      required: [id, name, description, tags, kind, createdAt, updatedAt, previousNames]
+      properties:
+        id: { type: string, example: col_a1b2c3d4e5, description: "Stable; survives a rename." }
+        name: { type: string }
+        description: { type: string }
+        tags: { type: array, items: { type: string }, description: "Lower case, sorted." }
+        kind: { type: string, enum: [static, option-universe] }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" }, description: "Static collections, on a single read (not in the list)." }
+        symbolCount: { type: [integer, "null"], description: "Static collections: how many symbols. Null for an option universe (it depends on the day)." }
+        universe: { $ref: "#/components/schemas/CollectionUniverse" }
+        previousNames: { type: array, items: { type: string } }
+        viaOldName: { type: boolean, description: "Only when the request used a name the collection had before a rename." }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CollectionCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" }
+        description: { type: string, maxLength: 500 }
+        tags: { type: array, maxItems: 20, items: { type: string, pattern: "^[a-z0-9][a-z0-9_.:-]{0,31}$" } }
+        kind: { type: string, enum: [static, option-universe], description: "Optional: a body with `universe` is an option universe, otherwise static." }
+        symbols: { type: array, items: { type: string, maxLength: 80 }, description: "Static: canonical symbols (a lenient spelling is rewritten to canonical)." }
+        universe: { $ref: "#/components/schemas/CollectionUniverse" }
+
+    CollectionPatch:
+      type: object
+      additionalProperties: false
+      description: At least one field. `symbols` only for a static collection, `universe` only for an option universe.
+      properties:
+        name: { type: string, description: "Rename. The old name keeps finding the collection." }
+        description: { type: string, maxLength: 500 }
+        tags: { type: array, items: { type: string } }
+        symbols: { type: array, items: { type: string } }
+        universe: { $ref: "#/components/schemas/CollectionUniverse" }
+
+    CollectionResolution:
+      type: object
+      required: [id, name, kind, resolvedAt, rule, symbols, count, atmSource, warnings]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [static, option-universe] }
+        resolvedAt: { type: string, format: date-time }
+        rule: { type: string, description: "The rule that was used, in words (expiry rule, strikes, sides)." }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        count: { type: integer }
+        atmSource:
+          type: string
+          enum: [not-needed, live, last-close, supplied, stale, delayed, eod]
+          description: "Where the price behind the at-the-money strike came from. `live` is a realtime price with the market open; `last-close` the previous close (market closed or in pre-open); `supplied` the `spot` you passed; `stale`, `delayed` and `eod` only with `allowStale`."
+        strikeSource: { type: string, enum: [listed, grid], description: "`grid`: no listed strikes were found, so the strikes are generated on the usual step (index underlyings only); some may not exist." }
+        underlying:
+          type: object
+          properties:
+            symbol: { type: string }
+            price: { type: [number, "null"] }
+            asOf: { type: [string, "null"] }
+            ageMs: { type: [integer, "null"] }
+            class: { type: [string, "null"], enum: [realtime, delayed, eod, null] }
+            source: { type: [string, "null"] }
+        expiries:
+          type: array
+          items:
+            type: object
+            properties:
+              expiry: { type: string, format: date }
+              kind: { type: string, enum: [weekly, monthly] }
+              shifted: { type: boolean, description: "On an unusual weekday because the usual day is a holiday. The exchange's listed date is used." }
+              ruleDate: { type: string, format: date }
+              reason: { type: string }
+              daysAway: { type: integer }
+              atm: { type: [number, "null"] }
+              step: { type: [number, "null"], description: "Strike step of this expiry." }
+              strikeSource: { type: string, enum: [listed, grid] }
+              first: { type: [number, "null"] }
+              last: { type: [number, "null"] }
+              strikes: { type: integer }
+        viaOldName: { type: boolean }
+        warnings: { type: array, items: { type: string }, description: "Plain sentences: a last-close or stale price, a shifted expiry, an expired contract, a skipped date." }
+
+    CollectionUsage:
+      type: object
+      required: [id, name, downloads, recordings, rules, datasets, total, sources]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        lastResolvedAt: { type: [string, "null"], description: "Since the Bridge started." }
+        downloads: { type: array, items: { type: object } }
+        recordings: { type: array, items: { type: object } }
+        rules: { type: array, items: { type: object } }
+        datasets: { type: array, items: { type: object } }
+        total: { type: integer }
+        sources: { type: object, additionalProperties: { type: string, enum: [available, not-available, error] } }
+        note: { type: [string, "null"] }
+
+    CollectionEstimate:
+      type: object
+      required: [name, symbols, intervals, days, tradingDays, rows, bytes, brokerCalls, notes]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string }
+        resolvedAt: { type: string, format: date-time }
+        atmSource: { type: string }
+        symbols: { type: integer }
+        intervals: { type: array, items: { type: string } }
+        days: { type: integer }
+        tradingDays: { type: integer }
+        rows: { type: integer }
+        bytes: { type: integer, description: "As CSV, about 70 bytes a row." }
+        brokerCalls: { type: integer, description: "One per history chunk per symbol per interval (an upper bound)." }
+        perInterval: { type: array, items: { type: object, properties: { interval: { type: string }, barsPerSymbol: { type: integer }, rows: { type: integer }, bytes: { type: integer }, brokerCalls: { type: integer } } } }
+        notes: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
 
     LtpItem:
       type: object
