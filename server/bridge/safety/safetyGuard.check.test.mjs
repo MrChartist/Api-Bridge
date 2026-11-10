@@ -130,7 +130,8 @@ describe("daily order count", () => {
     const { guard, clock } = rig({ safety: { dailyMaxOrders: 1 } });
     guard.recordOrderEvent("live-acc", { action: "place", mode: "live" });
     expect((await guard.check(ctx(), place())).ok).toBe(false);
-    clock.t += 24 * 3_600_000;
+    // Not simply +24 h: the next day after this Monday is Dussehra (an NSE holiday in the shipped calendar), which the guard now refuses for its own reason.
+    clock.t += 3 * 24 * 3_600_000;
     expect((await guard.check(ctx(), place())).ok).toBe(true);
   });
 });
