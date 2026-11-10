@@ -2085,6 +2085,44 @@ export function createOrderService(deps) {
     acknowledgeStateDamage: () => stateFile?.acknowledge() ?? false,
     /** Run one reconciliation pass now (tests, `doctor`). */
     reconcileNow,
+    /**
+     * Read-only views for the order-book drift check (orders/drift.mjs). Neither changes a record, writes the state
+     * file or emits an event: the check only compares and reports.
+     * driftLegs: one row per leg of this account's live orders. readBrokerBook: the broker's order book as it is now.
+     */
+    driftLegs(accountId) {
+      const out = [];
+      for (const rec of live.values()) {
+        const o = rec.order;
+        if (o.accountId !== accountId) continue;
+        o.legs.forEach((leg, i) => {
+          const xl = rec.x.legs[i];
+          out.push({
+            orderId: o.orderId,
+            leg: i,
+            clientOrderId: o.clientOrderId ?? null,
+            symbol: o.symbol,
+            side: o.side,
+            orderType: o.orderType,
+            price: o.price ?? null,
+            placedAt: o.placedAt,
+            status: leg.status,
+            brokerOrderId: leg.brokerOrderId ? String(leg.brokerOrderId) : null,
+            quantity: leg.quantity,
+            filledQuantity: Number.isFinite(Number(leg.filledQuantity)) ? Number(leg.filledQuantity) : leg.status === "filled" ? leg.quantity : 0,
+            sentAt: xl?.sentAt ?? null,
+            gaveUp: xl?.gaveUp === true,
+            ref: rec.x.ref ?? null,
+            tickSize: rec.x.tickSize ?? 0,
+          });
+        });
+      }
+      return out;
+    },
+    async readBrokerBook(accountId, { priority = "background" } = {}) {
+      const { data, at } = await readBook(accountId, priority);
+      return { rows: Array.isArray(data) ? data : [], at };
+    },
     /** Stop timers and the kill-switch subscription (module stop). */
     close() {
       closed = true;

@@ -23,6 +23,7 @@ export const EVENT_TOPICS = Object.freeze(
     { topic: "account.login_needed", scope: "read", accounts: true, description: "Morning reminder: an account needs a login before the market opens." },
     { topic: "order.updated", scope: "read", accounts: true, description: "An order (paper or live) changed state: placed, filled, rejected, cancelled." },
     { topic: "order.outcome_unknown", scope: "read", accounts: true, description: "The broker did not confirm an order. Check the broker before sending it again." },
+    { topic: "orders.drift", scope: "read", accounts: true, description: "The Bridge's live orders and the broker's order book disagree (or agree again). A read-only check: nothing is changed." },
     { topic: "position.converted", scope: "read", accounts: true, description: "A position was moved between products." },
     { topic: "trading.readiness", scope: "read", accounts: true, description: "An account can trade now, or cannot any more (session, static IP, limits)." },
     { topic: "safety.kill_switch", scope: "read", accounts: false, description: "The kill switch was turned on or off." },

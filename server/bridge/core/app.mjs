@@ -118,6 +118,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "charges.js": "text/javascript; charset=utf-8",
   "readiness.js": "text/javascript; charset=utf-8",
   "backup-card.js": "text/javascript; charset=utf-8",
+  "drift-card.js": "text/javascript; charset=utf-8",
   "layout-prefs.js": "text/javascript; charset=utf-8",
   "live.js": "text/javascript; charset=utf-8",
   "budget.js": "text/javascript; charset=utf-8",

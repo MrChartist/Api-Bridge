@@ -1966,6 +1966,13 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .bk-what p:last-child { margin-bottom: 0; }
 .bk-restore { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 @media (max-width: 560px) { .bk-row > button { width: 100%; } }
+/* Safety page: the Order book card (drift-card.js) */
+.dr-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dr-row { flex-wrap: wrap; min-height: 56px; }
+.dr-row .names { flex: 1 1 180px; }
+.dr-row .names .sub, .dr-row .sub.dr-wrap { white-space: normal; overflow: visible; }
+.dr-note { margin: 0; font: var(--t-footnote); color: var(--label-3); text-wrap: pretty; }
+@media (max-width: 560px) { .dr-row > button { width: 100%; } }
 
 /* The kill-switch sheets (modal() bodies): what stops, what keeps working. */
 .ks-lead { margin: 0; font: var(--t-headline); letter-spacing: -0.01em; }

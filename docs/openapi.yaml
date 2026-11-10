@@ -3695,6 +3695,43 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/orders/drift:
+    get:
+      tags: [Orders]
+      operationId: getOrderDrift
+      summary: Does the broker's order book match the Bridge's live orders? (read-only check)
+      description: |
+        The last result of the order-book check. While live trading is on, a live account is logged in and the market is open,
+        the Bridge reads the broker's order book now and then (default every 5 minutes, at the lowest priority of the rate-limit
+        scheduler) and compares it with its own record of live orders. This route makes no broker call: it reports what the last
+        check found.
+
+        The check only compares and reports. It never changes the Bridge's record, and never places, modifies or cancels an
+        order. A difference is for you to look at in your broker app. Paper accounts are not checked.
+
+        `differences[].kind`: `closed_at_broker` (the Bridge has the order open, the broker shows it finished), `missing_at_broker`
+        (the Bridge has it open, the broker has no such order), `status_mismatch`, `quantity_mismatch`, `fill_mismatch`,
+        `unknown_at_broker` (an open broker order the Bridge did not place) and `outcome_unknown` (the Bridge does not know
+        whether it placed the order; `brokerMatches` lists the broker's orders that fit it). A key sees only its own accounts.
+        The same result is the `orderBook` item of `GET /v1/readiness`, the bus topic `orders.drift` and a card on the Safety page.
+      x-module: orders
+      x-scope: read
+      parameters:
+        - { name: account, in: query, required: false, schema: { $ref: "#/components/schemas/AccountId" }, description: Only this account. }
+      responses:
+        "200":
+          description: The last check.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/OrderDrift" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/orders/by-client-id/{clientOrderId}:
     parameters:
       - name: clientOrderId
@@ -7831,6 +7868,95 @@ components:
         quantity: { type: [integer, "null"] }
         status: { type: string }
         external: { type: boolean }
+    OrderDrift:
+      type: object
+      required: [enabled, state, stale, summary, readOnly, note, intervalMinutes, marketHoursOnly, counts, accounts, differences]
+      properties:
+        enabled: { type: boolean, description: "orders.drift.enabled in the config." }
+        state:
+          type: string
+          enum: ["off", idle, waiting, ok, drift, unavailable]
+          description: "off: switched off. idle: not checking now (see `paused`). waiting: no check yet. ok: the books match. drift: there are differences. unavailable: the broker's order book could not be read."
+        stale: { type: boolean, description: "The last check is much older than the interval (the market is closed, or the account is logged out)." }
+        summary: { type: string }
+        paused:
+          type: [object, "null"]
+          description: Why no check is running now.
+          properties:
+            reason: { type: string, enum: [live_trading_off, no_live_account, not_logged_in, market_closed] }
+            message: { type: string }
+        readOnly: { type: boolean, const: true }
+        note: { type: string }
+        intervalMinutes: { type: integer, description: "A check is never made more often than this." }
+        marketHoursOnly: { type: boolean }
+        checkedAt: { type: [string, "null"], format: date-time, description: "IST, the latest check of the accounts shown." }
+        nextCheckAt: { type: [string, "null"], format: date-time }
+        counts:
+          type: object
+          description: Differences found, in total and by kind.
+          additionalProperties: { type: integer }
+          properties:
+            differences: { type: integer }
+        accounts:
+          type: array
+          items:
+            type: object
+            required: [accountId, state, checkedAt, differences]
+            properties:
+              accountId: { $ref: "#/components/schemas/AccountId" }
+              state: { type: string, enum: [ok, drift, unavailable] }
+              checkedAt: { type: string, format: date-time }
+              error:
+                type: [object, "null"]
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+              bridgeOpen: { type: [integer, "null"], description: "Live orders the Bridge has open (or with an unknown outcome)." }
+              brokerOpen: { type: [integer, "null"], description: "Orders open in the broker's order book." }
+              externalClosed: { type: [integer, "null"], description: "Finished orders in the broker's book that the Bridge did not place (counted, not a difference)." }
+              differences: { type: integer }
+        differences: { type: array, items: { $ref: "#/components/schemas/OrderDriftDifference" } }
+    OrderDriftDifference:
+      type: object
+      required: [kind, accountId, orderId, brokerOrderId, message]
+      properties:
+        kind: { type: string, enum: [closed_at_broker, missing_at_broker, status_mismatch, quantity_mismatch, fill_mismatch, unknown_at_broker, outcome_unknown] }
+        accountId: { $ref: "#/components/schemas/AccountId" }
+        orderId: { type: [string, "null"], description: "The Bridge order id; null for an order the Bridge does not know." }
+        brokerOrderId: { type: [string, "null"] }
+        symbol: { type: [string, "null"] }
+        side: { type: [string, "null"] }
+        bridge:
+          type: [object, "null"]
+          description: What the Bridge has.
+          properties:
+            status: { type: string }
+            quantity: { type: [integer, "null"] }
+            filledQuantity: { type: [integer, "null"] }
+        broker:
+          type: [object, "null"]
+          description: What the broker's order book shows.
+          properties:
+            status: { type: [string, "null"], description: "In the Bridge's words (open, filled, cancelled ...)." }
+            brokerStatus: { type: [string, "null"] }
+            quantity: { type: [integer, "null"] }
+            filledQuantity: { type: [integer, "null"] }
+        brokerMatches:
+          type: array
+          description: outcome_unknown only. Orders in the broker's book that fit the unknown order (same instrument, side, quantity, time). Confirm in your broker app.
+          items:
+            type: object
+            properties:
+              brokerOrderId: { type: string }
+              symbol: { type: [string, "null"] }
+              side: { type: [string, "null"] }
+              price: { type: [number, "null"] }
+              placedAt: { type: [string, "null"] }
+              status: { type: [string, "null"] }
+              brokerStatus: { type: [string, "null"] }
+              quantity: { type: [integer, "null"] }
+              filledQuantity: { type: [integer, "null"] }
+        message: { type: string, description: A plain sentence saying what differs. }
     KeyCreateRequest:
       type: object
       required: [label, scopes]
@@ -9578,6 +9704,18 @@ components:
             wouldHaveSent: { type: array, items: { type: string }, description: "Demo mode: the messages that would have been sent." }
         method: { type: string }
         referenceData: { $ref: "#/components/schemas/ReferenceDataFreshness" }
+        orderBook:
+          type: object
+          description: The read-only order-book check as one item (details on GET /v1/orders/drift). Only the accounts the key may use.
+          properties:
+            state: { type: string, enum: ["off", idle, waiting, ok, drift, unavailable] }
+            summary: { type: string }
+            stale: { type: boolean }
+            checkedAt: { type: [string, "null"], format: date-time }
+            nextCheckAt: { type: [string, "null"], format: date-time }
+            differences: { type: integer }
+            paused: { type: [object, "null"], additionalProperties: true }
+            details: { type: string, examples: [/v1/orders/drift] }
     ReferenceDataFreshness:
       type: object
       required: [today, level, summary, items]

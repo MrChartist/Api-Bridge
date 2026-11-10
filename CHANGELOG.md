@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Order-book check ([docs/guides/orders-drift.md](docs/guides/orders-drift.md)): a read-only, periodic compare of the Bridge's live orders with the broker's order book (`GET /v1/orders/drift`, readiness `orderBook`, event `orders.drift`, a Telegram line, a Safety card). It never changes or cancels anything.
+
 - Tests: `npm run test:future` runs the whole suite with the clock moved forward (CI at 100 days); three tests that would have failed
   on 13, 17 and 25 November are fixed; the order-safety rules, the boot-time kill switch and all 20 MCP tools have tests; dashboard
   request bodies are checked against the OpenAPI schemas; the test guard refuses real connections from node's own sockets too.

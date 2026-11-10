@@ -10,6 +10,7 @@
  * this computer or with the admin scope. Everyone else sees only whether they match.
  */
 import { z } from "zod";
+import { isStub } from "../core/contracts.mjs";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { accountFilter } from "../safety/routes.mjs";
 import { DEMO_SCENARIOS } from "../demo/demoReadiness.mjs";
@@ -66,7 +67,24 @@ export function createReadinessRoutes(deps) {
   }
 
   /** The snapshot as this caller may see it, with the freshness of the shipped reference data (plain sentences, no I/O). */
-  const shape = (ctx, snap) => ({ ...(canSeeIp(ctx) ? snap : redactSnapshot(snap)), referenceData: referenceFreshness({ now: clockNow() }) });
+  const shape = (ctx, snap) => ({ ...(canSeeIp(ctx) ? snap : redactSnapshot(snap)), referenceData: referenceFreshness({ now: clockNow() }), ...orderBookItem(ctx) });
+
+  /** The order-book check as one readiness item (orders/drift.mjs): a summary only; the differences are on GET /v1/orders/drift. */
+  function orderBookItem(ctx) {
+    let svc = null;
+    try {
+      svc = deps.orderDrift && !isStub(deps.orderDrift) ? deps.orderDrift : null;
+    } catch {
+      svc = null;
+    }
+    if (!svc) return {};
+    try {
+      const d = svc.status({ canSee: accountFilter(ctx) });
+      return { orderBook: { state: d.state, summary: d.summary, stale: d.stale, checkedAt: d.checkedAt, nextCheckAt: d.nextCheckAt, differences: d.counts.differences, paused: d.paused, details: "/v1/orders/drift" } };
+    } catch {
+      return {};
+    }
+  }
 
   function readQuery(ctx, allowed) {
     for (const k of new Set([...ctx.query.keys()])) {

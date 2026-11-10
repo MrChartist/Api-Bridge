@@ -95,7 +95,7 @@ cannot send (with the reason). It makes no network call; it reports what the run
 
 ## For module authors: events the notify module listens to
 
-Bus topics (`server/bridge/core/eventBus.mjs`): `order.updated`, `order.outcome_unknown`, `ticket.prepared`,
+Bus topics (`server/bridge/core/eventBus.mjs`): `order.updated`, `order.outcome_unknown`, `orders.drift` (the read-only order-book check), `ticket.prepared`,
 `safety.kill_switch`, `safety.limit`, `account.status`, `trading.readiness` (when `notify: true`), `limits.throttled`,
 and `hook.rejected`, `hook.stale`, `hook.failed` for a webhook alert that was accepted with 202 and then did not become an
 order (payload: `label`, `hookId`, `source`, `reason`, optional `symbol` and `side`). A module can also queue its own
