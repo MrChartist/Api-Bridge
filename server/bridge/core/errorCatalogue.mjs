@@ -12,8 +12,8 @@ import { ERROR_CODES } from "./errors.mjs";
 /** code -> { means, fix }. Plain words. `means` says what happened; `fix` says what to do next. */
 export const ERROR_GUIDE = Object.freeze({
   VALIDATION_FAILED: {
-    means: "The request reached the Bridge but a field is missing, has the wrong type or is out of range. The `errors` list names each field.",
-    fix: "Read `errors[].path` and `errors[].message`, correct those fields and send it again. Retrying the same body will fail the same way.",
+    means: "The request reached the Bridge but a field is missing, has the wrong type or is out of range. The `errors` list names each field, with a `code` for programs (`required`, `invalid_enum` with the `allowed` values, `too_small`, `too_big`, `invalid_format`, `unknown_field` ...).",
+    fix: "Read `errors[].path`, `errors[].code` and `errors[].message` (for `invalid_enum`, `errors[].allowed` lists what is accepted), correct those fields and send it again. Retrying the same body will fail the same way.",
   },
   INVALID_JSON: {
     means: "The body could not be read as JSON (a trailing comma, single quotes, or a body that was cut off).",

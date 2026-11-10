@@ -61,7 +61,7 @@ export interface Problem {
   requestId?: string;
   retryAfterMs?: number;
   broker?: { id?: string; code?: string; message?: string };
-  errors?: Array<{ path: string; message: string }>;
+  errors?: Array<{ path: string; message: string; code?: string; allowed?: unknown[] }>;
 }
 
 export interface Instrument {
@@ -307,7 +307,7 @@ export declare class BridgeApiError extends BridgeError {
   requestId?: string;
   retryAfterMs?: number;
   broker?: { id?: string; code?: string; message?: string };
-  errors?: Array<{ path: string; message: string }>;
+  errors?: Array<{ path: string; message: string; code?: string; allowed?: unknown[] }>;
   idempotencyKey?: string;
   problem: Problem;
 }

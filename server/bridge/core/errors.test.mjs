@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { BrokerError, SessionRequiredError } from "../../brokers/contract.mjs";
-import { BridgeError, ERROR_CODES, NotImplementedError, fromBrokerError, fromValidation, problemHeaders, toProblem } from "./errors.mjs";
+import { BridgeError, ERROR_CODES, FIELD_ERROR_CODES, NotImplementedError, fromBrokerError, fromValidation, problemHeaders, toProblem } from "./errors.mjs";
 
 describe("error taxonomy", () => {
   it("every code has an HTTP status, a title and a retryable flag", () => {
@@ -66,8 +67,34 @@ describe("error taxonomy", () => {
     const e = fromValidation({ issues: [{ path: ["order", "qty"], message: "must be positive" }, { path: [], message: "bad" }] });
     expect(e.code).toBe("VALIDATION_FAILED");
     expect(e.errors).toEqual([
-      { path: "order.qty", message: "must be positive" },
-      { path: "(root)", message: "bad" },
+      { path: "order.qty", code: "invalid", message: "must be positive" },
+      { path: "(root)", code: "invalid", message: "bad" },
     ]);
+  });
+
+  it("gives every field problem a machine code, the allowed values of a list, and plain words instead of the library's", () => {
+    const schema = z
+      .object({ symbol: z.string(), side: z.enum(["BUY", "SELL"]), qty: z.number().int().min(1).max(100), name: z.string().min(2), note: z.string({ error: "note must be text" }), tags: z.array(z.string()).min(1), when: z.union([z.string(), z.number()]), n: z.int() })
+      .strict();
+    const r = schema.safeParse({ side: "HOLD", qty: 0, name: "a", note: 5, tags: [], when: true, n: 1.5, extra: 1 });
+    const e = fromValidation(r.error).errors;
+    const by = Object.fromEntries(e.map((x) => [x.path, x]));
+    expect(by.symbol).toEqual({ path: "symbol", code: "required", message: "This field is required." });
+    expect(by.side).toEqual({ path: "side", code: "invalid_enum", message: "Must be one of: BUY, SELL.", allowed: ["BUY", "SELL"] });
+    expect(by.qty).toMatchObject({ code: "too_small", message: "Too small: at least 1 is needed." });
+    expect(by.name).toMatchObject({ code: "too_small", message: "Too small: at least 2 characters is needed." });
+    expect(by.tags).toMatchObject({ code: "too_small", message: "Too small: at least 1 item is needed." });
+    expect(by.note).toEqual({ path: "note", code: "invalid_type", message: "note must be text" }); // a message written on purpose is kept
+    expect(by.when).toMatchObject({ code: "invalid", message: "Not one of the accepted forms." });
+    expect(by.n).toMatchObject({ code: "invalid_type", message: "Must be a whole number." });
+    expect(by.extra).toEqual({ path: "extra", code: "unknown_field", message: "Unknown field: extra." });
+    expect(JSON.stringify(e)).not.toMatch(/Invalid input|received undefined|Invalid option/);
+    for (const x of e) expect(FIELD_ERROR_CODES).toContain(x.code);
+  });
+
+  it("a request the broker refused as malformed still carries an errors[] entry", () => {
+    const refused = fromBrokerError(new BrokerError("expiry not listed", { code: "BROKER_INPUT_INVALID", statusCode: 422 }));
+    expect(refused.errors).toEqual([{ path: "(request)", code: "broker_rejected", message: "expiry not listed" }]);
+    expect(fromBrokerError(new BrokerError("down", { code: "UPSTREAM_TIMEOUT" })).errors).toBeUndefined();
   });
 });

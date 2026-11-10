@@ -7056,12 +7056,28 @@ components:
             message: { type: string }
         errors:
           type: array
+          description: "VALIDATION_FAILED: one entry per problem field. Branch on `code`, show `message`."
           items:
             type: object
             required: [path, message]
             properties:
-              path: { type: string }
-              message: { type: string }
+              path: { type: string, description: "The field, with dots for nesting (order.qty); (root) for the body as a whole and (request) for a request the broker refused." }
+              code:
+                type: string
+                enum: [required, invalid_type, invalid_enum, invalid_value, too_small, too_big, invalid_format, unknown_field, invalid, broker_rejected]
+                description: "What is wrong, for programs. New codes may be added. Not every route fills it yet: an entry without a code is read by its message."
+              message: { type: string, description: "Plain words for a person." }
+              allowed: { type: array, items: {}, description: "With invalid_enum: the values that are accepted." }
+        unknownSymbols:
+          type: array
+          description: "VALIDATION_FAILED on POST /v1/downloads and POST /v1/recordings: each symbol the Bridge does not know, why, and the closest real symbols."
+          items:
+            type: object
+            properties:
+              symbol: { type: string }
+              reason: { type: string }
+              expired: { type: boolean, description: "True when the contract existed but has expired (downloads accept it with allowExpired: true)." }
+              suggestions: { type: array, items: { type: string } }
         candidates:
           type: array
           description: "AMBIGUOUS_SYMBOL (the instruments the name could mean) and SYMBOL_NOT_FOUND on /v1/symbols/resolve (the closest names)."
