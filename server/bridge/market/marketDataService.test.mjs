@@ -484,6 +484,56 @@ describe("history", () => {
     expect(w.candles[0]).toMatchObject({ volume: 500, open: 1, close: 1.5 });
   });
 
+  it("history chunks follow the broker's documented span per interval (its manifest); the default stays for a broker with none", async () => {
+    const caps = (historical) => ({ auth: { kind: "apiKeyToken" }, testConnection: true, expiries: true, optionChain: { greeks: "broker" }, ltp: true, quotes: true, depth: true, historical });
+    const run = async (historical, interval, market) => {
+      const z = stubAdapter("zerodha", { capabilities: caps(historical), candles: minuteCandles });
+      const { md } = buildMarket({ adapters: { zerodha: z }, ...(market ? { market } : {}) });
+      await md.history({ symbol: "NSE:NIFTY", interval, from: "2026-08-17", to: "2026-10-16" }); // 61 days
+      return z.calls.filter((c) => c[0] === "fetchHistorical").length;
+    };
+    const none = { intervals: ["1m", "5m", "15m", "60m", "1d"] };
+    const upstox = { intervals: ["1m", "5m", "15m", "60m", "1d"], maxSpanDays: { "1m": 30, "5m": 30, "15m": 30, "60m": 90, "1d": 3650 } };
+    expect(await run(none, "5m")).toBe(2); // default 60 days: 61 days need two calls
+    expect(await run(upstox, "5m")).toBe(3); // one month per request for minutes 1-15
+    expect(await run(upstox, "60m")).toBe(2); // quarter span is above the default 60, so the default applies
+    // An explicit span in the config wins over the manifest.
+    expect(await run(upstox, "5m", { history: { brokers: { zerodha: { intraday: 61 } } } })).toBe(1);
+  });
+
+  it("one-minute history is also kept under the broker's record cap (8000 records is about 28 days of a 385-minute session)", async () => {
+    const angel = { intervals: ["1m", "5m"], maxSpanDays: { "1m": 30, "5m": 100 }, maxRecords: { "1m": 8000 } };
+    const z = stubAdapter("zerodha", { capabilities: { auth: { kind: "apiKeyToken" }, testConnection: true, expiries: true, optionChain: { greeks: "broker" }, ltp: true, quotes: true, depth: true, historical: angel }, candles: minuteCandles });
+    const { md } = buildMarket({ adapters: { zerodha: z } });
+    await md.history({ symbol: "NSE:NIFTY", interval: "1m", from: "2026-09-18", to: "2026-10-16" }); // 29 days
+    // The cash session is 375 minutes: floor(8000/375) = 21 trading days = 29 calendar days fit one call.
+    expect(z.calls.filter((c) => c[0] === "fetchHistorical")).toHaveLength(1);
+    const z2 = stubAdapter("zerodha", { capabilities: { auth: { kind: "apiKeyToken" }, testConnection: true, expiries: true, optionChain: { greeks: "broker" }, ltp: true, quotes: true, depth: true, historical: angel }, candles: minuteCandles });
+    await buildMarket({ adapters: { zerodha: z2 } }).md.history({ symbol: "NSE:NIFTY", interval: "1m", from: "2026-09-10", to: "2026-10-16" }); // 37 days
+    expect(z2.calls.filter((c) => c[0] === "fetchHistorical")).toHaveLength(2);
+  });
+
+  it("a daily request whose from is after midnight still returns that day's bar (bars are stamped at IST midnight)", async () => {
+    const daily = (req) => {
+      const out = [];
+      for (let d = Date.parse(`${req.from}T00:00:00+05:30`); d <= Date.parse(`${req.to}T00:00:00+05:30`); d += 86_400_000) {
+        const wd = new Date(d + 19_800_000).getUTCDay();
+        if (wd !== 0 && wd !== 6) out.push({ time: d / 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100 });
+      }
+      return out;
+    };
+    const z = stubAdapter("zerodha", { candles: daily });
+    const { md } = buildMarket({ adapters: { zerodha: z } });
+    const midnight = await md.history({ symbol: "NSE:NIFTY", interval: "1d", from: "2026-10-16T00:00", to: "2026-10-16T23:00" });
+    const noon = await md.history({ symbol: "NSE:NIFTY", interval: "1d", from: "2026-10-16T12:00", to: "2026-10-16T15:00" });
+    expect(midnight.candles.map((c) => c.time)).toEqual([Date.parse("2026-10-16T00:00:00+05:30") / 1000]);
+    expect(noon.candles.map((c) => c.time)).toEqual(midnight.candles.map((c) => c.time));
+    // A week or month bar is stamped at its first day: a from inside the period keeps that bar.
+    const week = await md.history({ symbol: "NSE:NIFTY", interval: "1w", from: "2026-10-14T12:00", to: "2026-10-16T15:00" });
+    expect(week.candles).toHaveLength(1);
+    expect(week.candles[0].time).toBe(Date.parse("2026-10-12T00:00:00+05:30") / 1000);
+  });
+
   it("caches results and validates input", async () => {
     const z = stubAdapter("zerodha", { candles: minuteCandles });
     const { md } = buildMarket({ adapters: { zerodha: z } });

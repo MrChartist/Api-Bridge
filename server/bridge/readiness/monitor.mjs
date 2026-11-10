@@ -26,7 +26,8 @@ import { BROKER_NAMES } from "../accounts/brokerInfo.mjs";
 import { createBackgroundGate, MAX_BACKGROUND_SHARE } from "../ratelimit/backgroundGate.mjs";
 import { formatEvent } from "../notify/format.mjs";
 import { createDemoReadiness, DEMO_SAMPLE_AUTOMATIONS } from "../demo/demoReadiness.mjs";
-import { marketSession } from "../../lib/marketHours.mjs";
+import { isTradingDay as sessionTradingDay } from "../../lib/marketHours.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
 import { createAutomationRegistry } from "./automations.mjs";
 import {
   combine,
@@ -57,7 +58,6 @@ import {
 import { readinessConfig, readinessWarnings } from "./config.mjs";
 import { createEgressDetector } from "./egress.mjs";
 import { normaliseIp } from "./ip.mjs";
-import { defaultSessionFor } from "../reference/defaults.mjs";
 import { TRANSITIONS_KEPT, createReadinessStore, freshState } from "./store.mjs";
 
 const TICK_MS = 60_000;
@@ -183,9 +183,9 @@ export function createReadinessService(deps, opts = {}) {
         /* fall back */
       }
     }
-    // lib/marketHours.mjs: weekdays, plus any special session (a Saturday budget day, Muhurat) the operator listed.
+    // The shipped calendar: holidays, weekdays and special sessions (a Sunday budget day, Muhurat).
     try {
-      return marketSession(new Date(istInstant(date, "12:00"))).label !== "Weekend";
+      return sessionTradingDay(date, "NFO");
     } catch {
       const d = new Date(`${date}T00:00:00Z`).getUTCDay();
       return d >= 1 && d <= 5;
@@ -201,8 +201,8 @@ export function createReadinessService(deps, opts = {}) {
         /* fall back */
       }
     }
-    // No reference store (or no usable session): the reference module's labelled default close.
-    return istInstant(d, defaultSessionFor("NFO").close);
+    // No reference store (or no usable session): the dated session rule of the shipped data (special session close included).
+    return istInstant(d, sharedCalendar().closeFor("NFO", d));
   }
 
   const policyCooldown = (account) => {

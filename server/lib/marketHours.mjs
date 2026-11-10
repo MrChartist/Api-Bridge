@@ -6,7 +6,15 @@
  * different region, which is exactly where this proxy is meant to be deployed
  * (Dhan's order APIs need a whitelisted static IP). Session state gates real
  * orders and arms stop-losses, so it is computed here from Asia/Kolkata parts.
+ *
+ * The session times and the special sessions are NOT held here: they come from the reference data (reference/data/sessions.json
+ * and special-sessions.json, through the shared calendar), the same source as the calendar pages, readiness and the recorder
+ * schedule. This file only turns them into the answers the order gate and the stream need.
  */
+import { createCalendar } from "../bridge/reference/calendar.mjs";
+import { sharedCalendar } from "../bridge/reference/sharedCalendar.mjs";
+import { shippedSpecialSessions } from "../bridge/reference/shipped.mjs";
+
 
 const IST_PARTS = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Asia/Kolkata",
@@ -19,10 +27,6 @@ const IST_PARTS = new Intl.DateTimeFormat("en-GB", {
   second: "2-digit",
   hour12: false,
 });
-
-const PRE_OPEN_START = 9 * 60;      // 09:00
-const REGULAR_START = 9 * 60 + 15;  // 09:15
-const REGULAR_END = 15 * 60 + 30;   // 15:30
 
 /** Break a Date into IST calendar parts. */
 export function istParts(date = new Date()) {
@@ -42,73 +46,98 @@ export function istParts(date = new Date()) {
   };
 }
 
+/** Minutes past midnight -> "HH:MM". */
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const toMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
 /**
- * Special trading sessions (Muhurat, and any exchange-announced session) cannot
- * be derived from a calendar — NSE announces them, and the window differs each
- * year. Rather than guess, the operator supplies them; an empty list simply
- * means those days behave as closed.
+ * Special trading sessions come from reference/data/special-sessions.json (Muhurat, Budget Sunday). This function replaces
+ * them for a test or an operator override; pass {} for none, and call useShippedSpecialSessions() to go back to the data file.
  *
- * Keys are the zero-padded IST date, exactly as istParts().dateKey produces it:
- * "YYYY-MM-DD". "2026-11-8" will silently never match.
- *
- * Shape: { "2026-11-08": { startMinute: 1110, endMinute: 1170, label: "Muhurat" } }
- * (startMinute/endMinute are minutes past IST midnight — 1110 = 18:30.)
+ * Keys are the zero-padded IST date "YYYY-MM-DD". Shape: { "2026-11-08": { startMinute: 1110, endMinute: 1170, label: "Muhurat" } }
+ * (startMinute/endMinute are minutes past IST midnight). A session given here counts as verified, because the caller stated it.
  */
-let specialSessions = {};
+let override = null;
+let overrideCal = null;
 
 export function setSpecialSessions(sessions) {
-  specialSessions = sessions && typeof sessions === "object" ? sessions : {};
+  override = sessions && typeof sessions === "object" ? sessions : {};
+  const specials = {};
+  for (const [date, v] of Object.entries(override)) {
+    if (v && Number.isFinite(v.startMinute) && Number.isFinite(v.endMinute)) specials[date] = { open: hhmm(v.startMinute), close: hhmm(v.endMinute), label: v.label || "Special session", exchanges: ["NSE", "BSE"], verified: v.verified !== false };
+  }
+  overrideCal = createCalendar({ holidays: [], specialSessions: specials });
 }
 
-/** Weekend check in IST. Exchange holidays are NOT covered — see note below. */
-function isWeekend(parts) {
-  return parts.weekday === "Sat" || parts.weekday === "Sun";
+/** Go back to the special sessions of the data file. */
+export function useShippedSpecialSessions() {
+  override = null;
+  overrideCal = null;
+}
+
+let noHolidayCal = null;
+/** The calendar this file answers from: the shipped rules and special sessions, without holidays (see the note below). */
+function calendar() {
+  if (overrideCal) return overrideCal;
+  noHolidayCal ??= createCalendar({ holidays: [], specialSessions: shippedSpecialSessions() });
+  return noHolidayCal;
+}
+
+/** True when the exchange holds a session on this IST date ("YYYY-MM-DD"): a weekday, or a special session with times. Holidays are included. */
+export function isTradingDay(dateKey, exchange = "NSE") {
+  const cal = overrideCal ?? sharedCalendar();
+  return cal.isTradingDay(dateKey, exchange);
+}
+
+const sessionLabel = (r) => {
+  if (r.state === "OPEN") return "Regular session";
+  if (r.state === "PRE_OPEN") return `Pre-open (${r.preOpen}\u2013${r.open}) \u2014 no orders`;
+  if (r.state === "CLOSED" && (r.label === "After the close" || r.label === "Before the open")) return `Market closed (${r.open}\u2013${r.close} IST)`;
+  return r.label;
+};
+
+/**
+ * Current session state, from the dated reference rules. `exchange` picks the segment (NFO/BFO derivatives, NSE/BSE cash);
+ * without one the cash window is used, which is the shortest and so never lets a derivative order through late.
+ *
+ * NOTE ON HOLIDAYS: this view does not apply the holiday list: on a holiday it reports OPEN during regular hours. The
+ * safety guard and the calendar pages apply the holiday list (verified holidays block live orders, unverified ones warn).
+ *
+ * This is the read-only view: a special session counts as SPECIAL even when its timing is not verified yet (`verified` is
+ * false then). For a live order use orderSession().
+ *
+ * @returns {{ state: "CLOSED"|"PRE_OPEN"|"OPEN"|"SPECIAL", label: string, ist: object, verified: boolean }}
+ */
+export function marketSession(date = new Date(), exchange = "NSE") {
+  const ist = istParts(date);
+  const r = calendar().sessionAt(exchange, date.getTime());
+  return { state: r.state, label: sessionLabel(r), ist, verified: r.special ? r.special.verified : r.verified };
 }
 
 /**
- * Current session state.
- *
- * NOTE ON HOLIDAYS: this does not know the NSE trading-holiday calendar, so on a
- * holiday it will report OPEN during regular hours. That is deliberate — a wrong
- * hardcoded holiday list is worse than none. The live guard against acting on a
- * closed market is the tick-freshness check (see requireFreshTick): on a holiday
- * no ticks arrive, so nothing arms and nothing fires.
- *
- * @returns {{ state: "CLOSED"|"PRE_OPEN"|"OPEN"|"SPECIAL", label: string, ist: object }}
+ * Session state for a LIVE order: the gate view. An unverified rule never lengthens the window beyond the floor in the data,
+ * a special session whose timing is not verified is refused, and an index contract expiring today (or of unknown expiry)
+ * stops at the earlier expiry-day close where the rule has one.
+ * @param {Date} date
+ * @param {string} [exchange]
+ * @param {{ kind?: "index"|"stock"|null, expiry?: string|null }} [instrument]
  */
-export function marketSession(date = new Date()) {
+export function orderSession(date = new Date(), exchange = "NSE", instrument = null) {
   const ist = istParts(date);
-
-  const special = specialSessions[ist.dateKey];
-  if (special) {
-    const inWindow = ist.minutesOfDay >= special.startMinute && ist.minutesOfDay < special.endMinute;
-    return {
-      state: inWindow ? "SPECIAL" : "CLOSED",
-      label: inWindow ? (special.label || "Special session") : `${special.label || "Special session"} not open yet`,
-      ist,
-    };
-  }
-
-  if (isWeekend(ist)) return { state: "CLOSED", label: "Weekend", ist };
-
-  if (ist.minutesOfDay >= REGULAR_START && ist.minutesOfDay < REGULAR_END) {
-    return { state: "OPEN", label: "Regular session", ist };
-  }
-  if (ist.minutesOfDay >= PRE_OPEN_START && ist.minutesOfDay < REGULAR_START) {
-    return { state: "PRE_OPEN", label: "Pre-open (09:00–09:15) — no orders", ist };
-  }
-  return { state: "CLOSED", label: "Market closed (09:15–15:30 IST)", ist };
+  const r = calendar().sessionAt(exchange, date.getTime(), { gate: true, instrument });
+  return { state: r.state, label: sessionLabel(r), ist, verified: r.special ? r.special.verified : r.verified, ...(r.unverifiedSpecial ? { unverifiedSpecial: true } : {}) };
 }
 
-/** Can a real order be placed right now? Pre-open is explicitly excluded. */
-export function isTradeable(date = new Date()) {
-  const { state } = marketSession(date);
+/** Can a real order be placed right now? Pre-open is explicitly excluded; an unverified special session is refused. */
+export function isTradeable(date = new Date(), exchange = "NSE", instrument = null) {
+  const { state } = orderSession(date, exchange, instrument);
   return state === "OPEN" || state === "SPECIAL";
 }
 
 /** Minutes until the regular session closes; negative once it has. */
-export function minutesToClose(date = new Date()) {
-  return REGULAR_END - istParts(date).minutesOfDay;
+export function minutesToClose(date = new Date(), exchange = "NSE") {
+  const ist = istParts(date);
+  return toMinutes(calendar().closeFor(exchange, ist.dateKey)) - ist.minutesOfDay;
 }
 
 /**
@@ -121,11 +150,11 @@ export function minutesToClose(date = new Date()) {
  * @param {number} receivedAtMs when the Bridge received the tick
  * @param {number} maxAgeMs staleness ceiling (default 5s)
  */
-export function requireFreshTick(lttEpochSeconds, receivedAtMs, maxAgeMs = 5000, now = Date.now()) {
+export function requireFreshTick(lttEpochSeconds, receivedAtMs, maxAgeMs = 5000, now = Date.now(), exchange = "NSE") {
   if (!Number.isFinite(receivedAtMs) || now - receivedAtMs > maxAgeMs) {
     return { ok: false, reason: "STALE_FEED" };
   }
-  if (!isTradeable(new Date(now))) {
+  if (!isTradeable(new Date(now), exchange)) {
     return { ok: false, reason: "MARKET_CLOSED" };
   }
   if (Number.isFinite(lttEpochSeconds) && lttEpochSeconds > 0) {

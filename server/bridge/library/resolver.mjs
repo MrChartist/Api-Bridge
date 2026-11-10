@@ -19,7 +19,7 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { defaultOptionExchange, legSymbol } from "../market/chain.mjs";
-import { formatSymbol } from "../core/symbolFormat.mjs";
+import { INDEX_NAMES, formatSymbol } from "../core/symbolFormat.mjs";
 import { selectExpiries, upcomingExpiries } from "./expiries.mjs";
 import { gridAround, gridBetween, stepOfStrikes, strikesAround, strikesBetween } from "./strikes.mjs";
 
@@ -138,7 +138,7 @@ export function createResolver({ deps, cfg, cal, now }) {
       if (err instanceof BridgeError && err.code !== "INTERNAL") throw err;
       throw new BridgeError("BROKER_UNAVAILABLE", `The expiries of ${U} could not be read, so the universe cannot be resolved.`);
     }
-    const up = upcomingExpiries(listed, { nowMs, cal, exchange });
+    const up = upcomingExpiries(listed, { nowMs, cal, exchange, underlyingKind: INDEX_NAMES.includes(U) ? "index" : null });
     const sel = selectExpiries(universe.expiries, up.items, { underlying: U, maxWeekly: cfg.maxWeeklyExpiries, today: up.today, droppedToday: up.droppedToday, close: up.close });
     warnings.push(...sel.warnings);
     if (!sel.picked.length) throw new BridgeError("SYMBOL_NOT_FOUND", `The expiry rule matched no listed expiry of ${U}. ${sel.warnings.join(" ")}`.trim());

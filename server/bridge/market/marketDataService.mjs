@@ -51,7 +51,7 @@ import { kindOf, pricingContext } from "../vol/context.mjs";
 import { DEPTH_STALE_CAP_MS, parseMarketConfig } from "./config.mjs";
 import { createFreshnessCache } from "./freshnessCache.mjs";
 import { oiUnitFor } from "./oiUnits.mjs";
-import { INTERVALS, INTRADAY_MINUTES, aggregate, countbackRange, planChunks, planInterval } from "./history.mjs";
+import { INTERVALS, INTRADAY_MINUTES, aggregate, barStartOf, countbackRange, historySpanDays, planChunks, planInterval } from "./history.mjs";
 import {
   depthFields,
   freshness,
@@ -1099,8 +1099,10 @@ export function createMarketDataService(deps) {
     const t = now();
     let toMs = p.to !== undefined ? parseTimeInput(p.to, { endOfDay: true, field: "to" }) : t;
     if (toMs > t) toMs = t;
-    const fromMs = p.from !== undefined ? parseTimeInput(p.from, { field: "from" }) : countbackRange({ toMs, countback: p.countback, interval: p.interval, exchange: parts.exchange });
-    if (fromMs > toMs) throw new BridgeError("VALIDATION_FAILED", "from must be before to.", { errors: [{ path: "from", message: "after to" }] });
+    const askedFromMs = p.from !== undefined ? parseTimeInput(p.from, { field: "from" }) : countbackRange({ toMs, countback: p.countback, interval: p.interval, exchange: parts.exchange });
+    if (askedFromMs > toMs) throw new BridgeError("VALIDATION_FAILED", "from must be before to.", { errors: [{ path: "from", message: "after to" }] });
+    // Daily, weekly and monthly bars are stamped at IST midnight: a from inside that day still means that day's bar.
+    const fromMs = p.from !== undefined ? barStartOf(p.interval, askedFromMs) : askedFromMs;
 
     const targetMs = o.maxAgeMs ?? cfg.freshness.historyMs;
     // Chart clients send a slightly different from/to on every refresh (they pad or move `to`), so the
@@ -1169,7 +1171,7 @@ export function createMarketDataService(deps) {
       const plan = planInterval(p.interval, capObj.intervals);
       const daily = plan.base === "1d";
       const spans = cfg.history.brokers[broker] ?? {};
-      const spanDays = (daily ? spans.daily : spans.intraday) ?? (daily ? cfg.history.maxSpanDays.daily : cfg.history.maxSpanDays.intraday);
+      const spanDays = historySpanDays({ base: plan.base, override: daily ? spans.daily : spans.intraday, defaults: cfg.history.maxSpanDays, manifest: capObj, exchange: parts.exchange, ms: fetchToMs });
       let chunks = planChunks({ fromMs: fetchFromMs, toMs: fetchToMs, spanDays, daily });
       let partial = false;
       if (chunks.length > cfg.history.maxChunks) {

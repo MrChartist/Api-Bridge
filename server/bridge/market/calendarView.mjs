@@ -7,8 +7,9 @@
  *  - every holiday row keeps its own `verified` flag, and every answer carries `calendar.verified`, which is false when
  *    the date is outside the years the list covers or any row it used is unverified;
  *  - a date outside the covered years is treated as an ordinary weekday and the answer says so (`covered: false`);
- *  - the session times (pre-open, open and close, from reference/defaults.mjs) are the standard hours and are marked
- *    `verified: false` in `sessionTimes`, because the Bridge has not confirmed them against a current circular;
+ *  - the session times come from the dated rules in reference/data/sessions.json (the same source the live-order gate and the
+ *    recorder schedule read); each answer says which rule applied, its circular and URL, the date it was read and whether it is
+ *    `verified`. Special sessions (Muhurat, Budget Sunday) come from reference/data/special-sessions.json with their own flag;
  *  - only NSE, BSE, NFO and BFO are covered; MCX and CDS have their own hours that this list does not hold.
  */
 import { BridgeError } from "../core/errors.mjs";
@@ -49,24 +50,34 @@ export function createCalendarView({ now, holidays = SHIPPED_HOLIDAYS, rows, spe
   function calendarInfo({ covered, verified, extra }) {
     const notes = [];
     if (!covered) notes.push(`This date is outside the years the Bridge's holiday list covers (${coveredYears}). It is treated as an ordinary weekday and is NOT verified: check the exchange's holiday circular.`);
-    if (covered && !verified) notes.push("A holiday this answer rests on is not verified. Check the exchange's holiday circular.");
+    if (covered && !verified) notes.push("A holiday or special session this answer rests on is not verified (the timing has not been confirmed from the exchange circular). Check the exchange's circular.");
     if (extra) notes.push(extra);
     return { asOf: holidays.asOf ?? null, source: holidays.source ?? null, coveredYears: years, covered, verified: covered && verified, note: notes.length ? notes.join(" ") : null };
   }
 
   const holidayRow = (h) => ({ date: h.date, weekday: WEEKDAYS[weekdayOf(h.date)], label: h.label, exchanges: h.exchanges, verified: h.verified });
 
-  function windowOf(exchange) {
-    const w = cal.windowFor(exchange);
-    return { preOpen: w.preOpen, open: w.open, close: w.close, timezone: "IST", verified: false, source: w.source };
+  function windowOf(exchange, date) {
+    const w = cal.windowFor(exchange, date);
+    return {
+      preOpen: w.preOpen,
+      open: w.open,
+      close: w.close,
+      ...(w.expiringIndexClose ? { expiringIndexClose: w.expiringIndexClose } : {}),
+      ...(w.cas ? { cas: w.cas } : {}),
+      timezone: "IST",
+      verified: w.verified,
+      source: w.source,
+      rule: { id: w.ruleId ?? null, from: w.from ?? null, to: w.to ?? null, circular: w.circular ?? null, url: w.url ?? null, readOn: w.readOn ?? null, note: w.note ?? null },
+    };
   }
 
   /** The first session open strictly after `ms`: { date, at, kind }. */
   function nextOpen(exchange, ms) {
-    const w = cal.windowFor(exchange);
     let d = istDateOf(ms);
     for (let i = 0; i < 45; i += 1) {
       if (cal.isTradingDay(d, exchange)) {
+        const w = cal.windowFor(exchange, d);
         const sp = cal.specialOn(d, exchange);
         const open = sp && sp.open && sp.close ? sp.open : w.open;
         const at = istInstant(d, open);
@@ -88,7 +99,7 @@ export function createCalendarView({ now, holidays = SHIPPED_HOLIDAYS, rows, spe
       const list = cal.holidaysIn(from, to, exchange).map(holidayRow);
       const special = Object.entries(cal.specialSessions)
         .filter(([date]) => date >= from && date <= to && cal.specialOn(date, exchange))
-        .map(([date, s]) => ({ date, weekday: WEEKDAYS[weekdayOf(date)], label: s.label ?? "Special session", open: s.open ?? null, close: s.close ?? null, verified: s.verified === true }));
+        .map(([date, s]) => ({ date, weekday: WEEKDAYS[weekdayOf(date)], label: s.label ?? "Special session", open: s.open ?? null, close: s.close ?? null, ...(s.preOpen ? { preOpen: s.preOpen } : {}), ...(s.cas ? { cas: s.cas } : {}), verified: s.verified === true, source: s.source ?? null, readOn: s.readOn ?? null, note: s.note ?? null }));
       const covered = years.includes(year);
       return {
         exchange,
@@ -109,10 +120,10 @@ export function createCalendarView({ now, holidays = SHIPPED_HOLIDAYS, rows, spe
       const special = cal.specialOn(date, exchange);
       const weekday = weekdayOf(date);
       const tradingDay = cal.isTradingDay(date, exchange);
-      const w = windowOf(exchange);
+      const w = windowOf(exchange, date);
       const specialWithTimes = special && special.open && special.close;
       let reason;
-      if (specialWithTimes) reason = `${special.label}: trades ${special.open}-${special.close} IST${holiday ? ` (${holiday.label} is a holiday)` : ""}`;
+      if (specialWithTimes) reason = `${special.label}: trades ${special.open}-${special.close} IST${special.verified ? "" : " (timing not verified)"}${holiday ? ` (${holiday.label} is a holiday)` : ""}`;
       else if (special) reason = `${special.label}: the time has not been announced`;
       else if (holiday) reason = `Holiday: ${holiday.label}`;
       else if (weekday === 0 || weekday === 6) reason = "Weekend";
@@ -124,11 +135,11 @@ export function createCalendarView({ now, holidays = SHIPPED_HOLIDAYS, rows, spe
         weekday: WEEKDAYS[weekday],
         isTradingDay: tradingDay,
         reason,
-        preOpen: tradingDay && !specialWithTimes ? { start: w.preOpen, end: w.open } : null,
+        preOpen: tradingDay ? (specialWithTimes ? (special.preOpen ? { start: special.preOpen, end: special.open } : null) : { start: w.preOpen, end: w.open }) : null,
         open: tradingDay ? (specialWithTimes ? special.open : w.open) : null,
         close: tradingDay ? (specialWithTimes ? special.close : w.close) : null,
         holiday: holiday ? { label: holiday.label, verified: holiday.verified } : null,
-        specialSession: special ? { label: special.label, open: special.open, close: special.close, verified: special.verified } : null,
+        specialSession: special ? { label: special.label, open: special.open, close: special.close, ...(special.preOpen ? { preOpen: special.preOpen } : {}), ...(special.cas ? { cas: special.cas } : {}), verified: special.verified, source: special.source, readOn: special.readOn, note: special.note } : null,
         sessionTimes: w,
         previousTradingDay: cal.prevTradingDay(date, exchange),
         nextTradingDay: cal.nextTradingDay(date, exchange),
@@ -142,7 +153,7 @@ export function createCalendarView({ now, holidays = SHIPPED_HOLIDAYS, rows, spe
       const s = cal.sessionAt(exchange, ms);
       const date = s.date;
       const state = s.state === "OPEN" || s.state === "SPECIAL" ? "open" : s.state === "PRE_OPEN" ? "pre-open" : "closed";
-      const w = cal.windowFor(exchange);
+      const w = cal.windowFor(exchange, date);
       const special = cal.specialOn(date, exchange);
       const specialWithTimes = special && special.open && special.close;
       const todaysClose = specialWithTimes ? special.close : w.close;
@@ -168,7 +179,7 @@ export function createCalendarView({ now, holidays = SHIPPED_HOLIDAYS, rows, spe
         opensAt: state === "pre-open" ? istIso(istInstant(date, todaysOpen)) : null,
         closesAt: state === "open" || state === "pre-open" ? istIso(istInstant(date, todaysClose)) : null,
         nextOpen: next,
-        sessionTimes: windowOf(exchange),
+        sessionTimes: windowOf(exchange, date),
         calendar: calendarInfo({ covered, verified: rowsUsed.every((r) => r.verified === true) }),
       };
     },

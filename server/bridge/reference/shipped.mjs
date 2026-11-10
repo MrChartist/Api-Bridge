@@ -32,7 +32,37 @@ export function shippedHolidayRows() {
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
-/** Shipped special sessions as { date: { open, close, label, exchanges, verified } }. */
+/** { version, asOf, gateFloor, rules: [{ id, segment, exchanges, from, to?, preOpen, open, close, verified, circular, source, readOn }] } */
+export const SHIPPED_SESSIONS = deepFreeze(load("sessions.json"));
+/** { version, asOf, sessions: [{ date, label, exchanges, open, close, preOpen?, cas?, verified, source, readOn, note }] } */
+export const SHIPPED_SPECIAL_SESSIONS = deepFreeze(load("special-sessions.json"));
+
+/** The dated session rules (a fresh copy; the calendar reads them with createCalendar({ rules })). */
+export function shippedSessionRules() {
+  return { gateFloor: { ...SHIPPED_SESSIONS.gateFloor }, rules: SHIPPED_SESSIONS.rules.map((r) => ({ ...r, exchanges: [...r.exchanges] })) };
+}
+
+/**
+ * Shipped special sessions as { date: { open, close, preOpen, cas, label, exchanges, verified, source, readOn, note } }.
+ * `verified` is true only when the timing was read in the exchange circular; the calendar shows the flag and the live-order
+ * gate refuses orders in a session that is not verified.
+ */
 export function shippedSpecialSessions() {
-  return Object.fromEntries(SHIPPED_HOLIDAYS.special.map((s) => [s.date, { open: s.open, close: s.close, label: s.label, exchanges: [...s.exchanges], verified: s.verified === true }]));
+  return Object.fromEntries(
+    SHIPPED_SPECIAL_SESSIONS.sessions.map((s) => [
+      s.date,
+      {
+        open: s.open ?? null,
+        close: s.close ?? null,
+        preOpen: s.preOpen ?? null,
+        cas: s.cas ? { ...s.cas } : null,
+        label: s.label,
+        exchanges: [...s.exchanges],
+        verified: s.verified === true,
+        source: s.source ?? null,
+        readOn: s.readOn ?? null,
+        note: s.note ?? null,
+      },
+    ]),
+  );
 }

@@ -16,7 +16,7 @@ export function createTradingCalendar() {
   try {
     const specials = shippedSpecialSessions();
     const cal = createCalendar({ holidays: shippedHolidayRows(), specialSessions: specials });
-    return { isTradingDay: (date) => cal.isTradingDay(date, "NSE"), isSpecialSession: (date) => Object.hasOwn(specials, date), marketOpen: () => cal.windowFor("NSE").open, source: "calendar" };
+    return { isTradingDay: (date) => cal.isTradingDay(date, "NSE"), isSpecialSession: (date) => Object.hasOwn(specials, date), marketOpen: () => cal.windowFor("NSE", istDateOf(Date.now())).open, source: "calendar" };
   } catch {
     return { isTradingDay: (date) => ![0, 6].includes(weekdayOf(date)), isSpecialSession: () => false, marketOpen: () => null, source: "weekdays" };
   }

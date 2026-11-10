@@ -3,16 +3,8 @@
  * repo (reference/data/holidays.json). A date outside the years that list covers is treated as an ordinary weekday, so a
  * gap report for such a day can be a holiday; the Bridge says so rather than hiding it (see `calendarCovers`).
  */
-import { createCalendar } from "../reference/calendar.mjs";
-import { SHIPPED_HOLIDAYS, shippedHolidayRows, shippedSpecialSessions } from "../reference/shipped.mjs";
-
-let shared;
-
-/** One calendar for the process. */
-export function sharedCalendar() {
-  shared ??= createCalendar({ holidays: shippedHolidayRows(), specialSessions: shippedSpecialSessions() });
-  return shared;
-}
+import { SHIPPED_HOLIDAYS } from "../reference/shipped.mjs";
+export { sharedCalendar } from "../reference/sharedCalendar.mjs";
 
 /** True when the shipped holiday list covers this IST date's year. */
 export function calendarCovers(date) {

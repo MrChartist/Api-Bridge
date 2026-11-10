@@ -27,12 +27,13 @@ const WEEKLY_GAP_MAX_DAYS = 9;
 /**
  * Listed expiry dates -> upcoming ones with kind and shift explanation.
  * @param {string[]} listed
- * @param {{ nowMs: number, cal: ReturnType<typeof import("../reference/calendar.mjs").createCalendar>, exchange?: string }} o
+ * @param {{ nowMs: number, cal: ReturnType<typeof import("../reference/calendar.mjs").createCalendar>, exchange?: string, underlyingKind?: "index"|"stock"|null }} o
  * @returns {{ items: Array<{ date: string, kind: "weekly"|"monthly", shifted: boolean, ruleDate?: string, reason?: string, daysAway: number }>, today: string, droppedToday: string | null, close: string }}
  */
-export function upcomingExpiries(listed, { nowMs, cal, exchange = "NFO" }) {
+export function upcomingExpiries(listed, { nowMs, cal, exchange = "NFO", underlyingKind = null }) {
   const today = istDateOf(nowMs);
-  const close = cal.windowFor(exchange).close;
+  // The contract's own last trading time on its expiry day: an index contract stops earlier than a stock one from 2026-12-07.
+  const close = cal.expiryCloseFor(exchange, today, underlyingKind);
   const closeAt = istInstant(today, close);
   let droppedToday = null;
   const dates = [...new Set(listed)]

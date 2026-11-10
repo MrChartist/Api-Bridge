@@ -23,12 +23,19 @@ describe("holidays", () => {
   it("lists a year with every row's own verified flag, the source and the date of the list", () => {
     const r = view.holidays("NSE", 2026);
     expect(r).toMatchObject({ exchange: "NSE", year: 2026 });
-    expect(r.holidays).toHaveLength(15);
-    expect(r.holidays[0]).toMatchObject({ date: "2026-01-26", weekday: "Monday", label: "Republic Day", exchanges: ["NSE", "BSE"], verified: true });
-    expect(r.calendar).toMatchObject({ covered: true, verified: true, coveredYears: [2025, 2026], note: "Weekends are not listed." });
+    expect(r.holidays).toHaveLength(16);
+    // 15 Jan 2026 was added by NSE/CMTR/72260 (Maharashtra municipal elections), after the December holiday circular.
+    expect(r.holidays[0]).toMatchObject({ date: "2026-01-15", weekday: "Thursday", label: "Municipal Corporation Election in Maharashtra", exchanges: ["NSE", "BSE"], verified: true });
+    expect(r.holidays[1]).toMatchObject({ date: "2026-01-26", weekday: "Monday", label: "Republic Day", exchanges: ["NSE", "BSE"], verified: true });
+    // Special sessions are in the list, but their timing was not read in an exchange circular, so the answer is not verified.
+    expect(r.calendar).toMatchObject({ covered: true, verified: false, coveredYears: [2025, 2026], note: expect.stringMatching(/special session this answer rests on is not verified.*Weekends are not listed\.$/) });
     expect(r.calendar.asOf).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(r.calendar.source).toMatch(/NSE and BSE/);
-    expect(r.specialSessions).toEqual([{ date: "2026-11-08", weekday: "Sunday", label: "Muhurat trading", open: "14:20", close: "15:30", verified: true }]);
+    expect(r.specialSessions.map((x) => [x.date, x.weekday, x.open, x.close, x.verified])).toEqual([
+      ["2026-02-01", "Sunday", "09:15", "15:30", false],
+      ["2026-11-08", "Sunday", "14:20", "15:30", false],
+    ]);
+    expect(r.specialSessions[1]).toMatchObject({ label: "Muhurat trading", preOpen: "14:05", readOn: "2026-11-10", note: expect.stringMatching(/Secondary source only/) });
   });
 
   it("the derivatives segments follow their cash exchange; the year defaults to this one", () => {
@@ -68,15 +75,25 @@ describe("holidays", () => {
 });
 
 describe("sessions", () => {
-  it("a regular day has pre-open, open and close, the neighbours, and unverified standard hours", () => {
+  it("a regular day has pre-open, open and close, the neighbours, and the dated rule with its circular", () => {
     const r = view.sessions("NSE", "2026-11-09");
     expect(r).toMatchObject({ date: "2026-11-09", weekday: "Monday", isTradingDay: true, reason: "Regular trading day", previousTradingDay: "2026-11-08", nextTradingDay: "2026-11-11", holiday: null, specialSession: null });
     expect(r.preOpen).toEqual({ start: r.sessionTimes.preOpen, end: r.sessionTimes.open });
     expect(r.open).toBe(r.sessionTimes.open);
     expect(r.close).toBe(r.sessionTimes.close);
-    expect(r.sessionTimes.verified).toBe(false);
-    expect(r.sessionTimes.source).toMatch(/needs verification/);
+    expect(r.sessionTimes.verified).toBe(true);
+    expect(r.sessionTimes.rule).toMatchObject({ id: "cash-cas-2026-08-03", circular: expect.stringMatching(/2026-01-16/), url: expect.stringMatching(/^https:\/\/www\.sebi\.gov\.in/), readOn: "2026-11-10" });
     expect(r.calendar).toMatchObject({ covered: true, verified: true });
+  });
+
+  it("derivatives close at 15:40 from 3 Aug 2026 and 15:45 from 7 Dec 2026; before that the hours are the unverified standard ones", () => {
+    const nfo = (d) => view.sessions("NFO", d);
+    expect(nfo("2026-11-09")).toMatchObject({ close: "15:40", sessionTimes: { verified: true } });
+    expect(nfo("2026-12-08")).toMatchObject({ close: "15:45", sessionTimes: { expiringIndexClose: "15:30", verified: true } });
+    expect(view.sessions("NSE", "2026-12-08").close).toBe("15:30");
+    const old = nfo("2026-07-30");
+    expect(old).toMatchObject({ close: "15:30", sessionTimes: { verified: false } });
+    expect(old.sessionTimes.source).toMatch(/needs verification/);
   });
 
   it("a holiday and a weekend are not trading days and say why", () => {
@@ -88,8 +105,9 @@ describe("sessions", () => {
 
   it("the Muhurat session on a Sunday trades its own hours", () => {
     const r = view.sessions("BSE", "2026-11-08");
-    expect(r).toMatchObject({ isTradingDay: true, open: "14:20", close: "15:30", preOpen: null, specialSession: { label: "Muhurat trading", verified: true } });
-    expect(r.reason).toMatch(/Muhurat trading: trades 14:20-15:30 IST/);
+    expect(r).toMatchObject({ isTradingDay: true, open: "14:20", close: "15:30", preOpen: { start: "14:05", end: "14:20" }, specialSession: { label: "Muhurat trading", verified: false, preOpen: "14:05" } });
+    expect(r.reason).toMatch(/Muhurat trading: trades 14:20-15:30 IST \(timing not verified\)/);
+    expect(r.calendar.verified).toBe(false);
   });
 
   it("a date outside the list is a weekday by the calendar and is marked not covered", () => {
@@ -226,7 +244,7 @@ describe("routes", () => {
   it("GET /v1/calendar/holidays", async () => {
     const r = await call("/v1/calendar/holidays?exchange=NSE&year=2026");
     expect(r.status).toBe(200);
-    expect(r.json.data.holidays).toHaveLength(15);
+    expect(r.json.data.holidays).toHaveLength(16);
     expect(r.json.meta.requestId).toEqual(expect.any(String));
     expect((await call("/v1/calendar/holidays")).json.data.year).toBe(2026);
     expect((await call("/v1/calendar/holidays?year=2027")).json.data.calendar.covered).toBe(false);

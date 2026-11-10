@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "asOf": "2026-11-10",
+  "note": "Exchange-announced sessions on days that are normally closed, or with their own hours (Muhurat, Budget Sunday). A row with verified:false is shown in the calendar and the recorder schedule, with its timing marked unverified, but a LIVE order is refused in it until the timing is confirmed from the exchange circular and the row is marked verified.",
+  "sessions": [
+    {
+      "date": "2025-02-01",
+      "label": "Union Budget session (Saturday)",
+      "exchanges": ["NSE", "BSE"],
+      "open": "09:15",
+      "close": "15:30",
+      "verified": false,
+      "source": null,
+      "readOn": null,
+      "note": "Believed to be a regular-hours live session. The audit could not confirm it from the exchange circular; check the January 2025 circular."
+    },
+    {
+      "date": "2025-10-21",
+      "label": "Muhurat trading",
+      "exchanges": ["NSE", "BSE"],
+      "open": "13:45",
+      "close": "14:45",
+      "verified": false,
+      "source": null,
+      "readOn": null,
+      "note": "The timing circular for this session was not read."
+    },
+    {
+      "date": "2026-02-01",
+      "label": "Union Budget session (Sunday)",
+      "exchanges": ["NSE", "BSE"],
+      "open": "09:15",
+      "close": "15:30",
+      "verified": false,
+      "source": "https://zerodha.com/marketintel/bulletin/439957/special-live-trading-session-on-sunday-february-1-2026",
+      "readOn": "2026-11-10",
+      "note": "Secondary source only (a broker bulletin that reproduces the exchange circulars dated 2026-01-16): standard hours, T+1 settlement. The exchange circular itself was not opened."
+    },
+    {
+      "date": "2026-11-08",
+      "label": "Muhurat trading",
+      "exchanges": ["NSE", "BSE"],
+      "preOpen": "14:05",
+      "open": "14:20",
+      "close": "15:30",
+      "cas": { "start": "15:20", "end": "15:35" },
+      "verified": false,
+      "source": "https://www.businesstoday.in/markets/stocks/story/muhurat-trading-2026-nse-bse-announce-diwali-timings-check-full-schedule-562486-2026-10-19",
+      "readOn": "2026-11-10",
+      "note": "Secondary source only (a press report of the exchange notices NSE/CMTR/76941 and NSE/FAOP/76940 dated 2026-10-19, which were not opened). The 2026 holiday circular says only that the timings will be notified later. The CAS time is approximate."
+    }
+  ]
+}

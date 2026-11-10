@@ -64,8 +64,8 @@ describe("account.login_needed", () => {
     const restarted = setup({ start: `${MON}T09:05:00+05:30`, dataDir: first.dataDir });
     restarted.svc.tick();
     expect(restarted.events).toEqual([]);
-    // The next trading day it sends again.
-    restarted.setNow("2026-10-20T08:45:00+05:30");
+    // The next trading day it sends again (20 Oct 2026 is the Dussehra holiday, so the next one is 21 Oct).
+    restarted.setNow("2026-10-21T08:45:00+05:30");
     restarted.svc.tick();
     expect(restarted.events.some((e) => e.kind === "preopen")).toBe(true);
   });

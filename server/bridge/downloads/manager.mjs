@@ -23,7 +23,7 @@ import { z } from "zod";
 import { loadJsonOrQuarantine } from "../../lib/safeStore.mjs";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
-import { INTERVALS, planInterval } from "../market/history.mjs";
+import { INTERVALS, historySpanDays, planInterval } from "../market/history.mjs";
 import { parseMarketConfig } from "../market/config.mjs";
 import { createLocalStore, subtractCoverage } from "../market/localStore.mjs";
 import { MAX_BACKGROUND_SHARE } from "../ratelimit/backgroundGate.mjs";
@@ -366,6 +366,16 @@ export function createDownloadManager(deps, opts = {}) {
 
   // ───────────────────────── request handling ─────────────────────────
 
+  /** The `historical` capability a broker's manifest declares (intervals, documented spans), or null. */
+  function brokerHistoryCaps(broker) {
+    try {
+      const c = broker && deps.brokers?.has?.(broker) ? deps.brokers.get(broker)?.capabilities?.historical : null;
+      return c && typeof c === "object" ? c : null;
+    } catch {
+      return null;
+    }
+  }
+
   function spanFor(broker, symbol, interval) {
     const h = parseMarketConfig(deps.config?.market).history;
     let daily;
@@ -374,9 +384,17 @@ export function createDownloadManager(deps, opts = {}) {
     } catch {
       daily = interval === "1d" || interval === "1w" || interval === "1M";
     }
-    void symbol;
     const spans = h.brokers?.[broker] ?? {};
-    return (daily ? spans.daily : spans.intraday) ?? (daily ? h.maxSpanDays.daily : h.maxSpanDays.intraday);
+    let base = "1d";
+    if (!daily) {
+      try {
+        base = planInterval(interval, brokerHistoryCaps(broker)?.intervals).base;
+      } catch {
+        base = interval;
+      }
+    }
+    // The broker's own documented limits (its manifest) cap the default span; an explicit config span still wins.
+    return historySpanDays({ base, override: daily ? spans.daily : spans.intraday, defaults: h.maxSpanDays, manifest: brokerHistoryCaps(broker), exchange: exchangeOf(symbol), ms: now() });
   }
 
   const brokerOfAccount = (accountId) => {

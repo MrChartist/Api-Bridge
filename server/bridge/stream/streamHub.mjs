@@ -114,7 +114,8 @@ export function createStreamHub(deps, { random = Math.random, marketOpen } = {})
   const isMarketOpen =
     marketOpen ??
     (() => {
-      const state = marketSession(new Date(now())).state;
+      // Ticks are expected for as long as the longest segment (derivatives) is in session.
+      const state = marketSession(new Date(now()), "NFO").state;
       return state === "OPEN" || state === "SPECIAL";
     });
 
