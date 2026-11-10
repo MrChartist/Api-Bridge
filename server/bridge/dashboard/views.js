@@ -15,7 +15,7 @@ import { keyStepLink } from "./getstarted-core.js";
 import { morningLoginButton } from "./morning.js";
 import { ladderSummary, levelCounts, levelOf, levelRank, levelText, levelTone } from "./morning-core.js";
 import * as live from "./live.js";
-import { KEY_PRESETS, countsLine, finalHookUrl, outcomeView, silentHint, snippets } from "./snippets.js";
+import { KEY_PRESETS, countsLine, finalHookUrl, outcomeView, presetKeyBody, silentHint, snippets } from "./snippets.js";
 import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { initPalette, kbd, openPalette, pageShortcut, searchIcon, shortcut } from "./palette.js";
 import { configureOrdersBook, fundsSection, ordersBook, pendingSection, renderTradesPage, sidePill } from "./orders-book.js";
@@ -2172,7 +2172,7 @@ function dataTab(name) {
 
 // ── Orders ──
 
-import { clockText, orderTypeText, qtyText, ticketLife } from "./orders-core.js";
+import { clockText, orderTypeText, placeAgainBody, qtyText, ticketLife } from "./orders-core.js";
 configureOrdersBook({ segmented });
 configureConnect({ segmented, snippetBlock });
 configureDevelopers({ segmented, snippetBlock, every, stop: () => clearInterval(timer), hashParams: () => hashParams(), setHashParam: (k, v) => setHashParam(k, v) });
@@ -2317,7 +2317,7 @@ function orderActions(o) {
     // Undo (paper only): place the unfilled part again, as it was. The order goes through every normal check, so a
     // price that is no longer valid is refused and said so. Live orders are never re-sent from a toast.
     const again = async () => {
-      const body = { account: o.accountId, symbol: o.symbol, side: o.side, quantity: left, product: o.product, orderType: o.orderType, validity: o.validity ?? "DAY", mode: "paper", ...(o.price ? { price: o.price } : {}), ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}), ...(o.tag ? { tag: o.tag } : {}) };
+      const body = placeAgainBody(o, left);
       const r = await optional(api("/v1/orders", { method: "POST", body }));
       if (r.error) return toast(`Could not place ${name} again: ${r.error.message ?? "refused"}`, { tone: "error" });
       const placed = r.data?.data ?? {};
@@ -2963,9 +2963,7 @@ async function renderIntegrations() {
         keyBtn.addEventListener("click", async () => {
           busy(keyBtn, true);
           try {
-            const body = { label: preset.label, scopes: preset.scopes, accounts: "*", clientKind: preset.clientKind };
-            if (preset.allowQuery) body.allowQuery = true;
-            if (preset.expiresDays) body.expiresAt = new Date(Date.now() + preset.expiresDays * 86_400_000).toISOString();
+            const body = presetKeyBody(preset);
             const r = await api("/v1/keys", { method: "POST", body });
             createdKeys[active] = r.data.data.key;
             toast("Key created and filled in below. Copy it now: it is shown only once.");

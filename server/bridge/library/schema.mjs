@@ -122,7 +122,7 @@ function problem(zodError, what = "Some fields are missing or not valid") {
   return fromValidation(zodError, `${what}.${where}`);
 }
 
-function parseUniverse(raw) {
+export function parseUniverse(raw) {
   const r = universeSchema.safeParse(raw);
   if (!r.success) throw problem(r.error, "The option universe is not valid");
   return r.data;

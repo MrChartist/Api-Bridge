@@ -159,6 +159,7 @@ downloads module use the same helper, so `GET /v1/datasets?tag=nifty` means the 
 | List (filter by tag, kind, text) | `GET /v1/collections?tag=&kind=&q=` | read |
 | One, with its symbols or universe | `GET /v1/collections/{name}` | read |
 | Resolve now | `GET /v1/collections/{name}/resolve?allowStale=&requireLive=&spot=&priority=` | read |
+| Preview a universe that is not saved | `POST /v1/collections/resolve` with `{ "universe": { ... } }` (and `allowStale=`, `spot=`) | read |
 | Size estimate | `GET /v1/collections/{name}/estimate?intervals=&days=` | read |
 | Usage | `GET /v1/collections/{name}/usage` | read |
 | Export (CSV or JSON) | `GET /v1/collections/{name}/export?format=csv\|json&resolved=` | read |

@@ -29,6 +29,7 @@ import {
   autoRecordSummary,
   buildUniverse,
   classInfo,
+  collectionBody,
   collectionNameProblem,
   collectionToCsv,
   collectionToJson,
@@ -38,6 +39,7 @@ import {
   defaultUniverse,
   dayText,
   diskView,
+  downloadBody,
   estimateJob,
   estimateLines,
   estimateRecording,
@@ -819,7 +821,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         paintFoot();
         busy(next, true);
         const d = dates();
-        const body = { ...(st.collection ? { collection: st.collection } : { symbols: st.symbols }), intervals: st.intervals, from: d.from, ...(st.range === "custom" && d.to ? { to: d.to } : {}), format: st.format, layout: st.layout, ...(st.name.trim() ? { name: st.name.trim() } : {}), ...(st.keep && st.dataset ? { dataset: st.dataset } : {}) };
+        const body = downloadBody(st, d);
         try {
           await client.downloads.create(body);
           toast("Download started. You can watch it here.");
@@ -1458,7 +1460,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
     dirty: () => !edit && (f.name !== "" || f.symbols !== ""),
     body: (close) => {
       const err = h("div", { class: "dt-err", "aria-live": "assertive" });
-      const name = input({ id: "co-name", value: f.name, maxlength: 40, placeholder: "For example Nifty 50" });
+      const name = input({ id: "co-name", value: f.name, maxlength: 40, placeholder: "For example nifty-50" });
       const desc = input({ id: "co-desc", value: f.description, maxlength: 120, placeholder: "Optional" });
       const tags = input({ id: "co-tags", value: f.tags, placeholder: "index, weekly" });
       const nameMsg = h("span", { class: "field-msg", hidden: true });
@@ -1586,19 +1588,10 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
       tags.addEventListener("input", () => (f.tags = tags.value));
       drawKind();
       const save = btn(edit ? "Save changes" : "Save collection", "primary", async () => {
-        const p = collectionNameProblem(f.name, others);
         const showErr = (title, detail) => showFormError(err, title, detail);
-        if (p) return showErr(p);
-        const body = { name: f.name.trim(), description: f.description.trim(), tags: parseTags(f.tags), kind: f.kind };
-        if (f.kind === "static") {
-          const r = parseSymbolList(f.symbols);
-          if (!r.symbols.length) return showErr("Add at least one symbol.", "Paste them one per line, for example NSE:RELIANCE.");
-          body.symbols = r.symbols;
-        } else {
-          const up = universeProblem(f.u);
-          if (up) return showErr(up);
-          body.universe = f.u;
-        }
+        const made = collectionBody(f, others);
+        if (made.error) return showErr(made.error.title, made.error.detail);
+        const { body } = made;
         busy(save, true);
         try {
           if (edit) await client.collections.patch(collection.name, body);

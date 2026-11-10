@@ -348,6 +348,44 @@ export function buildUniverse(form = {}) {
   return u;
 }
 
+/**
+ * The `POST /v1/downloads` body from the wizard's state `st` ({ collection, symbols, intervals, range, format, layout, name, keep,
+ * dataset }) and its dates ({ from, to }). Pure, so the request can be checked against the server's own schema.
+ */
+export function downloadBody(st, d) {
+  return {
+    ...(st.collection ? { collection: st.collection } : { symbols: st.symbols }),
+    intervals: st.intervals,
+    from: d.from,
+    ...(st.range === "custom" && d.to ? { to: d.to } : {}),
+    format: st.format,
+    layout: st.layout,
+    ...(String(st.name ?? "").trim() ? { name: st.name.trim() } : {}),
+    ...(st.keep && st.dataset ? { dataset: st.dataset } : {}),
+  };
+}
+
+/**
+ * The create / change body of a collection from the form `f` ({ name, description, tags (text), kind, symbols (text), u (universe) }):
+ * { body } or { error: { title, detail } } for the first thing wrong. Pure.
+ * @param {object} f @param {string[]} [others] names already taken
+ */
+export function collectionBody(f, others = []) {
+  const problem = collectionNameProblem(f.name, others);
+  if (problem) return { error: { title: problem, detail: undefined } };
+  const body = { name: f.name.trim(), description: f.description.trim(), tags: parseTags(f.tags), kind: f.kind };
+  if (f.kind === "static") {
+    const r = parseSymbolList(f.symbols);
+    if (!r.symbols.length) return { error: { title: "Add at least one symbol.", detail: "Paste them one per line, for example NSE:RELIANCE." } };
+    body.symbols = r.symbols;
+  } else {
+    const up = universeProblem(f.u);
+    if (up) return { error: { title: up, detail: undefined } };
+    body.universe = f.u;
+  }
+  return { body };
+}
+
 /** The first thing wrong with a universe, in plain words, or "". */
 export function universeProblem(u) {
   if (!u || !String(u.underlying ?? "").trim()) return "Type the index or stock the options are on, for example NIFTY.";
@@ -445,7 +483,8 @@ export function collectionNameProblem(name, existing = []) {
   const n = String(name ?? "").trim();
   if (!n) return "Give the collection a name.";
   if (n.length > 40) return "Keep the name to 40 characters or fewer.";
-  if (!/^[A-Za-z0-9][A-Za-z0-9 _\-.]*$/.test(n)) return "Use letters, numbers, spaces, dashes and underscores.";
+  // The Bridge's own rule (library/tags.mjs NAME_RE): a collection's name is its address, so no spaces.
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(n)) return /\s/.test(n) ? "No spaces in a name: use a dash instead, for example nifty-50." : "Use letters, numbers, dashes, dots and underscores.";
   if (existing.some((e) => String(e).toLowerCase() === n.toLowerCase())) return "A collection with this name already exists.";
   return "";
 }

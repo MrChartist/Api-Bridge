@@ -210,6 +210,14 @@ export function ticketLife(t, nowMs = Date.now()) {
   return { known: true, left: Math.max(0, left), share: Math.min(1, Math.max(0, left / span)), over: left <= 0, text: left <= 0 ? "Expired" : `${clockText(left)} left`, level: left <= 0 ? "bad" : left <= 20_000 ? "warn" : "ok" };
 }
 
+/**
+ * The body that places a cancelled paper order's unfilled part again ("Undo" after Cancel): the same order, `left` units, in paper.
+ * It goes through every normal check on the server. Pure.
+ */
+export function placeAgainBody(o, left) {
+  return { account: o.accountId, symbol: o.symbol, side: o.side, quantity: left, product: o.product, orderType: o.orderType, validity: o.validity ?? "DAY", mode: "paper", ...(o.price ? { price: o.price } : {}), ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}), ...(o.tag ? { tag: o.tag } : {}) };
+}
+
 /** The longest reason a person can give when declining (the API's limit). */
 export const DECLINE_REASON_MAX = 200;
 

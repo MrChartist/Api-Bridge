@@ -27,7 +27,7 @@ import { parseLibraryConfig } from "./config.mjs";
 import { estimateSize, parseDays, parseIntervals } from "./estimate.mjs";
 import { collectionsFromJson, symbolsFromCsv, symbolsToCsv, toExportJson } from "./interchange.mjs";
 import { createResolver } from "./resolver.mjs";
-import { checkName, parseCreate, parsePatch } from "./schema.mjs";
+import { checkName, parseCreate, parsePatch, parseUniverse } from "./schema.mjs";
 import { createCollectionStore } from "./store.mjs";
 import { filterByTags } from "./tags.mjs";
 
@@ -217,6 +217,16 @@ export function createLibraryService(deps, opts = {}) {
       }
       lastResolved.set(record.id, result.resolvedAt);
       return result;
+    },
+
+    /**
+     * The symbols an option universe that is NOT saved yet would resolve to now: the live preview of the builder in the dashboard.
+     * Checked like a saved universe; nothing is stored and no collection is counted as used.
+     */
+    async resolveDraft(universe, o = {}) {
+      const u = parseUniverse(universe);
+      const r = await resolver.resolveUniverse(u, o);
+      return { draft: true, kind: "option-universe", resolvedAt: new Date(now()).toISOString(), rule: r.rule, symbols: r.symbols, count: r.symbols.length, atmSource: r.atmSource, strikeSource: r.strikeSource, underlying: r.underlying, expiries: r.expiries, warnings: [...r.warnings] };
     },
 
     /** symbols x intervals x days. A universe is resolved first (a stale price is allowed for a count, and is labelled). */

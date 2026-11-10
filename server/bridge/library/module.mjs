@@ -16,6 +16,7 @@ import { createLibraryService } from "./service.mjs";
 // an import that replaces collections: checked in routes.mjs). The old rule asked for the paper (paper trading) scope.
 const READ = Object.freeze({ scope: "read" });
 const WRITE_JSON = Object.freeze({ scope: "read", body: "json", bodyLimitBytes: 262_144 });
+const PREVIEW = Object.freeze({ scope: "read", body: "json", bodyLimitBytes: 16_384 });
 const IMPORT = Object.freeze({ scope: "read", body: "json-or-text", bodyLimitBytes: 4_194_304 });
 
 /** [method, path, route options, handler name] */
@@ -27,6 +28,7 @@ export const ROUTES = Object.freeze([
   ["PATCH", "/v1/collections/:name", WRITE_JSON, "update"],
   ["DELETE", "/v1/collections/:name", { scope: "admin", loopbackOnly: true, body: "none" }, "remove"],
   ["GET", "/v1/collections/:name/resolve", READ, "resolve"],
+  ["POST", "/v1/collections/resolve", PREVIEW, "resolveDraft"],
   ["POST", "/v1/collections/:name/duplicate", WRITE_JSON, "duplicate"],
   ["GET", "/v1/collections/:name/export", READ, "export"],
   ["GET", "/v1/collections/:name/usage", READ, "usage"],

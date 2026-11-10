@@ -8,6 +8,7 @@
  *   PATCH  /v1/collections/{name}                change description, tags, symbols, universe, or rename   read
  *   DELETE /v1/collections/{name}                delete (refused while a download or recording uses it, unless force=true)   admin, this computer
  *   GET    /v1/collections/{name}/resolve        the concrete symbols for now                         read
+ *   POST   /v1/collections/resolve               the same for an option universe that is not saved yet (a preview)   read
  *   POST   /v1/collections/{name}/duplicate      copy under a new name                                read
  *   GET    /v1/collections/{name}/export         CSV or JSON out                                      read
  *   GET    /v1/collections/{name}/usage          the downloads, recordings and datasets that use it   read
@@ -152,6 +153,16 @@ export function createLibraryRoutes(deps) {
 
     async resolve(ctx) {
       const r = await lib().resolve(nameOf(ctx), resolveOptions(ctx));
+      return reply(ctx, r, 200, { resolvedAt: r.resolvedAt });
+    },
+
+    async resolveDraft(ctx) {
+      const b = ctx.body;
+      if (!b || typeof b !== "object" || Array.isArray(b)) throw invalid("body", 'Send { "kind": "option-universe", "universe": { ... } }.');
+      for (const k of Object.keys(b)) if (k !== "kind" && k !== "universe") throw invalid(k, `${k} is not a field of this request. Send { "kind": "option-universe", "universe": { ... } }.`);
+      if (b.kind !== undefined && b.kind !== "option-universe") throw invalid("kind", "kind must be option-universe.");
+      if (b.universe === undefined) throw invalid("universe", "universe is required.");
+      const r = await lib().resolveDraft(b.universe, resolveOptions(ctx));
       return reply(ctx, r, 200, { resolvedAt: r.resolvedAt });
     },
 

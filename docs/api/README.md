@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-220 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+221 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -82,6 +82,7 @@ Named, tagged lists of instruments and option universes (rolling expiries, at-th
 | [GET /v1/collections/{name}/export](collections/exportCollection.md) | A collection as a CSV or JSON file | `read` |
 | [GET /v1/collections/{name}/usage](collections/getCollectionUsage.md) | What is made from this collection | `read` |
 | [GET /v1/collections/{name}/estimate](collections/estimateCollection.md) | Size of downloading a collection (symbols x intervals x days) | `read` |
+| [POST /v1/collections/resolve](collections/resolveCollectionDraft.md) | The concrete symbols of an option universe that is not saved yet | `read` |
 
 ## Market data
 

@@ -3,7 +3,7 @@
 Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from
 [`docs/openapi.yaml`](../openapi.yaml), so they list exactly the operations the Bridge serves.
 
-- **215 requests** in 25 folders (one folder per area: System, Accounts, Keys, Instruments, Collections, Market data, Streaming, Events, Portfolio, Orders, Paper, Limits, Sources, Pooling, Quotas, Notifications, Recordings, Safety, Readiness, Data downloads, Backup, Spreadsheets, Webhooks, AI (MCP), Compat REST).
+- **216 requests** in 25 folders (one folder per area: System, Accounts, Keys, Instruments, Collections, Market data, Streaming, Events, Portfolio, Orders, Paper, Limits, Sources, Pooling, Quotas, Notifications, Recordings, Safety, Readiness, Data downloads, Backup, Spreadsheets, Webhooks, AI (MCP), Compat REST).
 - Two variables: `baseUrl` (default `http://127.0.0.1:4300`) and `apiKey`. The key is empty in the files: make one with
   `mc-bridge keys create --label postman --scope read,paper` and paste it into your own environment, never into the collection.
 - Every request says in its description which scope it needs and whether it works only from this computer.
