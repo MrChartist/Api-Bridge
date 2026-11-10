@@ -286,3 +286,26 @@ def test_poll_and_topics(bridge, fake):
     assert fake.find("GET", "/v1/events")[-1]["query"] == {"since": "1", "topics": "download.*", "limit": "10"}
     assert bridge.events.poll(since="50").gap is True
     assert bridge.events.topics()[0]["topic"] == "download.done"
+
+
+def test_a_stream_that_says_ready_and_drops_backs_off_more_each_time(fake):
+    """The wait grew only after errors before: a server that sent `ready` then closed got a flat ~1 s retry for ever (audit F14)."""
+
+    class Flapping:
+        def __init__(self):
+            self.lines = [b"event: ready\n", b"data: {}\n", b"\n"]
+
+        def readline(self):
+            return self.lines.pop(0) if self.lines else b""
+
+        def close(self):
+            pass
+
+    waits = []
+    b = Bridge(fake.url, KEY, account="paper", sleep=waits.append)
+    b.client.open_stream = lambda *a, **k: Flapping()
+    sub = b.events.subscribe(max_reconnects=5)
+    assert list(sub) == []
+    assert len(waits) == 5
+    assert waits[-1] >= 8.0 > waits[0] * 4  # 1, 2, 4, 8, 16 seconds (plus up to a quarter), not 1, 1, 1, 1, 1
+    assert all(waits[i] < waits[i + 1] for i in range(4))

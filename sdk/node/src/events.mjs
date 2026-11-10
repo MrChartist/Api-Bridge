@@ -193,6 +193,9 @@ async function* readText(res, idleMs) {
  * key, a missing scope) is thrown at once; so is any failure when `reconnect: false`. `idleTimeoutMs` is the longest silence
  * before the connection is treated as dead (the Bridge sends heartbeats).
  */
+/** How long a connection must stay up before a drop is not counted as flapping. */
+const HEALTHY_AFTER_MS = 30_000;
+
 export class EventSubscription {
   /**
    * @param {import("./client.mjs").BridgeClient} client
@@ -257,9 +260,9 @@ export class EventSubscription {
         continue;
       }
       this.connected = true;
+      const opened = Date.now();
       try {
         for await (const f of parseSse(readText(res, this.idleTimeoutMs))) {
-          this._attempt = 0;
           if (f.retry !== undefined) floorMs = f.retry;
           if (f.event === "ready") {
             try {
@@ -275,6 +278,7 @@ export class EventSubscription {
           if (f.event === "go_away") break; // the Bridge is closing this connection: reconnect with the cursor
           const ev = eventFrom(f.id, f.event, f.data);
           if (ev.cursor) this.cursor = ev.cursor;
+          this._attempt = 0; // a real event arrived: the connection is healthy, start the waits again
           yield ev;
           if (this.closed) return;
         }
@@ -282,6 +286,8 @@ export class EventSubscription {
         if (this.closed) return; // otherwise: the connection dropped or went quiet; reconnect below
       } finally {
         this.connected = false;
+        // A connection that stayed up a while was healthy. One that says "ready" and drops at once keeps counting, so the waits grow.
+        if (Date.now() - opened >= HEALTHY_AFTER_MS) this._attempt = 0;
       }
       if (this.closed || !this.reconnect) return;
       if (!(await this._waitToRetry(floorMs))) return;

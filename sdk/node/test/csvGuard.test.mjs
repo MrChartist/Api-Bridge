@@ -1,6 +1,7 @@
 // CSV files the SDK writes must not run as formulas when opened in a spreadsheet (same rule as the Bridge's own CSV).
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { safeName } from "../src/data.mjs";
 import { guardFormulaText, parseTable, toCsv, unguardFormulaText } from "../src/table.mjs";
 
 const EVIL = ['=HYPERLINK("http://evil","x")', "+cmd|calc", "-5+3", "@SUM(1)", "\tTAB", "\rCR"];
@@ -38,5 +39,14 @@ describe("toCsv guards formula cells", () => {
     assert.equal(guardFormulaText("abc"), "abc");
     assert.equal(unguardFormulaText("'=1+1"), "=1+1");
     assert.equal(unguardFormulaText("'abc"), "'abc");
+  });
+});
+
+describe("safeName keeps a downloaded file inside the folder", () => {
+  it("keeps plain names, drops folders, refuses a drive letter, a stream name and a NUL", () => {
+    assert.equal(safeName("nifty-5m.csv"), "nifty-5m.csv");
+    assert.equal(safeName("a/b/c.csv"), "c.csv");
+    assert.equal(safeName("..\\..\\x.csv"), "x.csv");
+    for (const bad of ["C:x", "a.csv:evil", "ok\u0000.csv", "..", ".", ""]) assert.throws(() => safeName(bad), TypeError, JSON.stringify(bad));
   });
 });

@@ -337,3 +337,18 @@ describe("historyAll", () => {
     assert.deepEqual(fake.data.historyLog.at(-1), { from: T0, to: T0 + 2 * DAY, localFirst: "true", dataset: "d1" });
   });
 });
+
+describe("a stream that says ready and drops (audit F14)", () => {
+  it("waits longer each time instead of a flat second", async () => {
+    const enc = new TextEncoder();
+    const flapping = () => ({ ok: true, status: 200, body: new ReadableStream({ start(c) { c.enqueue(enc.encode("event: ready\ndata: {}\n\n")); c.close(); } }), headers: new Headers() });
+    bridge.openStream = async () => flapping();
+    const sub = bridge.events.subscribe({ maxReconnects: 5 });
+    const got = [];
+    for await (const ev of sub) got.push(ev);
+    assert.equal(got.length, 0);
+    assert.equal(waits.length, 5);
+    assert.ok(waits[4] >= 8000 && waits[4] > waits[0] * 4, `waits ${waits}`);
+    for (let i = 0; i < 4; i += 1) assert.ok(waits[i] < waits[i + 1], `waits ${waits}`);
+  });
+});
