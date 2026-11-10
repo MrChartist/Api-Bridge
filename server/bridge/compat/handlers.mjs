@@ -66,13 +66,14 @@ export function createCompatHandlers(deps, cfg) {
     const key = keyOf(ctx, body);
     if (key === undefined) return fn(ctx, body, undefined);
     const { idempotency_key: _k, ...fpBody } = body;
-    const begun = writeIdem.begin(`key:${ctx.principal?.id ?? "local"}`, key, requestFingerprint({ method: "POST", path: `/api/v1/${endpoint}`, body: fpBody }));
+    const begun = writeIdem.begin(`key:${ctx.principal?.id ?? "local"}:${endpoint}`, key, requestFingerprint({ method: "POST", path: `/api/v1/${endpoint}`, body: fpBody }));
     if (begun.replay) {
       ctx.setHeader?.("Idempotency-Replayed", "true");
       return JSON.parse(begun.reply.body);
     }
     try {
-      const out = await fn(ctx, body, key);
+      // The order service sees the key scoped to this endpoint, so one key reused on another compat route or on /v1/orders is its own key there.
+      const out = await fn(ctx, body, `${key.slice(0, 100)}.${createHash("sha256").update(`${endpoint}|${key}`).digest("hex").slice(0, 24)}`);
       // An answer that failed in whole or part is forgotten so the retry can finish the rest; the orders that did go through replay by their own keys.
       if (partlyFailed(out)) begun.release();
       else begun.done({ status: 200, body: JSON.stringify(out), headers: {} });

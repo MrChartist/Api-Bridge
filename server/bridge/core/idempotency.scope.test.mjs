@@ -64,6 +64,16 @@ describe("compat order routes honour Idempotency-Key", () => {
     expect(bad.json.status).toBe("error");
   });
 
+  it("one key used on two compat routes, or on /v1/orders, is a separate key on each (no false 409)", async () => {
+    const key = idk();
+    const h = { "Idempotency-Key": key };
+    expect((await compat("placeorder", order(), h)).status).toBe(200);
+    const smart = await compat("placesmartorder", order({ symbol: "INFY", position_size: 1 }), h);
+    expect(smart.status, smart.text).toBe(200);
+    const native = await b.call("POST", "/v1/orders", { body: { account: "demo-paper", symbol: "NSE:TCS", side: "BUY", quantity: 1, product: "MIS", orderType: "MARKET" }, headers: h });
+    expect(native.status, native.text).toBe(201);
+  });
+
   it("a retried basket and split order place their orders once", async () => {
     const before = await orderCount();
     const h1 = { "Idempotency-Key": idk() };
@@ -83,7 +93,7 @@ describe("compat order routes honour Idempotency-Key", () => {
 
   it("a retried cancelorder and modifyorder carry their key too", async () => {
     const ltp = (await compat("quotes", { symbol: "RELIANCE", exchange: "NSE" })).json.data.ltp;
-    const placed = await compat("placeorder", order({ pricetype: "LIMIT", price: Math.round(ltp * 0.98 * 20) / 20, quantity: 2 }));
+    const placed = await compat("placeorder", order({ pricetype: "LIMIT", price: Number((Math.round((ltp * 0.98) / 0.1) * 0.1).toFixed(1)), quantity: 2 }));
     expect(placed.status, placed.text).toBe(200);
     const id = placed.json.orderid;
     const hc = { "Idempotency-Key": idk() };
