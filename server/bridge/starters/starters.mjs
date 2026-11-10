@@ -82,13 +82,24 @@ const exampleText = (starter, { baseUrl }) => {
 };
 
 /**
+ * The README sentence about which broker accounts a starter key may use. `accounts` is "*" (all), a list of ids, or null (not said).
+ * @param {"*" | string[] | null | undefined} accounts
+ */
+export function accountsText(accounts, cli = "mc-bridge") {
+  if (accounts === null || accounts === undefined) return "";
+  if (accounts === "*") return " It may use every broker account, including accounts you add later.";
+  const list = accounts.map((a) => `\`${a}\``).join(", ");
+  return ` It may use only these accounts, the ones connected when it was made: ${list}. An account added or connected later is not covered: make a new key (\`${cli} init <starter> --with-key --accounts all\` or \`${cli} keys create --accounts ...\`).`;
+}
+
+/**
  * Every file of a starter, with README words filled in: [{ path, content, secret? }]. `secret: true` marks the one file
  * that holds a key (.env): the writer gives it mode 0600.
  * @param {string} id
- * @param {{ baseUrl: string, folder?: string, key?: string | null, keyRecord?: { id: string, scopes: string[], expiresAt: string | null } | null,
+ * @param {{ baseUrl: string, folder?: string, key?: string | null, keyRecord?: { id: string, scopes: string[], expiresAt: string | null, accounts?: "*" | string[] } | null, keyAccounts?: "*" | string[] | null,
  *   webhookSecret?: string, now?: Date, root?: string, cli?: string }} o
  */
-export function planStarter(id, { baseUrl, folder = `bridge-${id}`, key = null, keyRecord = null, webhookSecret, now = new Date(), root = ROOT, cli = "mc-bridge" }) {
+export function planStarter(id, { baseUrl, folder = `bridge-${id}`, key = null, keyRecord = null, keyAccounts = keyRecord?.accounts ?? null, webhookSecret, now = new Date(), root = ROOT, cli = "mc-bridge" }) {
   const starter = starterById(id);
   if (!starter) throw new Error(`Unknown starter "${id}". Choose one of: ${STARTER_IDS.join(", ")}.`);
   const secret = starter.secret ? (webhookSecret ?? newWebhookSecret()) : undefined;
@@ -100,10 +111,11 @@ export function planStarter(id, { baseUrl, folder = `bridge-${id}`, key = null, 
     : withKey
       ? `Your key is already in \`.env\` (scope \`${scope}\`, key id \`${keyRecord?.id ?? "?"}\`).`
       : `Put an API key in \`.env\` as \`BRIDGE_KEY=...\`. Make one with \`${cli} keys create --label ${label} --scope read --client ${starter.clientKind} --expires ${starter.expiresDays}d\` (it is shown once).`;
+  const accountsWords = accountsText(keyAccounts, cli);
   const keyNote = !starter.needsKey
     ? "This project holds a webhook secret in `.env`, made for you. Treat it like a password."
     : withKey
-      ? `This project's key was made for it with only the \`${scope}\` scope${keyRecord?.expiresAt ? ` and expires on ${keyRecord.expiresAt.slice(0, 10)}` : ""}. It is in \`.env\`, which is in \`.gitignore\`. Revoke it any time: \`${cli} keys revoke ${keyRecord?.id ?? "<key id>"}\`.`
+      ? `This project's key was made for it with only the \`${scope}\` scope${keyRecord?.expiresAt ? ` and expires on ${keyRecord.expiresAt.slice(0, 10)}` : ""}.${accountsWords} It is in \`.env\`, which is in \`.gitignore\`. Revoke it any time: \`${cli} keys revoke ${keyRecord?.id ?? "<key id>"}\`.`
       : `No key was made. Next time, \`${cli} init ${id} --with-key\` makes one with only the \`read\` scope and puts it in \`.env\` for you.`;
   const words = { baseUrl, folder, keyStep, keyNote };
   const fill = (text) => text.replace(/\{\{(\w+)\}\}/g, (m, k) => (k in words ? words[k] : m));

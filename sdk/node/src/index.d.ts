@@ -61,7 +61,7 @@ export interface Problem {
   requestId?: string;
   retryAfterMs?: number;
   broker?: { id?: string; code?: string; message?: string };
-  errors?: Array<{ path: string; message: string }>;
+  errors?: Array<{ path: string; message: string; code?: string; allowed?: unknown[] }>;
 }
 
 export interface Instrument {
@@ -307,7 +307,7 @@ export declare class BridgeApiError extends BridgeError {
   requestId?: string;
   retryAfterMs?: number;
   broker?: { id?: string; code?: string; message?: string };
-  errors?: Array<{ path: string; message: string }>;
+  errors?: Array<{ path: string; message: string; code?: string; allowed?: unknown[] }>;
   idempotencyKey?: string;
   problem: Problem;
 }
@@ -369,12 +369,24 @@ export interface DownloadRequest {
   backup?: boolean;
   tags?: string[];
 }
+/** Why a download or recording did not work, in plain words: the code (an API problem code or a reason of the job itself), what really happened and what to do. */
+export interface FailureReason {
+  code: string;
+  message: string;
+  fix: string;
+  /** Downloads: the first failed item, and how many failed. */
+  symbol?: string;
+  interval?: string;
+  failedItems?: number;
+  /** Recordings: when the problem began. */
+  since?: string | null;
+}
 export interface DownloadJob {
   id: string;
   name: string;
   status: JobStatus;
   progress: { total: number; done: number; failed: number; rows: number; bytes: number; etaSec: number | null; current: { symbol: string; interval: string } | null };
-  items: Array<{ symbol: string; interval: string; status: string; rows: number; error?: string }>;
+  items: Array<{ symbol: string; interval: string; status: string; rows: number; error?: { code: string; message: string; fix?: string } }>;
   request: Record<string, unknown>;
   dataClass: DataClass;
   source: string | null;
@@ -386,6 +398,8 @@ export interface DownloadJob {
   manifestUrl: string;
   /** Why a job stopped when it did not finish on its own (kill switch, login lost, disk full ...). */
   reason?: string;
+  /** Set when the job failed: the real reason (code, text) and the fix. null otherwise. */
+  failure?: FailureReason | null;
   /** Present once the job is done. */
   files?: DataFile[];
   tags?: string[];
@@ -448,6 +462,8 @@ export interface Recording {
   ruleId?: string;
   collection?: string | null;
   files?: DataFile[];
+  /** What is wrong right now (disk full, no login, symbols not chosen ...): code, real text and fix. null when all is well. */
+  problem?: FailureReason | null;
 }
 export interface RecordingRequest {
   kind: "quotes" | "chain";

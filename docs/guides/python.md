@@ -143,8 +143,8 @@ bridge.datasets.update("large-caps-5m", wait=True)      # later: only the bars a
   or `create("nifty-near", universe=option_universe("NIFTY", "current-weekly", count=10))`. `resolve(name)` gives the symbols
   now; for an option universe it recomputes the ATM and the rolling expiry each time and puts a note in `warnings` when
   the price was stale. The Bridge refuses an ATM from a delayed or end-of-day price (422) and from a stale one (503) unless you
-  pass `allow_stale=True`, and then labels the answer (`warnings`, `atm_source`). Reading collections needs a `read` key; changing
-  them needs the `paper` scope. `export`/`import_` move a collection as CSV or JSON.
+  pass `allow_stale=True`, and then labels the answer (`warnings`, `atm_source`). Reading, making and changing collections needs a `read` key (like starting a download); deleting one needs `admin` from this computer.
+  `export`/`import_` move a collection as CSV or JSON.
 
 ## Candles over any range, and saving API calls
 

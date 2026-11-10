@@ -47,6 +47,7 @@ from .data import (
     BudgetSettings,
     DownloadEstimate,
     DownloadItem,
+    FailureReason,
     DownloadJob,
     DownloadProgress,
     Downloads,
@@ -140,7 +141,7 @@ from .records import (
 from .stream import BridgeStream, FeedStatus, GoAway, Heartbeat, OrderUpdate, Snapshot, StreamEvent, Tick, WebSocket, WebSocketClosed, parse_event
 
 __all__ = [
-    "ChecksumMismatch", "Collection", "Collections", "DataFile", "Dataset", "Datasets", "DownloadFailed", "DownloadItem", "DownloadJob", "DownloadProgress", "Downloads", "Event", "EventSubscription",
+    "ChecksumMismatch", "Collection", "Collections", "DataFile", "Dataset", "Datasets", "DownloadFailed", "DownloadItem", "DownloadJob", "DownloadProgress", "Downloads", "Event", "EventSubscription", "FailureReason",
     "BudgetSettings", "DownloadEstimate", "EventPage", "Events", "HistoryIter", "PresetResult", "Recording", "RecordingPreset", "RecordingRule", "RecordingRules", "RecordingStatus", "Recordings", "Resolution", "SavedCalls", "SavedFile", "SignatureInvalid", "Subscription", "Subscriptions", "option_universe",
     "sign_payload", "verify_request", "verify_signature",
     "Account", "AccountForbidden", "AccountNotFound", "AsyncBridge", "AsyncStream", "BatchItem", "BatchResult", "Bridge", "BridgeApiError", "BridgeClient", "BridgeConnectionError",

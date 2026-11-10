@@ -13,7 +13,7 @@ export class BridgeError extends Error {}
 export class BridgeApiError extends BridgeError {
   /**
    * @param {{ status: number, code: string, title?: string, detail?: string, retryable?: boolean, requestId?: string,
-   *   retryAfterMs?: number, broker?: object, errors?: Array<{ path: string, message: string }> }} problem
+   *   retryAfterMs?: number, broker?: object, errors?: Array<{ path: string, code?: string, message: string, allowed?: unknown[] }> }} problem
    * @param {{ idempotencyKey?: string, headers?: Record<string, string> }} [extra]
    */
   constructor(problem, extra = {}) {

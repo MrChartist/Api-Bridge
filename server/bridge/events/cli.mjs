@@ -11,17 +11,22 @@
  *   mc-bridge subscriptions deliveries <id> [--outcome dead] [--limit 20]
  *   mc-bridge subscriptions dead-letters <id> [--retry <deliveryId> | --retry-all | --clear]
  *   mc-bridge subscriptions tail [--topics order.*] [--since <cursor>]     print events as they arrive (polls every 2 s)
+ *   mc-bridge subscriptions allow-local [--off]   let webhooks go to a receiver on this computer or your home network (http://, 127.0.0.1,
+ *                                                  192.168.x.x ...): sets events.webhooks.allowPrivateTargets in the config file. Needs a restart.
  *
  * The signing secret is never an argument (shell history and process lists would keep it). `add` and `rotate-secret` make a
  * random one on this computer and print it ONCE; `--secret-stdin` reads your own from standard input instead. The Bridge never
  * shows it again.
  */
 import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { setConfigSection } from "../accounts/configFile.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { adminTopicsNamed } from "./catalog.mjs";
+import { EVENTS_CONFIG_SCHEMA } from "./config.mjs";
 
 const SECRET_FLAGS = ["secret", "signing-secret", "token", "password", "value", "api-key"];
-export const SUBSCRIPTION_SUBCOMMANDS = Object.freeze(["list", "topics", "status", "add", "show", "pause", "resume", "remove", "rotate-secret", "test", "deliveries", "dead-letters", "tail"]);
+export const SUBSCRIPTION_SUBCOMMANDS = Object.freeze(["list", "topics", "status", "add", "show", "pause", "resume", "remove", "rotate-secret", "test", "deliveries", "dead-letters", "tail", "allow-local"]);
 
 /** Standard input to the end, for --secret-stdin when the caller gave no reader. */
 const readProcessStdin = () =>
@@ -34,6 +39,45 @@ const readProcessStdin = () =>
   });
 
 const pad = (s, n) => String(s).padEnd(n);
+
+/**
+ * `subscriptions allow-local [--off]`: turn events.webhooks.allowPrivateTargets on (or back off) in the config file, with the
+ * existing config-writing helper (checked against the events schema and the core schema, written atomically, every other
+ * setting kept). It edits the file only; it does not need the Bridge to be running and takes effect at the next start.
+ */
+async function allowLocal(flags, io, helpers) {
+  const off = flags.off === true;
+  const file = typeof helpers.configFile === "function" ? helpers.configFile() : null;
+  if (!file) throw new BridgeError("VALIDATION_FAILED", "Could not work out which config file to change. Pass --config <file>.");
+  let obj = {};
+  if (existsSync(file)) {
+    try {
+      obj = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      throw new BridgeError("VALIDATION_FAILED", `Your config file ${file} could not be read (it may have a typing mistake). Nothing was changed.`);
+    }
+  }
+  const events = obj && typeof obj.events === "object" && obj.events && !Array.isArray(obj.events) ? obj.events : {};
+  const webhooks = events.webhooks && typeof events.webhooks === "object" && !Array.isArray(events.webhooks) ? events.webhooks : {};
+  if ((webhooks.allowPrivateTargets === true) === !off) {
+    io.out(off ? "Webhooks to this computer were already off. Nothing changed." : "Webhooks to this computer were already allowed in the config file. Nothing changed.");
+    return 0;
+  }
+  await setConfigSection(file, "events", { ...events, webhooks: { ...webhooks, allowPrivateTargets: !off } }, { schema: EVENTS_CONFIG_SCHEMA });
+  if (off) {
+    io.out(`Done: webhooks may go to public https:// addresses only again (events.webhooks.allowPrivateTargets is false in ${file}).`);
+    io.out("Restart the Bridge for this to take effect. A receiver that uses a private address will then be refused.");
+    return 0;
+  }
+  io.out(`Done: events.webhooks.allowPrivateTargets is now true in ${file}.`);
+  io.out("Warning, in plain words:");
+  io.out("  - The Bridge may now send webhooks over plain http:// and to addresses on this computer (127.0.0.1, localhost) and your home or office network (192.168.x.x, 10.x.x.x).");
+  io.out("  - Do this only for receivers you run yourself. Anything that can read your network could read those events: orders and prices.");
+  io.out("  - Events are still signed, redirects are still not followed, and cloud metadata addresses stay blocked.");
+  io.out(`Restart the Bridge to apply it. Then add your receiver, for example: ${helpers.cli} subscriptions add http://127.0.0.1:8080/bridge --topics order.*`);
+  io.out(`Turn it off again with: ${helpers.cli} subscriptions allow-local --off`);
+  return 0;
+}
 
 /** Plain lines for `subscriptions list`. Exported for tests. @param {any[]} rows */
 export function formatSubscriptions(rows) {
@@ -73,6 +117,8 @@ export async function subscriptionsCommand(args, flags, io, helpers) {
   if (needsId.includes(sub) && !id) throw new BridgeError("VALIDATION_FAILED", `subscriptions ${sub} needs a subscription id. List them with: ${cli} subscriptions list`);
   if (sub === "add" && !id) throw new BridgeError("VALIDATION_FAILED", `subscriptions add needs the https URL of your receiver, for example: ${cli} subscriptions add https://example.com/bridge --topics order.*`);
   if (sub === "add" && args.length > 2) throw new BridgeError("VALIDATION_FAILED", "subscriptions add takes one URL. If you typed a secret after it, it is in your shell history now: delete that line and use the secret this command prints instead.");
+
+  if (sub === "allow-local") return allowLocal(flags, io, helpers);
 
   const { call } = await helpers.connect();
   const path = (s) => `/v1/subscriptions/${encodeURIComponent(s)}`;

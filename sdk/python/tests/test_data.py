@@ -119,6 +119,18 @@ def test_wait_raises_with_the_reason_a_job_failed(bridge, fake):
     assert "session lost" in str(e.value) and e.value.job.status == "failed"
     j = bridge.downloads.wait(job, raise_on_failure=False)
     assert j.status == "failed" and j.reason
+    # the real reason: code, plain text and the fix, on the job and on each failed item
+    assert j.failure.code == "SESSION_EXPIRED" and "session lost" in j.failure.message and "Log in" in j.failure.fix
+    assert j.failure.symbol == "NSE:RELIANCE" and j.failure.failed_items == 1
+    assert j.failed_items[0].error_code == "SESSION_EXPIRED" and j.failed_items[0].fix == j.failure.fix
+    assert "SESSION_EXPIRED" in str(e.value) and "Fix:" in str(e.value)
+
+
+def test_a_recording_problem_is_a_failure_reason(bridge):
+    from mrchartist_bridge import Recording
+    r = Recording.from_dict({"id": "rec_1", "kind": "quotes", "status": "blocked", "problem": {"code": "disk_full", "message": "The disk has only 100 MB free.", "fix": "Delete old recordings.", "since": "2026-11-09T10:00:00+05:30"}})
+    assert r.problem.code == "disk_full" and r.problem.fix.startswith("Delete") and r.problem.since is not None
+    assert Recording.from_dict({"id": "rec_2", "kind": "quotes", "status": "recording", "problem": None}).problem is None
 
 
 def test_wait_times_out_without_stopping_the_job(bridge, fake):

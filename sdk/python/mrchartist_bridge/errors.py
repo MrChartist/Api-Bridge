@@ -70,7 +70,7 @@ class BridgeApiError(BridgeError):
         self.request_id: Optional[str] = problem.get("requestId")
         self.retry_after_ms: Optional[float] = problem.get("retryAfterMs")
         self.broker: Optional[Dict[str, Any]] = problem.get("broker")
-        self.errors: Optional[List[Dict[str, str]]] = problem.get("errors")
+        self.errors: Optional[List[Dict[str, Any]]] = problem.get("errors")
         self.idempotency_key = idempotency_key
         self.hint = hint or self.default_hint
         self.message = self.detail or self.title or "HTTP %s" % self.status

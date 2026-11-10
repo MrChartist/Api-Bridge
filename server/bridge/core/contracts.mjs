@@ -497,7 +497,7 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   downloads: {
     iface: "DownloadService",
-    requires: ["accounts", "scheduler", "marketData", "safety"],
+    requires: ["accounts", "scheduler", "marketData", "safety", "symbols"],
     methods: ["estimate", "create", "get", "list", "pause", "resume", "cancel", "remove", "updateDataset"],
   },
 

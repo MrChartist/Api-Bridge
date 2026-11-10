@@ -21,7 +21,7 @@ if (!env.WEBHOOK_SECRET) {
 
 if (target.startsWith("http://")) {
   console.log(`Note: ${target} is plain http. The Bridge refuses that by default (events.webhooks.allowPrivateTargets is false), so the next step may answer blocked_scheme.`);
-  console.log("  To receive on this computer or your home network, set events.webhooks.allowPrivateTargets to true in bridge.config.json and restart the Bridge, or use an https address.");
+  console.log("  To receive on this computer or your home network, run: mc-bridge subscriptions allow-local (it sets events.webhooks.allowPrivateTargets in bridge.config.json) and restart the Bridge, or use an https address.");
 }
 const res = await fetch(`${base}/v1/subscriptions`, {
   method: "POST",

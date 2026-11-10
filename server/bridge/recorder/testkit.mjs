@@ -59,7 +59,7 @@ export function bootRecorder(o = {}) {
   const market = labelled(md, label);
   let freeBytes = o.free === undefined ? 50 * 1024 ** 3 : o.free;
   const state = { get free() { return freeBytes; }, set free(v) { freeBytes = v; } };
-  const symbols = { resolve: async (s) => ({ canonical: s }) };
+  const symbols = o.symbols ?? { resolve: async (s) => ({ canonical: s }) };
   const config = { dataDir: dir, recorder: o.config ?? {} };
   const make = () =>
     createRecorderService(

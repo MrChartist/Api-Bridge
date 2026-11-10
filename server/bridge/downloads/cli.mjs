@@ -4,7 +4,7 @@
  *
  *   mc-bridge download NSE:NIFTY NSE:RELIANCE --interval 5m --from 2024-01-01 [--to 2024-12-31] [--format csv|jsonl|amibroker]
  *                      [--layout per-symbol|combined] [--dataset nifty-5m] [--collection my-list] [--account id] [--backup]
- *                      [--name text] [--tags a,b] [--after-hours] [--dry-run] [--watch] [--json]
+ *                      [--name text] [--tags a,b] [--after-hours] [--allow-expired] [--dry-run] [--watch] [--json]
  *   mc-bridge download list [--status running] | show <id> | pause <id> | resume <id> | cancel <id> | delete <id>
  *   mc-bridge download files <id> [--out <folder>]       list the files; with --out, save them and check each hash
  *   mc-bridge download datasets                           list datasets;   download update <dataset>   fetch what is new
@@ -76,9 +76,13 @@ export function formatJobs(jobs) {
 export function formatJob(j) {
   const lines = [formatProgress(j), `Name: ${j.name}${j.dataset ? `   Dataset: ${j.dataset}` : ""}`, `Data: ${j.dataClass}${j.source ? ` from ${j.source}` : ""}${j.delaySec ? `, delayed by about ${j.delaySec} s` : ""}${j.official === false ? ", unofficial" : ""}.`];
   if (j.callsSaved) lines.push(`Broker calls saved: ${j.callsSaved}.`);
-  if (j.message) lines.push(`Message: ${j.message}`);
+  if (j.failure) {
+    const f = j.failure;
+    lines.push(`Why it failed: ${f.message} (${f.code})`, `Fix: ${f.fix}`);
+    if (f.failedItems > 1) lines.push(`${f.failedItems} items failed; the first is ${f.symbol} ${f.interval}.`);
+  } else if (j.message) lines.push(`Message: ${j.message}`);
   const bad = (j.items ?? []).filter((i) => i.status === "failed");
-  for (const i of bad.slice(0, 10)) lines.push(`  failed: ${i.symbol} ${i.interval}: ${i.error?.message ?? i.error?.code}`);
+  for (const i of bad.slice(0, 10)) lines.push(`  failed: ${i.symbol} ${i.interval}: ${i.error?.message ?? i.error?.code}${i.error?.code && i.error?.message ? ` (${i.error.code})` : ""}`);
   for (const n of (j.notes ?? []).slice(0, 12)) lines.push(`  note: ${n}`);
   return lines.join("\n");
 }
@@ -101,6 +105,7 @@ export function requestFromFlags(symbols, flags) {
   if (typeof flags.tags === "string") body.tags = list(flags.tags);
   if (flags.backup === true) body.backup = true;
   if (flags["after-hours"] === true) body.afterHoursOnly = true;
+  if (flags["allow-expired"] === true) body.allowExpired = true;
   return body;
 }
 

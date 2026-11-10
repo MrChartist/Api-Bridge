@@ -79,6 +79,11 @@ describe("downloads", () => {
     const j = await bridge.downloads.wait(job, { throwOnFailure: false });
     assert.equal(j.status, "failed");
     assert.ok(j.reason);
+    // the real reason: code, plain text and the fix
+    assert.equal(j.failure.code, "SESSION_EXPIRED");
+    assert.match(j.failure.message, /session lost/);
+    assert.match(j.failure.fix, /Log in/);
+    await assert.rejects(() => bridge.downloads.wait(job), (e) => /SESSION_EXPIRED/.test(e.message) && /Fix: Log in/.test(e.message));
   });
 
   it("wait times out without stopping the job", async () => {

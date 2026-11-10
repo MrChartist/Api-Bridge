@@ -6,11 +6,11 @@
 |---|---|
 | Area | [Collections](../README.md#collections) |
 | Operation | `duplicateCollection` |
-| Scope | `paper` |
+| Scope | `read` |
 | This computer only | no |
 | Idempotency-Key | send one on every write |
 
-- An API key with the `paper` scope (or `live`).
+- An API key with the `read` scope (any key).
 - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
 Without a name the copy is called `<name>-copy` (then `-copy2` ...).
@@ -79,7 +79,6 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 | `INVALID_JSON` | 400 | no |
 | `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
-| `SCOPE_REQUIRED` | 403 | no |
 | `IDEMPOTENCY_IN_PROGRESS` | 409 | yes |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | no |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | no |

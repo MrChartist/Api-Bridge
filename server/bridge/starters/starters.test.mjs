@@ -13,7 +13,7 @@ import { createApp } from "../core/app.mjs";
 import { runCli } from "../core/cli.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
-import { runInitStarter, starterList } from "./initStarter.mjs";
+import { chooseKeyAccounts, runInitStarter, starterList } from "./initStarter.mjs";
 import { STARTERS, STARTER_IDS, newWebhookSecret, planStarter, writeStarter } from "./starters.mjs";
 import { SIGNATURE_HEADER, sign, signatureHeaders, verifySignature } from "./webhook-receiver/verify.mjs";
 
@@ -177,6 +177,64 @@ describe("mc-bridge init <starter>", () => {
     expect(t.lines.join("\n") + t.errs.join("\n")).not.toContain(FAKE_KEY);
     expect(t.lines.join("\n")).toContain("abcdefghij");
     for (const f of filesOf(join(cwd, "bot"))) if (f !== ".env") expect(readFileSync(join(cwd, "bot", f), "utf8"), f).not.toContain(FAKE_KEY);
+  });
+
+  describe("which accounts the key may use", () => {
+    const ACCOUNTS = [{ id: "paper", state: "connected" }, { id: "zerodha-main", state: "connected" }, { id: "dhan-two", state: "expired" }];
+    const withAccounts = (list, created = []) => ({ ...deps(created), listAccounts: async () => list });
+
+    it("defaults to the accounts connected right now, says so, and writes it in the README", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      const t = io(cwd);
+      const created = [];
+      expect(await runInitStarter({ id: "python", folder: "bot" }, { "with-key": true }, t, withAccounts(ACCOUNTS, created))).toBe(0);
+      expect(created[0].accounts).toEqual(["paper", "zerodha-main"]);
+      expect(t.lines.join("\n")).toMatch(/only the accounts connected right now: paper, zerodha-main/);
+      const readme = readFileSync(join(cwd, "bot", "README.md"), "utf8");
+      expect(readme).toMatch(/only these accounts, the ones connected when it was made: `paper`, `zerodha-main`/);
+      expect(readme).not.toContain("dhan-two");
+    });
+
+    it("--accounts all gives every account; --accounts a,b is checked against the Bridge's accounts before a key exists", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      const created = [];
+      expect(await runInitStarter({ id: "python", folder: "all" }, { "with-key": true, accounts: "all" }, io(cwd), withAccounts(ACCOUNTS, created))).toBe(0);
+      expect(created[0].accounts).toBe("*");
+      expect(readFileSync(join(cwd, "all", "README.md"), "utf8")).toMatch(/every broker account, including accounts you add later/);
+      await expect(runInitStarter({ id: "python", folder: "bad" }, { "with-key": true, accounts: "nope" }, io(cwd), withAccounts(ACCOUNTS, created))).rejects.toThrow(/no account called nope/);
+      expect(created).toHaveLength(1);
+      expect(existsSync(join(cwd, "bad"))).toBe(false);
+    });
+
+    it("keeps starters easy: with nothing connected, or no way to read the accounts, the key may use all and the output says so", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      const created = [];
+      const t = io(cwd);
+      expect(await runInitStarter({ id: "node", folder: "none" }, { "with-key": true }, t, withAccounts([{ id: "zerodha-main", state: "expired" }], created))).toBe(0);
+      expect(created[0].accounts).toBe("*");
+      expect(t.lines.join("\n")).toMatch(/No account is connected right now, so the key may use all of them \(zerodha-main\)/);
+      expect(await runInitStarter({ id: "node", folder: "fresh" }, { "with-key": true }, io(cwd), deps(created))).toBe(0);
+      expect(created[1].accounts).toBe("*");
+      const broken = { ...deps(created), listAccounts: async () => { throw new Error("no"); } };
+      expect(await runInitStarter({ id: "node", folder: "broken" }, { "with-key": true }, io(cwd), broken)).toBe(0);
+      expect(created[2].accounts).toBe("*");
+    });
+
+    it("asks a person once when several accounts are connected: Enter accepts, ids narrow it", async () => {
+      const asked = [];
+      const ask = (answer) => async (q) => (asked.push(q), answer);
+      expect((await chooseKeyAccounts({ known: ACCOUNTS, ask: ask("") })).accounts).toEqual(["paper", "zerodha-main"]);
+      expect((await chooseKeyAccounts({ known: ACCOUNTS, ask: ask("paper") })).accounts).toEqual(["paper"]);
+      expect((await chooseKeyAccounts({ known: ACCOUNTS, ask: ask("all") })).accounts).toBe("*");
+      expect(asked[0]).toMatch(/Connected now: paper, zerodha-main/);
+      // one connected account, or no person at the terminal: no question
+      const never = async () => { throw new Error("must not ask"); };
+      expect((await chooseKeyAccounts({ known: [{ id: "paper", state: "connected" }], ask: never })).accounts).toEqual(["paper"]);
+      expect((await chooseKeyAccounts({ known: ACCOUNTS })).accounts).toEqual(["paper", "zerodha-main"]);
+      // an account id the key store cannot hold never makes a starter fail by default; naming it on purpose is explained
+      expect(await chooseKeyAccounts({ known: [{ id: "my_acct", state: "connected" }] })).toMatchObject({ accounts: "*", note: /my_acct\) cannot be named in a key/ });
+      await expect(chooseKeyAccounts({ flag: "my_acct", known: [{ id: "my_acct", state: "connected" }] })).rejects.toThrow(/2 to 32 lower-case/);
+    });
   });
 
   it("never makes an admin or live key, and a bad --expires is refused", async () => {

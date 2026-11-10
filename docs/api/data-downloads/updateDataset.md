@@ -49,6 +49,7 @@ Starts a job that continues every series of the dataset from its last stored bar
 | `createdBy` | string or null | no | The key (key:<id>) or this computer (local) that started the job. Only that key, or an admin, may pause, resume, cancel or rename it. null for a job made before owners were recorded: admin only. |
 | `progress` | object | yes |  |
 | `items` | array of object | no | Left out of the list answer unless include=items. |
+| `failure` | `FailureReason` or null | no | Set when status is failed: the real reason (the code and text of the first failed item, or of the job) and the fix. null otherwise. |
 | `request` | object | yes | The request as the Bridge understood it. |
 | `dataset` | string or null | no |  |
 | `collection` | object | no | Present when the symbols came from a collection. |

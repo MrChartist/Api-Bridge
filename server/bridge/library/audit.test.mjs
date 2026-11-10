@@ -10,7 +10,7 @@ beforeAll(async () => {
 });
 afterAll(async () => t.close());
 
-const w = (path, body, method = "POST", query = "") => t.request(path + query, { method, key: t.keys.paper, body });
+const w = (path, body, method = "POST", query = "", key = t.keys.read) => t.request(path + query, { method, key, body });
 const types = () => records.map((r) => r.type);
 
 describe("collection writes are audited", () => {
@@ -18,8 +18,8 @@ describe("collection writes are audited", () => {
     expect((await w("/v1/collections", { name: "banks", symbols: ["NSE:HDFCBANK", "NSE:ICICIBANK"] })).status).toBe(201);
     expect((await w("/v1/collections/banks", { description: "x" }, "PATCH")).status).toBe(200);
     expect((await w("/v1/collections/banks/duplicate", { name: "banks2" })).status).toBe(201);
-    expect((await w("/v1/collections/import", { name: "banks", symbols: ["NSE:SBIN"] }, "POST", "?replace=true")).status).toBe(201);
-    expect((await t.request("/v1/collections/banks2", { method: "DELETE", key: t.keys.paper })).status).toBe(204);
+    expect((await w("/v1/collections/import", { name: "banks", symbols: ["NSE:SBIN"] }, "POST", "?replace=true", t.keys.admin)).status).toBe(201);
+    expect((await t.request("/v1/collections/banks2", { method: "DELETE", key: t.keys.admin })).status).toBe(204);
     expect(types()).toEqual(["collection.created", "collection.updated", "collection.created", "collection.imported", "collection.deleted"]);
     expect(records.every((r) => r.actor.kind === "key" && r.actor.id && r.source && r.requestId)).toBe(true);
     expect(records[3].data).toMatchObject({ replace: true, replaced: ["banks"] });

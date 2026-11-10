@@ -475,6 +475,30 @@ describe("failures and retries", () => {
     expect(d.items[0]).toMatchObject({ status: "failed", error: { code: "SYMBOL_NOT_FOUND" } });
     expect(d.items[1].status).toBe("done");
   });
+
+  it("a failed job says the real reason: the code, the plain text of the first failed item and the fix", async () => {
+    const m = await boot();
+    m.history.fail("CAPABILITY_UNSUPPORTED", 1);
+    const { job } = await m.manager.create({ symbols: ["NSE:A", "NSE:B"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-05" });
+    const d = await waitStatus(m.manager, job.id);
+    expect(d.status).toBe("failed");
+    expect(d.failure).toMatchObject({ code: "CAPABILITY_UNSUPPORTED", message: "fake CAPABILITY_UNSUPPORTED", symbol: "NSE:A", interval: "1d", failedItems: 1 });
+    expect(d.failure.fix).toMatch(/does not give this kind of history/);
+    expect(d.items[0].error.fix).toBe(d.failure.fix);
+    expect(m.manager.get(job.id).failure.code).toBe("CAPABILITY_UNSUPPORTED");
+    // a job that is not failed has no failure
+    const ok = await m.manager.create({ symbols: ["NSE:C"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-05" });
+    expect((await waitStatus(m.manager, ok.job.id)).failure).toBeNull();
+  });
+
+  it("a code the catalogue knows takes its fix from the catalogue", async () => {
+    const m = await boot();
+    m.history.fail("UPSTREAM_ERROR", 1);
+    const { job } = await m.manager.create({ symbols: ["NSE:A"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-05" });
+    const d = await waitStatus(m.manager, job.id);
+    expect(d.failure).toMatchObject({ code: "UPSTREAM_ERROR" });
+    expect(d.failure.fix.length).toBeGreaterThan(20);
+  });
 });
 
 describe("kill switch and a lost session", () => {

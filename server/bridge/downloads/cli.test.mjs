@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { downloadCommand, formatBytes, formatDuration, formatEstimate, formatJobs, formatProgress, requestFromFlags } from "./cli.mjs";
+import { downloadCommand, formatBytes, formatDuration, formatEstimate, formatJob, formatJobs, formatProgress, requestFromFlags } from "./cli.mjs";
 
 const job = (o = {}) => ({ id: "dl_aaaaaaaaaaaa", name: "nifty", status: "running", progress: { total: 2, done: 1, failed: 0, rows: 1500, bytes: 93_000, etaSec: 90, current: { symbol: "NSE:NIFTY", interval: "5m" }, waiting: null }, dataClass: "realtime", source: "dhan", official: true, delaySec: null, notes: [], items: [], ...o });
 const estimate = { symbols: 1, intervals: 1, items: 1, brokerCalls: 12, callsSaved: 3, rows: 18_000, bytes: 1_116_000, budgetShare: 0.3, etaSec: 40, disk: { wouldExceed: false, maxBytes: 5e9, usedBytes: 0 }, notes: ["Rows assume every trading minute has a bar."] };
@@ -41,6 +41,11 @@ describe("requestFromFlags", () => {
     });
     expect(requestFromFlags([], { collection: "mine", interval: "1d", from: "2024-01-01" })).toEqual({ collection: "mine", intervals: ["1d"], from: "2024-01-01" });
   });
+
+  it("--allow-expired lets an expired contract through for its history", () => {
+    expect(requestFromFlags(["NFO:NIFTY-2020-01-30-12000-CE"], { interval: "1d", from: "2020-01-01", "allow-expired": true }).allowExpired).toBe(true);
+    expect(requestFromFlags(["NSE:NIFTY"], { interval: "1d", from: "2020-01-01" }).allowExpired).toBeUndefined();
+  });
 });
 
 describe("formatting", () => {
@@ -62,6 +67,16 @@ describe("formatting", () => {
     expect(formatProgress(job({ status: "paused", message: "The kill switch is on." }))).toMatch(/The kill switch is on\./);
     expect(formatJobs([job(), job({ id: "dl_bbbbbbbbbbbb", status: "done" })]).split("\n")).toHaveLength(3);
     expect(formatJobs([])).toBe("No download jobs yet.");
+  });
+});
+
+describe("download show: a failed job", () => {
+  it("prints the real reason with its code and the fix", () => {
+    const text = formatJob(job({ status: "failed", message: "1 of 2 items failed", failure: { code: "SESSION_EXPIRED", message: "The broker session ended.", fix: "Log in again, then resume.", symbol: "NSE:A", interval: "1d", failedItems: 2 }, items: [{ symbol: "NSE:A", interval: "1d", status: "failed", error: { code: "SESSION_EXPIRED", message: "The broker session ended." } }] }));
+    expect(text).toContain("Why it failed: The broker session ended. (SESSION_EXPIRED)");
+    expect(text).toContain("Fix: Log in again, then resume.");
+    expect(text).toContain("2 items failed; the first is NSE:A 1d.");
+    expect(text).toContain("failed: NSE:A 1d: The broker session ended. (SESSION_EXPIRED)");
   });
 });
 

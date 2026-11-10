@@ -18,6 +18,10 @@ on the **Developers** page (`#/developers`): apps, a scope finder, your requests
    `mc-bridge init --list` shows the starters. Each one writes a new folder with a README that has three runnable steps.
    `--with-key` makes one key with only the `read` scope (or `--scope paper`), an expiry (90 days by default,
    `--expires 30d` to change it) and writes it **only** to `.env`, which `.gitignore` lists. The key is never printed.
+   The key may use only the broker accounts that are **connected right now** (the command says which, and the README of the
+   project lists them); `--accounts a,b` picks others and `--accounts all` allows every account, also ones added later. With
+   no account connected the key may use all of them, so a starter is never harder to make. At a terminal with several
+   connected accounts the command asks once; Enter accepts the default.
    Without `--with-key` no key is made and the README says how.
 3. Or by hand: open the dashboard, **Developers > Create app**, pick what it is for, copy the key (it is shown once)
    and run the curl line.
@@ -151,8 +155,8 @@ def verify(secret: str, timestamp: str, signature: str, raw: bytes, tolerance=30
 With curl and openssl you can sign a test body: `printf '%s' "$T.$BODY" | openssl dgst -sha256 -hmac "$SECRET"`.
 The `webhook-receiver` starter is a complete receiver that does all of this. Creating a subscription needs an admin key and works
 from this computer only, because the target is an address the Bridge will call. By default only `https` targets are allowed; a
-receiver on this computer (`http://127.0.0.1:...`) needs `events.webhooks.allowPrivateTargets: true` in the Bridge's config file,
-which cannot be switched on over HTTP. The signing secret must be 16 to 256 characters and is write-only: the Bridge never shows
+receiver on this computer (`http://127.0.0.1:...`) needs `events.webhooks.allowPrivateTargets: true` in the Bridge's config file
+(`mc-bridge subscriptions allow-local` sets it, then restart), which cannot be switched on over HTTP. The signing secret must be 16 to 256 characters and is write-only: the Bridge never shows
 it again.
 
 ## Data downloads

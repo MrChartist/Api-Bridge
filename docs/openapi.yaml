@@ -1586,7 +1586,7 @@ paths:
         (`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.
         Writing needs the `paper` scope.
       x-module: library
-      x-scope: paper
+      x-scope: read
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1620,9 +1620,9 @@ paths:
         that `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with
         `name` in the query (or as JSON `{ format: "csv", csv, name }`); the symbols are in a column named `symbol`, or the
         first column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`
-        is true for a CSV.
+        is true for a CSV. `replace=true` (replace collections that already exist) needs an admin key, from this computer.
       x-module: library
-      x-scope: paper
+      x-scope: read
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - { name: name, in: query, description: "Name of the new collection (required for CSV and for a plain list).", schema: { type: string } }
@@ -1691,7 +1691,7 @@ paths:
       summary: Change a collection, or rename it (send `name`)
       description: A rename keeps the collection's id and its old name keeps working. The kind cannot change.
       x-module: library
-      x-scope: paper
+      x-scope: read
       requestBody:
         required: true
         content:
@@ -1715,9 +1715,10 @@ paths:
       tags: [Collections]
       operationId: deleteCollection
       summary: Delete a collection
-      description: Refused with 409 while a download, recording or rule that is running uses it, unless `force=true`.
+      description: Refused with 409 while a download, recording or rule that is running uses it, unless `force=true`. Needs an admin key, from this computer.
       x-module: library
-      x-scope: paper
+      x-scope: admin
+      x-loopback-only: true
       parameters:
         - { name: force, in: query, schema: { type: boolean, default: false } }
       responses:
@@ -1776,7 +1777,7 @@ paths:
       summary: Copy a collection under a new name
       description: Without a name the copy is called `<name>-copy` (then `-copy2` ...).
       x-module: library
-      x-scope: paper
+      x-scope: read
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2716,6 +2717,40 @@ paths:
                 properties:
                   data: { $ref: "#/components/schemas/DownloadJob" }
                   meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+  /v1/datasets/{name}/files/{file}:
+    get:
+      tags: [Data downloads]
+      operationId: getDatasetFile
+      summary: Stream one file of a dataset
+      description: >-
+        One series file, by the name (and `url`) that GET /v1/datasets/{name} lists. The response headers carry the
+        dataset's own data class, source, official flag and delay (X-Data-Class and so on): they follow the least current
+        data the dataset holds. Data that is delayed or end-of-day must never feed orders, risk checks, paper fills or alerts.
+      x-module: downloads
+      x-scope: read
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$" }
+        - name: file
+          in: path
+          required: true
+          description: A file name from the dataset's file list.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        "200":
+          description: The file.
+          headers:
+            X-Data-Class: { description: "realtime, delayed or eod.", schema: { type: string } }
+            X-Data-Source: { description: "Where the bars came from.", schema: { type: string } }
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+            application/x-ndjson:
+              schema: { type: string, format: binary }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -7094,12 +7129,28 @@ components:
             message: { type: string }
         errors:
           type: array
+          description: "VALIDATION_FAILED: one entry per problem field. Branch on `code`, show `message`."
           items:
             type: object
             required: [path, message]
             properties:
-              path: { type: string }
-              message: { type: string }
+              path: { type: string, description: "The field, with dots for nesting (order.qty); (root) for the body as a whole and (request) for a request the broker refused." }
+              code:
+                type: string
+                enum: [required, invalid_type, invalid_enum, invalid_value, too_small, too_big, invalid_format, unknown_field, invalid, broker_rejected]
+                description: "What is wrong, for programs. New codes may be added. Not every route fills it yet: an entry without a code is read by its message."
+              message: { type: string, description: "Plain words for a person." }
+              allowed: { type: array, items: {}, description: "With invalid_enum: the values that are accepted." }
+        unknownSymbols:
+          type: array
+          description: "VALIDATION_FAILED on POST /v1/downloads and POST /v1/recordings: each symbol the Bridge does not know, why, and the closest real symbols."
+          items:
+            type: object
+            properties:
+              symbol: { type: string }
+              reason: { type: string }
+              expired: { type: boolean, description: "True when the contract existed but has expired (downloads accept it with allowExpired: true)." }
+              suggestions: { type: array, items: { type: string } }
         candidates:
           type: array
           description: "AMBIGUOUS_SYMBOL (the instruments the name could mean) and SYMBOL_NOT_FOUND on /v1/symbols/resolve (the closest names)."
@@ -8770,6 +8821,7 @@ components:
         account: { type: string, description: "Use only this broker account." }
         backup: { type: boolean, default: false, description: "Allow data sources other than your broker accounts. The files then carry the source's data class (delayed or eod)." }
         afterHoursOnly: { type: boolean, description: "Wait outside market hours. Default: follows the downloads setting when the job runs (downloads.afterHoursOnly, or GET /v1/downloads/settings)." }
+        allowExpired: { type: boolean, default: false, description: "Accept symbols of contracts that have already expired (they are in no instrument master) to download their history. Without it an unknown or expired symbol is refused with 400 VALIDATION_FAILED, the unknown symbols are named in `unknownSymbols`, each with suggestions." }
         tags: { type: array, maxItems: 20, items: { type: string, maxLength: 32 } }
     DownloadEstimate:
       type: object
@@ -8832,7 +8884,8 @@ components:
               interval: { type: string }
               status: { type: string, enum: [pending, running, done, failed] }
               rows: { type: integer }
-              error: { type: object, properties: { code: { type: string }, message: { type: string } } }
+              error: { type: object, properties: { code: { type: string }, message: { type: string }, fix: { type: string, description: What to do about it. } } }
+        failure: { oneOf: [{ $ref: "#/components/schemas/FailureReason" }, { type: "null" }], description: "Set when status is failed: the real reason (the code and text of the first failed item, or of the job) and the fix. null otherwise." }
         request: { type: object, description: "The request as the Bridge understood it." }
         dataset: { type: [string, "null"] }
         collection: { type: object, description: "Present when the symbols came from a collection.", properties: { name: { type: string }, resolvedAt: { type: string }, rule: {} } }
@@ -8847,6 +8900,18 @@ components:
         startedAt: { type: [string, "null"], format: date-time }
         finishedAt: { type: [string, "null"], format: date-time }
         manifestUrl: { type: string }
+    FailureReason:
+      type: object
+      required: [code, message, fix]
+      description: "Why a download or recording did not work, in plain words. code is an API problem code (see GET /v1/errors) or a reason of the job itself (disk_limit, disk_full, internal, LOGIN_MISSING, UNIVERSE_UNRESOLVED, feed-silent ...)."
+      properties:
+        code: { type: string }
+        message: { type: string, description: What happened. The real text, not a generic one. }
+        fix: { type: string, description: What to do next. }
+        symbol: { type: string, description: "Downloads: the first failed item." }
+        interval: { type: string }
+        failedItems: { type: integer, description: "Downloads: how many items failed." }
+        since: { type: [string, "null"], description: "Recordings: when the problem began." }
     DownloadFile:
       type: object
       required: [name, rows, bytes, sha256]
@@ -9590,6 +9655,7 @@ components:
         keepDays: { type: [integer, "null"] }
         nextStartAt: { type: [string, "null"] }
         issue: { type: [object, "null"], additionalProperties: true }
+        problem: { oneOf: [{ $ref: "#/components/schemas/FailureReason" }, { type: "null" }], description: "What is wrong right now (a full disk, no login, symbols that could not be chosen, a silent feed): the real text, its code and the fix. null when all is well." }
         filesUrl: { type: string }
         files: { type: object, description: "On GET /v1/recordings/{recordingId} only.", properties: { count: { type: integer }, firstDate: { type: [string, "null"] }, lastDate: { type: [string, "null"] } } }
     RecordingGap:

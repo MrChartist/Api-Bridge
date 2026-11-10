@@ -383,16 +383,20 @@ const act = (name, button) => {
 
 function whyBlock() {
   const title = h("strong", {});
+  const real = h("span", { class: "detail dt-why-real", hidden: true });
   const text = h("span", { class: "detail" });
   const fix = h("div", { class: "alert-actions" });
-  const el = h("div", { class: "alert warn dt-why", role: "status", hidden: true }, icon("warn"), h("div", {}, title, text, fix));
+  const el = h("div", { class: "alert warn dt-why", role: "status", hidden: true }, icon("warn"), h("div", {}, title, real, text, fix));
   return {
     el,
     set(why, onRetry) {
       el.hidden = !why;
       if (!why) return;
       setText(title, why.title);
-      setText(text, why.fix);
+      // The Bridge's own words for what went wrong, with its code, then what to do about it.
+      real.hidden = !why.detail;
+      setText(real, why.detail ? `${why.detail}${why.code ? ` (${why.code})` : ""}` : "");
+      setText(text, why.detail ? `What to do: ${why.fix}` : why.fix);
       const sig = `${why.route ?? ""}|${onRetry ? 1 : 0}`;
       if (fix.dataset.sig !== sig) {
         fix.dataset.sig = sig;

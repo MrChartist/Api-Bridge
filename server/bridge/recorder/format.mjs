@@ -8,6 +8,7 @@
  * delayed or end-of-day data), and `tickAt`, the time of the price itself (the sample time is `time`).
  */
 import { toIstIso } from "../market/time.mjs";
+import { csvCell, unguardFormulaText } from "../core/http.mjs";
 
 /** Column order of every recorded file, quotes and chain legs alike. Columns that do not apply stay empty. */
 export const COLUMNS = Object.freeze([
@@ -88,16 +89,10 @@ export function rowOf(r) {
   };
 }
 
-const csvCell = (v) => {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
 /** The header line of a CSV file (with its newline). */
 export const csvHeader = () => `${COLUMNS.join(",")}\n`;
 
-/** One row as a line (with its newline) in the given format. Symbols and numbers never need quoting; text is escaped anyway. */
+/** One row as a line (with its newline) in the given format. Text cells get the same spreadsheet formula guard as every other CSV export (core/http.mjs csvCell); JSONL is not guarded (it is not opened as a sheet). */
 export function encodeRow(row, format) {
   if (format === "jsonl") return `${JSON.stringify(row)}\n`;
   return `${COLUMNS.map((c) => csvCell(row[c])).join(",")}\n`;
@@ -127,7 +122,7 @@ export function decodeRows(body, format) {
     const row = {};
     COLUMNS.forEach((c, i) => {
       const v = cells[i] ?? "";
-      row[c] = v === "" ? null : ["symbol", "time", "tickAt", "source", "class"].includes(c) ? v : Number(v);
+      row[c] = v === "" ? null : ["symbol", "time", "tickAt", "source", "class"].includes(c) ? unguardFormulaText(v) : Number(v);
     });
     out.push(row);
   }

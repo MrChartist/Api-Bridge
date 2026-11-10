@@ -94,6 +94,7 @@ export function createDataRoutes(problem) {
       if (d.jobFail && n >= 1) {
         job.status = "failed";
         job.reason = d.jobFail;
+        job.failure = { code: "SESSION_EXPIRED", message: d.jobFail, fix: "Log in to your broker again on the Accounts page, then resume the job.", symbol: job.items?.[0]?.symbol, interval: job.items?.[0]?.interval, failedItems: job.items?.length ?? 1 };
         d.emit("download.failed", { id: job.id, reason: d.jobFail });
       } else if (n >= d.jobPolls) finish(job);
       else if (n >= 1) job.status = "running";

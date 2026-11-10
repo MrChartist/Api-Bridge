@@ -36,6 +36,7 @@ export function showLines(r) {
   for (const g of r.gaps.recent ?? []) out.push(`    ${g.from} to ${g.to ?? "now"}  ${g.reason}${g.seconds != null ? ` (${g.seconds} s)` : ""}`);
   if (r.refused.total) out.push(`  not recorded because not real-time: ${r.refused.total} answers. ${r.refused.last?.reason ?? ""}`);
   out.push(`  API calls today: ${r.apiCalls.madeToday} made, ${r.apiCalls.savedToday} saved by the live feed and the cache`);
+  if (r.problem) out.push(`  problem: ${r.problem.message} (${r.problem.code})`, `  fix: ${r.problem.fix}`);
   out.push(`  disk: ${sizeText(r.disk.usedBytes)} of ${r.disk.limitMb ? `${r.disk.limitMb} MB (this recording)` : `${r.disk.totalLimitMb} MB (all recordings)`}`);
   return out;
 }

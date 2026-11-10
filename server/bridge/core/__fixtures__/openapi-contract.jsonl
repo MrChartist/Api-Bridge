@@ -1,0 +1,386 @@
+{"op":"DELETE /v1/accounts/{accountId}","id":"removeAccount","scope":"admin","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","id,removed,restartNeeded,savedKeysDeleted"]}}}
+{"op":"DELETE /v1/accounts/{accountId}/session","id":"disconnectAccount","scope":"admin","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","SessionState"],"requiredLists":["data,meta"]}}}
+{"op":"DELETE /v1/collections/{name}","id":"deleteCollection","scope":"admin","params":["force:query","name:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/datasets/{name}","id":"deleteDataset","scope":"admin","params":["name:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/downloads/{downloadId}","id":"deleteDownload","scope":"admin","params":["downloadId:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/hooks/{hookId}","id":"deleteHook","scope":"admin","params":["hookId:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/keys/{keyId}","id":"revokeKey","scope":"admin","params":["keyId:path!"],"body":null,"responses":{"200":{"schemas":["KeyRecord","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"DELETE /v1/notify/targets/{targetId}","id":"deleteNotifyTarget","scope":"admin","params":["targetId:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/notify/targets/{targetId}/chats/{chatKey}","id":"deleteNotifyChat","scope":"admin","params":["chatKey:path!","targetId:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/orders/{orderId}","id":"cancelOrder","scope":"paper","params":["$ref:IdempotencyKey","orderId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","OrderResult"],"requiredLists":["data,meta"]}}}
+{"op":"DELETE /v1/pooling/consent","id":"revokePooling","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["Meta","PoolingState"],"requiredLists":["data,meta"]}}}
+{"op":"DELETE /v1/quotas/{keyId}","id":"clearQuota","scope":"admin","params":["$ref:KeyIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","QuotaKey"],"requiredLists":["data,meta"]}}}
+{"op":"DELETE /v1/recordings/{recordingId}","id":"deleteRecording","scope":"admin","params":["recordingId:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/recordings/rules/{ruleId}","id":"deleteRecordingRule","scope":"admin","params":["deleteFiles:query","ruleId:path!"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/safety/kill-switch","id":"releaseKillSwitch","scope":"admin","params":[],"body":{"required":true,"schemas":[],"requiredLists":["confirm"]},"responses":{"200":{"schemas":["KillSwitchState","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"DELETE /v1/subscriptions/{subscriptionId}","id":"deleteSubscription","scope":"admin","params":["$ref:SubscriptionIdPath"],"body":null,"responses":{"204":{"schemas":[],"requiredLists":[]}}}
+{"op":"DELETE /v1/subscriptions/{subscriptionId}/dead-letters","id":"clearSubscriptionDeadLetters","scope":"admin","params":["$ref:SubscriptionIdPath"],"body":null,"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /","id":"getRoot","scope":null,"params":[],"body":null,"responses":{}}
+{"op":"GET /dashboard","id":"getDashboard","scope":null,"params":[],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /dashboard/{file}","id":"getDashboardAsset","scope":null,"params":["file:path!"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /openapi.yaml","id":"getOpenApi","scope":null,"params":[],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/accounts","id":"listAccounts","scope":"read","params":["$ref:Cursor","$ref:ListLimit"],"body":null,"responses":{"200":{"schemas":["AccountSummary","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/accounts/{accountId}","id":"getAccount","scope":"read","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["AccountSummary","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/audit","id":"queryAudit","scope":"admin","params":["$ref:AccountQueryOptional","$ref:Cursor","$ref:Limit","from:query","to:query","type:query"],"body":null,"responses":{"200":{"schemas":["AuditRecord","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/audit/verify","id":"verifyAudit","scope":"admin","params":["day:query"],"body":null,"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","brokenAt,checked,ok"]}}}
+{"op":"GET /v1/backup","id":"getBackup","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["BackupStatus","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/brokers","id":"listBrokers","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["BrokerInfo","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/calendar/holidays","id":"getCalendarHolidays","scope":"read","params":["exchange:query","year:query"],"body":null,"responses":{"200":{"schemas":["CalendarHolidays","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/calendar/sessions","id":"getCalendarSessions","scope":"read","params":["date:query","exchange:query"],"body":null,"responses":{"200":{"schemas":["CalendarSession","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/calendar/status","id":"getCalendarStatus","scope":"read","params":["exchange:query"],"body":null,"responses":{"200":{"schemas":["CalendarStatus","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/collections","id":"listCollections","scope":"read","params":["$ref:Cursor","$ref:ListLimit","kind:query","q:query","tag:query"],"body":null,"responses":{"200":{"schemas":["Collection","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/collections/{name}","id":"getCollection","scope":"read","params":["name:path!"],"body":null,"responses":{"200":{"schemas":["Collection","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/collections/{name}/estimate","id":"estimateCollection","scope":"read","params":["allowStale:query","days:query!","intervals:query!","name:path!"],"body":null,"responses":{"200":{"schemas":["CollectionEstimate","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/collections/{name}/export","id":"exportCollection","scope":"read","params":["format:query","name:path!","resolved:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/collections/{name}/resolve","id":"resolveCollection","scope":"read","params":["$ref:AccountQueryOptional","allowStale:query","name:path!","priority:query","requireLive:query","spot:query"],"body":null,"responses":{"200":{"schemas":["CollectionResolution","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/collections/{name}/usage","id":"getCollectionUsage","scope":"read","params":["name:path!"],"body":null,"responses":{"200":{"schemas":["CollectionUsage","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/datasets","id":"listDatasets","scope":"read","params":["$ref:Cursor","$ref:ListLimit","tag:query"],"body":null,"responses":{"200":{"schemas":["Dataset","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/datasets/{name}","id":"getDataset","scope":"read","params":["name:path!"],"body":null,"responses":{"200":{"schemas":["Dataset","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/datasets/{name}/files/{file}","id":"getDatasetFile","scope":"read","params":["file:path!","name:path!"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/depth","id":"getDepth","scope":"read","params":["$ref:AccountQueryOptional","$ref:MaxAge","$ref:ReadPriority","$ref:Strict","$ref:SymbolQuery"],"body":null,"responses":{"200":{"schemas":["DepthItem","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/downloads","id":"listDownloads","scope":"read","params":["$ref:Cursor","include:query","limit:query","status:query","tag:query"],"body":null,"responses":{"200":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/downloads/{downloadId}","id":"getDownload","scope":"read","params":["downloadId:path!"],"body":null,"responses":{"200":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/downloads/{downloadId}/files","id":"listDownloadFiles","scope":"read","params":["downloadId:path!"],"body":null,"responses":{"200":{"schemas":["DownloadFile","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/downloads/{downloadId}/files/{name}","id":"getDownloadFile","scope":"read","params":["downloadId:path!","name:path!"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/downloads/settings","id":"getDownloadSettings","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["DownloadSettings","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/errors","id":"listErrorCodes","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["ErrorCatalogueEntry","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/events","id":"listEvents","scope":"read","params":["$ref:EventAccounts","$ref:EventSince","$ref:EventTopics","limit:query"],"body":null,"responses":{"200":{"schemas":["EventEnvelope","EventsMeta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/events/status","id":"getEventsStatus","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["EventsStatus","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/events/stream","id":"openEventStream","scope":null,"params":["$ref:EventAccounts","$ref:EventSince","$ref:EventTopics","token:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/events/topics","id":"listEventTopics","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["EventTopic","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/events/ws","id":"openEventSocket","scope":null,"params":["$ref:EventAccounts","$ref:EventSince","$ref:EventTopics","token:query"],"body":null,"responses":{}}
+{"op":"GET /v1/expiries","id":"getExpiries","scope":"read","params":["$ref:AccountQueryOptional","$ref:Backup","$ref:Purpose","$ref:Strict","exchange:query","underlying:query!"],"body":null,"responses":{"200":{"schemas":["Freshness","Meta"],"requiredLists":["data,meta","expiries,freshness,underlying"]}}}
+{"op":"GET /v1/expose","id":"getExposure","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["ExposeListener","Meta"],"requiredLists":["data,meta","alerts,checks,exposed,headline,sheets,state,tone","check,level,message"]}}}
+{"op":"GET /v1/funds","id":"getFunds","scope":"read","params":["$ref:AccountQuery","$ref:ModeQuery"],"body":null,"responses":{"200":{"schemas":["Funds","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/health","id":"getHealth","scope":null,"params":[],"body":null,"responses":{"200":{"schemas":["Health"],"requiredLists":[]}}}
+{"op":"GET /v1/history","id":"getHistory","scope":"read","params":["$ref:AccountQueryOptional","$ref:Backup","$ref:Purpose","$ref:Strict","$ref:SymbolQuery","countback:query","dataset:query","format:query","from:query","interval:query!","localFirst:query","to:query"],"body":null,"responses":{"200":{"schemas":["HistoryResult","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/holdings","id":"getHoldings","scope":"read","params":["$ref:AccountQuery"],"body":null,"responses":{"200":{"schemas":["Holding","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/hooks","id":"listHooks","scope":"admin","params":["$ref:Cursor","$ref:ListLimit"],"body":null,"responses":{"200":{"schemas":["Hook","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/hooks/{hookId}/signals","id":"listHookSignals","scope":"admin","params":["hookId:path!","limit:query","outcome:query"],"body":null,"responses":{"200":{"schemas":["HookSignals","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/hooks/presets","id":"getHookPresets","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["HookPresets","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/instruments/{symbol}","id":"getInstrument","scope":"read","params":["include:query","symbol:path!"],"body":null,"responses":{"200":{"schemas":["Instrument","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/instruments/export","id":"exportInstruments","scope":"read","params":["exchange:query","format:query","kind:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/instruments/search","id":"searchInstruments","scope":"read","params":["$ref:Cursor","$ref:Limit","exchange:query","expiry:query","kind:query","q:query!","underlying:query"],"body":null,"responses":{"200":{"schemas":["Instrument","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/keys","id":"listKeys","scope":"admin","params":["$ref:Cursor","$ref:ListLimit"],"body":null,"responses":{"200":{"schemas":["KeyRecord","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/limits","id":"getLimits","scope":"read","params":["$ref:AccountQueryOptional","explain:query"],"body":null,"responses":{"200":{"schemas":["LimitsReport","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/ltp","id":"getLtp","scope":"read","params":["$ref:AccountQueryOptional","$ref:Backup","$ref:MaxAge","$ref:Purpose","$ref:ReadPriority","$ref:Strict","$ref:Swr","$ref:Symbols"],"body":null,"responses":{"200":{"schemas":["ItemError","LtpItem","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/meta","id":"getMeta","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["MetaInfo"],"requiredLists":[]}}}
+{"op":"GET /v1/notify/events","id":"getNotifyEvents","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["Meta","NotifyEvents"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/notify/status","id":"getNotifyStatus","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["Meta","NotifyStatus"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/notify/targets","id":"listNotifyTargets","scope":"admin","params":[],"body":null,"responses":{"200":{"schemas":["Meta","NotifyTarget"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/optionchain","id":"getOptionChain","scope":"read","params":["$ref:AccountQueryOptional","$ref:Backup","$ref:MaxAge","$ref:Purpose","$ref:ReadPriority","$ref:Strict","$ref:Swr","expiry:query!","greeks:query","ivModel:query","strikes:query","underlying:query!"],"body":null,"responses":{"200":{"schemas":["Meta","OptionChain"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/orders","id":"listOrders","scope":"read","params":["$ref:AccountQueryOptional","$ref:Cursor","$ref:Limit","$ref:ModeQuery","status:query"],"body":null,"responses":{"200":{"schemas":["Meta","OrderResult"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/orders/{orderId}","id":"getOrder","scope":"read","params":["orderId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","OrderResult"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/orders/by-client-id/{clientOrderId}","id":"getOrderByClientId","scope":"read","params":["clientOrderId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","OrderResult"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/paper/accounts/{accountId}","id":"getPaperAccount","scope":"read","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","PaperAccount"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/paper/accounts/{accountId}/daily","id":"paperDailyPnl","scope":"read","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","PaperDailyPnl"],"requiredLists":["data,meta","items"]}}}
+{"op":"GET /v1/pooling","id":"getPooling","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","PoolingState"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/positions","id":"getPositions","scope":"read","params":["$ref:AccountQuery","$ref:ModeQuery"],"body":null,"responses":{"200":{"schemas":["Meta","Position"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/quotas","id":"getQuotas","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","QuotasReport"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/quotes","id":"getQuotes","scope":"read","params":["$ref:AccountQueryOptional","$ref:Backup","$ref:MaxAge","$ref:Purpose","$ref:ReadPriority","$ref:Strict","$ref:Swr","$ref:Symbols"],"body":null,"responses":{"200":{"schemas":["ItemError","Meta","QuoteItem"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/readiness","id":"getReadiness","scope":"read","params":["account:query"],"body":null,"responses":{"200":{"schemas":["Meta","Readiness"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/readiness/history","id":"getReadinessHistory","scope":"read","params":["account:query","limit:query"],"body":null,"responses":{"200":{"schemas":["Meta","ReadinessTransition"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings","id":"listRecordings","scope":"read","params":["$ref:Cursor","$ref:ListLimit"],"body":null,"responses":{"200":{"schemas":["Meta","Recording"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/{recordingId}","id":"getRecording","scope":"read","params":["recordingId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","Recording"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/{recordingId}/files","id":"listRecordingFiles","scope":"read","params":["recordingId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","RecordingFile"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/{recordingId}/files/{name}","id":"getRecordingFile","scope":"read","params":["name:path!","recordingId:path!"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/recordings/auto","id":"getRecordingAuto","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","RecordingAuto"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/presets","id":"listRecordingPresets","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","RecordingPreset"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/rules","id":"listRecordingRules","scope":"read","params":["$ref:Cursor","$ref:ListLimit"],"body":null,"responses":{"200":{"schemas":["Meta","RecordingRule"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/rules/{ruleId}","id":"getRecordingRule","scope":"read","params":["ruleId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","RecordingRule"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/settings","id":"getRecordingSettings","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","RecordingSettings"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/recordings/status","id":"getRecordingsStatus","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","RecordingStatus"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/requests","id":"listRecentRequests","scope":"admin","params":["limit:query"],"body":null,"responses":{"200":{"schemas":["Meta","RequestRoute"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/safety","id":"getSafety","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","SafetyStatus"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/sources","id":"listSources","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["DataSource","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/sources/trace","id":"traceSources","scope":"read","params":["$ref:Purpose","capability:query!","maxAgeMs:query","symbols:query!"],"body":null,"responses":{"200":{"schemas":["Meta","RoutingTrace"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/stream","id":"openStream","scope":null,"params":["token:query"],"body":null,"responses":{}}
+{"op":"GET /v1/stream/sse","id":"openSse","scope":null,"params":["$ref:Symbols","mode:query","orders:query","token:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /v1/stream/stats","id":"getStreamStats","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta","StreamStats"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/subscriptions","id":"listSubscriptions","scope":"admin","params":["$ref:Cursor","$ref:ListLimit"],"body":null,"responses":{"200":{"schemas":["Meta","Subscription"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/subscriptions/{subscriptionId}","id":"getSubscription","scope":"admin","params":["$ref:SubscriptionIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","Subscription"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/subscriptions/{subscriptionId}/dead-letters","id":"listSubscriptionDeadLetters","scope":"admin","params":["$ref:Cursor","$ref:ListLimit","$ref:SubscriptionIdPath"],"body":null,"responses":{"200":{"schemas":["DeadLetter","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/subscriptions/{subscriptionId}/deliveries","id":"listSubscriptionDeliveries","scope":"admin","params":["$ref:SubscriptionIdPath","limit:query","outcome:query"],"body":null,"responses":{"200":{"schemas":["DeliveryRecord","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/symbols/convert","id":"convertSymbolGet","scope":"read","params":["broker:query","exchange:query","from:query","input:query!"],"body":null,"responses":{"200":{"schemas":["ConvertResult","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/symbols/resolve","id":"resolveSymbol","scope":"read","params":["exchange:query","explain:query","kind:query","limit:query","q:query!"],"body":null,"responses":{"200":{"schemas":["Meta","SymbolResolution"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/symbols/validate","id":"validateSymbolGet","scope":"read","params":["exchange:query","symbol:query!"],"body":null,"responses":{"200":{"schemas":["Meta","SymbolValidation"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/tickets","id":"listTickets","scope":"admin","params":["state:query"],"body":null,"responses":{"200":{"schemas":["Meta","Ticket"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/trades","id":"listTrades","scope":"read","params":["$ref:AccountQueryOptional","$ref:Cursor","$ref:Limit","$ref:ModeQuery"],"body":null,"responses":{"200":{"schemas":["Meta","Trade"],"requiredLists":["data,meta"]}}}
+{"op":"GET /v1/usage","id":"getUsage","scope":"read","params":["series:query","view:query"],"body":null,"responses":{"200":{"schemas":["Meta","UsageReport"],"requiredLists":["data,meta"]}}}
+{"op":"GET /xl/chain","id":"xlChain","scope":"read","params":["expiry:query!","format:query","underlying:query!"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/funds","id":"xlFunds","scope":"read","params":["$ref:XlCache","$ref:XlFormat","account:query","mode:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/history","id":"xlHistory","scope":"read","params":["$ref:SymbolQuery","from:query","interval:query!","layout:query","to:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/holdings","id":"xlHoldings","scope":"read","params":["$ref:XlCache","$ref:XlFormat","account:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/instrument","id":"xlInstrument","scope":"read","params":["$ref:XlCache","$ref:XlFormat","field:query","symbol:query!"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/ltp","id":"xlLtp","scope":"read","params":["$ref:SymbolQuery"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/orders","id":"xlOrders","scope":"read","params":["$ref:XlCache","$ref:XlFormat","account:query","limit:query","mode:query","status:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/positions","id":"xlPositions","scope":"read","params":["$ref:XlCache","$ref:XlFormat","account:query","mode:query","open:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/quote","id":"xlQuote","scope":"read","params":["$ref:SymbolQuery","field:query!"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"GET /xl/quotes","id":"xlQuotes","scope":"read","params":["$ref:XlCache","$ref:XlFormat","collection:query","fields:query","symbols:query"],"body":null,"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"PATCH /v1/collections/{name}","id":"updateCollection","scope":"read","params":["name:path!"],"body":{"required":true,"schemas":["CollectionPatch"],"requiredLists":[]},"responses":{"200":{"schemas":["Collection","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/datasets/{name}","id":"updateDatasetInfo","scope":"read","params":["name:path!"],"body":{"required":true,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["Dataset","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/downloads/{downloadId}","id":"updateDownload","scope":"read","params":["downloadId:path!"],"body":{"required":true,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/downloads/settings","id":"patchDownloadSettings","scope":"admin","params":[],"body":{"required":true,"schemas":["DownloadSettingsUpdate"],"requiredLists":[]},"responses":{"200":{"schemas":["DownloadSettings","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/notify/targets/{targetId}/chats/{chatKey}","id":"updateNotifyChat","scope":"admin","params":["chatKey:path!","targetId:path!"],"body":{"required":true,"schemas":["NotifyChatPatch"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","NotifyChat"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/orders/{orderId}","id":"modifyOrder","scope":"paper","params":["$ref:IdempotencyKey","orderId:path!"],"body":{"required":true,"schemas":["OrderChanges"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","OrderResult"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/recordings/rules/{ruleId}","id":"patchRecordingRule","scope":"admin","params":["ruleId:path!"],"body":{"required":true,"schemas":["RecordingRulePatch"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","RecordingRule"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/recordings/settings","id":"patchRecordingSettings","scope":"admin","params":[],"body":{"required":true,"schemas":["RecordingSettingsUpdate"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","RecordingSettings"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/sources/{id}","id":"updateSource","scope":"admin","params":["$ref:SourceIdPath"],"body":{"required":true,"schemas":["SourceUpdate"],"requiredLists":[]},"responses":{"200":{"schemas":["DataSource","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/sources/settings","id":"updateSourcesSettings","scope":"admin","params":[],"body":{"required":true,"schemas":["SourcesSettingsUpdate"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","SourcesSettings"],"requiredLists":["data,meta"]}}}
+{"op":"PATCH /v1/subscriptions/{subscriptionId}","id":"updateSubscription","scope":"admin","params":["$ref:SubscriptionIdPath"],"body":{"required":true,"schemas":["SubscriptionUpdate"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","Subscription"],"requiredLists":["data,meta"]}}}
+{"op":"POST /api/v1/analyzer","id":"compatAnalyzer","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/analyzer/toggle","id":"compatAnalyzerToggle","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/basketorder","id":"compatBasketorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/cancelallorder","id":"compatCancelallorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/cancelorder","id":"compatCancelorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/closeposition","id":"compatCloseposition","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/depth","id":"compatDepth","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/expiry","id":"compatExpiry","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/funds","id":"compatFunds","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/history","id":"compatHistory","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/holdings","id":"compatHoldings","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/intervals","id":"compatIntervals","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/margin","id":"compatMargin","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/modifyorder","id":"compatModifyorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/multiquotes","id":"compatMultiquotes","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/openposition","id":"compatOpenposition","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/optionchain","id":"compatOptionchain","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/optionsorder","id":"compatOptionsorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/optionsymbol","id":"compatOptionsymbol","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/orderbook","id":"compatOrderbook","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/orderstatus","id":"compatOrderstatus","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/ping","id":"compatPing","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/placeorder","id":"compatPlaceorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/placesmartorder","id":"compatPlacesmartorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/positionbook","id":"compatPositionbook","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/quotes","id":"compatQuotes","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/search","id":"compatSearch","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/splitorder","id":"compatSplitorder","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/symbol","id":"compatSymbol","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /api/v1/tradebook","id":"compatTradebook","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["apikey"]},"responses":{"200":{"schemas":["CompatReply"],"requiredLists":[]}}}
+{"op":"POST /hooks/{source}/{token}","id":"receiveHook","scope":null,"params":["X-MCB-Signature:header","source:path!","token:path!"],"body":{"required":true,"schemas":[],"requiredLists":[]},"responses":{"202":{"schemas":[],"requiredLists":["accepted,signalId"]}}}
+{"op":"POST /mcp","id":"mcp","scope":"read","params":[],"body":{"required":true,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":[],"requiredLists":[]}}}
+{"op":"POST /v1/accounts","id":"addAccount","scope":"admin","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["AccountCreateRequest"],"requiredLists":[]},"responses":{"201":{"schemas":["AccountSummary","Meta"],"requiredLists":["data,meta","account,configFile,restartNeeded"]}}}
+{"op":"POST /v1/accounts/{accountId}/session","id":"connectAccount","scope":"admin","params":["$ref:AccountIdPath"],"body":{"required":true,"schemas":["SessionConnectRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","SessionState"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/accounts/{accountId}/test","id":"testAccount","scope":"read","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","message,ok"]}}}
+{"op":"POST /v1/backup","id":"createBackup","scope":"admin","params":[],"body":{"required":false,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["BackupCreated","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/collections","id":"createCollection","scope":"read","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["CollectionCreate"],"requiredLists":[]},"responses":{"201":{"schemas":["Collection","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/collections/{name}/duplicate","id":"duplicateCollection","scope":"read","params":["$ref:IdempotencyKey","name:path!"],"body":{"required":false,"schemas":[],"requiredLists":[]},"responses":{"201":{"schemas":["Collection","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/collections/import","id":"importCollections","scope":"read","params":["$ref:IdempotencyKey","description:query","format:query","name:query","replace:query","skipInvalid:query","tags:query"],"body":{"required":true,"schemas":[],"requiredLists":[]},"responses":{"201":{"schemas":["Collection","Meta"],"requiredLists":["data,meta","created,replaced,warnings"]}}}
+{"op":"POST /v1/datasets/{name}/update","id":"updateDataset","scope":"read","params":["$ref:IdempotencyKey","name:path!"],"body":null,"responses":{"202":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/demo/readiness","id":"demoReadinessScenario","scope":"read","params":[],"body":{"required":true,"schemas":[],"requiredLists":["scenario"]},"responses":{"200":{"schemas":["Meta","Readiness"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/downloads","id":"createDownload","scope":"read","params":["$ref:IdempotencyKey","dryRun:query"],"body":{"required":true,"schemas":["DownloadRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["DownloadEstimate","Meta"],"requiredLists":["data,meta"]},"202":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/downloads/{downloadId}/cancel","id":"cancelDownload","scope":"read","params":["downloadId:path!"],"body":null,"responses":{"200":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/downloads/{downloadId}/pause","id":"pauseDownload","scope":"read","params":["downloadId:path!"],"body":null,"responses":{"200":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/downloads/{downloadId}/resume","id":"resumeDownload","scope":"read","params":["downloadId:path!"],"body":null,"responses":{"200":{"schemas":["DownloadJob","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/expose/check","id":"checkExposure","scope":"admin","params":[],"body":{"required":false,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","headline,items,verdict","detail,id,status,title"]}}}
+{"op":"POST /v1/hooks","id":"createHook","scope":"admin","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["HookCreate"],"requiredLists":[]},"responses":{"201":{"schemas":["Hook","HookIpPreset","HookTemplate","Meta"],"requiredLists":["data,meta","url"]}}}
+{"op":"POST /v1/hooks/{hookId}/test","id":"testHook","scope":"admin","params":["hookId:path!"],"body":{"required":false,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["HookTestResult","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/keys","id":"createKey","scope":"admin","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["KeyCreateRequest"],"requiredLists":[]},"responses":{"201":{"schemas":["KeyCreated","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/margin/basket","id":"marginBasket","scope":"read","params":[],"body":{"required":true,"schemas":["MarginBasketRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["MarginBasket","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/notify/targets","id":"createNotifyTarget","scope":"admin","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["NotifyTargetCreate"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","NotifyTarget"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/notify/targets/{targetId}/chats","id":"addNotifyChat","scope":"admin","params":["targetId:path!"],"body":{"required":true,"schemas":["NotifyChatAdd"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","NotifyChat"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/notify/targets/{targetId}/find-chat","id":"findNotifyChat","scope":"admin","params":["targetId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","NotifyFoundChat"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/notify/targets/{targetId}/test","id":"testNotifyTarget","scope":"admin","params":["targetId:path!"],"body":{"required":true,"schemas":["NotifyTestRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","NotifyTestResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/orders","id":"placeOrder","scope":"paper","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["OrderRequest"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","OrderResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/orders/batch","id":"placeOrderBatch","scope":"paper","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["OrderBatchRequest"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","OrderBatchResult"],"requiredLists":["data,meta"]},"207":{"schemas":["Meta","OrderBatchResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/orders/cancel-all","id":"cancelAllOrders","scope":"paper","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["AccountId"],"requiredLists":[]},"responses":{"200":{"schemas":["CancelAllOpenOrder","ItemError","Meta"],"requiredLists":["data,meta","bridge,cancelled,external,failed","cancelled","cancelled,left"]}}}
+{"op":"POST /v1/orders/preview","id":"previewOrder","scope":"paper","params":[],"body":{"required":true,"schemas":["OrderRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","PreviewResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/orders/to-target","id":"placeOrderToTarget","scope":"paper","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["TargetOrderRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","TargetOrderResult"],"requiredLists":["data,meta"]},"201":{"schemas":["Meta","TargetOrderResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/paper/accounts/{accountId}/daily","id":"paperDailySnapshot","scope":"paper","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","PaperDailyPnl"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/paper/accounts/{accountId}/margin","id":"paperBasketMargin","scope":"read","params":["$ref:AccountIdPath"],"body":{"required":true,"schemas":[],"requiredLists":["legs","side,symbol"]},"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","after,alone,before,change,method,model,standalone"]}}}
+{"op":"POST /v1/paper/accounts/{accountId}/reset","id":"resetPaperAccount","scope":"paper","params":["$ref:AccountIdPath"],"body":{"required":false,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","PaperAccount"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/paper/accounts/{accountId}/reset/undo","id":"undoPaperReset","scope":"paper","params":["$ref:AccountIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","PaperAccount"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/positions/convert","id":"convertPosition","scope":"paper","params":[],"body":{"required":true,"schemas":[],"requiredLists":["account,from,symbol,to"]},"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/readiness/check","id":"checkReadiness","scope":"read","params":[],"body":{"required":false,"schemas":["AccountId"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","Readiness"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/recordings","id":"createRecording","scope":"admin","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["RecordingCreate"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","Recording"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/recordings/{recordingId}/pause","id":"pauseRecording","scope":"admin","params":["recordingId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","Recording"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/recordings/{recordingId}/resume","id":"resumeRecording","scope":"admin","params":["recordingId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","Recording"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/recordings/{recordingId}/stop","id":"stopRecording","scope":"admin","params":["recordingId:path!"],"body":null,"responses":{"200":{"schemas":["Meta","Recording"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/recordings/presets/{presetId}/apply","id":"applyRecordingPreset","scope":"admin","params":["$ref:IdempotencyKey","presetId:path!"],"body":{"required":true,"schemas":["RecordingPresetApply"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","RecordingPresetResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/recordings/rules","id":"createRecordingRule","scope":"admin","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["RecordingRuleCreate"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","RecordingRule"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/safety/kill-switch","id":"engageKillSwitch","scope":"read","params":[],"body":{"required":false,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["KillSwitchState","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/sign-in","id":"signIn","scope":null,"params":[],"body":{"required":true,"schemas":[],"requiredLists":["code"]},"responses":{"201":{"schemas":["KeyCreated","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/sources/{id}/test","id":"testSource","scope":"admin","params":["$ref:SourceIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","SourceTestResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/stream/token","id":"createStreamToken","scope":"read","params":[],"body":null,"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","expiresAt,token"]}}}
+{"op":"POST /v1/subscriptions","id":"createSubscription","scope":"admin","params":["$ref:IdempotencyKey"],"body":{"required":true,"schemas":["SubscriptionCreate"],"requiredLists":[]},"responses":{"201":{"schemas":["Meta","Subscription"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry","id":"retrySubscriptionDeadLetter","scope":"admin","params":["$ref:SubscriptionIdPath","deliveryId:path!"],"body":null,"responses":{"202":{"schemas":["Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/subscriptions/{subscriptionId}/test","id":"testSubscription","scope":"admin","params":["$ref:SubscriptionIdPath"],"body":null,"responses":{"200":{"schemas":["Meta","SubscriptionTestResult"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/symbols/convert","id":"convertSymbols","scope":"read","params":[],"body":{"required":true,"schemas":["ConvertRequest"],"requiredLists":["items"]},"responses":{"200":{"schemas":["ConvertResult","ItemError","Meta"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/symbols/validate","id":"validateSymbols","scope":"read","params":[],"body":{"required":true,"schemas":["Exchange"],"requiredLists":["items","symbol"]},"responses":{"200":{"schemas":["Meta","SymbolValidation"],"requiredLists":["data,meta"]}}}
+{"op":"POST /v1/tickets/{ticketId}/confirm","id":"confirmTicket","scope":"admin","params":["ticketId:path!"],"body":null,"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","confirmToken,expiresAt"]}}}
+{"op":"POST /v1/tickets/{ticketId}/reject","id":"rejectTicket","scope":"admin","params":["ticketId:path!"],"body":{"required":false,"schemas":[],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","Ticket"],"requiredLists":["data,meta"]}}}
+{"op":"PUT /v1/notify/events","id":"putNotifyEvents","scope":"admin","params":[],"body":{"required":true,"schemas":["NotifyEventsUpdate"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","NotifyEvents"],"requiredLists":["data,meta"]}}}
+{"op":"PUT /v1/pooling/consent","id":"acceptPooling","scope":"admin","params":[],"body":{"required":true,"schemas":["PoolingConsentRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","PoolingState"],"requiredLists":["data,meta"]}}}
+{"op":"PUT /v1/quotas/{keyId}","id":"setQuota","scope":"admin","params":["$ref:KeyIdPath"],"body":{"required":true,"schemas":["QuotaOverride"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","QuotaKey"],"requiredLists":["data,meta"]}}}
+{"op":"PUT /v1/recordings/auto","id":"putRecordingAuto","scope":"admin","params":[],"body":{"required":true,"schemas":["RecordingAutoUpdate"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta","RecordingAuto"],"requiredLists":["data,meta"]}}}
+{"op":"PUT /v1/sources/{id}/config","id":"configureSource","scope":"admin","params":["$ref:SourceIdPath"],"body":{"required":true,"schemas":["SourceConfigRequest"],"requiredLists":[]},"responses":{"200":{"schemas":["Meta"],"requiredLists":["data,meta","configured"]}}}
+{"schema":"AccountCreateRequest","required":"broker"}
+{"schema":"AccountId","required":""}
+{"schema":"AccountReadiness","required":"accountId,broker,checks,live,reasons,simulated,stale,state"}
+{"schema":"AccountSummary","required":"broker,capabilities,enabled,id,label,liveAllowedByConfig,pooling,session"}
+{"schema":"AuditRecord","required":"actor,at,hash,prevHash,seq,source,type"}
+{"schema":"BackupCreated","required":"bytes,createdAt,files,includesSecrets,kind,masterKeyIncluded,name,path,restoreCommand"}
+{"schema":"BackupFile","required":"at,bytes,kind,name,path"}
+{"schema":"BackupStatus","required":"folder,items,keep,lastBackupAt,lastBackupBytes,lastBackupKind,lastError,restoreCommand,schedule"}
+{"schema":"BrokerInfo","required":"authKind,capabilities,id,name,verified"}
+{"schema":"BrokerPolicy","required":""}
+{"schema":"CalendarHolidays","required":"calendar,exchange,holidays,specialSessions,year"}
+{"schema":"CalendarInfo","required":"asOf,covered,coveredYears,source,verified"}
+{"schema":"CalendarSession","required":"calendar,date,exchange,isTradingDay,reason,sessionTimes,weekday"}
+{"schema":"CalendarSessionTimes","required":"close,open,preOpen,verified"}
+{"schema":"CalendarStatus","required":"asOf,calendar,date,exchange,reason,sessionTimes,status,time"}
+{"schema":"CancelAllOpenOrder","required":"accountId,external,mode,orderId"}
+{"schema":"Candle","required":"close,high,low,open,time,volume"}
+{"schema":"ChainLeg","required":"symbol"}
+{"schema":"ChainPricing","required":""}
+{"schema":"Check","required":"code,message,severity"}
+{"schema":"ClientOrderId","required":""}
+{"schema":"Collection","required":"createdAt,description,id,kind,name,previousNames,tags,updatedAt"}
+{"schema":"CollectionCreate","required":"name"}
+{"schema":"CollectionEstimate","required":"brokerCalls,bytes,days,intervals,name,notes,rows,symbols,tradingDays"}
+{"schema":"CollectionPatch","required":""}
+{"schema":"CollectionResolution","required":"atmSource,count,id,kind,name,resolvedAt,rule,symbols,warnings"}
+{"schema":"CollectionUniverse","required":"underlying"}
+{"schema":"CollectionUsage","required":"datasets,downloads,id,name,recordings,rules,sources,total"}
+{"schema":"CompatReply","required":"status"}
+{"schema":"Confidence","required":""}
+{"schema":"ConvertRequest","required":"input"}
+{"schema":"ConvertResult","required":"aliases,canonical,input"}
+{"schema":"DataClass","required":""}
+{"schema":"Dataset","required":"bytes,format,name,rows,series"}
+{"schema":"DataSource","required":"capabilities,class,configured,delaySec,enabled,health,id,kind,limits,name,needsKey,official,tier,usage"}
+{"schema":"DeadLetter","required":""}
+{"schema":"DeliveryRecord","required":""}
+{"schema":"DepthItem","required":"asks,bids,freshness,symbol"}
+{"schema":"DepthLevel","required":"price,qty"}
+{"schema":"DownloadEstimate","required":""}
+{"schema":"DownloadFile","required":"bytes,name,rows,sha256"}
+{"schema":"DownloadJob","required":"createdAt,dataClass,id,manifestUrl,name,progress,request,status"}
+{"schema":"DownloadRequest","required":"from,intervals"}
+{"schema":"DownloadSettings","required":"afterHoursOnly,defaults,limits,maxBudgetShare"}
+{"schema":"DownloadSettingsUpdate","required":""}
+{"schema":"DownloadStatus","required":""}
+{"schema":"ErrorCatalogueEntry","required":"code,fix,means,retry,retryable,status,title"}
+{"schema":"ErrorCode","required":""}
+{"schema":"EventEnvelope","required":"apiVersion,data,id,time,topic"}
+{"schema":"EventsMeta","required":""}
+{"schema":"EventsStatus","required":""}
+{"schema":"EventTopic","required":"accountScoped,description,scope,topic"}
+{"schema":"Exchange","required":""}
+{"schema":"ExposeListener","required":"enabled,hosts,listen"}
+{"schema":"FailureReason","required":"code,fix,message"}
+{"schema":"Freshness","required":"ageMs,asOf,class,confidence,delaySec,flags,official,source,stale"}
+{"schema":"Funds","required":"availableCash,usedMargin"}
+{"schema":"Health","required":"apiVersion,status,version"}
+{"schema":"HistoryResult","required":"candles,freshness,interval,partial,symbol"}
+{"schema":"Holding","required":"avgPrice,qty,symbol"}
+{"schema":"Hook","required":"account,createdAt,id,label,mode,source"}
+{"schema":"HookCreate","required":"account,label,source"}
+{"schema":"HookIpPreset","required":"edited,ips,name,source,verifiedAt"}
+{"schema":"HookPresets","required":"clientIpHeader,ipPresets,publicIngress"}
+{"schema":"HookSignal","required":"index,outcome,receivedAt,summary"}
+{"schema":"HookSignalOutcome","required":""}
+{"schema":"HookSignals","required":"counts,hookId,signals"}
+{"schema":"HookTemplate","required":"contentType,message,name,notes"}
+{"schema":"HookTestResult","required":"accepted,mode,outcome,summary,test"}
+{"schema":"Instrument","required":"exchange,kind,lotSize,symbol,tickSize,underlying"}
+{"schema":"InstrumentKind","required":""}
+{"schema":"Interval","required":""}
+{"schema":"ItemError","required":"code,message"}
+{"schema":"KeyCreated","required":"key,record"}
+{"schema":"KeyCreateRequest","required":"label,scopes"}
+{"schema":"KeyRecord","required":"accounts,createdAt,id,label,scopes"}
+{"schema":"KillSwitchState","required":"engaged"}
+{"schema":"LimitsConsumer","required":"id,inFlight,label,queued,share"}
+{"schema":"LimitsPool","required":"accounts,backoffFactor,ceiling,group,spare"}
+{"schema":"LimitsReport","required":""}
+{"schema":"LtpItem","required":"freshness,ltp,symbol"}
+{"schema":"MarginBasket","required":"account,asOf,legs,source,total"}
+{"schema":"MarginBasketRequest","required":"positions"}
+{"schema":"Meta","required":"requestId"}
+{"schema":"MetaInfo","required":"apiVersion,bridgeVersion,brokers,modules,routes"}
+{"schema":"NotifyChat","required":"commands,idHint,key,name,type"}
+{"schema":"NotifyChatAdd","required":""}
+{"schema":"NotifyChatPatch","required":"commands"}
+{"schema":"NotifyEvents","required":"events,morning,quietHours"}
+{"schema":"NotifyEventsUpdate","required":""}
+{"schema":"NotifyFoundChat","required":"idHint,name,ref,seenAt,type"}
+{"schema":"NotifyStatus","required":"counters,enabled,queue,targets"}
+{"schema":"NotifyTarget","required":"bot,chats,createdAt,health,id,kind,label"}
+{"schema":"NotifyTargetCreate","required":"token"}
+{"schema":"NotifyTestRequest","required":""}
+{"schema":"NotifyTestResult","required":"delivered,ok,results"}
+{"schema":"OptionChain","required":"expiry,freshness,rows,underlying"}
+{"schema":"OrderBatchLeg","required":"index,ok,status"}
+{"schema":"OrderBatchRequest","required":"account,orders"}
+{"schema":"OrderBatchResult","required":"account,ok,results,summary"}
+{"schema":"OrderChanges","required":""}
+{"schema":"OrderLeg","required":"quantity,status"}
+{"schema":"OrderRequest","required":"account,orderType,product,side,symbol"}
+{"schema":"OrderResult","required":"accountId,broker,filledQuantity,legs,mode,orderId,orderType,placedAt,product,quantity,side,status,symbol,updatedAt"}
+{"schema":"OrderStatus","required":""}
+{"schema":"PaperAccount","required":"accountId,funds,startingCapital"}
+{"schema":"PaperDailyPnl","required":"at,day,equity,pnl,source"}
+{"schema":"PoolingConsentRequest","required":"accounts,acknowledge"}
+{"schema":"PoolingState","required":"consent,groups,notice"}
+{"schema":"Position","required":"avgPrice,netQty,pnl,product,symbol"}
+{"schema":"PreviewResult","required":"checks,mode,ok,requiresHumanConfirmation"}
+{"schema":"Problem","required":"code,retryable,status,title,type"}
+{"schema":"Purpose","required":""}
+{"schema":"QuotaKey","required":"burst,clientKind,keyId,label,perDay,perSecond,source,usage,weight"}
+{"schema":"QuotaOverride","required":""}
+{"schema":"QuotasReport","required":"default,keys,kinds"}
+{"schema":"QuoteItem","required":"freshness,ltp,symbol"}
+{"schema":"Readiness","required":"accounts,method,overall,paperOnly,summary"}
+{"schema":"ReadinessAutomation","required":"id,kind,label,mode,state"}
+{"schema":"ReadinessCheck","required":"status"}
+{"schema":"ReadinessReason","required":"check,code,message,severity"}
+{"schema":"ReadinessState","required":""}
+{"schema":"ReadinessTransition","required":"accountId,at,codes,from,to"}
+{"schema":"Recording","required":"bytes,dataClass,everySec,id,kind,name,rows,status,statusText"}
+{"schema":"RecordingAuto","required":"enabled"}
+{"schema":"RecordingAutoUpdate","required":"enabled"}
+{"schema":"RecordingCreate","required":"everySec,kind"}
+{"schema":"RecordingFile","required":"bytes,date,format,name,rows,symbol"}
+{"schema":"RecordingGap","required":""}
+{"schema":"RecordingPreset","required":""}
+{"schema":"RecordingPresetApply","required":""}
+{"schema":"RecordingPresetResult","required":""}
+{"schema":"RecordingRule","required":"everySec,id,kind,name"}
+{"schema":"RecordingRuleCreate","required":"everySec,kind,name"}
+{"schema":"RecordingRulePatch","required":""}
+{"schema":"RecordingSchedule","required":""}
+{"schema":"RecordingSettings","required":"defaults,limits,maxBudgetShare"}
+{"schema":"RecordingSettingsUpdate","required":"maxBudgetShare"}
+{"schema":"RecordingStatus","required":"disk,line,recordings,today"}
+{"schema":"RecordingUniverse","required":""}
+{"schema":"RequestRoute","required":"class,delaySec,from"}
+{"schema":"RoutingTrace","required":"class,considered,request"}
+{"schema":"SafetyStatus","required":"killSwitch,liveTrading"}
+{"schema":"SessionConnectRequest","required":""}
+{"schema":"SessionState","required":"state"}
+{"schema":"SourceCapability","required":""}
+{"schema":"SourceConfigRequest","required":"apiKey"}
+{"schema":"SourceHealth","required":"state"}
+{"schema":"SourcesSettings","required":"autoFallback,autoFallbackSource"}
+{"schema":"SourcesSettingsUpdate","required":"autoFallback"}
+{"schema":"SourceTestResult","required":"ok"}
+{"schema":"SourceUpdate","required":""}
+{"schema":"StreamMode","required":""}
+{"schema":"StreamStats","required":""}
+{"schema":"Subscription","required":"accounts,active,createdAt,deadLetters,health,host,id,pending,signing,target,topics,updatedAt"}
+{"schema":"SubscriptionCreate","required":"secret,topics,url"}
+{"schema":"SubscriptionTestResult","required":""}
+{"schema":"SubscriptionUpdate","required":""}
+{"schema":"Symbol","required":""}
+{"schema":"SymbolCandidate","required":"exchange,kind,reason,symbol"}
+{"schema":"SymbolFormatName","required":""}
+{"schema":"SymbolResolution","required":"candidates,confidence,input,instrument,rule,rules,symbol"}
+{"schema":"SymbolValidation","required":"input,valid"}
+{"schema":"TargetOrderRequest","required":"account,orderType,product,symbol"}
+{"schema":"TargetOrderResult","required":"account,action,currentQuantity,delta,dryRun,mode,order,placed,product,symbol,targetQuantity"}
+{"schema":"Ticket","required":"checks,createdAt,expiresAt,order,source,ticketId"}
+{"schema":"Trade","required":"orderId,price,qty,side,symbol,tradeId"}
+{"schema":"TradingViewAlert","required":"passphrase,symbol"}
+{"schema":"UsageReport","required":""}

@@ -9,34 +9,43 @@ beforeAll(async () => {
 afterAll(async () => t.close());
 beforeEach(async () => {
   const list = await t.request("/v1/collections", { key: t.keys.read });
-  for (const c of list.json.data) await t.request(`/v1/collections/${c.name}?force=true`, { method: "DELETE", key: t.keys.paper });
+  for (const c of list.json.data) await t.request(`/v1/collections/${c.name}?force=true`, { method: "DELETE", key: t.keys.admin });
   t.events.length = 0;
 });
 
 const UNIVERSE = { underlying: "NIFTY", expiries: "current-weekly", strikes: { around: "atm", count: 2 }, sides: ["CE", "PE"] };
-const w = (path, body, method = "POST") => t.request(path, { method, key: t.keys.paper, body });
+const w = (path, body, method = "POST") => t.request(path, { method, key: t.keys.read, body });
 const r = (path, key = t.keys.read) => t.request(path, { key });
 
 describe("route table", () => {
-  it("reads are read scope, writes are paper scope, nothing is public or loopback-only, no write accepts ?key=", () => {
+  it("reads and writes are read scope, delete is admin; nothing is public or loopback-only, no write accepts ?key=", () => {
     for (const [method, path, options] of ROUTES) {
-      expect(options.scope, `${method} ${path}`).toBe(method === "GET" ? "read" : "paper");
+      expect(options.scope, `${method} ${path}`).toBe(method === "DELETE" ? "admin" : "read");
       expect(options.public).toBeUndefined();
       expect(options.allowQueryKey).toBeUndefined();
     }
     expect(ROUTES).toHaveLength(11);
   });
 
-  it("a read key can read and resolve but not write; no key gets 401", async () => {
+  it("a read key makes and changes collections (the scope of starting a download), but cannot delete or replace; no key gets 401", async () => {
     expect((await r("/v1/collections")).status).toBe(200);
     expect((await t.request("/v1/collections")).status).toBe(401);
-    for (const [method, path] of [["POST", "/v1/collections"], ["POST", "/v1/collections/import"], ["PATCH", "/v1/collections/x"], ["DELETE", "/v1/collections/x"], ["POST", "/v1/collections/x/duplicate"]]) {
-      const res = await t.request(path, { method, key: t.keys.read, body: {} });
+    // writing needs no paper scope any more
+    const made = await t.request("/v1/collections", { method: "POST", key: t.keys.read, body: { name: "scoped", symbols: ["NSE:INFY"] } });
+    expect(made.status).toBe(201);
+    expect((await t.request("/v1/collections/scoped", { method: "PATCH", key: t.keys.read, body: { tags: ["x"] } })).status).toBe(200);
+    expect((await t.request("/v1/collections/scoped/duplicate", { method: "POST", key: t.keys.read, body: { name: "scoped2" } })).status).toBe(201);
+    expect((await t.request("/v1/collections/import?name=scoped3", { method: "POST", key: t.keys.read, raw: "NSE:SBIN\n", contentType: "text/plain" })).status).toBe(201);
+    // delete, and an import that replaces, need admin
+    for (const [method, path, extra] of [["DELETE", "/v1/collections/scoped", {}], ["DELETE", "/v1/collections/scoped?force=true", {}], ["POST", "/v1/collections/import?name=scoped3&replace=true", { raw: "NSE:INFY\n", contentType: "text/plain" }]]) {
+      const res = await t.request(path, { method, key: t.keys.read, ...extra });
       expect(res.status, `${method} ${path}`).toBe(403);
       expect(res.json.code).toBe("SCOPE_REQUIRED");
     }
-    // an admin-only key does not imply paper: it cannot write either
-    expect((await t.request("/v1/collections", { method: "POST", key: t.keys.admin, body: { name: "a", symbols: [] } })).status).toBe(403);
+    expect((await r("/v1/collections/scoped")).json.data.symbolCount).toBe(1);
+    // a paper key holds read too; an admin key holds read and can do everything
+    expect((await t.request("/v1/collections/scoped", { method: "PATCH", key: t.keys.paper, body: { description: "d" } })).status).toBe(200);
+    expect((await t.request("/v1/collections/scoped", { method: "DELETE", key: t.keys.admin })).status).toBe(204);
   });
 });
 
@@ -96,9 +105,9 @@ describe("change, rename, duplicate, delete", () => {
     expect(named.json.data.name).toBe("second");
     const bodyless = await t.request("/v1/collections/base/duplicate", { method: "POST", key: t.keys.paper });
     expect(bodyless.json.data.name).toBe("base-copy2");
-    const del = await t.request("/v1/collections/base-copy", { method: "DELETE", key: t.keys.paper });
+    const del = await t.request("/v1/collections/base-copy", { method: "DELETE", key: t.keys.admin });
     expect(del.status).toBe(204);
-    expect((await t.request("/v1/collections/base-copy", { method: "DELETE", key: t.keys.paper })).status).toBe(404);
+    expect((await t.request("/v1/collections/base-copy", { method: "DELETE", key: t.keys.admin })).status).toBe(404);
   });
 });
 
@@ -191,7 +200,7 @@ describe("export and import", () => {
     expect(js.json.data.created[0].kind).toBe("option-universe");
     const again = await t.request("/v1/collections/import?name=fromcsv", { method: "POST", key: t.keys.paper, raw: "NSE:INFY\n", contentType: "text/plain" });
     expect(again.status).toBe(409);
-    const replaced = await t.request("/v1/collections/import?name=fromcsv&replace=true", { method: "POST", key: t.keys.paper, raw: "NSE:INFY\n", contentType: "text/plain" });
+    const replaced = await t.request("/v1/collections/import?name=fromcsv&replace=true", { method: "POST", key: t.keys.admin, raw: "NSE:INFY\n", contentType: "text/plain" });
     expect(replaced.json.data.replaced[0].symbolCount).toBe(1);
     const bad = await t.request("/v1/collections/import?name=badcsv", { method: "POST", key: t.keys.paper, raw: "symbol\nNSE:INFY\n???\n", contentType: "text/plain" });
     expect(bad.status).toBe(400);
@@ -215,9 +224,9 @@ describe("usage and estimate", () => {
     await w("/v1/collections", { name: "s", symbols: [] });
     const off = t.app.deps.library.registerUsageProvider("recordings", () => [{ id: "rec_1", label: "chain", active: true }]);
     expect((await r("/v1/collections/s/usage")).json.data.recordings).toHaveLength(1);
-    const blocked = await t.request("/v1/collections/s", { method: "DELETE", key: t.keys.paper });
+    const blocked = await t.request("/v1/collections/s", { method: "DELETE", key: t.keys.admin });
     expect(blocked.status).toBe(409);
-    expect((await t.request("/v1/collections/s?force=true", { method: "DELETE", key: t.keys.paper })).status).toBe(204);
+    expect((await t.request("/v1/collections/s?force=true", { method: "DELETE", key: t.keys.admin })).status).toBe(204);
     off();
   });
 

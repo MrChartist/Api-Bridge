@@ -382,6 +382,15 @@ describe("downloads", () => {
     expect(failureWords({ status: "failed" }).fix).toMatch(/already saved is kept/);
   });
 
+  it("shows the Bridge's own failure: the real text, the code and the fix", () => {
+    const failure = { code: "SESSION_EXPIRED", message: "The broker session ended.", fix: "Log in again, then resume." };
+    const w = failureWords({ status: "failed", reason: "items_failed", failure });
+    expect(w).toMatchObject({ title: "Your broker login ended", detail: "The broker session ended.", code: "SESSION_EXPIRED", fix: "Log in again, then resume.", route: "accounts" });
+    const other = failureWords({ status: "failed", failure: { code: "UPSTREAM_ERROR", message: "502 from the broker", fix: "Try later." } });
+    expect(other).toMatchObject({ title: "The download did not finish", detail: "502 from the broker", code: "UPSTREAM_ERROR", fix: "Try later." });
+    expect(jobView({ status: "failed", reason: "items_failed", failure, progress: { total: 1, failed: 1 } }).why.detail).toBe("The broker session ended.");
+  });
+
   it("puts running jobs first, then the newest", () => {
     const list = sortJobs([
       { id: "old", status: "done", createdAt: "2026-11-01T00:00:00Z" },
@@ -403,6 +412,15 @@ describe("downloads", () => {
 
 describe("recordings and auto-record", () => {
   const rec = { id: "r1", name: "", kind: "chain", underlying: "NIFTY", everySec: 30, status: "running", rows: 12_000, bytes: 1_048_576, lastWriteAt: "2026-11-09T04:01:02Z", gaps: [{ from: "a" }], dataClass: "realtime", ruleId: "u1", symbolCount: 43 };
+
+  it("shows the recording's own problem: the real text, the code and the fix", () => {
+    const problem = { code: "disk_full", message: "The disk has only 100 MB free.", fix: "Delete old recordings.", since: "2026-11-09T10:00:00+05:30" };
+    const v = recordingView({ ...rec, status: "blocked", problem }, NOW);
+    expect(v).toMatchObject({ word: "Not writing", tone: "bad" });
+    expect(v.why).toMatchObject({ title: "The disk is nearly full", detail: "The disk has only 100 MB free.", code: "disk_full", fix: "Delete old recordings." });
+    expect(recordingView({ ...rec, problem: { code: "ODD", message: "Something odd.", fix: "Wait." } }, NOW).why).toMatchObject({ title: "The recording has a problem", detail: "Something odd." });
+    expect(recordingView({ ...rec, problem: null }, NOW).why).toBeNull();
+  });
 
   it("shows a recording with its last write in IST", () => {
     const v = recordingView(rec, NOW);

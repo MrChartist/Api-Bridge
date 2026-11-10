@@ -157,7 +157,9 @@ export function fromBrokerError(err, { brokerId, write = false } = {}) {
   // A write that failed upstream without a clear refusal may still have reached the exchange.
   if (write && code === "UPSTREAM_ERROR") code = "OUTCOME_UNKNOWN";
   const message = typeof err?.message === "string" ? err.message.slice(0, 240) : undefined;
-  return new BridgeError(code, message, { broker: { id: brokerId, code: brokerCode, message }, cause: err });
+  // A request the broker refused as malformed still answers with an errors[] list, so a caller can branch the same way as for a field problem.
+  const errors = code === "VALIDATION_FAILED" && message ? [{ path: "(request)", code: "broker_rejected", message }] : undefined;
+  return new BridgeError(code, message, { broker: { id: brokerId, code: brokerCode, message }, cause: err, ...(errors ? { errors } : {}) });
 }
 
 /**
@@ -201,8 +203,57 @@ export function problemHeaders(err) {
   return h;
 }
 
-/** Convert a zod error (or any { issues: [{ path, message }] }) into VALIDATION_FAILED. */
+/** Machine codes of one entry of `errors[]` (add, never rename). */
+export const FIELD_ERROR_CODES = Object.freeze(["required", "invalid_type", "invalid_enum", "invalid_value", "too_small", "too_big", "invalid_format", "unknown_field", "invalid", "broker_rejected"]);
+
+const ALLOWED_MAX = 50;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+/**
+ * One validation issue as { path, code, message, allowed? }. `code` is for programs (a field that is missing is `required`,
+ * a value outside a list is `invalid_enum` with the list in `allowed`); `message` is for people. A message somebody wrote on
+ * purpose is kept as it is; only the library's stock wording ("Invalid input: expected string, received undefined") is
+ * replaced by plain words.
+ * @param {{ code?: string, path?: unknown[], message?: unknown, expected?: string, values?: unknown[], keys?: string[], minimum?: unknown, maximum?: unknown, origin?: string, format?: string }} i
+ */
+export function fieldError(i) {
+  const path = (i.path ?? []).join(".") || "(root)";
+  const text = String(i.message);
+  const stock = /^(Invalid input|Invalid option|Too small|Too big|Invalid string|Unrecognized key)/.test(text);
+  switch (i.code) {
+    case "invalid_type": {
+      const missing = / received undefined$/.test(text);
+      const expected = i.expected === "int" ? "a whole number" : i.expected ? `a ${i.expected}` : "a different type";
+      if (missing) return { path, code: "required", message: stock ? "This field is required." : text };
+      if (i.expected === "int" && stock) return { path, code: "invalid_type", message: "Must be a whole number." };
+      const got = /received (\w+)$/.exec(text)?.[1];
+      return { path, code: "invalid_type", message: stock ? `Expected ${expected}${got ? `, got ${got === "null" ? "null" : `a ${got}`}` : ""}.` : text };
+    }
+    case "invalid_value": {
+      const allowed = Array.isArray(i.values) ? i.values.filter((v) => ["string", "number", "boolean"].includes(typeof v)).slice(0, ALLOWED_MAX) : undefined;
+      const out = { path, code: allowed && allowed.length > 1 ? "invalid_enum" : "invalid_value", message: stock && allowed?.length ? `Must be ${allowed.length === 1 ? "exactly " : "one of: "}${allowed.join(", ")}.` : text };
+      if (allowed && allowed.length > 1) out.allowed = allowed;
+      return out;
+    }
+    case "too_small":
+      return { path, code: "too_small", message: stock ? `Too small: at least ${i.origin === "string" ? plural(Number(i.minimum), "character") : i.origin === "array" || i.origin === "set" ? plural(Number(i.minimum), "item") : String(i.minimum)}${i.inclusive === false ? " (more than that)" : ""} is needed.` : text };
+    case "too_big":
+      return { path, code: "too_big", message: stock ? `Too big: at most ${i.origin === "string" ? plural(Number(i.maximum), "character") : i.origin === "array" || i.origin === "set" ? plural(Number(i.maximum), "item") : String(i.maximum)} is allowed.` : text };
+    case "invalid_format":
+      return { path, code: "invalid_format", message: stock ? (i.format === "regex" ? "Not in the expected format." : `Not a valid ${i.format ?? "value"}.`) : text };
+    case "unrecognized_keys": {
+      const keys = Array.isArray(i.keys) ? i.keys.slice(0, 10) : [];
+      return { path: keys.length === 1 ? [...(i.path ?? []), keys[0]].join(".") : path, code: "unknown_field", message: stock ? `Unknown field${keys.length === 1 ? "" : "s"}: ${keys.join(", ")}.` : text };
+    }
+    case "custom":
+      return { path, code: "invalid", message: text };
+    default:
+      return { path, code: "invalid", message: stock ? (i.code === "invalid_union" ? "Not one of the accepted forms." : "Not valid.") : text };
+  }
+}
+
+/** Convert a zod error (or any { issues: [{ path, message }] }) into VALIDATION_FAILED. Each entry has { path, code, message, allowed? }. */
 export function fromValidation(zodError, detail = "Some fields are missing or not valid.") {
-  const errors = (zodError?.issues ?? []).slice(0, 20).map((i) => ({ path: (i.path ?? []).join(".") || "(root)", message: String(i.message) }));
+  const errors = (zodError?.issues ?? []).slice(0, 20).map(fieldError);
   return new BridgeError("VALIDATION_FAILED", detail, { errors });
 }

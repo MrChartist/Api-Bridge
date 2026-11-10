@@ -39,6 +39,7 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/downloads/:downloadId/files/:name", READ, "file"],
   ["GET", "/v1/datasets", READ, "listDatasets"],
   ["GET", "/v1/datasets/:name", READ, "getDataset"],
+  ["GET", "/v1/datasets/:name/files/:file", READ, "datasetFile"],
   ["PATCH", "/v1/datasets/:name", READ_JSON, "patchDataset"],
   ["DELETE", "/v1/datasets/:name", ADMIN_LOCAL, "removeDataset"],
   ["POST", "/v1/datasets/:name/update", READ, "updateDataset"],

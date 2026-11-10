@@ -6,18 +6,18 @@
 |---|---|
 | Area | [Collections](../README.md#collections) |
 | Operation | `importCollections` |
-| Scope | `paper` |
+| Scope | `read` |
 | This computer only | no |
 | Idempotency-Key | send one on every write |
 
-- An API key with the `paper` scope (or `live`).
+- An API key with the `read` scope (any key).
 - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
 JSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file
 that `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with
 `name` in the query (or as JSON `{ format: "csv", csv, name }`); the symbols are in a column named `symbol`, or the
 first column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`
-is true for a CSV.
+is true for a CSV. `replace=true` (replace collections that already exist) needs an admin key, from this computer.
 
 ## Parameters
 
@@ -81,7 +81,6 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 | `INVALID_JSON` | 400 | no |
 | `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
-| `SCOPE_REQUIRED` | 403 | no |
 | `IDEMPOTENCY_IN_PROGRESS` | 409 | yes |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | no |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | no |

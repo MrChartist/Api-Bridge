@@ -38,6 +38,8 @@ import { estimateDownload, planWindows, timeAtShare } from "./estimate.mjs";
 import { JOB_ID_RE, folderBytes, removeQuiet, safeFileName, sha256File, sizeOf, uniqueName, writeJsonAtomic } from "./files.mjs";
 import { createPacer } from "./pacer.mjs";
 import { filterByTags } from "./tagsCompat.mjs";
+import { assertKnownSymbols } from "../symbols/knownSymbols.mjs";
+import { describeFailure, fixFor } from "../core/failureReason.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
@@ -64,6 +66,8 @@ const requestSchema = z
     account: z.string().regex(ACCOUNT_RE).optional(),
     backup: z.boolean().optional(),
     afterHoursOnly: z.boolean().optional(),
+    /** Accept well-formed symbols of contracts that have already expired (not in any instrument master) to download their history. */
+    allowExpired: z.boolean().optional(),
     tags: z.array(z.string()).max(20).optional(),
   })
   .strict();
@@ -275,6 +279,14 @@ export function createDownloadManager(deps, opts = {}) {
     return { total: items.length, done, failed, rows, bytes, etaSec, current, waiting: rt?.waiting ?? null };
   }
 
+  /** Why a failed job failed: { code, message, fix } of the first failed item (or of the job), plus which item and how many. null unless failed. */
+  function failureOf(job) {
+    if (job.status !== "failed") return null;
+    const bad = job.items.filter((i) => i.status === "failed");
+    if (job.reason === "items_failed" && bad.length) return { ...describeFailure(bad[0].error?.code, bad[0].error?.message), symbol: bad[0].symbol, interval: bad[0].interval, failedItems: bad.length };
+    return describeFailure(job.reason ?? "internal", job.message);
+  }
+
   function publicJob(job, { withItems = true } = {}) {
     const out = {
       id: job.id,
@@ -282,6 +294,7 @@ export function createDownloadManager(deps, opts = {}) {
       status: job.status,
       reason: job.reason ?? null,
       message: job.message ?? null,
+      failure: failureOf(job),
       progress: progressOf(job),
       request: job.request,
       dataset: job.dataset ?? null,
@@ -299,7 +312,7 @@ export function createDownloadManager(deps, opts = {}) {
       manifestUrl: `/v1/downloads/${job.id}/files/manifest.json`,
     };
     if (job.collection) out.collection = job.collection;
-    if (withItems) out.items = job.items.map((it) => ({ symbol: it.symbol, interval: it.interval, status: it.status, rows: it.rows ?? 0, ...(it.error ? { error: it.error } : {}) }));
+    if (withItems) out.items = job.items.map((it) => ({ symbol: it.symbol, interval: it.interval, status: it.status, rows: it.rows ?? 0, ...(it.error ? { error: { ...it.error, fix: fixFor(it.error.code) } } : {}) }));
     return out;
   }
 
@@ -438,6 +451,9 @@ export function createDownloadManager(deps, opts = {}) {
     if (symbols.length > c.maxSymbolsPerJob) {
       throw new BridgeError("VALIDATION_FAILED", `A job may have at most ${c.maxSymbolsPerJob} symbols (downloads.maxSymbolsPerJob); this one has ${symbols.length}. Split it into several jobs.`, { errors: [{ path: "symbols", message: `at most ${c.maxSymbolsPerJob} symbols` }] });
     }
+    // A typo fails here, with the closest real symbols, not hours later on the first broker call. A dataset update replays
+    // symbols that were checked when the dataset was made (some of them may have expired since), so it is not checked again.
+    if (!fromDataset) await assertKnownSymbols(deps.symbols, symbols, { allowExpired: r.allowExpired === true, nowMs: now(), what: "download" });
     const intervals = [...new Set(r.intervals)];
     const t = now();
     const fromMs = parseTimeInput(r.from, { field: "from" });
@@ -465,6 +481,7 @@ export function createDownloadManager(deps, opts = {}) {
       backup: r.backup === true,
       // null: follows the downloads setting at the time the job runs (it can be changed while the job waits).
       afterHoursOnly: r.afterHoursOnly ?? null,
+      ...(r.allowExpired === true ? { allowExpired: true } : {}),
       ...(r.collection ? { collection: r.collection } : {}),
     };
     return { request, collection, fromSec: Math.floor(fromMs / 1000), toSec: Math.floor(toMs / 1000), name: r.name, tags, fromDataset };
@@ -1254,6 +1271,23 @@ export function createDownloadManager(deps, opts = {}) {
     return { path, size, name, format, job: labels };
   }
 
+  /** One file of a dataset, by the name GET /v1/datasets/{name} lists (never a path the caller made up). Labels are the dataset's own. */
+  async function datasetFileOf(name, file) {
+    checkDatasetName(name);
+    const meta = datasets.get(name);
+    if (!meta) throw new BridgeError("NOT_FOUND", `There is no dataset "${String(name).slice(0, 64)}".`);
+    const known = Object.values(meta.series ?? {}).some((s) => s.file === file);
+    if (!known) throw new BridgeError("NOT_FOUND", `Dataset ${name} has no file "${String(file).slice(0, 80)}".`);
+    const path = join(datasets.dirOf(name), file);
+    let size;
+    try {
+      size = (await stat(path)).size;
+    } catch {
+      throw new BridgeError("NOT_FOUND", `The file "${String(file).slice(0, 80)}" is no longer on disk.`);
+    }
+    return { path, size, name: file, format: meta.format, job: { dataClass: meta.dataClass, source: meta.source ?? null, official: meta.official ?? null, delaySec: meta.delaySec ?? null } };
+  }
+
   // ───────────────────────── datasets ─────────────────────────
 
   const activeJobOf = (name) => [...jobs.values()].find((j) => j.dataset === name && (j.status === "queued" || j.status === "running" || j.status === "paused"))?.id ?? null;
@@ -1537,6 +1571,7 @@ export function createDownloadManager(deps, opts = {}) {
     patchJob,
     files,
     fileOf,
+    datasetFileOf,
     listDatasets,
     getDataset,
     updateDataset,

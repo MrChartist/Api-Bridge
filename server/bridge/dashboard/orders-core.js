@@ -291,7 +291,9 @@ export function groupByDay(trades, dayOf) {
 }
 
 const csvCell = (v) => {
-  const s = v === null || v === undefined ? "" : String(v);
+  let s = v === null || v === undefined ? "" : String(v);
+  // Spreadsheet formula guard (same rule as the server's CSV exports): text starting with = + - @ tab or CR gets a leading apostrophe.
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 

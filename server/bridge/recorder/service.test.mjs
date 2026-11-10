@@ -251,6 +251,11 @@ describe("disk safety", () => {
     expect(stopped).toHaveLength(1);
     expect(stopped[0]).toMatchObject({ id: r.id, scope: "volume", level: "stopped" });
     expect(w.svc.get(r.id).gaps.open).toMatchObject({ reason: "disk-full" });
+    // the card shows the real reason: code, the Bridge's own text and the fix
+    const problem = w.svc.get(r.id).problem;
+    expect(problem).toMatchObject({ code: "disk_full" });
+    expect(problem.message).toMatch(/The disk has only 100 MB free/);
+    expect(problem.fix).toMatch(/recorder\.maxDiskMb/);
     // room again
     w.state.free = 30 * 1024 ** 3;
     await w.run(40_000, 5000);

@@ -1,7 +1,7 @@
 /**
  * `mc-bridge collections ...`: arrange named lists of instruments and option universes from the terminal. It talks to the
  * RUNNING Bridge over its API (the same way `notify` and `sources` do), so it needs a key: --key, or MCB_API_KEY. Reading needs
- * any key; changing things needs a key with the paper scope (the same key you use for the dashboard's Data page).
+ * any key; changing things needs a key with the read scope (deleting needs admin).
  *
  *   mc-bridge collections list [--tag t1,t2] [--kind static|option-universe] [--json]
  *   mc-bridge collections show <name> [--json]

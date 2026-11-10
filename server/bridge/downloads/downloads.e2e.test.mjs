@@ -44,6 +44,20 @@ const waitJob = (id, key = keys.read) =>
 const BODY = { name: "reliance daily", symbols: ["NSE:RELIANCE", "NSE:INFY"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-16" };
 
 describe("estimate and start", () => {
+  it("refuses an unknown symbol with a 400 that names it and suggests the closest, and an expired one unless allowExpired", async () => {
+    const bad = await post("/v1/downloads", { ...BODY, symbols: ["NSE:RELIANC", "NSE:INFY"] });
+    expect(bad.status).toBe(400);
+    expect(bad.json.code).toBe("VALIDATION_FAILED");
+    expect(bad.json.detail).toContain("NSE:RELIANC");
+    expect(bad.json.unknownSymbols.map((u) => u.symbol)).toEqual(["NSE:RELIANC"]);
+    expect(bad.json.unknownSymbols[0].suggestions.length).toBeGreaterThan(0);
+    const expired = await post("/v1/downloads?dryRun=1", { ...BODY, symbols: ["NFO:NIFTY-2020-01-30-12000-CE"] });
+    expect(expired.status).toBe(400);
+    expect(expired.json.detail).toContain("allowExpired");
+    const allowed = await post("/v1/downloads?dryRun=1", { ...BODY, symbols: ["NFO:NIFTY-2020-01-30-12000-CE"], allowExpired: true });
+    expect(allowed.status).toBe(200);
+  });
+
   it("needs a key, and a dryRun starts nothing", async () => {
     expect((await bridge.http("/v1/downloads", { method: "POST", body: BODY })).status).toBe(401);
     const dry = await post("/v1/downloads?dryRun=1", BODY);
@@ -192,6 +206,17 @@ describe("datasets", () => {
     const one = (await bridge.http("/v1/datasets/reliance-1d", { key: keys.read })).json.data;
     expect(one.files[0]).toMatchObject({ symbol: "NSE:RELIANCE", interval: "1d", name: "NSE_RELIANCE_1d.csv", rows: 12 });
     expect(one.files[0].coverage.from).toBeTruthy();
+    // the file the dashboard's Download button asks for: its url works, and carries the dataset's data class
+    expect(one.files[0].url).toBe("/v1/datasets/reliance-1d/files/NSE_RELIANCE_1d.csv");
+    const file = await fetch(`${bridge.base}${one.files[0].url}`, { headers: { authorization: `Bearer ${keys.read}` } });
+    expect(file.status).toBe(200);
+    expect(file.headers.get("x-data-class")).toBe("realtime");
+    expect((await file.text()).split("\r\n").filter(Boolean).length).toBe(13);
+    for (const bad of ["../dataset.json", "dataset.json", "nothing.csv", "NSE_RELIANCE_1d.csv.part"]) {
+      expect((await bridge.http(`/v1/datasets/reliance-1d/files/${encodeURIComponent(bad)}`, { key: keys.read })).status).toBe(404);
+    }
+    expect((await bridge.http("/v1/datasets/nothing/files/x.csv", { key: keys.read })).status).toBe(404);
+    expect((await bridge.http(one.files[0].url)).status).toBe(401);
     expect((await bridge.http("/v1/datasets/Bad%20Name", { key: keys.read })).status).toBe(404);
     expect((await bridge.http("/v1/datasets/nothing", { key: keys.read })).status).toBe(404);
 
