@@ -92,18 +92,20 @@ describe("taking the lock", () => {
     expect(state).toMatchObject({ held: true, stale: false });
   });
 
-  it("where the system cannot give a start time, an untouched lock goes stale after the limit, a touched one does not", () => {
+  it("where the system cannot give a start time, an old heartbeat only makes the lock quiet (never stale on its own); a touched one is plainly held", () => {
     const d = tmp();
     const t0 = Date.parse("2026-11-10T09:00:00Z");
     let clockNow = t0;
     const h = take(d, { pid: 4312, now: () => clockNow, isAlive: () => true, startTimeOf: () => null });
     const file = join(d, LOCK_FILE);
     utimesSync(file, new Date(t0), new Date(t0));
-    expect(inspectLock(d, { now: () => t0 + 60_000, isAlive: () => true, startTimeOf: () => null })).toMatchObject({ held: true });
-    expect(inspectLock(d, { now: () => t0 + 5 * 60_000, isAlive: () => true, startTimeOf: () => null })).toMatchObject({ held: false, stale: true });
+    expect(inspectLock(d, { now: () => t0 + 60_000, isAlive: () => true, startTimeOf: () => null })).toMatchObject({ held: true, stale: false });
+    expect(inspectLock(d, { now: () => t0 + 5 * 60_000, isAlive: () => true, startTimeOf: () => null })).toMatchObject({ held: true, stale: false, quiet: true });
     clockNow = t0 + 5 * 60_000;
     h.touch(); // the heartbeat
-    expect(inspectLock(d, { now: () => clockNow + 1000, isAlive: () => true, startTimeOf: () => null })).toMatchObject({ held: true });
+    const after = inspectLock(d, { now: () => clockNow + 1000, isAlive: () => true, startTimeOf: () => null });
+    expect(after).toMatchObject({ held: true, stale: false });
+    expect(after.quiet).toBeUndefined();
   });
 
   it("an unreadable lock is waited for, then treated as left behind once it is old", () => {
@@ -144,6 +146,85 @@ describe("taking the lock", () => {
     expect(pidAlive(process.pid)).toBe(true);
     expect(pidAlive(0x7ffffff0)).toBe(false);
     if (process.platform === "linux") expect(processStartTime(process.pid)).toBeGreaterThan(0);
+  });
+});
+
+describe("after sleep and wake where the system gives no process start time (macOS, Windows)", () => {
+  const noStart = { isAlive: () => true, startTimeOf: () => null };
+  /** A holder whose lock is 10 minutes old on the (fake) clock: the computer slept. */
+  function sleptHolder() {
+    const d = tmp();
+    const t0 = Date.parse("2026-11-10T09:00:00Z");
+    const clock = { t: t0 };
+    const holder = take(d, { pid: 4312, port: 4300, now: () => clock.t, ...noStart });
+    utimesSync(join(d, LOCK_FILE), new Date(t0), new Date(t0));
+    clock.t = t0 + 10 * 60_000; // woke ten minutes later; the holder has not had its next heartbeat yet
+    return { d, clock, holder };
+  }
+
+  it("a second Bridge started right at wake does NOT take the lock when the holder touches it during the grace wait", () => {
+    const { d, clock, holder } = sleptHolder();
+    const waits = [];
+    expect(() =>
+      take(d, {
+        pid: 5000,
+        now: () => clock.t,
+        ...noStart,
+        graceMs: 25_000,
+        sleep: (ms) => {
+          waits.push(ms);
+          clock.t += ms;
+          holder.touch(); // the holder's heartbeat fires within its 10 s interval
+        },
+      }),
+    ).toThrow(/Another Bridge \(process 4312, port 4300/);
+    expect(waits).toEqual([25_000]);
+    expect(JSON.parse(readFileSync(join(d, LOCK_FILE), "utf8")).pid).toBe(4312);
+  });
+
+  it("a live process that stays silent for the whole grace wait (frozen) is replaced, and the log says why", () => {
+    const { d, clock } = sleptHolder();
+    const warnings = [];
+    const h = take(d, { pid: 5000, now: () => clock.t, ...noStart, logger: { warn: (m) => warnings.push(m) }, graceMs: 25_000, sleep: (ms) => { clock.t += ms; } });
+    expect(JSON.parse(readFileSync(join(d, LOCK_FILE), "utf8")).pid).toBe(5000);
+    expect(warnings.join(" ")).toMatch(/quiet for a while/);
+    expect(warnings.join(" ")).toMatch(/stale.*still nothing after 25 s/);
+    h.release();
+  });
+
+  it("a holder that exits during the wait is taken over as a plain stale lock", () => {
+    const { d, clock } = sleptHolder();
+    let alive = true;
+    const h = take(d, { pid: 5000, now: () => clock.t, isAlive: () => alive, startTimeOf: () => null, graceMs: 25_000, sleep: (ms) => { clock.t += ms; alive = false; } });
+    expect(JSON.parse(readFileSync(join(d, LOCK_FILE), "utf8")).pid).toBe(5000);
+    h.release();
+  });
+
+  it("a lock with a recent heartbeat is refused at once, with no wait at all", () => {
+    const d = tmp();
+    const t0 = Date.parse("2026-11-10T09:00:00Z");
+    take(d, { pid: 4312, now: () => t0, ...noStart });
+    utimesSync(join(d, LOCK_FILE), new Date(t0), new Date(t0));
+    let slept = false;
+    expect(() => take(d, { pid: 5000, now: () => t0 + 30_000, ...noStart, sleep: () => { slept = true; } })).toThrow(/Another Bridge/);
+    expect(slept).toBe(false);
+  });
+
+  it("the app touches its lock the moment the computer wakes (system.resumed)", async () => {
+    const dataDir = tmp();
+    const config = loadConfig({ raw: { dataDir, server: { port: 0 }, demo: true }, env: {} }).config;
+    const future = Date.now() + 3_600_000;
+    const handle = acquireInstanceLock({ dataDir, ...noTimers, now: () => future });
+    handles.push(handle);
+    utimesSync(join(dataDir, LOCK_FILE), new Date(0), new Date(0));
+    const app = await createApp({ config, logger: createNullLogger(), instanceLock: handle });
+    try {
+      const before = statSync(join(dataDir, LOCK_FILE)).mtimeMs;
+      app.deps.bus.emit("system.resumed", { sleptMs: 600_000 });
+      expect(statSync(join(dataDir, LOCK_FILE)).mtimeMs).toBeGreaterThan(before);
+    } finally {
+      await app.close();
+    }
   });
 });
 

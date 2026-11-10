@@ -269,6 +269,10 @@ export function createSignalWorker({ deps, store, logger, queueSize, concurrency
   /** Put a job back for another try after `delayMs`; false when its waiting budget is used up. */
   function scheduleRetry(job, err, rec) {
     if (!accepting || !burstWaitSec) return false;
+    // A live alert that cannot be age-checked when it comes back (no age limit on the hook, or no time in the alert) is never
+    // waited for: it would run late as a real order. It is reported as rejected and the sender can resend.
+    const h = effectiveHook(store.get(job.hookId), job);
+    if (h?.mode === "live" && !(h.maxAgeSec && Number.isFinite(job.signal?.timeMs))) return false;
     const attempt = (job.attempt ?? 0) + 1;
     const delay = Math.min(RATE_RETRY_MAX_DELAY_MS, Math.max(100, Number(err?.retryAfterMs) || 250 * 2 ** (attempt - 1)));
     const first = job.firstTriedAt ?? now();

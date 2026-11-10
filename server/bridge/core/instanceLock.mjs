@@ -13,9 +13,13 @@
  * it. The holder touches the file every 10 seconds. A lock is STALE, and taken over, when
  *   - its process id no longer exists, or
  *   - the system says that process id now belongs to a process that started at another time (the id was reused), or
- *   - the system cannot say, and nobody has touched the file for `staleMs` (default 2 minutes).
- * A laptop that slept for an hour therefore keeps its lock when it wakes (same process, same start time); a
- * crashed Bridge never blocks the next start. Release removes the file only if it still holds this run's token.
+ *   - the system cannot say (macOS, Windows), nobody has touched the file for `staleMs` (default 2 minutes) AND it is
+ *     still untouched after a further wait (`graceMs`, longer than two heartbeats).
+ * A laptop that slept for an hour keeps its lock when it wakes: on Linux the process start time proves it is the same
+ * process; where the system cannot say, the old heartbeat only makes the lock "quiet", and the starter looks again after
+ * the grace wait. A sleeping Bridge touches the file within seconds of waking (its heartbeat, and at once on
+ * system.resumed), so a live holder is never replaced; a process that is alive but frozen for minutes is. A crashed Bridge
+ * never blocks the next start. Release removes the file only if it still holds this run's token.
  *
  * Paths use node:path, so Windows folders with drive letters and backslashes work. Everything that touches the
  * system is injectable for tests (pid, liveness, process start time, clock, timers).
@@ -28,6 +32,20 @@ import { BridgeError } from "./errors.mjs";
 export const LOCK_FILE = "bridge.lock";
 export const HEARTBEAT_MS = 10_000;
 export const STALE_MS = 120_000;
+/** How long a starter watches a quiet lock (live process, old heartbeat, start time unknown) before taking it over: two heartbeats and a margin. */
+export const QUIET_GRACE_MS = 2 * HEARTBEAT_MS + 5_000;
+
+/** Block this thread for `ms` (used once, only when a live holder's lock looks quiet). */
+function sleepSyncDefault(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      /* spin: no Atomics.wait available */
+    }
+  }
+}
 
 /** @param {string} dataDir */
 export const lockPath = (dataDir) => join(dataDir, LOCK_FILE);
@@ -83,7 +101,9 @@ function readLock(file) {
  * Describe the lock in a data folder without changing it (doctor, health).
  * @param {string} dataDir
  * @param {{ now?: () => number, isAlive?: (pid: number) => boolean, startTimeOf?: (pid: number) => number | null, staleMs?: number }} [opts]
- * @returns {{ held: boolean, stale: boolean, reason?: string, owner?: { pid: number, port: number | null, startedAt: string, host?: string, version?: string }, ageMs?: number, file: string } }
+ * @returns {{ held: boolean, stale: boolean, quiet?: boolean, mtimeMs?: number|null, reason?: string, owner?: { pid: number, port: number | null, startedAt: string, host?: string, version?: string }, ageMs?: number, file: string } }
+ *   quiet: the process is alive but its heartbeat is old and the system cannot prove it is the same program (held, not stale:
+ *   a starter waits and looks again, see acquireInstanceLock)
  */
 export function inspectLock(dataDir, { now = () => Date.now(), isAlive = pidAlive, startTimeOf = processStartTime, staleMs = STALE_MS } = {}) {
   const file = lockPath(dataDir);
@@ -100,8 +120,9 @@ export function inspectLock(dataDir, { now = () => Date.now(), isAlive = pidAliv
   const recorded = lock.info.procStart;
   const actual = recorded === undefined || recorded === null ? null : startTimeOf(owner.pid);
   if (actual !== null && actual !== recorded) return { held: false, stale: true, reason: `process ${owner.pid} is a different program now (the id was reused)`, owner, ageMs, file };
-  // Same process id, and the system cannot tell the program apart: trust a recent heartbeat.
-  if (actual === null && ageMs !== undefined && ageMs > staleMs) return { held: false, stale: true, reason: `process ${owner.pid} exists but has not touched the lock for ${Math.round(ageMs / 1000)} s`, owner, ageMs, file };
+  // Same process id, and the system cannot tell the program apart: a recent heartbeat is trusted. An old one is only "quiet":
+  // the computer may have slept (the clock jumped, the holder has not had its next heartbeat yet). Never stale on this alone.
+  if (actual === null && ageMs !== undefined && ageMs > staleMs) return { held: true, stale: false, quiet: true, mtimeMs: lock.mtimeMs, reason: `process ${owner.pid} exists but has not touched the lock for ${Math.round(ageMs / 1000)} s`, owner, ageMs, file };
   return { held: true, stale: false, owner, ageMs, file };
 }
 
@@ -115,11 +136,11 @@ export function lockMessage(dataDir, owner) {
 /**
  * Take the lock, or throw a BridgeError that names the holder.
  * @param {{ dataDir: string, port?: number | null, version?: string, now?: () => number, pid?: number, isAlive?: (pid: number) => boolean,
- *   startTimeOf?: (pid: number) => number | null, staleMs?: number, heartbeatMs?: number, setInterval?: typeof setInterval,
+ *   startTimeOf?: (pid: number) => number | null, staleMs?: number, heartbeatMs?: number, graceMs?: number, sleep?: (ms: number) => void, setInterval?: typeof setInterval,
  *   clearInterval?: typeof clearInterval, logger?: any, hostname?: string }} opts
  * @returns {{ path: string, token: string, setPort(port: number): void, touch(): void, release(): void }}
  */
-export function acquireInstanceLock({ dataDir, port = null, version, now = () => Date.now(), pid = process.pid, isAlive = pidAlive, startTimeOf = processStartTime, staleMs = STALE_MS, heartbeatMs = HEARTBEAT_MS, setInterval: setTimer = setInterval, clearInterval: clearTimer = clearInterval, logger, hostname }) {
+export function acquireInstanceLock({ dataDir, port = null, version, now = () => Date.now(), pid = process.pid, isAlive = pidAlive, startTimeOf = processStartTime, staleMs = STALE_MS, heartbeatMs = HEARTBEAT_MS, graceMs = QUIET_GRACE_MS, sleep = sleepSyncDefault, setInterval: setTimer = setInterval, clearInterval: clearTimer = clearInterval, logger, hostname }) {
   const file = lockPath(dataDir);
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(12).toString("hex");
@@ -136,7 +157,15 @@ export function acquireInstanceLock({ dataDir, port = null, version, now = () =>
       break;
     } catch (err) {
       if (err?.code !== "EEXIST") throw err;
-      const state = inspectLock(dataDir, { now, isAlive, startTimeOf, staleMs });
+      let state = inspectLock(dataDir, { now, isAlive, startTimeOf, staleMs });
+      if (state.held && state.quiet) {
+        // A live process with an old heartbeat: asleep, or frozen. Give it the grace wait; a holder that is awake touches the file.
+        const seen = state.mtimeMs;
+        logger?.warn?.(`the data-folder lock is held by a live process that has been quiet for a while (${state.reason}); waiting ${Math.round(graceMs / 1000)} s to see whether it is still alive`, { owner: state.owner });
+        sleep(graceMs);
+        const again = inspectLock(dataDir, { now, isAlive, startTimeOf, staleMs });
+        state = again.quiet && again.mtimeMs === seen ? { ...again, held: false, stale: true, reason: `${again.reason}, and still nothing after ${Math.round(graceMs / 1000)} s` } : again.quiet ? { ...again, quiet: false } : again;
+      }
       if (state.held) throw new BridgeError("VALIDATION_FAILED", lockMessage(dataDir, state.owner), { fields: { owner: state.owner ?? null } });
       if (state.stale) {
         logger?.warn?.(`taking over a stale data-folder lock (${state.reason})`, { owner: state.owner });

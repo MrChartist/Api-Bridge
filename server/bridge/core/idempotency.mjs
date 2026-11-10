@@ -15,7 +15,9 @@
  * written to disk.
  *
  * A write route that does not honour the header answers with `Idempotency-Ignored: true` when one was sent, so a
- * client does not believe it is protected.
+ * client does not believe it is protected. Such a route never validates the value: a malformed key is a 400 only on the
+ * routes that use it (these create routes, the order routes, the compat order routes), never on a public webhook receiver,
+ * an alert route or any other write that ignores it.
  */
 import { createHash } from "node:crypto";
 import { BridgeError } from "./errors.mjs";
@@ -41,6 +43,16 @@ const IDEMPOTENT = new Set(IDEMPOTENT_ROUTES);
 /** Write routes under these prefixes handle (or deliberately need no) Idempotency-Key themselves: the order routes. */
 const OWN_IDEMPOTENCY_PREFIXES = ["/v1/orders"];
 
+/**
+ * The compat order routes (apikey-in-body clients) honour the header inside their handler, after they have read the key
+ * from the body, so the pipeline neither validates nor ignores it there (compat/handlers.mjs). Keep in sync with
+ * compat/module.mjs ENDPOINTS (a test checks).
+ */
+export const COMPAT_IDEMPOTENT_ROUTES = Object.freeze(
+  ["placeorder", "placesmartorder", "basketorder", "splitorder", "modifyorder", "cancelorder", "cancelallorder", "closeposition", "optionsorder"].map((e) => `POST /api/v1/${e}`),
+);
+const COMPAT_OWN = new Set(COMPAT_IDEMPOTENT_ROUTES);
+
 const KEY_RE = /^[A-Za-z0-9_.:-]{8,255}$/;
 const TTL_MS = 24 * 3600 * 1000;
 const MAX_RECORDS = 2000;
@@ -48,12 +60,26 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 export const isIdempotentRoute = (method, pattern) => IDEMPOTENT.has(`${String(method).toUpperCase()} ${pattern}`);
 
-/** Whether a write route neither honours the header nor is an order route (the pipeline then says it was ignored). */
+const ownPrefix = (pattern) => OWN_IDEMPOTENCY_PREFIXES.some((p) => pattern === p || pattern.startsWith(`${p}/`));
+
+/** Whether a write route neither honours the header nor is an order route (the pipeline then says it was ignored, and does not look at the value). */
 export function ignoresIdempotencyKey(method, pattern) {
   const m = String(method).toUpperCase();
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
-  if (IDEMPOTENT.has(`${m} ${pattern}`)) return false;
-  return !OWN_IDEMPOTENCY_PREFIXES.some((p) => pattern === p || pattern.startsWith(`${p}/`));
+  if (IDEMPOTENT.has(`${m} ${pattern}`) || COMPAT_OWN.has(`${m} ${pattern}`)) return false;
+  return !ownPrefix(pattern);
+}
+
+/** Whether the pipeline itself validates the header on this route (the create routes above and the /v1/orders routes). */
+export function pipelineChecksIdempotencyKey(method, pattern) {
+  const m = String(method).toUpperCase();
+  return IDEMPOTENT.has(`${m} ${pattern}`) || (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && ownPrefix(pattern));
+}
+
+/** Whether the request carries an Idempotency-Key header at all (valid or not). */
+export function hasIdempotencyKeyHeader(headers) {
+  const v = headers?.["idempotency-key"];
+  return !(v === undefined || v === null || v === "");
 }
 
 /** The header value, validated; undefined when absent. */

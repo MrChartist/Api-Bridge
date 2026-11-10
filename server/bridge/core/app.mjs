@@ -27,15 +27,14 @@ import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
 import { errorCatalogue } from "./errorCatalogue.mjs";
 import { createEventBus } from "./eventBus.mjs";
-import { createWriteIdempotency, fingerprint as requestFingerprint, ignoresIdempotencyKey, isIdempotentRoute, readIdempotencyKey } from "./idempotency.mjs";
+import { createWriteIdempotency, fingerprint as requestFingerprint, hasIdempotencyKeyHeader, ignoresIdempotencyKey, isIdempotentRoute, pipelineChecksIdempotencyKey, readIdempotencyKey } from "./idempotency.mjs";
 import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { acquireInstanceLock } from "./instanceLock.mjs";
 import { createPowerWatcher } from "./powerEvents.mjs";
 import { createLoopLag, renderMetrics } from "./metrics.mjs";
 import { healthProblems, notReadyReasons } from "./healthProblems.mjs";
-import { isDiskFull } from "../../lib/storageHealth.mjs";
-import { onQuarantine } from "../../lib/storageHealth.mjs";
+import { isDiskFull, onQuarantine } from "../../lib/storageHealth.mjs";
 import { Reply, json, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
 import { createResponseEncoder } from "./responseEncoding.mjs";
@@ -467,10 +466,14 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
 
       // Idempotency-Key on the create routes that are not orders (core/idempotency.mjs): a repeat returns the first answer.
+      // A write route that does not use the header ignores it WITHOUT reading its value: a public webhook receiver or an alert route
+      // must never answer 400 because a sender added its own, differently shaped Idempotency-Key.
       if (method !== "GET" && method !== "HEAD") {
-        const idemKey = readIdempotencyKey(req.headers);
-        if (idemKey !== undefined) {
-          if (isIdempotentRoute(method, route.pattern)) {
+        if (ignoresIdempotencyKey(method, route.pattern)) {
+          if (hasIdempotencyKeyHeader(req.headers)) ctx.setHeader("Idempotency-Ignored", "true"); // do not believe a retry is safe
+        } else if (pipelineChecksIdempotencyKey(method, route.pattern)) {
+          const idemKey = readIdempotencyKey(req.headers);
+          if (idemKey !== undefined && isIdempotentRoute(method, route.pattern)) {
             const begun = writeIdempotency.begin(`${ctx.principal.kind}:${ctx.principal.id}`, idemKey, requestFingerprint({ method, path: url.pathname, query: url.searchParams, body: ctx.body }));
             if (begun.replay) {
               status = begun.reply.status;
@@ -478,8 +481,6 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
               return;
             }
             idem = begun;
-          } else if (ignoresIdempotencyKey(method, route.pattern)) {
-            ctx.setHeader("Idempotency-Ignored", "true"); // this route does not take the header: do not believe a retry is safe
           }
         }
       }
@@ -595,6 +596,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   const loopLag = createLoopLag();
   /** Notices sleep, wake and clock steps and tells the bus (core/powerEvents.mjs). */
   const power = createPowerWatcher({ bus, logger: log });
+  // After sleep the heartbeat may be minutes old: touch the lock at once so a second Bridge started right at wake is refused.
+  bus.on("system.resumed", () => lock?.touch());
   /** The data-folder lock this app holds (taken in listen() unless the caller passed one). */
   let lock = instanceLock;
   /** Written while listening; see controlToken.mjs. */

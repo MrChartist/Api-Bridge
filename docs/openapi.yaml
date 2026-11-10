@@ -6244,6 +6244,8 @@ paths:
       operationId: compatPlaceorder
       summary: "Place an order"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6279,6 +6281,8 @@ paths:
       operationId: compatPlacesmartorder
       summary: "Order towards a target position size"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6314,6 +6318,8 @@ paths:
       operationId: compatBasketorder
       summary: "Several orders in one call"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6349,6 +6355,8 @@ paths:
       operationId: compatSplitorder
       summary: "One order split into pieces"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6384,6 +6392,8 @@ paths:
       operationId: compatModifyorder
       summary: "Modify an open order"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6419,6 +6429,8 @@ paths:
       operationId: compatCancelorder
       summary: "Cancel an order"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6454,6 +6466,8 @@ paths:
       operationId: compatCancelallorder
       summary: "Cancel every open order"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6489,6 +6503,8 @@ paths:
       operationId: compatCloseposition
       summary: "Square off every open position"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -6594,6 +6610,8 @@ paths:
       operationId: compatOptionsorder
       summary: "Order an option by offset (ATM, ITM2, OTM1 ...)"
       x-module: compat
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       security: []
       requestBody:
         required: true
@@ -7159,8 +7177,10 @@ components:
         The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets,
         collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and
         recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a
-        request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so
-        with `Idempotency-Ignored: true` in the answer.
+        request that failed is forgotten at once so it can be retried. The compat order routes (`/api/v1/placeorder` and the
+        other order writes) honour it too, and a client that cannot set headers may send `idempotency_key` in the body.
+        Every other write route ignores the header, whatever its value, and says so with `Idempotency-Ignored: true` in the
+        answer; a malformed key is a 400 only on a route that uses it.
       schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9_.:-]+$" }
     EventTopics:
       name: topics

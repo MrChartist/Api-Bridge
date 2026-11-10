@@ -158,8 +158,9 @@ The same header works on the routes where a repeat would make a duplicate: `POST
 `/v1/notify/targets`, `/v1/collections` (and `/import`, `/{name}/duplicate`), `/v1/downloads`, `/v1/datasets/{name}/update`,
 `/v1/subscriptions`, `/v1/recordings`, `/v1/recordings/rules` and `/v1/recordings/presets/{id}/apply`. There the stored answer
 is kept in memory for 24 hours (a restart forgets it, so look at the list route before you retry after a restart), and a request
-that failed can be retried with the same key. A write route that does not take the header answers with `Idempotency-Ignored: true`
-when you send one, so you know a retry is not protected.
+that failed can be retried with the same key. A write route that does not take the header (a webhook receiver for example) ignores it, whatever the value, and answers with
+`Idempotency-Ignored: true`, so you know a retry is not protected. A malformed key is a 400 only on the routes that use it. The
+compat order routes (`/api/v1/placeorder` and the other order writes) honour it too.
 
 ## Events
 

@@ -5,8 +5,9 @@
  * Every call goes through the same Bridge services as /v1: market data is streaming-first and rate-limit aware,
  * orders pass the same validation, idempotency, safety checks and audit log. Nothing here talks to a broker directly.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { BridgeError } from "../core/errors.mjs";
+import { createWriteIdempotency, fingerprint as requestFingerprint, readIdempotencyKey } from "../core/idempotency.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 import {
@@ -40,6 +41,48 @@ export function createCompatHandlers(deps, cfg) {
   const analyzeOn = (ctx) => analyzer.get(ctx.key?.id ?? "local") ?? cfg.analyzer;
   const mode = (ctx) => (analyzeOn(ctx) ? "paper" : "live");
   const ok = (ctx, body) => ({ status: "success", ...body, ...(analyzeOn(ctx) ? { mode: "analyze" } : {}) });
+
+  /**
+   * Idempotency-Key on the compat order routes, with the same rules as /v1/orders (core/idempotency.mjs is the shared
+   * machinery): the same key and the same request again returns the FIRST answer (Idempotency-Replayed: true) and places
+   * nothing; the same key with another request is 409 IDEMPOTENCY_KEY_REUSED; the same key while the first request still
+   * runs is 409 IDEMPOTENCY_IN_PROGRESS; a malformed key is 400. A client that cannot set headers (apikey-in-body style) may
+   * send the key as `idempotency_key` in the body; the header wins. Two layers: this in-memory whole-request replay, and the
+   * durable per-order key passed to the order service (which survives a restart), so a retry never places twice either way.
+   * With no key a call behaves as before: every call is a new order.
+   */
+  const writeIdem = createWriteIdempotency({ now: () => (deps.clock ? deps.clock.now() : Date.now()) });
+  const keyOf = (ctx, body) => {
+    const fromHeader = readIdempotencyKey(ctx.req?.headers);
+    if (fromHeader !== undefined) return fromHeader;
+    if (body?.idempotency_key === undefined || body.idempotency_key === null || body.idempotency_key === "") return undefined;
+    return readIdempotencyKey({ "idempotency-key": String(body.idempotency_key) });
+  };
+  /** The key of one order inside a multi-order call (basket, split, close all): stable for the same call, distinct per order, within the 255 limit. */
+  const legKey = (key, i) => (key === undefined ? undefined : `${key.slice(0, 100)}.${createHash("sha256").update(key).digest("hex").slice(0, 24)}.${i}`);
+  const partlyFailed = (out) => out?.status === "error" || (Array.isArray(out?.results) && out.results.some((r) => r?.status === "error"));
+  /** Wrap a compat write handler `fn(ctx, body, key)`; `body` here is the request without the apikey. */
+  const idempotent = (endpoint, fn) => async (ctx, body) => {
+    const key = keyOf(ctx, body);
+    if (key === undefined) return fn(ctx, body, undefined);
+    const { idempotency_key: _k, ...fpBody } = body;
+    const begun = writeIdem.begin(`key:${ctx.principal?.id ?? "local"}:${endpoint}`, key, requestFingerprint({ method: "POST", path: `/api/v1/${endpoint}`, body: fpBody }));
+    if (begun.replay) {
+      ctx.setHeader?.("Idempotency-Replayed", "true");
+      return JSON.parse(begun.reply.body);
+    }
+    try {
+      // The order service sees the key scoped to this endpoint, so one key reused on another compat route or on /v1/orders is its own key there.
+      const out = await fn(ctx, body, `${key.slice(0, 100)}.${createHash("sha256").update(`${endpoint}|${key}`).digest("hex").slice(0, 24)}`);
+      // An answer that failed in whole or part is forgotten so the retry can finish the rest; the orders that did go through replay by their own keys.
+      if (partlyFailed(out)) begun.release();
+      else begun.done({ status: 200, body: JSON.stringify(out), headers: {} });
+      return out;
+    } catch (err) {
+      begun.release();
+      throw err;
+    }
+  };
 
   /** The account a compat call acts on: body.account (Bridge extension), config compat.account, else the first the key may use. */
   function account(ctx, body) {
@@ -95,8 +138,9 @@ export function createCompatHandlers(deps, cfg) {
     return req;
   }
 
-  async function place(ctx, req) {
-    const { order } = await deps.orders.place(ctx, req, { idempotencyKey: `oa-${randomUUID()}` });
+  async function place(ctx, req, key) {
+    const { order, replayed } = await deps.orders.place(ctx, req, { idempotencyKey: key ?? `oa-${randomUUID()}` });
+    if (replayed) ctx.setHeader?.("Idempotency-Replayed", "true");
     return order;
   }
 
@@ -267,40 +311,40 @@ export function createCompatHandlers(deps, cfg) {
       });
     },
 
-    async placeorder(ctx, body) {
+    placeorder: idempotent("placeorder", async (ctx, body, key) => {
       ctx.requireScope("paper");
-      const o = await place(ctx, orderRequest(ctx, body));
+      const o = await place(ctx, orderRequest(ctx, body), key);
       return ok(ctx, { orderid: o.orderId });
-    },
+    }),
 
-    async placesmartorder(ctx, body) {
+    placesmartorder: idempotent("placesmartorder", async (ctx, body, key) => {
       ctx.requireScope("paper");
       const target = num(body.position_size, "position_size", { int: true });
       const base = orderRequest(ctx, body, { action: body.action ?? "BUY", quantity: 1 });
       const current = await netPosition(ctx, base.account, base.symbol, base.product);
       const delta = target - current;
       if (delta === 0) return ok(ctx, { message: "No action needed: the position is already at the target size.", orderid: null });
-      const o = await place(ctx, { ...base, side: delta > 0 ? "BUY" : "SELL", quantity: Math.abs(delta) });
+      const o = await place(ctx, { ...base, side: delta > 0 ? "BUY" : "SELL", quantity: Math.abs(delta) }, key);
       return ok(ctx, { orderid: o.orderId });
-    },
+    }),
 
-    async basketorder(ctx, body) {
+    basketorder: idempotent("basketorder", async (ctx, body, key) => {
       ctx.requireScope("paper");
       if (!Array.isArray(body.orders) || !body.orders.length || body.orders.length > 50) throw bad("orders must be a list of 1 to 50 orders.", "orders");
       const results = [];
-      for (const raw of body.orders) {
+      for (const [idx, raw] of body.orders.entries()) {
         const merged = { ...raw, strategy: raw.strategy ?? body.strategy, account: raw.account ?? body.account };
         try {
-          const o = await place(ctx, orderRequest(ctx, merged));
+          const o = await place(ctx, orderRequest(ctx, merged), legKey(key, idx));
           results.push({ symbol: raw.symbol, exchange: raw.exchange, product: raw.product, status: "success", orderid: o.orderId });
         } catch (err) {
           results.push({ symbol: raw?.symbol, exchange: raw?.exchange, product: raw?.product, status: "error", message: err instanceof BridgeError ? err.detail : "Internal error." });
         }
       }
       return ok(ctx, { results });
-    },
+    }),
 
-    async splitorder(ctx, body) {
+    splitorder: idempotent("splitorder", async (ctx, body, key) => {
       ctx.requireScope("paper");
       const total = num(body.quantity, "quantity", { min: 1, int: true });
       const size = num(body.splitsize, "splitsize", { min: 1, int: true });
@@ -311,16 +355,16 @@ export function createCompatHandlers(deps, cfg) {
         const q = Math.min(size, left);
         left -= q;
         try {
-          const o = await place(ctx, orderRequest(ctx, body, { quantity: q }));
+          const o = await place(ctx, orderRequest(ctx, body, { quantity: q }), legKey(key, i));
           results.push({ order_num: i, orderid: o.orderId, quantity: q, status: "success" });
         } catch (err) {
           results.push({ order_num: i, quantity: q, status: "error", message: err instanceof BridgeError ? err.detail : "Internal error." });
         }
       }
       return ok(ctx, { split_size: size, total_quantity: total, results });
-    },
+    }),
 
-    async modifyorder(ctx, body) {
+    modifyorder: idempotent("modifyorder", async (ctx, body, key) => {
       ctx.requireScope("paper");
       if (!body.orderid) throw bad("orderid is required.", "orderid");
       const changes = {};
@@ -332,39 +376,42 @@ export function createCompatHandlers(deps, cfg) {
         if (!PRICE_TYPES.includes(t)) throw bad(`pricetype must be one of ${PRICE_TYPES.join(", ")}.`, "pricetype");
         changes.orderType = t;
       }
-      const { order } = await deps.orders.modify(ctx, String(body.orderid), changes, { idempotencyKey: `oa-${randomUUID()}` });
+      const { order, replayed } = await deps.orders.modify(ctx, String(body.orderid), changes, { idempotencyKey: key ?? `oa-${randomUUID()}` });
+      if (replayed) ctx.setHeader?.("Idempotency-Replayed", "true");
       return ok(ctx, { orderid: order.orderId });
-    },
+    }),
 
-    async cancelorder(ctx, body) {
+    cancelorder: idempotent("cancelorder", async (ctx, body, key) => {
       ctx.requireScope("paper");
       if (!body.orderid) throw bad("orderid is required.", "orderid");
-      const { order } = await deps.orders.cancel(ctx, String(body.orderid), { idempotencyKey: `oa-${randomUUID()}` });
+      const { order, replayed } = await deps.orders.cancel(ctx, String(body.orderid), { idempotencyKey: key ?? `oa-${randomUUID()}` });
+      if (replayed) ctx.setHeader?.("Idempotency-Replayed", "true");
       return ok(ctx, { orderid: order.orderId });
-    },
+    }),
 
     async cancelallorder(ctx, body) {
+      keyOf(ctx, body); // validated like /v1/orders/cancel-all: cancelling everything is naturally repeatable
       ctx.requireScope("paper");
       const r = await deps.orders.cancelAll(ctx, { accountId: account(ctx, body), mode: mode(ctx) });
       return ok(ctx, { message: `Cancelled ${r.cancelled.length} order(s).`, canceled_orders: r.cancelled, failed_cancellations: r.failed.map((f) => f.orderId) });
     },
 
-    async closeposition(ctx, body) {
+    closeposition: idempotent("closeposition", async (ctx, body, key) => {
       ctx.requireScope("paper");
       const acc = account(ctx, body);
       const { items } = await deps.orders.positions(ctx, acc, { mode: mode(ctx) });
       const open = items.filter((p) => n2(p.netQty) !== 0);
       const failed = [];
-      for (const p of open) {
+      for (const [idx, p] of open.entries()) {
         try {
-          await place(ctx, { account: acc, symbol: p.symbol, side: n2(p.netQty) > 0 ? "SELL" : "BUY", quantity: Math.abs(n2(p.netQty)), product: p.product, orderType: "MARKET", mode: mode(ctx), tag: "closeposition" });
+          await place(ctx, { account: acc, symbol: p.symbol, side: n2(p.netQty) > 0 ? "SELL" : "BUY", quantity: Math.abs(n2(p.netQty)), product: p.product, orderType: "MARKET", mode: mode(ctx), tag: "closeposition" }, legKey(key, idx));
         } catch (err) {
           failed.push({ symbol: fromCanonical(p.symbol).symbol, message: err instanceof BridgeError ? err.detail : "Internal error." });
         }
       }
       if (failed.length) return { status: "error", message: `Could not close ${failed.length} of ${open.length} position(s).`, failed };
       return ok(ctx, { message: open.length ? "All Open Positions Squared Off" : "No open positions." });
-    },
+    }),
 
     async orderstatus(ctx, body) {
       if (!body.orderid) throw bad("orderid is required.", "orderid");
@@ -380,15 +427,15 @@ export function createCompatHandlers(deps, cfg) {
       return ok(ctx, { quantity: String(q) });
     },
 
-    async optionsorder(ctx, body) {
+    optionsorder: idempotent("optionsorder", async (ctx, body, key) => {
       ctx.requireScope("paper");
       const opt = await optionFor(ctx, body, { forOrder: true });
       const product = String(body.product ?? "MIS").toUpperCase();
       if (product !== "MIS" && product !== "NRML") throw bad("product must be MIS or NRML for options.", "product");
       const req = orderRequest(ctx, { ...body, product }, { symbol: opt.symbol, exchange: opt.exchange });
-      const o = await place(ctx, req);
+      const o = await place(ctx, req, key);
       return ok(ctx, { orderid: o.orderId, symbol: opt.symbol, exchange: opt.exchange, underlying: String(body.underlying).toUpperCase(), underlying_ltp: opt.underlying_ltp, offset: String(body.offset ?? "ATM").toUpperCase(), option_type: String(body.option_type).toUpperCase() });
-    },
+    }),
 
     // ── market data ──
 

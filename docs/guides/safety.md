@@ -61,7 +61,7 @@ refusal into a warning with `readiness.gateAutomated: false`. Static IP and the 
 | Lots per order | 10, on every place and every modify (paper and live) |
 | Price band | Limit and trigger prices within 3% of LTP, on every place and every modify, paper and live (a live modify without an LTP is refused) |
 | Market orders | `protect`: sent as a limit order at LTP ± 2% (or the broker's native protection); `reject`: refused |
-| Market hours | Live orders outside NSE/BSE hours are refused; MCX (09:00 to 23:55) and CDS (09:00 to 17:00) by weekday window (**needs verification**, holidays not known); paper orders only warn |
+| Market hours | Live orders outside NSE/BSE hours are refused; MCX (09:00 to 23:30, the shorter of its two seasonal closes) and CDS (09:00 to 17:00) by a weekday window that is **unverified** and kept short on purpose (holidays not known); a live order on a date outside the years the shipped holiday list covers carries a loud warning; paper orders only warn |
 | Unverified live adapters | Live orders on brokers verified only against fixtures (today Zerodha and Upstox) carry a warning on every preview and place |
 | Freeze quantity | Orders above the exchange freeze quantity are refused (or sliced, if `orders.sliceAboveFreeze` is on). A modify cannot be sliced, so a change above the freeze quantity is refused |
 

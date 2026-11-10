@@ -70,7 +70,7 @@ export function referenceFreshness({ now = Date.now(), data } = {}) {
   const years = Object.keys(d.holidays?.years ?? {}).map(Number);
   const rowsIn = (y) => (d.holidays?.years?.[String(y)] ?? []).length;
   if (!rowsIn(year)) {
-    items.push({ id: "calendar-year", title: "Holiday calendar", level: "warn", asOf: d.holidays?.asOf ?? null, message: `The holiday calendar has no rows for ${year}, so every weekday this year is treated as a trading day.`, fix: FIX });
+    items.push({ id: "calendar-year", title: "Holiday calendar", level: "warn", asOf: d.holidays?.asOf ?? null, message: `The holiday calendar has no rows for ${year}, so every weekday this year is treated as a trading day. Live orders still go out, but each carries a "not holiday-checked" warning.`, fix: FIX });
   } else if (!rowsIn(year + 1)) {
     items.push({
       id: "calendar-next-year",
