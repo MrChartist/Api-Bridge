@@ -591,6 +591,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
   const loopLag = createLoopLag();
   /** Notices sleep, wake and clock steps and tells the bus (core/powerEvents.mjs). */
   const power = createPowerWatcher({ bus, logger: log });
+  // After sleep the heartbeat may be minutes old: touch the lock at once so a second Bridge started right at wake is refused.
+  bus.on("system.resumed", () => lock?.touch());
   /** The data-folder lock this app holds (taken in listen() unless the caller passed one). */
   let lock = instanceLock;
   /** Written while listening; see controlToken.mjs. */
