@@ -578,6 +578,100 @@ describe("starter hardening (audit S13)", () => {
     expect(ok.out).toMatch(/status=200/);
   });
 
+  describe("a proxy in the environment never sees the key (audit F5)", () => {
+    // A fake proxy: it records every plain request and every CONNECT, and answers 502. The starter must reach the demo Bridge
+    // directly, so nothing arrives here, and the call still works.
+    let proxy;
+    let hits;
+    let proxyEnv;
+    beforeAll(async () => {
+      hits = [];
+      proxy = createServer((req, res) => (hits.push(`${req.method} ${req.url} auth=${req.headers.authorization ?? ""}`), res.writeHead(502).end("no")));
+      proxy.on("connect", (req, socket) => (hits.push(`CONNECT ${req.url}`), socket.end("HTTP/1.1 502 no\r\n\r\n")));
+      await new Promise((r) => proxy.listen(0, "127.0.0.1", r));
+      const url = `http://127.0.0.1:${proxy.address().port}`;
+      // no_proxy is set empty (a sandbox or a person's machine may list loopback there; the starters must not rely on it)
+      proxyEnv = { http_proxy: url, HTTP_PROXY: url, https_proxy: url, HTTPS_PROXY: url, all_proxy: url, ALL_PROXY: url, no_proxy: "", NO_PROXY: "", NODE_USE_ENV_PROXY: "1" };
+    });
+    afterAll(async () => {
+      await new Promise((r) => proxy.close(r));
+    });
+
+    it("python: the call goes straight to a loopback Bridge, not through the proxy", async (ctx) => {
+      if (!(await hasCmd("python3"))) return ctx.skip();
+      hits.length = 0;
+      const r = await run("python3", ["main.py"], { cwd: project("python", { key: readKey }), env: proxyEnv });
+      expect(hits).toEqual([]);
+      expect(r.code, r.err).toBe(0);
+      expect(r.out).toMatch(/is ok/);
+    });
+
+    it("python: only a loopback address skips the proxy", async (ctx) => {
+      if (!(await hasCmd("python3"))) return ctx.skip();
+      const dir = project("python", { key: readKey });
+      const r = await run("python3", ["-c", "from bridge import is_loopback as f\nprint([f(u) for u in ('http://127.0.0.1:4300','http://localhost:4300','http://[::1]:4300','http://192.168.1.5:4300','https://bridge.example.com','http://127.0.0.1.evil.com')])"], { cwd: dir });
+      expect(r.out.trim()).toBe("[True, True, True, False, False, False]");
+    });
+
+    it("curl and node: only a loopback address is treated as this computer", async (ctx) => {
+      const dir = project("node", { key: readKey });
+      const { keepLoopbackDirect } = await import(join(dir, "bridge.mjs"));
+      const before = { NO_PROXY: process.env.NO_PROXY, no_proxy: process.env.no_proxy };
+      try {
+        for (const [url, loop] of [["http://127.0.0.1:4300", true], ["http://localhost:4300", true], ["http://[::1]:4300", true], ["http://127.0.0.1.evil.com", false], ["http://192.168.1.5:4300", false], ["https://bridge.example.com", false]]) {
+          process.env.NO_PROXY = "corp.example.com";
+          process.env.no_proxy = "";
+          keepLoopbackDirect(url);
+          expect(process.env.NO_PROXY.split(",").includes("127.0.0.1"), url).toBe(loop);
+          if (loop) expect(process.env.NO_PROXY).toContain("corp.example.com"); // what was there stays
+        }
+      } finally {
+        for (const [k, v] of Object.entries(before)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+      }
+      if (!(await hasCmd("bash"))) return ctx.skip();
+      const bare = mkdtempSync(join(work, "lib-")); // lib.sh alone: the project's .env would set BRIDGE_URL itself
+      writeFileSync(join(bare, "lib.sh"), readFileSync(join(project("curl"), "lib.sh")));
+      const lib = join(bare, "lib.sh");
+      for (const [url, loop] of [["http://127.0.0.1:4300", 1], ["http://localhost", 1], ["http://[::1]:4300", 1], ["http://127.0.0.1.evil.com", 0], ["http://10.0.0.1:80", 0], ["https://b.example.com", 0]]) {
+        const r = await run("bash", ["-c", `. '${lib}'; echo "$BRIDGE_LOOPBACK"`], { cwd: tmpdir(), env: { BRIDGE_URL: url } });
+        expect(r.out.trim(), url).toBe(String(loop));
+      }
+    });
+
+    it("curl: the call goes straight to a loopback Bridge, not through the proxy", async (ctx) => {
+      if (!(await hasCmd("bash")) || !(await hasCmd("curl"))) return ctx.skip();
+      hits.length = 0;
+      const dir = project("curl", { key: readKey });
+      const q = await run("bash", ["quote.sh"], { cwd: dir, env: proxyEnv });
+      expect(q.code, q.err).toBe(0);
+      const e = await run("bash", ["events.sh", "1"], { cwd: dir, env: proxyEnv });
+      expect(e.code, e.err).toBe(0);
+      expect(hits).toEqual([]);
+    });
+
+    it("curl: the key is not on the command line of the events script either", () => {
+      const events = readFileSync(join(project("curl"), "events.sh"), "utf8");
+      expect(events).not.toMatch(/-H "Authorization: Bearer \$BRIDGE_KEY"/);
+      expect(events).toMatch(/-H "@\$keyfile"/);
+    });
+
+    it("node: fetch is told to skip the proxy for a loopback Bridge (node, mcp-client, sheets, webhook-receiver)", async () => {
+      hits.length = 0;
+      const dir = project("node", { key: readKey });
+      const r = await run(process.execPath, ["index.mjs"], { cwd: dir, env: proxyEnv });
+      expect(hits).toEqual([]);
+      expect(r.code, r.err).toBe(0);
+      expect(r.out).toMatch(/is ok/);
+      const sheets = await run(process.execPath, ["check.mjs"], { cwd: project("sheets", { key: readKey }), env: proxyEnv });
+      expect(sheets.code, sheets.err).toBe(0);
+      const mcp = await run(process.execPath, ["mcp.mjs"], { cwd: project("mcp-client", { key: readKey }), env: proxyEnv });
+      expect(mcp.code, mcp.err).toBe(0);
+      const reg = await run(process.execPath, ["register.mjs"], { cwd: project("webhook-receiver"), env: { ...proxyEnv, BRIDGE_URL: base, MCB_ADMIN_KEY: FAKE_KEY } });
+      expect(reg.out).toMatch(/Subscribed|does not have this feature|blocked|UNAUTHENTICATED|refused|answered|Note:/i);
+      expect(hits).toEqual([]);
+    });
+  });
+
   it("the receiver's register.mjs says before posting that a plain http address is refused by default", async () => {
     const dir = project("webhook-receiver");
     const r = await run(process.execPath, ["register.mjs"], { cwd: dir, env: { BRIDGE_URL: base, MCB_ADMIN_KEY: adminKey } });

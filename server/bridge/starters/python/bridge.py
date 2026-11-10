@@ -13,6 +13,7 @@ frames). This file is enough to start and shows what a request looks like.
 import json
 import os
 import random
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -29,6 +30,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 _OPENER = urllib.request.build_opener(_NoRedirect)
+# A request to this computer never goes through a proxy: the proxy cannot reach 127.0.0.1 and would only see the key.
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
+
+
+def is_loopback(url):
+    """True for http://127.x.x.x, http://localhost and http://[::1] (any port)."""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host == "localhost" or host == "::1" or re.fullmatch(r"127(\.\d{1,3}){3}", host) is not None
+
+
+def opener_for(url):
+    return _DIRECT_OPENER if is_loopback(url) else _OPENER
 # Routes a newer Bridge has and an older one answers with these codes.
 MISSING = {"NOT_FOUND", "NOT_IMPLEMENTED", "METHOD_NOT_ALLOWED"}
 
@@ -97,7 +110,7 @@ class Bridge:
         while True:
             req = urllib.request.Request(url, data=data, headers=headers, method=method)
             try:
-                with _OPENER.open(req, timeout=timeout) as res:
+                with opener_for(url).open(req, timeout=timeout) as res:
                     text = res.read().decode()
                     answer = json.loads(text) if text else {}
                     answer["_http_status"] = res.status
@@ -147,7 +160,7 @@ class Bridge:
         req = urllib.request.Request(url, headers=self._headers({"Accept": "text/event-stream"}))
         deadline = time.time() + seconds
         try:
-            res = _OPENER.open(req, timeout=5)
+            res = opener_for(req.full_url).open(req, timeout=5)
         except urllib.error.HTTPError as e:
             try:
                 problem = json.loads(e.read().decode())
