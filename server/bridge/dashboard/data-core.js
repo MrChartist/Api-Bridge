@@ -9,7 +9,7 @@
 // Route shapes are the ones in the wave rules: /v1/downloads, /v1/datasets, /v1/recordings (+ /rules), /v1/collections
 // (+ /{name}/resolve). Every function tolerates a missing field: a half-built Bridge never throws here.
 
-import { DASH, formatFixed, formatInt, plural } from "./format.js";
+import { DASH, formatFixed, formatInt, groupIndian, plural } from "./format.js";
 
 // ── Numbers and words ──
 
@@ -40,12 +40,12 @@ export function formatDuration(sec) {
   return `about ${plural(Math.round(hrs / 24), "day")}`;
 }
 
-/** A count in short words: 1200 -> "1200" (no separators, house rule), 1_250_000 -> "1.3 million". */
+/** A count in short words: 1200 -> "1200", 375750 -> "3,75,750" (Indian grouping from 5 digits, read on its own), 1_250_000 -> "1.3 million". */
 export function formatCount(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return DASH;
   if (v >= 1_000_000) return `${formatFixed(v / 1_000_000, 1)} million`;
-  return formatInt(v);
+  return v >= 10_000 ? groupIndian(formatInt(v)) : formatInt(v);
 }
 
 const IST_MS = 5.5 * 3_600_000;
@@ -93,6 +93,8 @@ export function agoText(iso, nowMs = Date.now()) {
  */
 export function classInfo({ dataClass, delaySec = null, source = "" } = {}) {
   const from = source ? ` Source: ${source}.` : "";
+  // Demo mode makes its prices up on this computer: never call that real-time.
+  if (/^demo\b/i.test(String(source ?? ""))) return { id: "sample", label: "Sample data", tone: "", note: "Made up on this computer so you can try things out. It is not market data and must not be used as if it were." };
   if (dataClass === "realtime") return { id: "realtime", label: "Real-time", tone: "ok", note: `Recorded or fetched from your own broker account as it happened. Fine for any use.${from}` };
   if (dataClass === "delayed") {
     const mins = Number.isFinite(Number(delaySec)) && Number(delaySec) > 0 ? Math.round(Number(delaySec) / 60) : 15;
@@ -101,6 +103,15 @@ export function classInfo({ dataClass, delaySec = null, source = "" } = {}) {
   if (dataClass === "eod") return { id: "eod", label: "End of day", tone: "warn", note: `One set of values per day, published after the close. Fine for study; never used for orders, risk checks, paper fills or alerts.${from}` };
   return { id: "unknown", label: "Not labelled", tone: "", note: "The Bridge did not say how current this data is, so treat it as study data only." };
 }
+/** Where a job's or recording's files are on this computer: "<data folder>/downloads/<id>" (the folder is known only on this computer). */
+export function folderPath(dataDir, kind, id) {
+  const root = String(dataDir ?? "").replace(/[\\/]+$/, "");
+  const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
+  return root ? `${root}${sep}${kind}${sep}${id}` : "";
+}
+/** The files of one job as a ZIP, built in the browser: names, and whether it is small enough to build in memory (200 MB). */
+export const ZIP_MAX_BYTES = 200 * 1024 * 1024;
+export const zipName = (title, id) => `${String(title || id || "files").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "files"}.zip`;
 /** The three classes in the order a person reads them (for the "what do these mean" note). */
 export const CLASS_GUIDE = Object.freeze([classInfo({ dataClass: "realtime" }), classInfo({ dataClass: "delayed" }), classInfo({ dataClass: "eod" })]);
 
@@ -143,6 +154,8 @@ export const RANGES = Object.freeze([
   { id: "1m", label: "Last month", days: 31 },
   { id: "3m", label: "3 months", days: 92 },
   { id: "1y", label: "Last year", days: 366 },
+  { id: "2y", label: "2 years", days: 730 },
+  { id: "5y", label: "5 years", days: 1826 },
   { id: "max", label: "As far back as possible", days: null },
   { id: "custom", label: "Pick dates", days: null },
 ]);
@@ -170,6 +183,22 @@ export function rangeDates(rangeId, nowMs, intervals = DEFAULT_INTERVALS, custom
   }
   const r = RANGES.find((x) => x.id === rangeId) ?? RANGES[0];
   return { from: dayOf(base - r.days * dayMs), to: today };
+}
+
+/**
+ * A one-line limit note when the dates reach further back than the Bridge usually gets bars of the chosen sizes
+ * (MAX_BACK_DAYS), or "". The broker has the last word; the file says what it got.
+ */
+export function rangeLimitNote(from, to, intervals = DEFAULT_INTERVALS) {
+  const span = daysBetween(from, to);
+  if (!Number.isFinite(span)) return "";
+  const intra = intervals.filter((i) => intervalInfo(i)?.intraday);
+  const limit = intra.length ? MAX_BACK_DAYS.intraday : MAX_BACK_DAYS.daily;
+  if (span <= limit + 1) return "";
+  const years = Math.round((limit / 365) * 10) / 10;
+  return intra.length
+    ? `Bars of ${intra.join(", ")} usually go back about ${years} years. Older days will probably be missing; the file says what the broker gave.`
+    : `Daily bars usually go back about ${Math.round(years)} years. Older days may be missing; the file says what the broker gave.`;
 }
 
 /** Calendar days from a day to another (inclusive of the first, at least 1). NaN when either is not a day. */
@@ -351,7 +380,7 @@ export function universeShort(u) {
   if (!u?.underlying) return "";
   const strikes = u.strikes?.from !== undefined ? [formatInt(u.strikes.from), formatInt(u.strikes.to)].join("-") : `ATM +/- ${formatInt(u.strikes?.count ?? 10)}`;
   const ex = Array.isArray(u.expiries) ? `${plural(u.expiries.length, "date")}` : (EXPIRY_CHOICES.find((c) => c.id === u.expiries)?.label ?? "").replace(" expiry", "").toLowerCase();
-  return `${u.underlying} ${strikes}${ex ? `, ${ex}` : ""}`;
+  return `${Array.isArray(u.underlying) ? u.underlying.join(", ") : u.underlying} ${strikes}${ex ? `, ${ex}` : ""}`;
 }
 
 /**
@@ -654,7 +683,7 @@ const REC_STATUS = {
 const REC_WHY = {
   login_needed: ["No broker login right now", "It starts by itself as soon as a price feed is available. Log in on Accounts.", "accounts"],
   SESSION_EXPIRED: ["Your broker login ended", "Log in again on Accounts. It carries on by itself.", "accounts"],
-  disk_low: ["The disk is nearly full", "The recording stopped writing so the disk does not fill up. Delete old recordings or raise the limit.", null],
+  disk_low: ["The disk is nearly full", "The recording stopped writing so the disk does not fill up. Delete old recordings, or raise recorder.maxDiskMb in bridge.config.json and restart the Bridge.", null],
   feed_silent: ["The price feed went quiet", "A gap is marked in the file. It carries on when prices come back.", null],
   kill_switch: ["The kill switch is on", "Release it on Safety and the recording continues.", "safety"],
 };
@@ -726,6 +755,39 @@ export function ruleSentence(rule, collections = []) {
   return `${what}, every ${rule?.everySec ?? 30} s, ${scheduleText(rule?.schedule)}`;
 }
 
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_KEY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+/**
+ * When a rule next starts, in words. An own-hours rule: "Next start: Wed 11 Nov, 10:00 IST". It counts the days it lists only (the exchange calendar
+ * also skips holidays, which the Bridge knows and this does not), so it says "if the market is open that day".
+ * @param {{ schedule?: any }} rule  @param {number} nowMs
+ */
+export function nextStartText(rule, nowMs = Date.now()) {
+  const s = rule?.schedule;
+  // "market-hours" follows the exchange calendar, which only the Bridge knows: say so rather than guess an hour.
+  if (!s || typeof s !== "object") return "Starts at the market open on the next trading day";
+  const start = /^\d{2}:\d{2}$/.test(s.start ?? "") ? s.start : "00:00";
+  const days = Array.isArray(s.days) && s.days.length ? s.days.map((d) => String(d).toLowerCase()) : ["mon", "tue", "wed", "thu", "fri"];
+  const [hh, mm] = start.split(":").map(Number);
+  const ist = nowMs + IST_MS;
+  for (let i = 0; i < 8; i += 1) {
+    const day = new Date(Math.floor(ist / 86_400_000) * 86_400_000 + i * 86_400_000);
+    const at = day.getTime() + (hh * 60 + mm) * 60_000;
+    if (at <= ist || !days.includes(DAY_KEY[day.getUTCDay()])) continue;
+    const label = `${WEEKDAY[day.getUTCDay()]} ${day.getUTCDate()} ${new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", month: "short" }).format(day)}`;
+    return `Next start: ${i === 0 ? "today" : label}, ${start} IST, if the market is open that day`;
+  }
+  return "";
+}
+
+/** Has the person already added this preset's rules? Then the preset says Added instead of offering itself again. */
+export function presetAdded(preset, rules = [], collections = []) {
+  const names = new Set(rules.map((r) => r?.name));
+  if (preset.needs === "collection") return collections.some((c) => names.has(`Watchlist ${c.name}`.slice(0, 60)));
+  const bodies = preset.build({});
+  return bodies.length > 0 && bodies.every((b) => names.has(b.name));
+}
+
 const RULE_STATUS = {
   recording: { word: "Recording now", tone: "ok" },
   waiting: { word: "Waiting for the market", tone: "info" },
@@ -765,6 +827,44 @@ export function autoRecordSummary({ rules = [], recordings = [] } = {}) {
   return { tone: "ok", headline: `Recording today: ${parts.join(", ")}`, detail: "", on: on.length };
 }
 
+/**
+ * The option window of a chain rule or recording, in the shape the recorder accepts: the index goes at the top of the
+ * body (`underlying`), never inside `universe`, which is strict.
+ */
+export function recordingUniverse(underlying, { expiries = "current-weekly", count = 10 } = {}) {
+  const { underlying: _u, ...rest } = defaultUniverse(String(underlying ?? "NIFTY").trim().toUpperCase());
+  void _u;
+  return { ...rest, expiries, strikes: { around: "atm", count: Math.max(1, Math.min(100, Math.round(Number(count)) || 10)) } };
+}
+
+/** A plain name for a rule the person did not name (the Bridge needs one). */
+export function defaultRuleName(f) {
+  if (f.source === "collection") return `${f.collection} ${f.kind === "chain" ? "option chain" : "prices"}`.slice(0, 60);
+  if (f.source === "index") return `${String(f.underlying ?? "").trim().toUpperCase() || "Index"} option chain`.slice(0, 60);
+  return "Price recording";
+}
+
+/**
+ * The body for POST /v1/recordings/rules (mode "rule"), PATCH of a rule, or POST /v1/recordings (mode "once"), built the way
+ * the Bridge's schemas take it. `f` is the sheet's form: { name, kind, source: index|collection|symbols, collection,
+ * underlying, expiries, count, symbols: string[], everySec, format, custom, days, start, end, keepDays }.
+ */
+export function recordingBody(f, mode = "rule", { enabled = true } = {}) {
+  const b = { name: String(f.name ?? "").trim() || (mode === "rule" ? defaultRuleName(f) : undefined), kind: f.kind, everySec: Number(f.everySec), format: f.format };
+  if (b.name === undefined) delete b.name;
+  if (f.source === "collection") b.collection = f.collection;
+  else if (f.source === "index") {
+    b.underlying = String(f.underlying ?? "").trim().toUpperCase();
+    b.universe = recordingUniverse(b.underlying, { expiries: f.expiries, count: f.count });
+  } else b.symbols = f.symbols;
+  if (mode === "rule") {
+    b.enabled = enabled;
+    b.schedule = f.custom ? { days: (f.days ?? []).map((d) => String(d).toLowerCase()), start: f.start, end: f.end } : "market-hours";
+    if (f.keepDays !== "" && f.keepDays !== undefined && f.keepDays !== null && Number(f.keepDays) >= 1) b.keepDays = Number(f.keepDays);
+  } else b.sessionOnly = true;
+  return b;
+}
+
 /** The one-click auto-record presets. `build` makes the rule bodies to POST (one per rule). */
 export const RECORD_PRESETS = Object.freeze([
   {
@@ -773,14 +873,14 @@ export const RECORD_PRESETS = Object.freeze([
     sub: "NIFTY and BANKNIFTY, ATM +/- 10, current weekly expiry, every 30 s, during market hours",
     needs: null,
     build: () =>
-      ["NIFTY", "BANKNIFTY"].map((u) => ({ name: `${u} option chain`, enabled: true, kind: "chain", underlying: u, universe: { ...defaultUniverse(u), includeUnderlying: true }, everySec: 30, schedule: "market-hours", format: "csv" })),
+      ["NIFTY", "BANKNIFTY"].map((u) => recordingBody({ kind: "chain", source: "index", underlying: u, expiries: "current-weekly", count: 10, everySec: 30, format: "csv" })),
   },
   {
     id: "my-watchlist",
     title: "Record my watchlist",
     sub: "Prices of a collection you pick, every 5 s, during market hours",
     needs: "collection",
-    build: ({ collection }) => [{ name: `Watchlist ${collection}`, enabled: true, kind: "quotes", collection, everySec: 5, schedule: "market-hours", format: "csv" }],
+    build: ({ collection }) => [recordingBody({ name: `Watchlist ${collection}`.slice(0, 60), kind: "quotes", source: "collection", collection, everySec: 5, format: "csv" })],
   },
 ]);
 
@@ -803,6 +903,7 @@ export function recordingProblem(f) {
     if (!f.collection && !String(f.underlying ?? "").trim()) return "Pick a collection or type the index to record, for example NIFTY.";
   } else if (!f.collection && !(f.symbols ?? []).length) return "Pick a collection or paste the symbols to record.";
   if (f.custom && (!f.start || !f.end)) return "Pick the start and end time, or choose market hours.";
+  if (f.custom && f.start >= f.end) return "The end time must be later than the start time (same day, Indian time).";
   if (f.keepDays !== undefined && f.keepDays !== null && f.keepDays !== "" && !(Number(f.keepDays) >= 1)) return "Keep days must be 1 or more, or empty to keep everything.";
   return "";
 }
@@ -936,6 +1037,17 @@ export function createDataClient(call) {
     searchInstruments: (q, o) => out("GET", `/v1/instruments/search${qs({ q, limit: 12, ...o })}`),
   };
 }
+
+/**
+ * Does this Bridge have a route? `routes` is the list /v1/meta gives ({ method, path } with :params). An unknown list means
+ * "try it", so an older or locked-down answer never hides a control by mistake.
+ */
+export function hasRoute(routes, method, path) {
+  if (!Array.isArray(routes) || !routes.length) return true;
+  return routes.some((r) => r?.method === method && r?.path === path);
+}
+/** The answer a missing route gives, without asking (so the console stays free of 404s). */
+export const NO_ROUTE = Object.freeze({ error: Object.freeze({ status: 404, code: "NOT_FOUND", message: "This Bridge does not have that yet." }) });
 
 /** True when no account can read prices (none has a connected session). Demo and paper accounts count as connected. */
 export function noLogin(accounts, demo = false) {

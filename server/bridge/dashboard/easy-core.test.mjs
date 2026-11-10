@@ -8,6 +8,7 @@ import {
   HELP_TOPICS,
   MODE_SLOT,
   connectCapabilities,
+  connectHeading,
   connectKey,
   connectSetup,
   connectTool,
@@ -304,4 +305,22 @@ describe("Practice order", () => {
 it("never names a tool the dashboard cannot set up", () => {
   expect(connectTool("nope")).toBeNull();
   expect(() => connectKey("nope")).toThrow(/Unknown tool/);
+});
+
+it("heads a Connect page with the tool's own name, lower-casing only an article", () => {
+  expect(connectHeading(connectTool("excel"))).toBe("Connect Excel or Google Sheets");
+  expect(connectHeading(connectTool("amibroker"))).toBe("Connect AmiBroker");
+  expect(connectHeading(connectTool("python"))).toBe("Connect a Python script");
+  expect(connectHeading(connectTool("app"))).toBe("Connect my own app");
+  expect(connectHeading(connectTool("ai"))).toBe("Connect an AI assistant");
+});
+
+it("tells an Excel user where the workbook is and how to name the key cell", () => {
+  const steps = connectTool("excel").steps.join(" ");
+  expect(steps).toMatch(/Download a ready workbook/);
+  expect(steps).toMatch(/Name Box/);
+  expect(steps).toMatch(/Mac Excel and Google Sheets/);
+  const csv = connectSetup("excel", { base: "http://h:1", key: "mcb_abcdefghij_SECRET" }).flatMap((g) => g.blocks).find((b) => /xl\/quotes/.test(b.code));
+  expect(csv.code).toContain("&key=mcb_abcdefghij_SECRET");
+  expect(connectSetup("excel", { base: "http://h:1", key: "k" }).flatMap((g) => g.blocks).map((b) => b.title).join(" ")).not.toMatch(/workbook above/);
 });

@@ -1,5 +1,5 @@
 // Developers (#/developers): from zero to a working call in five minutes, which scope and key to use, your own requests
-// live, and every error explained. Four views in one page: Start, Apps, Requests, Errors. Apps are keys (one key, its scope,
+// live, and every error explained. Five views in one page: Start, Apps, Events, Requests, Errors. Apps are keys (one key, its scope,
 // quota and use), so nothing here stores anything of its own: it reads /v1/keys, /v1/quotas, /v1/requests and /v1/errors.
 // The rules and the words are in developers-core.js (pure, tested); this file only draws them.
 import { alertBox, api, app, copyButton, currentKey, emptyState, h, icon, iconTile, istTime, modal, optional, pill, toast } from "./app.js";
@@ -7,8 +7,9 @@ import { formatInt, plural } from "./format.js";
 import { countTo, patchList, setText } from "./motion.js";
 import { searchIcon } from "./palette.js";
 import {
-  APP_PRESETS, ERROR_GROUPS, EXPIRY_CHOICES, OPENAPI_PATH, STARTERS, appBody, appSnippetGroups, appUseLine, buildApps, capabilityLines, defaultAppName, filterCatalogue,
-  filterRequests, findRoutes, isErrorStatus, logFilters, presetById, presetForScope, quickStart, requestOwner, requestStats, sampleProblem, scopeAdvice, starterCommand, statusTone,
+  APP_PRESETS, ERROR_GROUPS, EXPIRY_CHOICES, OPENAPI_PATH, STARTERS, appBody, appSnippetGroups, appUseLine, buildApps, capabilityLines, collapseTopics, defaultAppName, deliveryLine, eventLine, filterCatalogue,
+  filterRequests, findRoutes, groupTopics, isErrorStatus, logFilters, presetById, presetForScope, quickStart, receiverBody, receiverProblem, receiverView, requestOwner, requestStats, sampleProblem, scopeAdvice,
+  secretFromBytes, starterCommand, statusTone, topicsText,
 } from "./developers-core.js";
 import { snippets } from "./snippets.js";
 
@@ -18,10 +19,11 @@ export function configureDevelopers(d) {
   deps = { ...deps, ...d };
 }
 
-const VIEWS = Object.freeze([["start", "Start"], ["apps", "Apps"], ["requests", "Requests"], ["errors", "Errors"]]);
+const VIEWS = Object.freeze([["start", "Start"], ["apps", "Apps"], ["events", "Events"], ["requests", "Requests"], ["errors", "Errors"]]);
 const STARTER_TILE = Object.freeze({ node: ["console", "teal"], python: ["console", "blue"], curl: ["console", "gray"], sheets: ["integrations", "green"], "webhook-receiver": ["bolt", "orange"], "mcp-client": ["plug", "purple"] });
 const LOG_MS = 3000;
 const APPS_MS = 6000;
+const EVENTS_MS = 5000;
 
 const busy = (b, on) => {
   b.disabled = on;
@@ -65,7 +67,7 @@ export async function renderDevelopers() {
   const params = deps.hashParams();
   let view = VIEWS.some(([id]) => id === params.get("view")) ? params.get("view") : state.apps.some((a) => a.usable) ? "apps" : "start";
   const seg = deps.segmented("Developers", VIEWS, view);
-  const createBtn = h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create app");
+  const createBtn = h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create key");
   const body = h("div", { class: "dev-body" });
   root.append(h("div", { class: "dev-head" }, h("h2", { class: "sr-only" }, "Developers"), seg, createBtn), body);
 
@@ -84,14 +86,15 @@ export async function renderDevelopers() {
 
   function show() {
     deps.stop?.();
-    const panels = { start: startPanel, apps: appsPanel, requests: requestsPanel, errors: errorsPanel };
+    const panels = { start: startPanel, apps: appsPanel, events: eventsPanel, requests: requestsPanel, errors: errorsPanel };
+    createBtn.hidden = view === "events";
     body.replaceChildren(panels[view]());
   }
 
   // ── Create app (a sheet): pick what it is for, name it, get the key once with its setup ──
   function openCreate(startPreset = null) {
     return modal({
-      title: "Create an app",
+      title: "Create a key",
       body: (close) => createForm(close, startPreset),
       buttons: [],
     });
@@ -141,12 +144,12 @@ export async function renderDevelopers() {
       );
     }
     choose(presetId, false);
-    const make = h("button", { type: "button", class: "primary lg", onclick: submit }, icon("keys"), "Create app");
+    const make = h("button", { type: "button", class: "primary lg", onclick: submit }, icon("keys"), "Create key");
     const cancel = h("button", { type: "button", class: "quiet lg", onclick: () => close(undefined) }, "Cancel");
     const form = h(
       "div",
       { class: "stack dev-form" },
-      h("p", { class: "dev-lead" }, "An app is one key with only the access its job needs. Pick what it is for."),
+      h("p", { class: "dev-lead" }, "A key gives one program only the access its job needs. Pick what it is for."),
       pick,
       h("label", { class: "field", for: "dev-app-name" }, h("span", {}, "Name"), name, h("span", { class: "hint" }, "So you can tell apps apart later.")),
       h("div", { class: "field seg-field" }, h("span", { id: "dev-exp-l" }, "Expires"), expiry),
@@ -338,18 +341,361 @@ export async function renderDevelopers() {
     );
   }
 
+  // ── View: Events (receivers: programs that get a signed message, and the recent events) ──
+  const ev = { subs: [], subsError: null, topics: [], recent: [], recentError: null };
+  const loadEvents = async () => {
+    const [s, t, r] = await Promise.all([optional(api("/v1/subscriptions", { fresh: true })), optional(api("/v1/events/topics")), optional(api("/v1/events?limit=30", { fresh: true }))]);
+    ev.subsError = s.error ?? null;
+    ev.subs = s.error ? [] : s.data?.data ?? [];
+    ev.topics = t.error ? ev.topics : t.data?.data ?? [];
+    ev.recentError = r.error ?? null;
+    ev.recent = r.error ? [] : [...(r.data?.data ?? [])].reverse();
+  };
+
+  function eventsPanel() {
+    const wrap = h("div", { class: "stack dev-events" });
+    const subsHost = h("div", { class: "stack" });
+    const subsList = h("div", { class: "list dev-list" });
+    const recentList = h("div", { class: "list dev-recent", role: "region", "aria-label": "Recent events", tabindex: "0" });
+    const recentNote = h("p", { class: "dev-small", role: "status" });
+    const addBtn = h("button", { type: "button", class: "small tinted", onclick: () => openAddReceiver() }, icon("plus"), "Add a receiver");
+
+    const paintSubs = () => {
+      const off = ev.subsError;
+      const rows = ev.subs.map((s) => receiverView(s));
+      if (off) {
+        const gone = off.status === 404;
+        subsHost.replaceChildren(
+          gone
+            ? emptyState("bolt", "Events are switched off", "This Bridge was started without the events module. Set events.enabled to true in bridge.config.json and restart it.", null, { compact: true })
+            : alertBox({ title: "Receivers need an admin key", detail: "Only an admin key (the one the dashboard signs in with, on this computer) may see or change them. Sign in again with mc-bridge open." }, "warn"),
+        );
+        addBtn.hidden = true;
+        return;
+      }
+      addBtn.hidden = false;
+      if (!rows.length) {
+        subsHost.replaceChildren(emptyState("bolt", "No receivers yet", "A receiver is the address of a program of yours. The Bridge sends it a signed message when something happens, such as an order filling or a download finishing.", h("button", { type: "button", class: "primary", onclick: () => openAddReceiver() }, icon("plus"), "Add a receiver"), { compact: true }));
+        return;
+      }
+      subsHost.replaceChildren(subsList);
+      patchList(subsList, rows, (r) => r.id, receiverRow);
+    };
+
+    const paintRecent = () => {
+      patchList(recentList, ev.recent.slice(0, 20).map((e) => eventLine(e)), (e) => e.id, (e, had) => {
+        const el = had ?? h("div", { class: "list-row static dev-ev" }, h("span", { class: "names" }, h("span", { class: "nm" }), h("span", { class: "sub" })), h("span", { class: "value" }));
+        setText(el.querySelector(".nm"), e.topic);
+        setText(el.querySelector(".sub"), e.facts || " ");
+        setText(el.querySelector(".value"), e.when);
+        return el;
+      });
+      recentList.hidden = !ev.recent.length;
+      setText(recentNote, ev.recentError ? "Recent events could not be read with this key." : ev.recent.length ? "" : "Nothing yet. Events appear here as they happen, for example when an order changes or a download finishes.");
+      recentNote.hidden = !recentNote.textContent;
+    };
+
+    const intro = h(
+      "section",
+      { class: "card dev-card", "aria-labelledby": "dev-ev1" },
+      h("header", { class: "card-head" }, iconTile("bolt", "orange"), h("div", { class: "card-titles" }, h("h2", { id: "dev-ev1" }, "Order events to your program"), h("p", {}, "Instead of asking the Bridge again and again, your program is told when something happens."))),
+      h(
+        "div",
+        { class: "card-body stack" },
+        h("p", { class: "dev-small" }, "A receiver is the web address of a program of yours. When an event it asked for happens, the Bridge sends it one signed message. A message only tells what happened: it can never place, approve or change an order. Approving an order stays on this computer."),
+        h("p", { class: "dev-small" }, "Not the same as Integrations > Webhooks, which takes alerts coming IN from TradingView or ChartInk."),
+      ),
+    );
+    const receivers = h(
+      "section",
+      { class: "card dev-card", "aria-labelledby": "dev-ev2" },
+      h("header", { class: "card-head" }, iconTile("plug", "teal"), h("div", { class: "card-titles" }, h("h2", { id: "dev-ev2" }, "Receivers"), h("p", {}, "Programs that get the events they asked for.")), h("div", { class: "card-actions" }, addBtn)),
+      h("div", { class: "card-body stack" }, subsHost),
+    );
+    const recent = h(
+      "section",
+      { class: "card dev-card", "aria-labelledby": "dev-ev3" },
+      h("header", { class: "card-head" }, iconTile("activity", "indigo"), h("div", { class: "card-titles" }, h("h2", { id: "dev-ev3" }, "Recent events"), h("p", {}, "The latest things that happened on this Bridge, newest first. Which of them a receiver gets depends on what it asked for."))),
+      h("div", { class: "card-body stack" }, recentList, recentNote),
+    );
+    const how = h(
+      "section",
+      { class: "card dev-card", "aria-labelledby": "dev-ev4" },
+      h("header", { class: "card-head" }, iconTile("download", "gray"), h("div", { class: "card-titles" }, h("h2", { id: "dev-ev4" }, "Write a receiver"), h("p", {}, "A small program that answers 200 and checks the signature."))),
+      h(
+        "div",
+        { class: "card-body stack" },
+        commandLine(starterCommand("webhook-receiver", cli), "Command for the webhook receiver starter"),
+        h("p", { class: "dev-small" }, "It writes a ready folder that checks the signature for you. To read events instead of receiving them: ", code("GET /v1/events/stream"), " (add ", code("since="), " to catch up), or ", code("bridge.events.subscribe()"), " in the Python and Node libraries."),
+      ),
+    );
+    wrap.append(intro, receivers, recent, how);
+    paintSubs();
+    paintRecent();
+    // #/developers?view=events&add=1 (the palette's "Add a receiver for order events") opens the form.
+    if (deps.hashParams().get("add")) {
+      deps.setHashParam("add", "");
+      loadEvents().then(() => openAddReceiver());
+    }
+    loadEvents().then(() => {
+      if (view !== "events") return;
+      paintSubs();
+      paintRecent();
+    });
+    deps.every(EVENTS_MS, async () => {
+      await loadEvents();
+      if (view !== "events" || document.querySelector("dialog[open]")) return;
+      paintSubs();
+      paintRecent();
+    });
+    return wrap;
+  }
+
+  function receiverRow(r, existing) {
+    if (existing) {
+      setText(existing.querySelector(".nm"), r.title);
+      setText(existing.querySelector(".dev-sub"), `${r.topics} · ${r.last}`);
+      const pl = existing.querySelector(".pill");
+      pl.className = `pill ${r.state.tone}`.trim();
+      setText(pl.lastChild, r.state.word);
+      existing.onclick = () => openReceiver(r.id);
+      return existing;
+    }
+    return h(
+      "button",
+      { type: "button", class: "list-row dev-row", "data-key": r.id, onclick: () => openReceiver(r.id), "aria-haspopup": "dialog" },
+      iconTile("bolt", "orange", "sm"),
+      h("span", { class: "names" }, h("span", { class: "nm" }, r.title), h("span", { class: "sub dev-sub" }, `${r.topics} · ${r.last}`)),
+      h("span", { class: `pill ${r.state.tone}`.trim() }, h("span", { class: "pdot" }), h("span", {}, r.state.word)),
+      icon("chevron"),
+    );
+  }
+
+  // ── Add a receiver (a sheet): the address, what it wants, and a signing secret shown once ──
+  function openAddReceiver() {
+    return modal({ title: "Add a receiver", body: (close) => receiverForm(close), buttons: [] });
+  }
+
+  function receiverForm(close) {
+    const allTopics = ev.topics.map((t) => t.topic);
+    const picked = new Set(allTopics.filter((t) => t.startsWith("order.")));
+    const secret = secretFromBytes(crypto.getRandomValues(new Uint8Array(32)));
+    const err = h("div", { "aria-live": "polite" });
+    const url = h("input", { id: "dev-rx-url", type: "url", inputmode: "url", autocomplete: "off", spellcheck: "false", placeholder: "https://example.com/bridge/events", "aria-required": "true" });
+    const label = h("input", { id: "dev-rx-label", maxlength: "60", autocomplete: "off", placeholder: "Optional, for example Order logger" });
+    const chosenLine = h("p", { class: "dev-small", "aria-live": "polite" });
+    const counters = [];
+    const paintChosen = () => {
+      setText(chosenLine, picked.size ? `Selected: ${topicsText(collapseTopics([...picked], allTopics))}.` : "Nothing selected yet.");
+      for (const c of counters) c();
+    };
+    const boxes = [];
+    const groups = groupTopics(ev.topics).map((g) => {
+      const count = h("span", { class: "dev-small dev-topic-n" });
+      counters.push(() => setText(count, `${g.topics.filter((t) => picked.has(t.topic)).length} of ${g.topics.length}`));
+      const rows = g.topics.map((t) => {
+        const cb = h("input", { type: "checkbox", checked: picked.has(t.topic) });
+        cb.addEventListener("change", () => {
+          if (cb.checked) picked.add(t.topic);
+          else picked.delete(t.topic);
+          paintChosen();
+        });
+        boxes.push([t.topic, cb]);
+        return h("label", { class: "dev-topic" }, cb, h("span", {}, h("strong", {}, t.topic), h("span", { class: "dev-small" }, ` ${t.description}`)));
+      });
+      return h("details", { class: "dev-topic-group" }, h("summary", {}, h("span", {}, g.title), count, h("span", { class: "dev-small dev-topic-blurb" }, g.blurb)), h("div", { class: "stack dev-topics" }, rows));
+    });
+    const everything = h("button", { type: "button", class: "small plain", onclick: () => {
+      const all = picked.size < allTopics.length;
+      for (const [t, cb] of boxes) {
+        cb.checked = all;
+        if (all) picked.add(t);
+        else picked.delete(t);
+      }
+      setText(everything, all ? "Clear all" : "Select everything");
+      paintChosen();
+    } }, "Select everything");
+    paintChosen();
+    const make = h("button", { type: "button", class: "primary lg", onclick: submit }, icon("plus"), "Add receiver");
+    const cancel = h("button", { type: "button", class: "quiet lg", onclick: () => close(undefined) }, "Cancel");
+    const form = h(
+      "div",
+      { class: "stack dev-form" },
+      h("p", { class: "dev-lead" }, "The Bridge will send signed messages to this address when the events you tick happen. They only tell what happened; they cannot place or approve orders."),
+      h("label", { class: "field", for: "dev-rx-url" }, h("span", {}, "Address of your program"), url, h("span", { class: "hint" }, "Use https. A program on this computer or your network (http://localhost) works only after events.webhooks.allowPrivateTargets is set to true in bridge.config.json.")),
+      h("label", { class: "field", for: "dev-rx-label" }, h("span", {}, "Name"), label),
+      h("div", { class: "field" }, h("span", {}, "Which events"), chosenLine, ...(groups.length ? [...groups, h("div", {}, everything)] : [h("p", { class: "dev-small" }, "This key cannot list the topics.")])),
+      h("div", { class: "dev-keybox" }, h("span", { class: "dev-keylabel", id: "dev-rx-sl" }, "Signing secret"), h("div", { class: "dev-keyrow" }, h("code", { class: "dev-keyvalue", tabindex: "0", "aria-labelledby": "dev-rx-sl" }, secret), copyButton(secret, { label: "Copy secret", toastLabel: "Secret copied", cls: "lg", ariaLabel: "Copy the signing secret" }))),
+      h("p", { class: "dev-small" }, "Put this secret in your program so it can check each message really came from this Bridge. The Bridge keeps it encrypted and shows it only now."),
+      err,
+      h("div", { class: "dev-actions" }, cancel, make),
+    );
+
+    async function submit() {
+      err.replaceChildren();
+      const topics = [...picked];
+      const problem = receiverProblem({ url: url.value, topics });
+      if (problem) {
+        err.replaceChildren(h("p", { class: "field-msg", role: "alert", tabindex: "-1" }, problem));
+        err.firstChild.scrollIntoView?.({ block: "nearest" });
+        (topics.length ? url : form.querySelector("input[type=checkbox]"))?.focus();
+        return;
+      }
+      busy(make, true);
+      try {
+        const r = await api("/v1/subscriptions", { method: "POST", body: receiverBody({ url: url.value, label: label.value, topics, allTopics, secret }) });
+        await loadEvents();
+        revealReceiver(r.data.data, secret, form);
+        if (view === "events") show();
+      } catch (e) {
+        err.replaceChildren(alertBox(e));
+        err.firstChild.scrollIntoView?.({ block: "nearest" });
+        busy(make, false);
+      }
+    }
+
+    function revealReceiver(sub, secretText, host) {
+      const rv = receiverView(sub);
+      const test = h("button", { type: "button", class: "tinted lg", onclick: async () => {
+        busy(test, true);
+        const res = await sendTest(sub.id);
+        resultBox.replaceChildren(res);
+        busy(test, false);
+      } }, icon("play"), "Send a test message");
+      const resultBox = h("div", { "aria-live": "polite" });
+      host.replaceChildren(
+        h("div", { class: "dev-reveal", tabindex: "-1" }, iconTile("check", "green", "lg"), h("div", {}, h("h3", {}, `${rv.title} is added`), h("p", {}, `${rv.topics}. Nothing has been sent yet.`))),
+        alertBox({ title: "Copy the signing secret now. It is shown only once.", detail: "The Bridge keeps it encrypted and cannot show it again. If you lose it, open the receiver and make a new secret." }, "warn"),
+        h("div", { class: "dev-keybox" }, h("span", { class: "dev-keylabel", id: "dev-rx-sl2" }, "Signing secret"), h("div", { class: "dev-keyrow" }, h("code", { class: "dev-keyvalue", tabindex: "0", "aria-labelledby": "dev-rx-sl2" }, secretText), copyButton(secretText, { label: "Copy secret", toastLabel: "Secret copied", cls: "primary lg", ariaLabel: "Copy the signing secret" }))),
+        h("p", { class: "dev-small" }, "Each message has the headers X-Bridge-Signature and X-Bridge-Timestamp. Check them with ", code("verify_signature"), " (Python) or ", code("verifySignature"), " (Node), or start from ", code(starterCommand("webhook-receiver", cli)), "."),
+        test,
+        resultBox,
+        h("div", { class: "dev-actions" }, h("button", { type: "button", class: "primary lg", onclick: () => close(true) }, "Done")),
+      );
+      host.querySelector(".dev-reveal")?.focus({ preventScroll: true });
+    }
+    return form;
+  }
+
+  /** One signed test message now. Returns the box to show. */
+  async function sendTest(id) {
+    try {
+      const r = await api(`/v1/subscriptions/${encodeURIComponent(id)}/test`, { method: "POST" });
+      const t = r.data.data;
+      await loadEvents();
+      return alertBox(t.ok ? { title: "The receiver accepted the test", detail: `It answered ${t.status ?? "ok"} in ${formatInt(t.durationMs ?? 0)} ms.` } : { title: "The test did not get through", detail: `${t.message}${t.status ? ` (it answered ${t.status})` : ""}` }, t.ok ? "ok" : "bad");
+    } catch (e) {
+      return alertBox(e);
+    }
+  }
+
+  // ── One receiver (a sheet): health, test, recent deliveries, dead letters, pause, new secret, remove ──
+  async function openReceiver(id) {
+    const sub = () => ev.subs.find((s) => s.id === id);
+    if (!sub()) return;
+    let choice;
+    do {
+      const rv = receiverView(sub());
+      let deliveries = [];
+      let dead = [];
+      const [d, l] = await Promise.all([optional(api(`/v1/subscriptions/${encodeURIComponent(id)}/deliveries?limit=12`, { fresh: true })), optional(api(`/v1/subscriptions/${encodeURIComponent(id)}/dead-letters`, { fresh: true }))]);
+      if (!d.error) deliveries = d.data?.data ?? [];
+      if (!l.error) dead = l.data?.data ?? [];
+      const out = h("div", { "aria-live": "polite" });
+      choice = await modal({
+        title: rv.title,
+        body: (close) => {
+          const kv = h("dl", { class: "kv dev-kv" }, ...[["Address", rv.host || "hidden"], ["Events", rv.topics], ["Status", rv.state.word], ["Delivered", rv.counts || "nothing yet"], ["Waiting to send", formatInt(rv.pending)]].flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
+          const test = h("button", { type: "button", class: "small tinted", onclick: async () => { busy(test, true); out.replaceChildren(await sendTest(id)); busy(test, false); } }, icon("play"), "Send a test message");
+          const lines = deliveries.map((x) => deliveryLine(x));
+          const delivered = lines.length ? h("div", { class: "list" }, lines.map((x) => h("div", { class: "list-row static dev-ev" }, h("span", { class: "names" }, h("span", { class: "nm" }, `${x.word}${x.test ? " (test)" : ""}`), h("span", { class: "sub" }, [x.topic, x.detail].filter(Boolean).join(" · "))), h("span", { class: "value" }, x.when)))) : h("p", { class: "dev-small" }, "No messages sent to it yet.");
+          const deadBox = dead.length
+            ? h("div", { class: "stack" }, h("h3", {}, `Gave up on ${plural(dead.length, "message")}`), h("p", { class: "dev-small" }, "These could not be delivered after several tries. Send one again when your program is back, or clear them."),
+                h("div", { class: "list" }, dead.slice(0, 10).map((x) => h("div", { class: "list-row static dev-ev" }, h("span", { class: "names" }, h("span", { class: "nm" }, x.topic), h("span", { class: "sub" }, `${x.message} · ${plural(x.attempts, "try", "tries")}`)), h("button", { type: "button", class: "small tinted", onclick: async (e) => {
+                  const b = e.currentTarget;
+                  busy(b, true);
+                  try {
+                    await api(`/v1/subscriptions/${encodeURIComponent(id)}/dead-letters/${encodeURIComponent(x.id)}/retry`, { method: "POST" });
+                    toast("Queued to send again");
+                    close("refresh");
+                  } catch (er) {
+                    busy(b, false);
+                    out.replaceChildren(alertBox(er));
+                  }
+                } }, "Send again")))),
+                h("button", { type: "button", class: "small plain destructive", onclick: () => close("clear") }, "Clear them"))
+            : null;
+          return h("div", { class: "stack dev-sheet" }, h("div", { class: "dev-sheet-pills" }, pill(rv.state.word, rv.state.tone)), rv.failure ? alertBox({ title: "The last delivery failed", detail: rv.failure.message }, "warn") : null, kv, h("div", { class: "dev-sheet-acts" }, test, h("button", { type: "button", class: "small", onclick: () => close("toggle") }, rv.active ? "Pause" : "Resume"), h("button", { type: "button", class: "small", onclick: () => close("secret") }, "New secret")), out, h("h3", {}, "Recent messages"), delivered, deadBox);
+        },
+        buttons: [{ label: "Close", value: "close" }, { label: "Remove", cls: "tinted destructive", value: "remove" }],
+      });
+      if (choice === "toggle") {
+        try {
+          await api(`/v1/subscriptions/${encodeURIComponent(id)}`, { method: "PATCH", body: { active: !rv.active } });
+          toast(rv.active ? "Paused. Nothing is sent until you resume it." : "Resumed");
+        } catch (e) {
+          toast(`Could not change it: ${e.message}`, { tone: "error" });
+        }
+      } else if (choice === "clear") {
+        try {
+          await api(`/v1/subscriptions/${encodeURIComponent(id)}/dead-letters`, { method: "DELETE" });
+          toast("Cleared");
+        } catch (e) {
+          toast(`Could not clear them: ${e.message}`, { tone: "error" });
+        }
+      } else if (choice === "secret") {
+        await newSecret(id, rv.title);
+      }
+      await loadEvents();
+      if (view === "events") show();
+      if (!sub()) return;
+    } while (["toggle", "clear", "secret", "refresh"].includes(choice));
+    if (choice !== "remove") return;
+    const rv = receiverView(sub());
+    const ok = await modal({
+      title: `Remove “${rv.title}”?`,
+      body: h("p", {}, "The Bridge stops sending it events, and forgets its secret and the messages waiting for it. This cannot be undone."),
+      buttons: [{ label: "Cancel", value: false }, { label: "Remove receiver", cls: "destructive", value: true }],
+    });
+    if (!ok) return;
+    try {
+      await api(`/v1/subscriptions/${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast("Receiver removed");
+    } catch (e) {
+      toast(`Could not remove it: ${e.message}`, { tone: "error" });
+    }
+    await loadEvents();
+    if (view === "events") show();
+  }
+
+  /** A new signing secret: made here, sent once, shown once. */
+  async function newSecret(id, title) {
+    const secret = secretFromBytes(crypto.getRandomValues(new Uint8Array(32)));
+    try {
+      await api(`/v1/subscriptions/${encodeURIComponent(id)}`, { method: "PATCH", body: { secret } });
+    } catch (e) {
+      toast(`Could not change the secret: ${e.message}`, { tone: "error" });
+      return;
+    }
+    await modal({
+      title: `New secret for ${title}`,
+      body: h("div", { class: "stack" }, alertBox({ title: "Copy it now. It is shown only once.", detail: "The old secret stopped working. Put this one in your program." }, "warn"), h("div", { class: "dev-keybox" }, h("span", { class: "dev-keylabel", id: "dev-rx-sl3" }, "Signing secret"), h("div", { class: "dev-keyrow" }, h("code", { class: "dev-keyvalue", tabindex: "0", "aria-labelledby": "dev-rx-sl3" }, secret), copyButton(secret, { label: "Copy secret", toastLabel: "Secret copied", cls: "primary lg", ariaLabel: "Copy the signing secret" })))),
+      buttons: [{ label: "Done", cls: "primary", value: true }],
+    });
+  }
+
   // ── View: Apps ──
   function appsPanel() {
     const wrap = h("div", { class: "stack dev-apps" });
     if (state.keysError) {
       wrap.append(alertBox({ title: "Apps need an admin key", detail: "This page lists your API keys, and only an admin key (the one the dashboard signs in with, on this computer) may. Sign in again with mc-bridge open." }, "warn"));
     }
-    const list = h("div", { class: "list dev-list", role: "list", "aria-label": "Apps" });
+    const list = h("div", { class: "list dev-list", role: "group", "aria-label": "Apps" });
     const appsN = h("strong", {}, "0");
     const callsN = h("strong", { class: "dev-calls" }, "0");
     const summary = h("p", { class: "dev-summary" }, appsN, " ", h("span", {}, "apps"), " · ", callsN, " ", h("span", { class: "dev-calls-word" }, "requests today"));
     const gone = h("details", { class: "dev-gone" });
-    const emptyHost = h("div", { class: "card" }, emptyState("keys", "No apps yet", "An app is one key with only the access its job needs. Make one, then copy its setup.", h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create app")));
+    const emptyHost = h("div", { class: "card" }, emptyState("keys", "No keys yet", "A key (the Bridge calls one for a program an app) has only the access its job needs. Make one, then copy its setup.", h("button", { type: "button", class: "primary", onclick: () => openCreate() }, icon("plus"), "Create app")));
     const paint = () => {
       const now = state.apps.filter((a) => a.usable);
       const old = state.apps.filter((a) => !a.usable);

@@ -94,6 +94,26 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
             : []),
         ].join("\n"),
       },
+      {
+        title: "Order and data events: ask now and then, or listen (no polling of prices)",
+        lang: "python",
+        code: [
+          "from mrchartist_bridge import BridgeClient",
+          "",
+          `bridge = BridgeClient(base_url="${host}")   # key from $MCB_API_KEY`,
+          `page = bridge.events.poll(topics="order.*")        # the newest order events`,
+          `for ev in page:`,
+          `    print(ev.topic, ev.data)`,
+          `# next time: bridge.events.poll(since=page.cursor, topics="order.*")`,
+          "",
+          `# or wait for them as they happen (reconnects by itself and resumes from its cursor):`,
+          `for ev in bridge.events.subscribe(["order.*", "download.*"]):`,
+          `    print(ev.topic, ev.cursor)`,
+          "",
+          `# a program that RECEIVES signed messages checks each one: Developers > Events adds the receiver`,
+          `# ok = bridge.events.verify_signature(secret, raw_body, request_headers)`,
+        ].join("\n"),
+      },
     ],
     node: [
       // The Node client (@mrchartist/bridge-client) is private: it is packed from this repository's sdk/node folder.
@@ -119,10 +139,28 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
           `stream.on("tick", (t) => console.log(t.symbol, t.ltp));`,
         ].join("\n"),
       },
+      {
+        title: "Order and data events: ask now and then, or listen (no polling of prices)",
+        lang: "js",
+        code: [
+          `import { BridgeClient } from "@mrchartist/bridge-client";`,
+          "",
+          `const bridge = new BridgeClient({ baseUrl: "${host}", apiKey: process.env.MCB_API_KEY ?? "${paper}" });`,
+          `const page = await bridge.events.poll({ topics: "order.*" });   // the newest order events`,
+          `for (const ev of page.events) console.log(ev.topic, ev.data);`,
+          `// next time: bridge.events.poll({ since: page.cursor, topics: "order.*" })`,
+          "",
+          `// or wait for them as they happen (reconnects by itself and resumes from its cursor):`,
+          `for await (const ev of bridge.events.subscribe({ topics: ["order.*", "download.*"] })) console.log(ev.topic, ev.cursor);`,
+          "",
+          `// a program that RECEIVES signed messages checks each one: Developers > Events adds the receiver`,
+          `// const ok = bridge.events.verifySignature(secret, rawBodyBuffer, req.headers);`,
+        ].join("\n"),
+      },
     ],
     excel: [
       {
-        title: "Excel (Windows): one value in one cell. For a list use the workbook above: one request for every row. Put the key in a cell named BridgeKey",
+        title: "Excel for Windows: one value in one cell (the key goes in a cell named BridgeKey). For a whole list, download the workbook or use the link further down",
         lang: "excel",
         code: [
           `=VALUE(WEBSERVICE("${host}/xl/ltp?symbol="&ENCODEURL(A2)&"&key="&BridgeKey))`,
@@ -131,9 +169,9 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       },
       { title: "Your key for the BridgeKey cell", lang: "text", code: url },
       {
-        title: "A whole list in one request (CSV: Power Query, curl, IMPORTDATA). Each row says how current it is",
+        title: "Mac Excel and Google Sheets: a whole list in one link (Excel: Data, From Web. Sheets: =IMPORTDATA). The link has your key in it, so do not share it. Each row says how current it is",
         lang: "text",
-        code: `${host}/xl/quotes?symbols=NSE:RELIANCE,NSE:TCS,NSE:NIFTY&fields=ltp,chg,pct,volume&format=csv`,
+        code: `${host}/xl/quotes?symbols=NSE:RELIANCE,NSE:TCS,NSE:NIFTY&fields=ltp,chg,pct,volume&format=csv&key=${url}`,
       },
       {
         title: "Google Sheets (needs your own tunnel; use the Apps Script from this page)",

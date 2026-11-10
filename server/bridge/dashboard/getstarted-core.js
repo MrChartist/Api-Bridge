@@ -107,3 +107,58 @@ export const STEP_DONE_TEXT = Object.freeze({
 
 /** The steps that became done between two derivations, in order (pure; the checklist announces them). */
 export const newlyDone = (before, after) => (before ? after.steps.filter((s, i) => s.done && !before.steps[i]?.done).map((s) => s.id) : []);
+
+// ── Goals: ask what the person wants to do, then show the few steps for that ──
+
+export const GOAL_SLOT = "mcb.dashboard.getStarted.goal";
+/** "api" keeps the original slot, so a checklist hidden before this change stays hidden. */
+export const dismissSlot = (goal) => (goal === "api" ? DISMISS_SLOT : `${DISMISS_SLOT}.${goal}`);
+
+/** What a person can come here to do. `steps` are step ids; the order is the order to do them. */
+export const GOALS = Object.freeze([
+  { id: "excel", title: "Prices in Excel or Google Sheets", steps: ["account", "excelKey", "excel"] },
+  { id: "history", title: "Save price history as files", steps: ["account", "download", "files"] },
+  { id: "record", title: "Record option chains every day", steps: ["account", "rule", "recorded"] },
+  { id: "api", title: "Call the API from my own code", steps: ["account", "key", "call", "order", "sources"] },
+  { id: "events", title: "Get order events in my program", steps: ["key", "receiver", "delivered"] },
+]);
+export const goalById = (id) => GOALS.find((g) => g.id === id) ?? null;
+
+/** Did Excel, Sheets or another spreadsheet tool ask for a price with a key and get an answer? */
+export function sheetCallSeen(requests) {
+  return Array.isArray(requests) && requests.some((r) => r && r.client !== "dashboard" && Boolean(r.keyId) && Number(r.status) < 400 && /^\/xl\//.test(String(r.path ?? "")));
+}
+
+/**
+ * The steps of one goal and which are done, from what the Bridge reports. Any input may be null (could not be read), which
+ * never counts as done. The "api" goal is the original five steps.
+ * @param {string} goal
+ * @param {object} input  as deriveSteps, plus downloads, rules, recordings and subs (arrays or null)
+ */
+export function deriveGoal(goal, input) {
+  const g = goalById(goal) ?? goalById("api");
+  const base = deriveSteps(input);
+  const { downloads, rules, recordings, subs, keys, requests, ownKeyId = null, now = Date.now() } = input;
+  const anyOf = (a, f) => Array.isArray(a) && a.some(f);
+  const done = {
+    account: base.steps[0].done,
+    key: base.steps[1].done,
+    call: base.steps[2].done,
+    order: base.steps[3].done,
+    sources: base.steps[4].done,
+    excelKey: anyOf(keys, (k) => k && k.id !== ownKeyId && k.clientKind === "excel" && active(k, now)),
+    excel: sheetCallSeen(requests),
+    download: Array.isArray(downloads) && downloads.length > 0,
+    files: anyOf(downloads, (d) => d?.status === "done"),
+    rule: anyOf(rules, (r) => r?.enabled !== false),
+    recorded: anyOf(recordings, (r) => Number(r?.rows) > 0 || Number(r?.files?.count ?? r?.fileCount) > 0 || Boolean(r?.lastWriteAt)),
+    receiver: Array.isArray(subs) && subs.length > 0,
+    delivered: anyOf(subs, (s) => Number(s?.health?.delivered) > 0 || s?.health?.state === "ok"),
+  };
+  const steps = g.steps.map((id) => ({ id, done: Boolean(done[id]) }));
+  const doneCount = steps.filter((s) => s.done).length;
+  return { goal: g.id, steps, doneCount, total: steps.length, complete: doneCount === steps.length, current: steps.find((s) => !s.done)?.id ?? null, progress: progressText(doneCount, steps.length) };
+}
+
+/** What a screen reader hears when any step flips to done (the original five keep their own words). */
+export const stepDoneText = (id, n) => (STEP_DONE_TEXT[id] ? `Step ${n} done:${STEP_DONE_TEXT[id].split(":").slice(1).join(":")}` : `Step ${n} done.`);

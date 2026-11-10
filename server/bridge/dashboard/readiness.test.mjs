@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkedLine, heroModel, limitsModel, liveConditions, methodParts, relAgo, rowsModel, timelineParts, usageTone } from "./readiness.js";
+import { checkedLine, heroModel, killIsOn, limitsModel, liveConditions, methodParts, relAgo, rowsModel, timelineParts, usageTone } from "./readiness.js";
 import { matchRanges } from "./palette.js";
 
 const NOW = Date.parse("2026-11-08T11:30:00Z");
@@ -93,5 +93,14 @@ describe("Command palette: highlighted matches", () => {
     expect(matchRanges("rl", "Rate limits")).toEqual([[0, 1], [5, 6]]);
     expect(matchRanges("xqz", "Rate limits")).toEqual([]);
     expect(matchRanges("", "Rate limits")).toEqual([]);
+  });
+});
+
+describe("the kill switch in the toolbar", () => {
+  it("is on when any account's readiness says so, and off when nothing says it", () => {
+    expect(killIsOn({ accounts: [{ checks: { killSwitch: { engaged: false } } }, { checks: { killSwitch: { engaged: true } } }] })).toBe(true);
+    expect(killIsOn({ accounts: [{ checks: { killSwitch: { engaged: false } } }] })).toBe(false);
+    expect(killIsOn({ accounts: [{ checks: {} }] })).toBe(false);
+    expect(killIsOn(null)).toBe(false);
   });
 });

@@ -119,6 +119,7 @@ describe("core routes", () => {
     expect(r.status).toBe(200);
     expect(r.json.routes.some((x) => x.path === "/t/read")).toBe(true);
     expect(existsSync(join(r.json.installDir, "bin", "mc-bridge.mjs"))).toBe(true);
+    expect(typeof r.json.dataDir).toBe("string"); // for the dashboard: where saved files are on this computer
   });
 
   it("serves the OpenAPI document", async () => {

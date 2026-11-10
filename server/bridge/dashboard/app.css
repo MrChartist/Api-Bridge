@@ -719,6 +719,8 @@ div.field.seg-field .segmented button { flex: 1 1 auto; min-width: 0; padding: 0
 .tab-panel { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
 .segmented.page-tabs { flex: none; min-height: var(--page-tabs-h); }
 .segmented.page-tabs button { flex: none; min-height: calc(var(--page-tabs-h) - 4px); padding: 0 16px; font-size: 13px; }
+/* On a phone the clipped end of a page tab strip fades over a wider stretch, so a half-cut name reads as "more this way". */
+@media (max-width: 719px) { .segmented.page-tabs.fade-r { -webkit-mask-image: linear-gradient(to left, transparent, #000 44px); mask-image: linear-gradient(to left, transparent, #000 44px); } }
 .segmented.fade-r, .tabs.fade-r { -webkit-mask-image: linear-gradient(to left, transparent, #000 24px); mask-image: linear-gradient(to left, transparent, #000 24px); }
 .segmented.fade-l, .tabs.fade-l { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px); mask-image: linear-gradient(to right, transparent, #000 24px); }
 :is(.segmented, .tabs).fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); mask-image: linear-gradient(to right, transparent, #000 24px calc(100% - 24px), transparent); }
@@ -947,7 +949,7 @@ td strong { font-weight: 600; }
 .alert.ok { background: hsl(var(--success) / 0.1); box-shadow: inset 0 0 0 1px hsl(var(--success) / 0.26); }
 .alert.ok svg, .alert.ok strong { color: hsl(var(--success-ink)); }
 .alert.info svg, .alert.info strong { color: hsl(var(--accent-ink)); }
-.alert .detail { display: block; margin-top: 2px; color: var(--label-2); }
+.alert .detail { display: block; margin-top: 2px; color: var(--label-2); white-space: pre-line; }
 .alert .alert-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
 /* Code. */
@@ -1249,8 +1251,8 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 }
 .demo-pop p { margin: 0; padding: 4px 16px 16px; max-width: 320px; font: var(--t-callout); color: var(--label-2); }
 @media (max-width: 420px) {
-  .toolbar { gap: 6px; }
-  .toolbar-actions { gap: 6px; }
+  .toolbar { gap: 4px; }
+  .toolbar-actions { gap: 4px; }
 }
 /* The demo indicator keeps its word while the bar has room for it (390px and up). */
 @media (max-width: 389px) {
@@ -1729,6 +1731,18 @@ dialog.sheet::backdrop { opacity: var(--sheet-p, 1); }
 /* Narrow toolbars keep the dot and this second only. */
 @media (max-width: 1279px) { .toolbar-budget :is(.bud-sep, .bud-min) { display: none; } }
 @media (max-width: 719px) { .toolbar-budget .bud-lbl { display: none; } button.toolbar-budget-btn { --btn-px: 10px; } }
+/* Phones: the capsule shrinks to its dot (its name and the sheet it opens keep the numbers) so nothing in the bar is squeezed. */
+@media (max-width: 430px) {
+  .toolbar-budget .bud-num { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  button.toolbar-budget-btn { width: var(--ctl-h); padding: 0; justify-content: center; }
+  .toolbar-budget[data-tone="warn"] .bud-dot { background: hsl(var(--warning)); }
+  .toolbar-budget[data-tone="bad"] .bud-dot { background: hsl(var(--danger)); }
+}
+/* With the capsule in the bar (Advanced, or a broker connected) seven controls need 376px: the demo word and, on the narrowest phones, the capsule give way (its numbers are on API > Rate limits). */
+@media (max-width: 449px) { .toolbar:has(.toolbar-budget:not([hidden])) button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; } .toolbar:has(.toolbar-budget:not([hidden])) .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+@media (max-width: 379px) { .toolbar-budget { display: none; } }
+/* No button in the toolbar ever shrinks below its touch target; the title is what gives way. */
+.toolbar button, .toolbar .toolbar-budget, .toolbar .toolbar-ready { flex: none; min-width: var(--ctl-h); }
 .bud-pop { display: flex; flex-direction: column; gap: 10px; min-width: min(300px, 80vw); max-width: 360px; padding: 4px 16px 16px; font: var(--t-subhead); }
 .bud-stream { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .bud-acct { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-md); background: var(--fill-1); }
@@ -2306,7 +2320,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .ai-ips { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ai-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; font: var(--t-label); color: hsl(var(--foreground)); }
 .ai-details { min-width: 0; }
-.ai-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: var(--t-subhead); color: hsl(var(--accent)); }
+.ai-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font: var(--t-subhead); color: hsl(var(--accent-ink)); }
 .ai-details summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-ctl); }
 .ai-details > :not(summary) { margin-top: 6px; overflow-wrap: anywhere; }
 .ai-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; font: var(--t-body); }
@@ -2457,7 +2471,7 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .dev-step-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dev-health:empty { display: none; }
 .dev-cmd { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 6px 6px 12px; border-radius: var(--r-md); background: var(--fill-1); box-shadow: inset 0 0 0 1px var(--separator); }
-.dev-cmd > code { flex: 1 1 auto; min-width: 0; padding: 4px 0; font: 500 13px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: break-word; }
+.dev-cmd > code { flex: 1 1 auto; min-width: 0; padding: 4px 0; font: 500 13px/1.5 var(--font-mono); white-space: nowrap; overflow-x: auto; }
 .dev-cmd > code:focus-visible { outline-offset: 4px; border-radius: 4px; }
 .dev-cmd > button { flex: none; }
 .dev-blocks { min-width: 0; }
@@ -2504,6 +2518,19 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .dev-sheet-pills, .dev-sheet-acts { display: flex; flex-wrap: wrap; gap: 6px 8px; }
 .dev-sheet h3 { margin: 0; font: var(--t-headline); }
 .dev-kv { padding: 0; }
+
+/* Events: receivers, recent events and the topic picker in the add sheet. */
+.dev-ev .value { white-space: nowrap; color: var(--label-3); font: var(--t-footnote); }
+.dev-ev .nm { overflow-wrap: anywhere; }
+.dev-ev .sub { white-space: normal; }
+.dev-recent { max-height: 340px; overflow: auto; }
+.dev-topic-group { border-radius: var(--r-md); background: var(--fill-1); padding: 4px 12px; }
+.dev-topic-group > summary { min-height: 44px; display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; padding-block: 8px; cursor: pointer; font: 600 14px/1.3 var(--font-body); }
+.dev-topic-blurb { flex: 1 0 100%; font-weight: 400; }
+.dev-topics { padding: 4px 0 10px; gap: 4px; }
+.dev-topic { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 6px 0; font: var(--t-callout); }
+.dev-topic input { flex: none; width: 20px; height: 20px; margin-top: 2px; }
+.dev-topic strong { font: 600 13px/1.3 var(--font-mono); overflow-wrap: anywhere; }
 
 /* Requests: the Activity rows, with the status and its "what does this mean" button side by side. */
 .dev-bar { align-items: flex-end; }
@@ -2943,9 +2970,17 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .dt-estimate-warn { color: hsl(var(--warning-ink)); font-weight: 500; }
 .dt-estimate .hint { font: var(--t-footnote); }
 .dt-wiz-foot { position: sticky; bottom: calc(-20px - var(--safe-b)); display: flex; justify-content: flex-end; gap: 10px; margin: 0 -20px -20px; padding: 12px 20px calc(16px + var(--safe-b)); background: hsl(var(--elevated)); box-shadow: inset 0 var(--hl) 0 var(--separator); z-index: 1; }
+.dt-preset.added { opacity: 0.75; cursor: default; }
+.dt-preset.added > svg.ic { color: hsl(var(--success-ink)); }
+.dt-rule-next { margin-top: 2px; }
+.dt-wiz-foot { flex-wrap: wrap; }
+.dt-wiz-foot .dt-err { flex: 1 0 100%; order: -1; text-align: left; }
 .dt-wiz-foot button { min-width: 96px; }
-@media (max-width: 719px) { .dt-wiz-foot button { flex: 1 1 0; min-width: 0; } }
+@media (max-width: 719px) { .dt-wiz-foot button { flex: 1 1 0; min-width: 0; white-space: normal; line-height: 1.2; } }
 .dt-err:empty { display: none; }
+.dt-files { display: flex; flex-direction: column; gap: 10px; }
+.dt-folder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.dt-folder code { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; font: 500 12px/1.4 var(--font-mono); }
 .dt-files-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: var(--t-callout); color: var(--label-2); }
 .dt-file { align-items: center; }
 .dt-what { font: var(--t-subhead); color: var(--label-2); }
@@ -2991,6 +3026,9 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .gs-titles h2 { margin: 0; font: var(--t-headline); letter-spacing: -0.014em; text-wrap: balance; }
 .gs-titles p { margin: 2px 0 0; font: var(--t-subhead); color: var(--label-2); }
 .gs-side { display: flex; align-items: center; gap: 6px; flex: none; }
+.gs-goals { display: grid; gap: 8px; margin-top: 12px; }
+.gs-q { margin: 0; font: var(--t-subhead); font-weight: 600; color: var(--label-2); }
+.gs-goals .chips { padding: 0; }
 .gs-count { font: var(--t-label); font-variant-numeric: tabular-nums; color: hsl(var(--accent-ink)); background: hsl(var(--accent) / 0.12); padding: 3px 10px; border-radius: 99px; white-space: nowrap; }
 .gs-bar { height: 4px; margin: 14px 0 6px; border-radius: 99px; background: var(--fill-2); overflow: hidden; }
 .gs-bar > i { display: block; height: 100%; width: 0; border-radius: inherit; background: hsl(var(--accent)); transition: width 300ms var(--ease-std); }
@@ -3056,6 +3094,8 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .cn-cannot svg.ic { color: var(--label-2); }
 .cn-small { margin: 0; font: var(--t-footnote); color: var(--label-2); text-wrap: pretty; }
 .cn-go { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.cn-steps { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; font: var(--t-callout); color: var(--label-2); text-wrap: pretty; }
+.cn-next { margin-top: 2px; }
 .cn-head { display: flex; gap: 14px; align-items: center; }
 .cn-head > div { min-width: 0; }
 .cn-keybox { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: var(--r-md); background: var(--fill-1); box-shadow: inset 0 0 0 1px var(--separator); }
@@ -3074,6 +3114,9 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 
 /* The glossary "?" after a technical word: a small round button, a 44px target on touch. */
 .gl { white-space: normal; }
+/* A link inside a sentence is underlined: colour alone is not enough to find it (and its colour is close to the text). */
+:is(p, li, .hint, .detail, .group-foot) > a:not([class]) { text-decoration: underline; text-underline-offset: 2px; }
+@media (pointer: coarse) { button.gl-btn { position: relative; } button.gl-btn::after { content: ""; position: absolute; inset: -13px; } }
 button.gl-btn { --btn-h: 18px; --btn-px: 0; --btn-fs: 11px; --btn-r: 50%; --btn-fw: 700; --btn-bg: hsl(var(--accent) / 0.14); --btn-bg-h: hsl(var(--accent) / 0.26); --btn-fg: hsl(var(--accent-ink)); --press: 0.9; display: inline-flex; width: 18px; min-height: 18px; margin-inline: 4px 2px; vertical-align: 1px; flex: none; }
 .gl-pop .gl-text, .help-popover .help-lead { margin: 0; padding: 4px 16px 16px; max-width: 320px; font: var(--t-callout); color: var(--label-2); }
 .help-popover .help-lead { max-width: 360px; padding-bottom: 8px; }
@@ -3084,6 +3127,8 @@ button.gl-btn { --btn-h: 18px; --btn-px: 0; --btn-fs: 11px; --btn-r: 50%; --btn-
 /* The toolbar: "Something wrong?" and the emergency Stop. Text on wide screens, icons on phones (labels stay for readers). */
 .toolbar button.toolbar-help, .toolbar button.toolbar-stop { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 13px; --btn-bg: var(--fill-2); --btn-bg-h: var(--fill-3); --btn-r: 999px; --btn-fw: 500; }
 .toolbar button.toolbar-stop { --btn-bg: hsl(var(--danger) / 0.12); --btn-bg-h: hsl(var(--danger) / 0.22); --btn-fg: hsl(var(--danger-ink)); --btn-fw: 600; }
+.toolbar button.toolbar-stop.is-on { --btn-bg: hsl(var(--danger)); --btn-bg-h: hsl(var(--danger-ink)); --btn-fg: hsl(var(--on-danger)); }
+.ks-banner { margin-bottom: var(--space-4); }
 @media (max-width: 1099px) {
   .toolbar button.toolbar-help, .toolbar button.toolbar-stop { width: var(--ctl-h); padding: 0; justify-content: center; }
   .toolbar :is(.toolbar-help, .toolbar-stop) > .tb-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

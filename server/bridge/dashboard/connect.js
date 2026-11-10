@@ -3,7 +3,7 @@
 // read call with that key from this browser. The rules (which key, which setup, what a failure means) are in
 // easy-core.js; the key rules themselves are the Keys page's (flows.js, snippets.js).
 import { alertBox, api, app, copyButton, h, icon, iconTile, runFix, toast } from "./app.js";
-import { CONNECT_TOOLS, SETUP_NAME, connectCapabilities, connectKey, connectSetup, connectTool, ordersChoice, setMode, sourcesSentence, testOutcome, testRequest } from "./easy-core.js";
+import { CONNECT_TOOLS, SETUP_NAME, connectCapabilities, connectHeading, connectKey, connectSetup, connectTool, ordersChoice, setMode, sourcesSentence, testOutcome, testRequest } from "./easy-core.js";
 
 let deps = { segmented: null, snippetBlock: null };
 /** views.js passes the shared building blocks (segmented control, code block) so they are not written twice. */
@@ -64,7 +64,7 @@ export async function renderConnect() {
         "section",
         { class: "cn-step", "aria-labelledby": "cn-h" },
         back,
-        h("h2", { id: "cn-h", class: "cn-q" }, `Connect ${tool.name.charAt(0).toLowerCase()}${tool.name.slice(1)}`),
+        h("h2", { id: "cn-h", class: "cn-q" }, connectHeading(tool)),
         choice ? h("div", { class: "cn-choice" }, h("span", { class: "cn-choice-label", id: "cn-choice-l" }, choice.label), seg) : null,
         caps,
         h("p", { class: "cn-small" }, "The key is made with only this access. You can revoke it any time under Keys."),
@@ -125,7 +125,12 @@ export async function renderConnect() {
       if (out.ok) toast("Test passed");
     }
 
+    // Excel: the ready workbook has the key in it already (Setup, B6), which saves naming a cell.
+    const workbook = toolId === "excel"
+      ? h("div", { class: "cn-go" }, h("button", { type: "button", class: "primary lg", onclick: () => import("./workbook.js").then((m) => m.downloadWorkbook({ key })) }, icon("download"), "Download a ready workbook"), h("span", { class: "cn-small" }, "The key is inside the file. Do not share it."))
+      : null;
     const caps = connectCapabilities(toolId, { orders });
+    const developer = ["python", "node", "app"].includes(toolId);
     const again = h("button", { type: "button", class: "plain small", onclick: chooser }, "Connect another tool");
     const keyRow = h("div", { class: "cn-key" }, h("code", { class: "cn-key-v", tabindex: "0", "aria-label": "Your new key" }, key), copyButton(key, { label: "Copy key", toastLabel: "Key copied", cls: "small", ariaLabel: "Copy your new key" }));
     show(
@@ -134,10 +139,11 @@ export async function renderConnect() {
         { class: "cn-step cn-ready", "aria-labelledby": "cn-h" },
         h("header", { class: "cn-head" }, iconTile("check", "green", "lg"), h("div", {}, h("h2", { id: "cn-h", class: "cn-q" }, "Your key is ready"), h("p", { class: "cn-small" }, `Key name: ${body.label}. ${caps.can}`))),
         h("div", { class: "cn-keybox" }, h("span", { class: "cn-label" }, "Your key"), keyRow, h("p", { class: "cn-small" }, "Copy it now. The Bridge shows it only once and keeps only a short code to recognise it.")),
-        h("div", { class: "cn-setup" }, h("h3", { class: "cn-h3" }, "Set it up"), h("p", { class: "cn-small" }, tool.paste), seg, blocks),
+        h("div", { class: "cn-setup" }, h("h3", { class: "cn-h3" }, "Set it up"), h("p", { class: "cn-small" }, tool.paste), workbook, tool.steps ? h("ol", { class: "cn-steps" }, tool.steps.map((t) => h("li", {}, t))) : null, seg, blocks),
         h("div", { class: "cn-test" }, h("div", { class: "cn-go" }, test, h("span", { class: "cn-small" }, "Asks the Bridge for a price with this key, the way your tool will.")), result),
         h("p", { class: "cn-small cn-cannot-line" }, caps.cannot),
-        h("div", { class: "cn-foot" }, again, h("a", { class: "btn plain small", href: "#/api/keys" }, "Manage keys")),
+        developer ? h("p", { class: "cn-small cn-next" }, "Next: have the Bridge tell your program when an order changes or a download finishes, instead of asking again and again.") : null,
+        h("div", { class: "cn-foot" }, again, developer ? h("a", { class: "btn tinted small", href: "#/developers?view=events" }, "Receive order events") : null, h("a", { class: "btn plain small", href: "#/developers" }, "Developers"), h("a", { class: "btn plain small", href: "#/api/keys" }, "Manage keys")),
       ),
     );
   }

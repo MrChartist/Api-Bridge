@@ -25,6 +25,10 @@ import {
   failureWords,
   filterItems,
   formatBytes,
+  folderPath,
+  hasRoute,
+  nextStartText,
+  presetAdded,
   formatCount,
   formatDuration,
   isUnavailable,
@@ -36,7 +40,10 @@ import {
   parseSymbolList,
   parseTags,
   presetPlan,
+  RANGES,
   rangeDates,
+  rangeLimitNote,
+  zipName,
   recordingProblem,
   recordingView,
   resolveModel,
@@ -75,6 +82,8 @@ describe("numbers and words", () => {
     expect(formatDuration(null)).toBeNull();
     expect(formatCount(1200)).toBe("1200");
     expect(formatCount(1_250_000)).toBe("1.3 million");
+    expect(formatCount(375750)).toBe("3,75,750");
+    expect(formatCount(9999)).toBe("9999");
   });
 
   it("tells IST days, clocks and ages", () => {
@@ -177,7 +186,7 @@ describe("estimate before starting", () => {
   it("writes the estimate in plain words", () => {
     const e = estimateJob({ symbols: 10, intervals: ["5m"], from: "2026-10-09", to: "2026-11-09", nowMs: NOW });
     const l = estimateLines(e);
-    expect(l.size).toMatch(/^About \d+ bars, .+ in 10 files\.$/);
+    expect(l.size).toMatch(/^About [\d,]+ bars, .+ in 10 files\.$/);
     expect(l.calls).toBe("It will cost about 10 broker calls.");
     expect(l.time).toMatch(/at 30% of your spare room\.$/);
   });
@@ -346,7 +355,7 @@ describe("downloads", () => {
   it("shows a running job", () => {
     const v = jobView(running, NOW);
     expect(v).toMatchObject({ title: "5m bars, 2 symbols", word: "Downloading", tone: "info", active: true, percent: 50, current: "Now: TCS 5m", actions: ["pause", "cancel"] });
-    expect(v.summary).toBe("4 of 10 items · 1 failed · 18400 bars · 2.1 MB · about 3 minutes left");
+    expect(v.summary).toBe("4 of 10 items · 1 failed · 18,400 bars · 2.1 MB · about 3 minutes left");
     expect(v.cls.label).toBe("Real-time");
     expect(v.whenText).toBe("Started 20 minutes ago");
   });
@@ -399,7 +408,7 @@ describe("recordings and auto-record", () => {
     const v = recordingView(rec, NOW);
     expect(v).toMatchObject({ title: "Option chain recording", word: "Recording", tone: "ok", live: true, gaps: 1, actions: ["pause", "stop", "files"] });
     expect(v.sub).toBe("NIFTY option chain · every 30 s");
-    expect(v.stats).toBe("12000 rows · 1 MB · last write 09:31:02 · 1 gap");
+    expect(v.stats).toBe("12,000 rows · 1 MB · last write 09:31:02 · 1 gap");
   });
 
   it("every state has the right buttons and words", () => {
@@ -463,13 +472,14 @@ describe("recordings and auto-record", () => {
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", keepDays: "" })).toBe("");
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "", end: "15:00" })).toMatch(/start and end/);
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "09:20", end: "15:00" })).toBe("");
+    expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "15:00", end: "09:20" })).toMatch(/end time must be later/);
   });
 });
 
 describe("datasets and the saving card", () => {
   it("shows a dataset", () => {
     const v = datasetView({ name: "nifty-5m", symbols: ["a", "b"], intervals: ["5m"], rows: 120_000, bytes: 7_500_000, firstBar: "2025-11-10T03:45:00Z", lastBar: "2026-11-06T10:00:00Z", updatedAt: "2026-11-09T05:30:00Z", dataClass: "realtime", tags: ["index"] }, NOW);
-    expect(v).toMatchObject({ name: "nifty-5m", sub: "2 symbols · 5m · 120000 bars · 7.2 MB", range: "10 Nov 2025 to 6 Nov 2026", updated: "Updated 1 hour ago", tags: ["index"] });
+    expect(v).toMatchObject({ name: "nifty-5m", sub: "2 symbols · 5m · 1,20,000 bars · 7.2 MB", range: "10 Nov 2025 to 6 Nov 2026", updated: "Updated 1 hour ago", tags: ["index"] });
     expect(datasetView({}).range).toBe("–");
   });
 
@@ -634,5 +644,65 @@ describe("the client against a fake Bridge", () => {
       "POST /v1/collections/resolve",
     ]);
     expect(calls.at(-1)[2]).toEqual({ kind: "option-universe", universe: { underlying: "NIFTY" } });
+  });
+});
+
+describe("long ranges", () => {
+  it("offers 2 and 5 years and works the dates out", () => {
+    expect(RANGES.map((r) => r.id)).toEqual(["1m", "3m", "1y", "2y", "5y", "max", "custom"]);
+    const now = Date.parse("2026-11-09T06:30:00Z");
+    expect(rangeDates("2y", now)).toEqual({ from: "2024-11-09", to: "2026-11-09" });
+    expect(rangeDates("5y", now).from).toBe("2021-11-09");
+  });
+  it("says when 5 minute bars rarely go back that far, and stays quiet when they do", () => {
+    expect(rangeLimitNote("2024-11-09", "2026-11-09", ["5m"])).toBe("");
+    expect(rangeLimitNote("2021-11-08", "2026-11-09", ["5m"])).toMatch(/Bars of 5m usually go back about 2 years/);
+    expect(rangeLimitNote("2021-11-08", "2026-11-09", ["1d"])).toBe("");
+    expect(rangeLimitNote("", "2026-11-09", ["5m"])).toBe("");
+  });
+});
+
+describe("where the files are", () => {
+  it("labels demo data as sample data, never real-time", () => {
+    expect(classInfo({ dataClass: "realtime", source: "demo" })).toMatchObject({ id: "sample", label: "Sample data", tone: "" });
+    expect(classInfo({ dataClass: "realtime", source: "demo (sample prices)" }).id).toBe("sample");
+    expect(classInfo({ dataClass: "realtime", source: "dhan" }).label).toBe("Real-time");
+  });
+  it("names the folder and the zip", () => {
+    expect(folderPath("/home/me/bridge/data/", "downloads", "dl_abc")).toBe("/home/me/bridge/data/downloads/dl_abc");
+    expect(folderPath("C:\\Bridge\\data", "recordings", "rec_1")).toBe("C:\\Bridge\\data\\recordings\\rec_1");
+    expect(folderPath(undefined, "downloads", "x")).toBe("");
+    expect(zipName("Nifty 50 / 5-minute bars", "dl_1")).toBe("Nifty-50-5-minute-bars.zip");
+    expect(zipName("", "dl_1")).toBe("dl_1.zip");
+  });
+});
+
+describe("routes this Bridge may not have", () => {
+  const routes = [{ method: "GET", path: "/v1/downloads" }, { method: "GET", path: "/v1/collections/:name/resolve" }];
+  it("asks only for routes the Bridge lists, and tries when it lists none", () => {
+    expect(hasRoute(routes, "GET", "/v1/downloads")).toBe(true);
+    expect(hasRoute(routes, "GET", "/v1/downloads/settings")).toBe(false);
+    expect(hasRoute(routes, "POST", "/v1/collections/resolve")).toBe(false);
+    expect(hasRoute(undefined, "GET", "/v1/downloads/settings")).toBe(true);
+    expect(hasRoute([], "GET", "/v1/anything")).toBe(true);
+  });
+});
+
+describe("auto-record rules after they are made", () => {
+  it("says when a rule starts next: the market open for market hours, a day and time for its own hours", () => {
+    const tue10 = Date.parse("2026-11-10T04:30:00Z"); // Tue 10 Nov 2026, 10:00 IST
+    expect(nextStartText({ schedule: "market-hours" }, tue10)).toBe("Starts at the market open on the next trading day");
+    expect(nextStartText({ schedule: { days: ["mon"], start: "10:00", end: "12:00" } }, tue10)).toBe("Next start: Mon 16 Nov, 10:00 IST, if the market is open that day");
+    expect(nextStartText({ schedule: { days: ["mon", "tue"], start: "11:00", end: "12:00" } }, tue10)).toMatch(/^Next start: today, 11:00 IST/);
+    expect(nextStartText({ schedule: { days: ["tue"], start: "09:00", end: "12:00" } }, tue10)).toMatch(/Tue 17 Nov, 09:00/);
+  });
+  it("shows a preset as added once its rules exist, and lists indexes as 'NIFTY, BANKNIFTY'", () => {
+    const [chains, watch] = RECORD_PRESETS;
+    expect(presetAdded(chains, [], [])).toBe(false);
+    expect(presetAdded(chains, [{ name: "NIFTY option chain" }], [])).toBe(false);
+    expect(presetAdded(chains, [{ name: "NIFTY option chain" }, { name: "BANKNIFTY option chain" }], [])).toBe(true);
+    expect(presetAdded(watch, [{ name: "Watchlist nifty-chain" }], [{ name: "nifty-chain" }])).toBe(true);
+    expect(presetAdded(watch, [{ name: "Watchlist other" }], [{ name: "nifty-chain" }])).toBe(false);
+    expect(ruleSentence({ kind: "chain", underlying: ["NIFTY", "BANKNIFTY"], universe: { strikes: { around: "atm", count: 10 }, expiries: "current-weekly" }, everySec: 30, schedule: "market-hours" })).toMatch(/^NIFTY, BANKNIFTY ATM/);
   });
 });

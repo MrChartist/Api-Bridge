@@ -30,6 +30,21 @@ describe("integration snippets match the shipped SDKs", () => {
     expect(code).not.toMatch(/npm install @mrchartist/);
   });
 
+  it("shows the event calls the SDKs really have (poll, subscribe, verify)", () => {
+    const py = s.python.map((x) => x.code).join("\n");
+    const js = s.node.map((x) => x.code).join("\n");
+    const pyEvents = readFileSync(resolve(root, "sdk/python/mrchartist_bridge/events.py"), "utf8");
+    const nodeEvents = readFileSync(resolve(root, "sdk/node/src/events.mjs"), "utf8");
+    for (const word of ["def poll(", "def subscribe(", "def verify_signature("]) expect(pyEvents).toContain(word);
+    for (const word of ["async poll(", "subscribe(o", "export function verifySignature("]) expect(nodeEvents).toContain(word);
+    expect(py).toContain("bridge.events.poll(");
+    expect(py).toContain("bridge.events.subscribe(");
+    expect(py).toContain("bridge.events.verify_signature(");
+    expect(js).toContain("bridge.events.poll(");
+    expect(js).toContain("bridge.events.subscribe(");
+    expect(js).toContain("bridge.events.verifySignature(");
+  });
+
   it("installs from the Bridge's own folder, quoting a path with a space, and says nothing is published", () => {
     expect(s.python[0].code).toContain('pip install "/opt/api bridge/sdk/python"');
     expect(s.python[0].title).toMatch(/not on PyPI/);

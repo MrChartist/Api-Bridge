@@ -91,7 +91,7 @@ export async function exposeCard(host, focus = "alerts") {
         title: l.name,
         sub: l.on ? h("span", {}, l.address === "No public address set yet" ? l.address : [h("span", {}, "Address: "), h("code", {}, l.address)]) : h("span", {}, "Off. To turn it on, run this in a terminal: ", h("code", {}, l.setup)),
         chips: [pill(l.on ? "On" : "Off", l.on ? "ok" : "")],
-        aside: l.copy ? [copyButton(l.copy, { ariaLabel: `Copy the ${l.name} address pattern`, toastLabel: "Address copied", cls: "small copy" })] : [copyButton(l.setup, { label: "Copy command", ariaLabel: `Copy the command that sets up ${l.name}`, toastLabel: "Command copied", cls: "small copy" })],
+        aside: l.copy ? [copyButton(l.copy, { ariaLabel: `Copy the ${l.name} address pattern`, toastLabel: "Address copied", cls: "small copy" })] : [copyButton(l.setup, { label: "Copy command", ariaLabel: `Copy command: sets up ${l.name}`, toastLabel: "Command copied", cls: "small copy" })],
       }))),
       m.problems.length
         ? h("div", { class: "list" }, m.problems.map((p) => row({ title: p.message, sub: p.fix ? `Fix: ${p.fix}` : null, chips: [pill(p.blocking ? "Fix now" : "Check", p.blocking ? "bad" : "warn")], aside: p.fix ? [copyButton(p.fix, { ariaLabel: "Copy the fix", toastLabel: "Fix copied", cls: "small copy" })] : null })))

@@ -369,3 +369,121 @@ export function capabilityLines(scopes = [], clientKind = "other") {
   if (top === "paper") return { can: ["Read data and place paper orders."], cannot: ["It cannot place a real-money order.", "It cannot make keys or change settings."] };
   return { can: ["Read prices, history, option chains and positions."], cannot: ["It cannot place or change any order.", "It cannot make keys or change settings."] };
 }
+
+// ── Events: order and data events sent to your own program ──
+
+/** The topics in plain groups. A topic belongs to the first group whose prefix it starts with. */
+export const EVENT_GROUPS = Object.freeze([
+  { id: "orders", title: "Orders and trading", blurb: "An order filled or was rejected, a position moved, an account can or cannot trade.", prefixes: ["order.", "position.", "trading.", "ticket.", "hook."] },
+  { id: "data", title: "Downloads and recordings", blurb: "A download finished or failed, a recording started, stopped, missed data or is low on disk.", prefixes: ["download.", "recording.", "collection."] },
+  { id: "accounts", title: "Accounts and price feeds", blurb: "A broker login changed, a price feed went up or down, a rate limit slowed a request.", prefixes: ["account.", "stream.", "limits."] },
+  { id: "safety", title: "Safety and housekeeping", blurb: "The kill switch changed, a daily limit was reached, a backup finished or failed.", prefixes: ["safety.", "backup.", "config."] },
+]);
+
+/** Group the Bridge's topic list (`GET /v1/events/topics`) for the form. Topics no group claims go in a last "Other" group. */
+export function groupTopics(topics = []) {
+  const groups = EVENT_GROUPS.map((g) => ({ ...g, topics: [] }));
+  const other = { id: "other", title: "Other", blurb: "", prefixes: [], topics: [] };
+  for (const t of topics) (groups.find((g) => g.prefixes.some((p) => t.topic.startsWith(p))) ?? other).topics.push(t);
+  return [...groups, other].filter((g) => g.topics.length);
+}
+
+/**
+ * The topic filters to send for the topics ticked: a whole family ("order.*") when every topic of it is ticked, "*" when
+ * everything is, otherwise the names. New topics of a ticked family are then included without editing anything.
+ */
+export function collapseTopics(selected, all) {
+  const chosen = [...new Set(selected)];
+  if (all.length && chosen.length === all.length) return ["*"];
+  const family = (t) => t.split(".")[0];
+  const out = [];
+  const done = new Set();
+  for (const t of chosen) {
+    const f = family(t);
+    if (done.has(f)) continue;
+    const members = all.filter((x) => family(x) === f);
+    if (members.length > 1 && members.every((x) => chosen.includes(x))) {
+      out.push(`${f}.*`);
+      done.add(f);
+    } else out.push(t);
+  }
+  return out;
+}
+
+/** A signing secret: 64 hex characters from 32 random bytes (the Bridge asks for 16 to 256 characters). */
+export function secretFromBytes(bytes) {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The first thing wrong with the add-a-receiver form, or "". The Bridge makes the final call (https, allowed hosts). */
+export function receiverProblem({ url = "", topics = [] } = {}) {
+  const u = String(url).trim();
+  if (!u) return "Type the address your program listens on, for example https://example.com/bridge/events.";
+  if (!/^https?:\/\/[^\s/]+/i.test(u)) return "The address must start with https:// (or http:// for a program on this computer or network).";
+  if (!topics.length) return "Tick at least one kind of event.";
+  return "";
+}
+
+/** The body for POST /v1/subscriptions. */
+export function receiverBody({ url, label = "", topics, allTopics, secret }) {
+  const body = { url: String(url).trim(), topics: collapseTopics(topics, allTopics), secret };
+  if (String(label).trim()) body.label = String(label).trim().slice(0, 60);
+  return body;
+}
+
+const HEALTH = Object.freeze({
+  ok: { word: "Working", tone: "ok" },
+  unverified: { word: "Not tested yet", tone: "info" },
+  failing: { word: "Failing", tone: "bad" },
+  paused: { word: "Paused", tone: "" },
+  "needs-secret": { word: "Needs a new secret", tone: "warn" },
+});
+
+/** "order.*" becomes "all order events", "*" becomes "Everything". A few names, then "and 2 more". */
+export function topicsText(topics = []) {
+  if (topics.includes("*")) return "Everything";
+  const word = (t) => (t.endsWith(".*") ? `all ${t.slice(0, -2)} events` : t);
+  if (topics.length <= 3) return topics.map(word).join(", ");
+  return `${topics.slice(0, 2).map(word).join(", ")} and ${topics.length - 2} more`;
+}
+
+/** One receiver as a row and a sheet show it. */
+export function receiverView(s, now = Date.now()) {
+  const hl = s?.health ?? {};
+  const st = HEALTH[hl.state] ?? HEALTH.unverified;
+  const counts = [];
+  if (hl.delivered) counts.push(`${formatInt(hl.delivered)} delivered`);
+  if (hl.failed) counts.push(`${formatInt(hl.failed)} failed`);
+  const last = hl.lastFailure && hl.state === "failing" ? `Last problem: ${hl.lastFailure.message}` : hl.lastDeliveredAt ? `Last delivery ${agoText(hl.lastDeliveredAt, now)}` : "Nothing delivered yet";
+  return {
+    id: s?.id ?? "",
+    title: s?.label || s?.host || "Receiver",
+    host: s?.host ?? "",
+    topics: topicsText(s?.topics ?? []).replace(/^./, (c) => c.toUpperCase()),
+    state: st,
+    active: s?.active !== false,
+    counts: counts.join(", "),
+    last,
+    pending: s?.pending ?? 0,
+    deadLetters: s?.deadLetters ?? 0,
+    failure: hl.lastFailure ?? null,
+  };
+}
+
+/** One delivery attempt as a line: "Delivered", or why not. */
+export function deliveryLine(d, now = Date.now()) {
+  const ok = d?.ok === true;
+  const word = ok ? "Delivered" : d?.outcome === "retry" ? "Will try again" : d?.outcome === "dead" ? "Gave up" : "Failed";
+  return { topic: d?.topic ?? "", word, tone: ok ? "ok" : d?.outcome === "retry" ? "warn" : "bad", when: agoText(d?.at, now), detail: ok ? (d?.durationMs != null ? `${formatInt(d.durationMs)} ms` : "") : (d?.message ?? ""), test: d?.topic === "subscription.test" };
+}
+
+/** A recent event as a row: its topic, when, and a few facts from its data. */
+export function eventLine(e, nowMs = Date.now()) {
+  const d = e?.data && typeof e.data === "object" ? e.data : {};
+  const facts = Object.entries(d)
+    .filter(([, v]) => ["string", "number", "boolean"].includes(typeof v) && String(v).length <= 40)
+    .slice(0, 3)
+    .map(([k, v]) => `${k} ${v}`);
+  const t = Date.parse(e?.time ?? "");
+  return { id: String(e?.id ?? ""), topic: String(e?.topic ?? ""), when: Number.isFinite(t) ? agoText(new Date(t).toISOString(), nowMs) : "", facts: facts.join(" · ") };
+}

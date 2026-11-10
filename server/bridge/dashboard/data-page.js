@@ -4,7 +4,7 @@
 // a card keeps its DOM node for as long as its job exists, so a focused button, an open file list or a half-typed
 // field never loses its place.
 
-import { alertBox, api, app, currentKey, emptyState, friendlyError, h, icon, iconTile, ICONS, modal, optional, toast } from "./app.js";
+import { alertBox, api, app, copyButton, currentKey, emptyState, friendlyError, h, icon, iconTile, ICONS, modal, optional, toast } from "./app.js";
 import { countTo, patchList, setAttr, setClass, setText } from "./motion.js";
 import { createPoller } from "./sources-ui.js";
 import {
@@ -19,6 +19,9 @@ import {
   LAYOUTS,
   MAX_SYMBOLS,
   RANGES,
+  ZIP_MAX_BYTES,
+  zipName,
+  rangeLimitNote,
   RECORD_PRESETS,
   COMMON_UNDERLYINGS,
   EXPIRY_CHOICES,
@@ -41,6 +44,9 @@ import {
   estimateWarning,
   filterItems,
   formatBytes,
+  folderPath,
+  hasRoute,
+  NO_ROUTE,
   formatCount,
   isUnavailable,
   jobView,
@@ -49,7 +55,10 @@ import {
   parseCollectionImport,
   parseSymbolList,
   parseTags,
+  nextStartText,
+  presetAdded,
   presetPlan,
+  recordingBody,
   rangeDates,
   recordingProblem,
   recordingView,
@@ -129,6 +138,13 @@ function busy(button, on) {
   if (!button) return;
   setAttr(button, "aria-busy", on ? "true" : null);
   button.disabled = Boolean(on);
+}
+/** An error box next to the buttons of a sheet: filled, scrolled into view and focused so nobody presses the button blind. */
+function showFormError(box, title, detail = "") {
+  box.replaceChildren(h("div", { class: "alert bad", role: "alert", tabindex: "-1" }, icon("warn"), h("div", {}, h("strong", {}, title), detail ? h("span", { class: "detail" }, detail) : null)));
+  const a = box.firstElementChild;
+  a.scrollIntoView?.({ block: "nearest" });
+  a.focus?.({ preventScroll: true });
 }
 /** Run a button's action: show it working, then a toast on failure. Returns the result or undefined on failure. */
 async function run(button, fn, { ok = null } = {}) {
@@ -243,7 +259,7 @@ function banners({ login, disk, diskWhat = "downloads and recordings" }) {
   }
   const d = diskView(disk);
   if (d?.low) {
-    out.push(h("div", { class: "alert warn dt-banner", role: "status" }, icon("warn"), h("div", {}, h("strong", {}, "The disk is nearly full"), h("span", { class: "detail" }, `${d.text ? `${d.text}. ` : ""}The Bridge stops writing ${diskWhat} before the disk fills up. Delete what you no longer need, or raise the limit in the configuration.`))));
+    out.push(h("div", { class: "alert warn dt-banner", role: "status" }, icon("warn"), h("div", {}, h("strong", {}, "The disk is nearly full"), h("span", { class: "detail" }, `${d.text ? `${d.text}. ` : ""}The Bridge stops writing ${diskWhat} before the disk fills up. Delete what you no longer need (the lists below have a Delete button), or raise recorder.maxDiskMb or downloads.maxDiskMb in bridge.config.json and restart the Bridge.`))));
   }
   return out;
 }
@@ -316,7 +332,8 @@ function savingCard() {
   return {
     el,
     async refresh() {
-      const [usage, dl, rc] = await Promise.all([optional(client.usage()), optional(client.downloads.settings()), optional(client.recordings.settings())]);
+      const routes = app.state.meta?.routes;
+      const [usage, dl, rc] = await Promise.all([optional(client.usage()), hasRoute(routes, "GET", "/v1/downloads/settings") ? optional(client.downloads.settings()) : NO_ROUTE, hasRoute(routes, "GET", "/v1/recordings/settings") ? optional(client.recordings.settings()) : NO_ROUTE]);
       if (!usage.error) {
         const s = savedSummary(usage.data?.savings);
         countTo(num, s.total, { format: formatInt, animate: true });
@@ -498,6 +515,7 @@ function paintRec(el, rec, ops, nowMs) {
 
 /** A sheet that lists a job's or recording's files, each with a download button, and says what the data class means. */
 async function openFiles({ title, kind, id, cls, manifestUrl }) {
+  const where = folderPath(app.state.meta?.dataDir, kind, id);
   const listBox = h("div", { class: "dt-files" }, h("p", { class: "hint" }, "Loading files…"));
   const what = h("details", { class: "dt-what" }, h("summary", {}, "What do these labels mean?"), h("ul", { class: "dt-guide" }, CLASS_GUIDE.map((c) => h("li", {}, h("strong", {}, c.label), h("span", {}, c.note)))));
   const head = h("div", { class: "dt-fields" }, h("p", { class: "dt-files-head" }, "These files are labelled", classPill(cls).el), h("p", { class: "hint" }, cls.note));
@@ -508,7 +526,30 @@ async function openFiles({ title, kind, id, cls, manifestUrl }) {
     const files = Array.isArray(res.data) ? res.data : [];
     if (!files.length) listBox.replaceChildren(emptyState("inbox", "No files yet", kind === "downloads" ? "Files appear here as each symbol finishes." : "A file is made for each trading day once the first row is written.", null, { compact: true }));
     else {
+      const total = files.reduce((n, f) => n + (Number(f.bytes) || 0), 0);
+      const zipAll = files.length > 1
+        ? btn(`Download all ${files.length} files as one .zip`, "primary", (e) => run(e.currentTarget, async () => {
+            if (total > ZIP_MAX_BYTES) throw new Error(`These files are ${formatBytes(total)}, too big to pack in the browser. Download them one by one, or copy the folder below.`);
+            const parts = [];
+            for (const f of files) {
+              const res = await fetch(`/v1/${kind}/${encodeURIComponent(id)}/files/${encodeURIComponent(f.name)}`, { headers: { Authorization: `Bearer ${currentKey()}`, "X-MCB-Client": "dashboard" } });
+              if (!res.ok) throw new Error(`The Bridge answered ${res.status} for ${f.name}.`);
+              parts.push({ name: f.name, data: new Uint8Array(await res.arrayBuffer()) });
+            }
+            const blob = new Blob([(await import("./xlsx-core.js")).zipStore(parts)], { type: "application/zip" });
+            const url = URL.createObjectURL(blob);
+            const a = h("a", { href: url, download: zipName(title, id), hidden: true });
+            document.body.append(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 15_000);
+          }), "download")
+        : null;
+      const folder = where
+        ? h("div", { class: "dt-folder" }, h("span", { class: "hint" }, "Saved on this computer in"), h("code", { class: "dev-code", tabindex: "0" }, where), copyButton(where, { label: "Copy folder", toastLabel: "Folder copied", ariaLabel: "Copy the folder these files are saved in" }))
+        : null;
       listBox.replaceChildren(
+        ...[zipAll, folder].filter(Boolean),
         h(
           "div",
           { class: "list dt-file-list" },
@@ -550,6 +591,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
     name: "",
     keep: false,
     dataset: "",
+    pending: "", // text pasted but not added yet: Next adds it
     error: null,
     starting: false,
   };
@@ -561,6 +603,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
     }
     return st.symbols.length;
   };
+  const pendingSymbols = () => (st.collection ? [] : parseSymbolList(st.pending).symbols);
   const dates = () => rangeDates(st.range, Date.now(), st.intervals, st.custom);
   const estimate = () => estimateJob({ symbols: count(), intervals: st.intervals, from: dates().from, to: dates().to, format: st.format, share: share() });
 
@@ -582,7 +625,8 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         if (st.step === 0) {
           const n = count();
           const c = st.collection ? colByName(st.collection) : null;
-          const label = c ? (c.kind === "option-universe" ? `Collection ${c.name}: its symbols are worked out when the download runs` : `Collection ${c.name}: ${plural(n, "symbol")}`) : n ? plural(n, "symbol") : "Nothing picked yet";
+          const waiting = pendingSymbols().length;
+          const label = c ? (c.kind === "option-universe" ? `Collection ${c.name}: its symbols are worked out when the download runs` : `Collection ${c.name}: ${plural(n, "symbol")}`) : n ? plural(n, "symbol") : waiting ? `${plural(waiting, "symbol")} pasted. Press Next to use them.` : "Nothing picked yet. Search, paste a list or pick a collection.";
           put(sumBox, h("p", { class: "dt-estimate-main" }, label), n > MAX_SYMBOLS ? hint(`A download takes ${MAX_SYMBOLS} symbols at most.`, "bad") : null);
           return;
         }
@@ -599,7 +643,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         );
       };
       const valid = () => {
-        if (st.step === 0) return count() > 0 && count() <= MAX_SYMBOLS;
+        if (st.step === 0) return (count() > 0 || pendingSymbols().length > 0) && count() <= MAX_SYMBOLS;
         if (st.step === 1) return st.intervals.length > 0 && Boolean(dates().from) && estimate().ok;
         return !st.keep || /^[a-z0-9][a-z0-9-]{0,39}$/.test(st.dataset);
       };
@@ -663,11 +707,14 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         const searchPane = h("div", { class: "dt-pane" }, q, results);
         // Paste
         const ta = h("textarea", { id: "dt-paste", rows: 5, placeholder: "NSE:RELIANCE\nNSE:TCS\nINFY", "aria-label": "Paste symbols", spellcheck: "false" });
+        ta.value = st.pending;
+        ta.addEventListener("input", () => ((st.pending = ta.value), refresh()));
         const pasteMsg = h("p", { class: "hint", "aria-live": "polite" });
         const pastePane = h("div", { class: "dt-pane" }, ta, h("div", { class: "dt-pane-act" }, btn("Add these", "small tinted", () => {
           const r = parseSymbolList(ta.value);
           add(r.symbols);
           ta.value = "";
+          st.pending = "";
           setText(pasteMsg, [r.symbols.length ? `Added ${plural(r.symbols.length, "symbol")}.` : "No symbols found.", r.duplicates ? `${plural(r.duplicates, "repeat")} skipped.` : "", r.invalid.length ? `Not recognised: ${r.invalid.slice(0, 4).join(", ")}${r.invalid.length > 4 ? "…" : ""}.` : "", r.over ? `${plural(r.over, "symbol")} over the ${MAX_SYMBOLS} limit were left out.` : ""].filter(Boolean).join(" "));
         }), pasteMsg), hint("Separate them with commas, spaces or new lines. A bare name like RELIANCE means NSE:RELIANCE."));
         // Collections
@@ -706,7 +753,8 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         const note = h("p", { class: "hint", "aria-live": "polite" });
         const paintRangeNote = () => {
           const d = dates();
-          setText(note, st.range === "max" ? `Asks for ${dayText(d.from)} onwards. Your broker may keep less history than that; the file says what it got.` : d.from ? `${dayText(d.from)} to ${dayText(d.to)}.` : "Pick the first date.");
+          const limit = d.from ? rangeLimitNote(d.from, d.to, st.intervals) : "";
+          setText(note, `${st.range === "max" ? `Asks for ${dayText(d.from)} onwards. Your broker may keep less history than that; the file says what it got.` : d.from ? `${dayText(d.from)} to ${dayText(d.to)}.` : "Pick the first date."}${limit ? ` ${limit}` : ""}`);
         };
         rangeSeg.addEventListener("change", () => {
           st.range = rangeSeg.value;
@@ -732,7 +780,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         name.addEventListener("input", () => (st.name = name.value));
         const keep = h("input", { type: "checkbox", id: "dt-keep", checked: st.keep });
         const ds = input({ id: "dt-dataset", value: st.dataset, placeholder: "nifty-5m", maxlength: 40, "aria-describedby": "dt-ds-hint" });
-        const dsBox = h("div", { class: "dt-ds", hidden: !st.keep }, field("Dataset name", ds, "Lower case letters, numbers and dashes. Next time, Update now fetches only what is new."));
+        const dsBox = h("div", { class: "dt-ds", hidden: !st.keep }, field("Name to find it by", ds, "Lower case letters, numbers and dashes. Next time, Update now fetches only what is new."));
         keep.addEventListener("change", () => {
           st.keep = keep.checked;
           dsBox.hidden = !st.keep;
@@ -744,11 +792,17 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         });
         ds.addEventListener("input", () => ((st.dataset = ds.value.trim().toLowerCase()), refresh()));
         const what = h("details", { class: "dt-what" }, h("summary", {}, "What do the data labels mean?"), h("ul", { class: "dt-guide" }, CLASS_GUIDE.map((c) => h("li", {}, h("strong", {}, c.label), h("span", {}, c.note)))));
-        return h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "Format"), fmt, fmtNote), h("div", { class: "field" }, h("span", { class: "dt-label" }, "Files"), lay, layNote), field("Name", name), h("label", { class: "check" }, keep, "Keep this up to date as a dataset"), dsBox, what);
+        return h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "Format"), fmt, fmtNote), h("div", { class: "field" }, h("span", { class: "dt-label" }, "Files"), lay, layNote), field("Name", name), h("label", { class: "check" }, keep, "Keep updating this download later"), dsBox, what);
       };
 
       const builders = [stepSymbols, stepBars, stepSave];
       const to = (n) => {
+        if (st.step === 0 && n > 0) {
+          // Pasted symbols that were never added come along: the person pressed Next, not "Add these".
+          const have = new Set(st.symbols);
+          for (const s of pendingSymbols()) if (!have.has(s) && st.symbols.length < MAX_SYMBOLS) st.symbols.push(s);
+          st.pending = "";
+        }
         st.step = Math.max(0, Math.min(2, n));
         setText(stepLabel, `Step ${st.step + 1} of 3: ${TITLES[st.step]}`);
         [...dots.children].forEach((d, i) => setClass(d, "on", i <= st.step));
@@ -884,6 +938,10 @@ export async function renderDownloads() {
   if (pending.get("collection") && collections.some((c) => c.name === pending.get("collection"))) {
     history.replaceState(history.state, "", "#/data/downloads");
     queueMicrotask(() => openWizard({ collection: pending.get("collection") }));
+  } else if (pending.get("new")) {
+    // #/data/downloads?new=1 (the palette's "New download") opens the wizard.
+    history.replaceState(history.state, "", "#/data/downloads");
+    queueMicrotask(() => openWizard());
   }
   return root;
 }
@@ -908,7 +966,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
     custom: typeof rule?.schedule === "object" && rule?.schedule !== null,
     start: rule?.schedule?.start ?? "",
     end: rule?.schedule?.end ?? "",
-    days: rule?.schedule?.days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    days: (rule?.schedule?.days ?? ["mon", "tue", "wed", "thu", "fri"]).map((d) => String(d).slice(0, 1).toUpperCase() + String(d).slice(1).toLowerCase()),
     keepDays: rule?.keepDays ?? "",
     format: rule?.format ?? "csv",
   };
@@ -927,21 +985,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
       const hoursSel = select([["market", "During market hours (trading days)"], ["custom", "Choose days and hours"]], f.custom ? "custom" : "market", { id: "rc-hours" });
       const hoursBox = h("div", { class: "dt-custom form-grid" });
       const keep = input({ id: "rc-keep", type: "number", min: 1, value: f.keepDays, placeholder: "Keep everything", inputmode: "numeric" });
-      const bodyOf = () => {
-        const b = { ...(f.name.trim() ? { name: f.name.trim() } : {}), kind: f.kind, everySec: Number(f.everySec), format: f.format };
-        if (f.source === "collection") b.collection = f.collection;
-        else if (f.source === "index") {
-          b.underlying = f.underlying.trim().toUpperCase();
-          if (mode === "rule") b.universe = { ...defaultUniverse(b.underlying), expiries: f.expiries, strikes: { around: "atm", count: Math.max(1, Math.min(100, Number(f.count) || 10)) } };
-          else b.expiry = f.expiries;
-        } else b.symbols = parseSymbolList(f.symbols).symbols;
-        if (mode === "rule") {
-          b.enabled = rule ? rule.enabled !== false : true;
-          b.schedule = f.custom ? { days: f.days, start: f.start, end: f.end } : "market-hours";
-          if (f.keepDays !== "" && Number(f.keepDays) >= 1) b.keepDays = Number(f.keepDays);
-        } else b.sessionOnly = true;
-        return b;
-      };
+      const bodyOf = () => recordingBody({ ...f, symbols: f.source === "symbols" ? parseSymbolList(f.symbols).symbols : [] }, mode, { enabled: rule ? rule.enabled !== false : true });
       const paintSize = () => {
         const b = bodyOf();
         let n = 0;
@@ -949,7 +993,6 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
           const c = collections.find((x) => x.name === b.collection);
           n = c?.kind === "option-universe" ? (universeSize(c.universe).count ?? 0) : (c?.symbols?.length ?? 0);
         } else if (b.universe) n = universeSize(b.universe).count ?? 0;
-        else if (b.underlying) n = universeSize({ ...defaultUniverse(b.underlying), strikes: { around: "atm", count: 10 } }).count ?? 0;
         else n = b.symbols?.length ?? 0;
         const e = estimateRecording({ kind: f.kind, symbolCount: n, everySec: Number(f.everySec) || 30, format: f.format });
         setText(sizeBox, n ? `About ${plural(n, "symbol")}: roughly ${formatBytes(e.bytesPerDay)} a trading day. It uses your live stream, so it costs no extra broker calls when the stream is up.` : "");
@@ -1010,7 +1053,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
       paintSize();
       const save = btn(mode === "rule" ? (rule ? "Save rule" : "Add rule and turn it on") : "Start recording", "primary", async () => {
         const p = recordingProblem({ kind: f.kind, everySec: f.everySec, collection: f.source === "collection" ? f.collection : null, underlying: f.source === "index" ? f.underlying : null, symbols: f.source === "symbols" ? parseSymbolList(f.symbols).symbols : [], keepDays: f.keepDays, custom: mode === "rule" && f.custom, start: f.start, end: f.end });
-        if (p) return err.replaceChildren(h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, p))));
+        if (p) return showFormError(err, p);
         busy(save, true);
         try {
           if (mode === "rule") await (rule ? client.recordings.rules.patch(rule.id, bodyOf()) : client.recordings.rules.create(bodyOf()));
@@ -1021,10 +1064,10 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
         } catch (e) {
           busy(save, false);
           const fe = friendlyError(e);
-          err.replaceChildren(h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, fe.title), fe.detail ? h("span", { class: "detail" }, fe.detail) : null)));
+          showFormError(err, fe.title, fe.detail);
         }
       });
-      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What to record"), kind), field("Where from", srcSel), body, field("Save every (seconds)", every, f.kind === "chain" ? "At least 15 seconds for an option chain." : "At least 1 second."), ...(mode === "rule" ? [field("When", hoursSel), hoursBox, field("Delete files older than (days)", keep, "Leave empty to keep everything. Old days can be removed by hand on the Recordings tab.")] : []), field("Format", fmt), field("Name", name), sizeBox, hint("Recordings are saved from your own live data only (real-time), never from a delayed or end-of-day source.")), err, h("div", { class: "dt-wiz-foot" }, btn("Cancel", "", () => close(false)), save));
+      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What to record"), kind), field("Where from", srcSel), body, field("Save every (seconds)", every, f.kind === "chain" ? "At least 15 seconds for an option chain." : "At least 1 second."), ...(mode === "rule" ? [field("When", hoursSel), hoursBox, field("Delete files older than (days)", keep, "Leave empty to keep everything. Old days can be removed by hand on the Recordings tab.")] : []), field("Format", fmt), field("Name", name), sizeBox, hint("Recordings are saved from your own live data only (real-time), never from a delayed or end-of-day source.")), h("div", { class: "dt-wiz-foot" }, err, btn("Cancel", "", () => close(false)), save));
     },
     buttons: [],
     dirty: () => false,
@@ -1084,29 +1127,44 @@ export async function renderRecordings() {
         return go("#/data/collections");
       }
       collection = collections[0].name;
-      if (collections.length > 1) {
+      {
+        // Always asked, even with one collection, so the person sees which list will be recorded.
         const sel = select(collections.map((c) => [c.name, c.name]), collection, { id: "pre-col" });
-        const ok = await modal({ title: p.title, body: h("div", { class: "dt-fields" }, field("Which collection?", sel)), buttons: [{ label: "Cancel", value: false }, { label: "Next", cls: "primary", value: true }] });
+        const ok = await modal({ title: p.title, body: h("div", { class: "dt-fields" }, field("Which collection?", sel, "Prices of every symbol in it, every 5 seconds. An option universe is worked out again each day."), hint("Make or change collections on the Collections tab.")), buttons: [{ label: "Cancel", value: false }, { label: "Next", cls: "primary", value: true }] });
         if (!ok) return;
         collection = sel.value;
       }
     }
     const c = collections.find((x) => x.name === collection);
     const plan = presetPlan(p, { collection, collectionSize: c ? (c.kind === "option-universe" ? universeSize(c.universe).count : (c.symbols?.length ?? 0)) : 0 });
-    const ok = await modal({
+    const unavailable = (e) => isUnavailable(e);
+    const done = await modal({
       title: p.title,
-      body: h("div", { class: "dt-fields" }, h("p", { class: "dt-confirm" }, p.sub, "."), plan.symbols ? h("p", { class: "hint" }, `About ${plural(plan.symbols, "symbol")} and roughly ${formatBytes(plan.bytesPerDay)} a trading day. It uses your live stream and starts by itself at each market open. You can turn it off any time.`) : null, hint("Recorded from your own real-time data only.")),
-      buttons: [{ label: "Not now", value: false }, { label: "Turn it on", cls: "primary", value: true }],
+      body: (close) => {
+        const err = h("div", { class: "dt-err", "aria-live": "assertive" });
+        let made = 0; // a second try carries on after the rules that were already made
+        const go1 = btn("Turn it on", "primary", async () => {
+          busy(go1, true);
+          try {
+            while (made < plan.bodies.length) {
+              await client.recordings.rules.create(plan.bodies[made]);
+              made += 1;
+            }
+            close(true, true);
+          } catch (e) {
+            busy(go1, false);
+            const f = friendlyError(e);
+            if (unavailable(e)) showFormError(err, "This Bridge cannot auto-record yet.");
+            else showFormError(err, f.title, f.detail);
+          }
+        });
+        return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("p", { class: "dt-confirm" }, collection ? `Collection ${collection}: ` : "", p.sub, "."), plan.symbols ? h("p", { class: "hint" }, `About ${plural(plan.symbols, "symbol")} and roughly ${formatBytes(plan.bytesPerDay)} a trading day. It uses your live stream and starts by itself at each market open. You can turn it off any time.`) : null, hint("Recorded from your own real-time data only.")), h("div", { class: "dt-wiz-foot" }, err, btn("Not now", "", () => close(false)), go1));
+      },
+      buttons: [],
     });
-    if (!ok) return;
-    try {
-      for (const b of plan.bodies) await client.recordings.rules.create(b);
-      toast("Auto-record is on. It starts at the next market session.");
-      refresh();
-    } catch (e) {
-      const f = friendlyError(e);
-      toast(isUnavailable(e) ? "This Bridge cannot auto-record yet." : `${f.title}. ${f.detail}`.trim(), { tone: isUnavailable(e) ? "info" : "error" });
-    }
+    if (!done) return;
+    toast("Auto-record is on. It starts at the next market session.");
+    refresh();
   }
 
   function drawRules() {
@@ -1114,14 +1172,19 @@ export async function renderRecordings() {
     setText(statusLine, sum.detail ? `${sum.headline}. ${sum.detail}` : sum.headline);
     statusDot.className = `dot dt-auto-dot ${sum.tone === "ok" ? "" : sum.tone === "warn" ? "warn" : "idle"}`;
     presetsBox.replaceChildren(
-      ...RECORD_PRESETS.map((p) => h("button", { type: "button", class: "dt-preset", onclick: () => applyPreset(p) }, iconTile(p.id === "my-watchlist" ? "folder" : "chart", p.id === "my-watchlist" ? "teal" : "indigo", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, p.title), h("span", { class: "sub" }, p.sub)), icon("plus"))),
+      ...RECORD_PRESETS.map((p) => presetAdded(p, rules, collections)
+        ? h("div", { class: "dt-preset added", role: "status" }, iconTile(p.id === "my-watchlist" ? "folder" : "chart", "gray", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, p.title), h("span", { class: "sub" }, "Added. It is in the list below.")), icon("check"))
+        : h("button", { type: "button", class: "dt-preset", onclick: () => applyPreset(p) }, iconTile(p.id === "my-watchlist" ? "folder" : "chart", p.id === "my-watchlist" ? "teal" : "indigo", "md"), h("span", { class: "names" }, h("span", { class: "nm" }, p.title), h("span", { class: "sub" }, p.needs === "collection" && !collections.length ? "Needs a collection first: make one on the Collections tab." : p.sub)), icon("plus"))),
     );
     patchList(ruleBox, rules, (r) => r.id, (r, had) => {
       const s = ruleStatus(r);
-      const el = had ?? h("div", { class: "list-row static dt-rule" }, iconTile("record", "red", "sm"), h("span", { class: "names" }, h("span", { class: "nm" }), h("span", { class: "sub dt-wrap" }), h("span", { class: "dt-rule-state" })), h("span", { class: "dt-rule-acts" }));
+      const el = had ?? h("div", { class: "list-row static dt-rule" }, iconTile("record", "red", "sm"), h("span", { class: "names" }, h("span", { class: "nm" }), h("span", { class: "sub dt-wrap" }), h("span", { class: "dt-rule-state" }), h("span", { class: "sub dt-wrap dt-rule-next" })), h("span", { class: "dt-rule-acts" }));
       const names = el.querySelector(".names");
       setText(names.children[0], r.name || "Recording rule");
       setText(names.children[1], ruleSentence(r, collections));
+      const rec = recs.find((x) => x.ruleId === r.id || x.id === r.recordingId || x.id === `rule-${r.id}`);
+      const wrote = rec ? recordingView(rec).stats : "";
+      setText(names.children[3], [r.enabled === false ? "" : nextStartText(r, Date.now()), wrote ? `So far: ${wrote}` : ""].filter(Boolean).join(". "));
       const stEl = names.children[2];
       stEl.className = `dt-rule-state pill ${toneOf(s.tone)}`.trim();
       setText(stEl, s.word + (r.keepDays ? ` · keeps ${r.keepDays} days` : ""));
@@ -1199,6 +1262,13 @@ export async function renderRecordings() {
     },
   });
   poll.start();
+  // #/data/recordings?preset=index-chains (the palette's "Record NIFTY and BANKNIFTY option chains") opens that preset.
+  const wanted = new URLSearchParams(location.hash.split("?")[1] ?? "").get("preset");
+  const preset = RECORD_PRESETS.find((p) => p.id === wanted);
+  if (preset) {
+    history.replaceState(history.state, "", "#/data/recordings");
+    queueMicrotask(() => applyPreset(preset));
+  }
   return root;
 }
 
@@ -1414,7 +1484,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
       async function paintPreview() {
         if (f.kind !== "option-universe" || universeProblem(f.u)) return;
         const mine = ++seq;
-        const r = await optional(client.collections.resolveDraft(f.u));
+        const r = hasRoute(app.state.meta?.routes, "POST", "/v1/collections/resolve") ? await optional(client.collections.resolveDraft(f.u)) : NO_ROUTE;
         if (mine !== seq) return;
         const keep = preview.querySelector(".dt-preview-sentence")?.cloneNode(true);
         if (r.error) {
@@ -1513,7 +1583,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
       drawKind();
       const save = btn(edit ? "Save changes" : "Save collection", "primary", async () => {
         const p = collectionNameProblem(f.name, others);
-        const showErr = (title, detail) => err.replaceChildren(h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, title), detail ? h("span", { class: "detail" }, detail) : null)));
+        const showErr = (title, detail) => showFormError(err, title, detail);
         if (p) return showErr(p);
         const body = { name: f.name.trim(), description: f.description.trim(), tags: parseTags(f.tags), kind: f.kind };
         if (f.kind === "static") {
@@ -1538,7 +1608,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
           showErr(isUnavailable(e) ? "This Bridge cannot save collections yet" : fe.title, isUnavailable(e) ? "Update the Bridge to the latest version." : fe.detail);
         }
       });
-      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "form-grid" }, field("Name", name), field("Tags", tags, "Separate with commas, for example index, weekly.")), nameMsg, field("Description", desc), h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What kind"), kindSeg), kindBody, preview), err, h("div", { class: "dt-wiz-foot" }, btn("Cancel", "", () => close(false)), save));
+      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "form-grid" }, field("Name", name), field("Tags", tags, "Separate with commas, for example index, weekly.")), nameMsg, field("Description", desc), h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What kind"), kindSeg), kindBody, preview), h("div", { class: "dt-wiz-foot" }, err, btn("Cancel", "", () => close(false)), save));
     },
     buttons: [],
   });

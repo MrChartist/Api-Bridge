@@ -107,6 +107,8 @@ export function mountBudget(host, live) {
   const dot = h("span", { class: "bud-dot", "aria-hidden": "true" });
   const sec = h("span", { class: "bud-num" });
   const min = h("span", { class: "bud-num bud-min" });
+  // The button's name is its visible text (so voice control can say it) followed by this longer reading.
+  const said = h("span", { class: "sr-only" });
   const setSec = liveWindow(sec, "s");
   const setMin = liveWindow(min, "min");
   const btn = h(
@@ -117,6 +119,7 @@ export function mountBudget(host, live) {
     sec,
     h("span", { class: "bud-sep", "aria-hidden": "true" }, "·"),
     min,
+    said,
   );
   host.replaceChildren(btn);
   let pop = null;
@@ -130,7 +133,7 @@ export function mountBudget(host, live) {
     const job = (msg?.jobs ?? [])[0];
     setAttr(host, "data-job", job ? "1" : "");
     const fill = v.tone === "bad" ? " Near the limit." : v.tone === "warn" ? " Getting full." : "";
-    setAttr(btn, "aria-label", `Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${plural(v.savedToday, "call")} saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
+    setText(said, ` Broker API budget: ${v.second ? `${windowText(v.second)} calls this second` : "no per-second limit"}, ${v.minute ? `${windowText(v.minute)} calls this minute` : "no per-minute limit"}.${fill} ${STREAM_TEXT[v.stream]}. ${plural(v.savedToday, "call")} saved today.${job ? ` ${job.label} ${jobText(job)}.` : ""}`);
     if (pop?.el.isConnected) pop.update(msg, v);
   };
   btn.addEventListener("click", () => {

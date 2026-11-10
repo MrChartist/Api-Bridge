@@ -225,9 +225,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     "/v1/meta",
     (ctx) => ({
       bridgeVersion: BRIDGE_VERSION,
-      // For this computer only: the install folder (the dashboard fills it into the MCP (stdio) snippets) and how to run
+      // For this computer only: the install and data folders (the dashboard fills the first into the MCP (stdio) snippets and shows the second beside saved files) and how to run
       // a Bridge command here (the dashboard's "Prefer the terminal?" hints).
-      ...(ctx.loopback ? { installDir: ROOT, cliCommand: cliCommand() } : {}),
+      ...(ctx.loopback ? { installDir: ROOT, dataDir: config.dataDir, cliCommand: cliCommand() } : {}),
       apiVersion: API_VERSION,
       brokerContractVersion: CONTRACT_VERSION,
       brokers: coreDeps.brokers.list(),

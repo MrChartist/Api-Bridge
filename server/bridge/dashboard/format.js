@@ -76,7 +76,7 @@ export function formatSignedRupee(value, dp = 2) {
 }
 
 /** Indian digit grouping of a plain figure ("1234567.50" → "12,34,567.50"); the sign and decimals pass through. */
-function groupIndian(text) {
+export function groupIndian(text) {
   const [, sign, int, frac = ""] = /^(-?)(\d+)(\.\d+)?$/.exec(text) ?? [null, "", text];
   const last3 = int.slice(-3);
   const rest = int.slice(0, -3);

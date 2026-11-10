@@ -2,11 +2,17 @@
 // are one click from anywhere; Stop still asks before it does anything (readiness.js engageKillSwitch).
 import { h, icon, iconTile, sheetPopover } from "./app.js";
 import { HELP_TOPICS } from "./easy-core.js";
-import { engageKillSwitch, refreshReadiness } from "./readiness.js";
+import { engageKillSwitch, killIsOn, onReadiness, refreshReadiness, releaseKillSwitch } from "./readiness.js";
 
-/** Stop every new order, after the usual question; then a fresh readiness reading. */
+/** True from the last readiness reading until the next one: the kill switch is on. */
+let stopped = false;
+onReadiness((snap) => {
+  stopped = killIsOn(snap);
+});
+
+/** Stop every new order, after the usual question (or, when they are already stopped, ask to release); then a fresh readiness reading. */
 export async function stopEverything() {
-  if (await engageKillSwitch()) {
+  if (stopped ? await releaseKillSwitch() : await engageKillSwitch()) {
     await refreshReadiness();
     if (location.hash.startsWith("#/safety")) dispatchEvent(new HashChangeEvent("hashchange"));
   }
@@ -45,7 +51,18 @@ export function openHelp(trigger) {
 /** The two toolbar buttons. Their text hides on small screens (the labels stay for screen readers). */
 export function toolbarHelp() {
   const help = h("button", { type: "button", class: "toolbar-help", "aria-haspopup": "dialog", "aria-expanded": "false", title: "Something wrong? Get help", onclick: () => openHelp(help) }, icon("info"), h("span", { class: "tb-text" }, "Something wrong?"));
-  const stop = h("button", { type: "button", class: "toolbar-stop", title: "Stop all orders: asks you to confirm first", "aria-label": "Stop all orders", onclick: stopEverything }, icon("stop"), h("span", { class: "tb-text" }, "Stop"));
+  const label = h("span", { class: "tb-text" }, "Stop");
+  const stop = h("button", { type: "button", class: "toolbar-stop", title: "Stop all orders: asks you to confirm first", "aria-label": "Stop all orders", onclick: stopEverything }, icon("stop"), label);
+  // While orders are stopped the button says so, stays filled, and opens the release question instead.
+  const paint = (snap) => {
+    const on = killIsOn(snap);
+    stop.classList.toggle("is-on", on);
+    label.textContent = on ? "Stopped" : "Stop";
+    stop.setAttribute("aria-label", on ? "Orders are stopped. Release" : "Stop all orders");
+    stop.title = on ? "Orders are stopped. Press to allow them again (you type RELEASE to confirm)" : "Stop all orders: asks you to confirm first";
+    stop.setAttribute("aria-pressed", String(on));
+  };
+  onReadiness(paint);
   return [help, stop];
 }
 

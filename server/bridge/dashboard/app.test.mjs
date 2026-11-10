@@ -57,7 +57,8 @@ describe("dashboard helpers", async () => {
 
   it("explains errors in plain words", () => {
     expect(friendlyError({ network: true }).title).toMatch(/Cannot reach the Bridge/);
-    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/keys create/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/npm run bridge -- open/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail.split("\n")).toHaveLength(3); // one remedy per line
     expect(friendlyError({ code: "SESSION_EXPIRED", message: "dhan-main: expired" }).detail).toMatch(/Accounts page, Log in/);
     expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/Accounts page.*demo mode/);
     expect(friendlyError({ code: "UPSTREAM_ERROR", message: "Dhan: invalid token" })).toEqual({ title: "The broker did not accept this", detail: "Dhan: invalid token" });
@@ -304,13 +305,13 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, 
   it("the palette has one command per tab, the tools as search-only destinations, and ranks prefixes first", () => {
     const cmds = pageCommands(PAGES, "Ctrl");
     const byLabel = Object.fromEntries(cmds.map((c) => [c.label, c]));
-    for (const l of ["API keys", "Integrations", "Test console", "Sources and rate limits", "Data providers", "Key quotas", "Why this source?", "Activity", "Trade book", "Python snippet", "Webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
-    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "2"] });
+    for (const l of ["API keys", "Integrations", "Test console", "Sources and rate limits", "Data providers", "Key quotas", "Why this source?", "Activity", "Trade book", "Python snippet", "Alert webhooks (TradingView, ChartInk)", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
+    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys: One key per tool, with only the access it needs", hint: ["Ctrl", "2"] }); // a tab says what it is for
     expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
     expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
     expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Bridge", "Trade"]);
     expect(rank(cmds, "rate")[0].label).toBe("Sources and rate limits");
-    expect(byLabel["Sources and rate limits"]).toMatchObject({ route: "sources/overview", sub: "Sources › Overview" });
+    expect(byLabel["Sources and rate limits"]).toMatchObject({ route: "sources/overview", sub: "Sources › Overview: How much room your brokers and sources have, and why requests go where they do" });
     expect(byLabel["Why this source?"]).toMatchObject({ route: "sources/overview?trace=1", searchOnly: true });
     expect(rank(cmds, "console")[0].label).toBe("Test console");
     // A scattered in-order match is not enough: three points per query character.

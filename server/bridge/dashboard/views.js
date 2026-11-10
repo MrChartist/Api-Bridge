@@ -1,7 +1,7 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
 // except small conveniences in localStorage (theme, density, the last tab of each page).
 import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage, whenIdle } from "./app.js";
-import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
+import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, killBanner, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
@@ -182,7 +182,7 @@ drawTabs.n = 0;
 
 /** The Integrations tab's tools (its inner segmented control; each is also a Ctrl K destination). */
 const INTEGRATION_TOOLS = [
-  ["webhooks", "Webhooks"],
+  ["webhooks", "Alert webhooks"],
   ["python", "Python"],
   ["node", "Node"],
   ["excel", "Excel and Sheets"],
@@ -204,7 +204,7 @@ const INTEGRATION_TOOLS = [
 export const PAGES = [
   { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", tab: true, key: 1, group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   { id: "connect", label: "Connect a tool", icon: "plug", tint: "green", key: 6, group: "Bridge", keywords: "excel sheets spreadsheet claude chatgpt ai assistant python node script amibroker app key setup integration", title: "Connect a tool", sub: "Give Excel, an AI assistant or a script its own key, with the setup ready to copy", render: renderConnect },
-  { id: "developers", advanced: true, label: "Developers", icon: "console", tint: "purple", key: 7, group: "Bridge", keywords: "developer api key app scope quota snippet curl python node sdk starter openapi errors error codes requests log webhook events", title: "Developers", sub: "Your first call, the key each job needs, your requests live, and every error explained", render: renderDevelopers },
+  { id: "developers", advanced: true, label: "Developers", icon: "console", tint: "purple", key: 7, group: "Bridge", keywords: "developer api key app scope quota snippet curl python node sdk starter openapi errors error codes requests log webhook events order events subscription receiver signed", title: "Developers", sub: "Your first call, the key each job needs, your requests live, and every error explained", render: renderDevelopers },
   // Sources has a place in the phone tab bar and API (set up once, used at a desk) moves to More: whether the data is
   // flowing is the question people open the Bridge on a phone to ask, a key is made once.
   {
@@ -237,7 +237,7 @@ export const PAGES = [
       { id: "keys", label: "Keys", page: "keys", sub: "One key per tool, with only the access it needs", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
       {
         id: "integrations", label: "Integrations", page: "integrations", sub: "Connect Excel, a script, an AI assistant or a webhook", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
-        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert tradingview chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
+        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Alert webhooks (TradingView, ChartInk)" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert alerts incoming tradingview chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
       },
       { id: "console", label: "Test console", page: "console", sub: "Try any call and see what a script would get back", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
       {
@@ -507,7 +507,7 @@ function moreSheet(active) {
           ),
         ),
         h("section", { class: "group" }, h("div", { class: "list" }, helpRow(() => { close(undefined); setTimeout(() => openHelp(null), 260); }))),
-        h("section", { class: "group" }, h("h3", { class: "group-title", id: "more-view" }, "View"), viewControl("more-view")),
+        h("section", { class: "group" }, h("h3", { class: "group-title", id: "more-view" }, "View"), viewControl("more-view"), h("p", { class: "group-foot" }, "Advanced adds Developers (events, apps, errors), API keys, the test console, Activity and Quotas.")),
         h(
           "section",
           { class: "group" },
@@ -547,7 +547,7 @@ function accountPopover(trigger) {
     "div",
     { class: "acct-pop" },
     h("div", { class: "acct-pop-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
-    h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-view" }, "View"), viewControl("acct-view"), h("p", { class: "group-foot" }, "Simple shows the essentials. Advanced adds keys, the test console, activity and quotas.")),
+    h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-view" }, "View"), viewControl("acct-view"), h("p", { class: "group-foot" }, "Simple shows the essentials. Advanced adds Developers (events, apps, errors), API keys, the test console, Activity and Quotas.")),
     h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-appearance" }, "Appearance"), appearanceControl("acct-appearance")),
     h("section", { class: "group density-ctl" }, h("h3", { class: "group-title", id: "acct-density" }, "Density"), densityControl("acct-density")),
     h(
@@ -937,10 +937,11 @@ function setupChrome() {
   if (sb && !sb.dataset.ready) {
     sb.dataset.ready = "1";
     sb.title = `Search pages and actions (${kc.label})`;
-    sb.setAttribute("aria-label", "Search pages and actions");
     sb.setAttribute("aria-keyshortcuts", kc.aria);
     sb.prepend(searchIcon());
     sb.append(kbd(...kc.keys));
+    // The name starts with what is written on the button (voice control says it), then says what it opens.
+    sb.setAttribute("aria-label", `${sb.textContent.replace(/\s+/g, " ").trim()}: pages and actions`);
     sb.addEventListener("click", () => openPalette());
   }
   // The IST clock in the toolbar (wide screens). It claims nothing about the market being open.
@@ -1134,7 +1135,7 @@ function accountRow(a, ctx) {
   const brokerName = a.broker === "demo" ? "Sample data" : broker?.name ?? a.broker;
   const next =
     st.next === "reset"
-      ? { text: "Reset funds", aria: `Reset ${a.label} or add paper money`, cls: "small", run: () => paperResetSheet(a) }
+      ? { text: "Reset funds", aria: `Reset funds for ${a.label}, or add paper money`, cls: "small", run: () => paperResetSheet(a) }
       : st.next === "login"
         ? { text: "Log in", aria: `Log in to ${a.label}`, cls: "small tinted", run: () => loginSheet(a, broker) }
         : { text: "Test", aria: `Test ${a.id}`, cls: "small", run: (btn) => testAccount(a, btn) };
@@ -1937,7 +1938,7 @@ async function drawConsole(accounts) {
     }
     return method.value === "GET" ? `curl -H "Authorization: Bearer $MCB_API_KEY" "${url}"` : parts.join(" ");
   };
-  const curlBtn = copyButton(curlText, { label: "Copy as curl", toastLabel: "curl copied", cls: "small quiet", ariaLabel: "Copy this request as a curl command" });
+  const curlBtn = copyButton(curlText, { label: "Copy as curl", toastLabel: "curl copied", cls: "small quiet", ariaLabel: "Copy as curl: this request" });
 
   const tryFormat = () => {
     try {
@@ -2222,7 +2223,7 @@ async function renderOrders() {
     if (!o.error) book.update(o.data?.data ?? []);
     refreshTicketCount();
   });
-  return [pending.el, book.el, funds];
+  return [killBanner(), pending.el, book.el, funds];
 }
 
 /** Modify and Cancel for a working order (PATCH / DELETE /v1/orders/{id}); each answers with a toast and a redraw. */

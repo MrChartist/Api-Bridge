@@ -75,7 +75,7 @@ export const tabsShown = (page, mode, activeTabId = null) => (page.tabs ?? []).f
  * groups (snippets.js) shown once the key exists, `test` how "Test it" asks.
  */
 export const CONNECT_TOOLS = Object.freeze([
-  { id: "excel", name: "Excel or Google Sheets", blurb: "Live prices in your cells", use: "excel", preset: "excel", orders: "never", tabs: ["excel"], test: "sheet", paste: "Put the key in a cell named BridgeKey, then paste the formula next to a symbol such as NSE:RELIANCE. Works in Excel for Windows." },
+  { id: "excel", name: "Excel or Google Sheets", blurb: "Live prices in your cells", use: "excel", preset: "excel", orders: "never", tabs: ["excel"], test: "sheet", paste: "The easiest way is the ready workbook: it already has your key and a watchlist.", steps: ["Press Download a ready workbook below and open it in Excel. The key is already in it (sheet Setup, cell B6), so do not share the file.", "Or use your own file: click a cell, type BridgeKey in the Name Box (the small box left of the formula bar) and press Enter. Then type the key into that cell.", "Excel for Windows: paste the formula next to a symbol such as NSE:RELIANCE.", "Mac Excel and Google Sheets: use the link under Mac Excel and Google Sheets instead. In Excel choose Data, then From Web. In Sheets use =IMPORTDATA with the link."] },
   { id: "ai", name: "An AI assistant", blurb: "Claude, ChatGPT and others", use: "claude", orders: "optional", tabs: ["claude", "chatgpt"], test: "api", paste: "Paste this into your assistant's settings, then restart the assistant." },
   { id: "python", name: "A Python script", blurb: "Scripts and notebooks", use: "python", orders: "optional", tabs: ["python", "rest"], test: "api", paste: "Run the first block once, then paste the second block into your script." },
   { id: "node", name: "A Node script", blurb: "Scripts and services", use: "node", orders: "optional", tabs: ["node", "rest"], test: "api", paste: "Run the first block once, then paste the second block into your script." },
@@ -83,6 +83,8 @@ export const CONNECT_TOOLS = Object.freeze([
   { id: "amibroker", name: "AmiBroker", blurb: "Live values in your charts", use: "amibroker", preset: "amibroker", orders: "never", tabs: ["amibroker"], test: "sheet", paste: "Set the key once, then restart AmiBroker." },
 ]);
 export const connectTool = (id) => CONNECT_TOOLS.find((t) => t.id === id) ?? null;
+/** "Connect Excel or Google Sheets", "Connect a Python script": a proper name keeps its capitals, an article does not. */
+export const connectHeading = (tool) => `Connect ${/^(A|An|My) /.test(tool?.name ?? "") ? tool.name.charAt(0).toLowerCase() + tool.name.slice(1) : (tool?.name ?? "a tool")}`;
 
 /**
  * The key to create for a tool, as the POST /v1/keys body, plus what it may do. Least privilege: read only, unless the
