@@ -1065,7 +1065,7 @@ Or edit the file yourself:
 | `live` | `{ "enabled": false, "allowedSources": ["rest"], "registeredIp": "..." }`; see [safety.md](safety.md). Off by default. |
 | `limits` | Per-account safety limits that may only be stricter than the global `safety` section. |
 
-`npx mc-bridge accounts list` shows what the Bridge read. `npx mc-bridge doctor` checks the file.
+`mc-bridge accounts list` shows what the Bridge read. `mc-bridge doctor` checks the file.
 
 ## 2. Log in
 
@@ -1144,7 +1144,7 @@ SEBI's retail algo rules allow use by you, your spouse, dependent children and d
 own account. Limit API keys to the accounts a tool needs:
 
 ```bash
-npx mc-bridge keys create --label spouse-sheet --scope read --accounts zerodha-spouse --expires 30d
+mc-bridge keys create --label spouse-sheet --scope read --accounts zerodha-spouse --expires 30d
 ```
 
 Do not add anyone else's accounts: the Bridge is personal software, not a service for other people.
@@ -3828,7 +3828,7 @@ Everything AmiBroker can reach is read-only: `/xl/*` cannot place orders. Full i
 
 1. Copy `integrations/amibroker/mrchartist-bridge.afl` into AmiBroker's `Formulas\Include` folder.
 2. Create a read-only URL key (AmiBroker cannot send headers):
-   `npx mc-bridge keys create --label amibroker --scope read --allow-query`
+   `mc-bridge keys create --label amibroker --scope read --allow-query`
 3. Store it outside your formulas: the Windows user variable `MCB_AMIBROKER_KEY` (restart AmiBroker), or the only line
    of `%USERPROFILE%\.mc-bridge\amibroker.key`.
 4. Use it:
@@ -4739,12 +4739,12 @@ Two transports:
 
 - **Streamable HTTP** at `POST /mcp` on the Bridge (this computer only; Host and Origin checked; bearer key).
 - **stdio** through `mc-bridge mcp`, a relay that forwards each message to the running Bridge's `/mcp`. Start the
-  Bridge first (`npx mc-bridge start`).
+  Bridge first (`mc-bridge start`).
 
 Create a key for the assistant:
 
 ```bash
-npx mc-bridge keys create --label claude --scope read --client mcp
+mc-bridge keys create --label claude --scope read --client mcp
 ```
 
 ## Claude Desktop
@@ -4853,9 +4853,9 @@ read-only, expiring key limited to the accounts you need.
 The same tool registry is available as strict OpenAI function schemas:
 
 ```bash
-npx mc-bridge openai-tools > tools.json                  # Responses API format, read-only tools
-npx mc-bridge openai-tools --format chat > tools.json    # Chat Completions format
-npx mc-bridge openai-tools --scope paper                 # includes order tools if mcp.toolsets/orderAccounts allow
+mc-bridge openai-tools > tools.json                  # Responses API format, read-only tools
+mc-bridge openai-tools --format chat > tools.json    # Chat Completions format
+mc-bridge openai-tools --scope paper                 # includes order tools if mcp.toolsets/orderAccounts allow
 ```
 
 Your script sends `tools.json` to the model and runs each tool call it gets back against the local Bridge, for

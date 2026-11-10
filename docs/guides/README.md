@@ -2,6 +2,8 @@
 
 Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker needed) or the [docs home](../README.md), which sorts the guides by what you want to do. These guides go deeper, one topic each.
 
+**Running `mc-bridge`.** Commands in these guides start with `mc-bridge`. That command is on your PATH after you use one of the installers in [install.md](install.md). From a git checkout, use `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`) in the repository folder instead. Do not run it through npx: this project is not published to npm, and the name `mc-bridge` there belongs to an unrelated package.
+
 | Guide | For |
 |---|---|
 | [quickstart.md](quickstart.md) | Clone, start in demo mode, make a key, get a price, place a paper order, read a stream; and what to do when it does not work |

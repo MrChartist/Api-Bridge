@@ -37,7 +37,7 @@ Or edit the file yourself:
 | `live` | `{ "enabled": false, "allowedSources": ["rest"], "registeredIp": "..." }`; see [safety.md](safety.md). Off by default. |
 | `limits` | Per-account safety limits that may only be stricter than the global `safety` section. |
 
-`npx mc-bridge accounts list` shows what the Bridge read. `npx mc-bridge doctor` checks the file.
+`mc-bridge accounts list` shows what the Bridge read. `mc-bridge doctor` checks the file.
 
 ## 2. Log in
 
@@ -116,7 +116,7 @@ SEBI's retail algo rules allow use by you, your spouse, dependent children and d
 own account. Limit API keys to the accounts a tool needs:
 
 ```bash
-npx mc-bridge keys create --label spouse-sheet --scope read --accounts zerodha-spouse --expires 30d
+mc-bridge keys create --label spouse-sheet --scope read --accounts zerodha-spouse --expires 30d
 ```
 
 Do not add anyone else's accounts: the Bridge is personal software, not a service for other people.

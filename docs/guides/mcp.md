@@ -7,12 +7,12 @@ Two transports:
 
 - **Streamable HTTP** at `POST /mcp` on the Bridge (this computer only; Host and Origin checked; bearer key).
 - **stdio** through `mc-bridge mcp`, a relay that forwards each message to the running Bridge's `/mcp`. Start the
-  Bridge first (`npx mc-bridge start`).
+  Bridge first (`mc-bridge start`).
 
 Create a key for the assistant:
 
 ```bash
-npx mc-bridge keys create --label claude --scope read --client mcp
+mc-bridge keys create --label claude --scope read --client mcp
 ```
 
 ## Claude Desktop

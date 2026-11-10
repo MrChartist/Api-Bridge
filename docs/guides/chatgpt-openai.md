@@ -17,9 +17,9 @@ read-only, expiring key limited to the accounts you need.
 The same tool registry is available as strict OpenAI function schemas:
 
 ```bash
-npx mc-bridge openai-tools > tools.json                  # Responses API format, read-only tools
-npx mc-bridge openai-tools --format chat > tools.json    # Chat Completions format
-npx mc-bridge openai-tools --scope paper                 # includes order tools if mcp.toolsets/orderAccounts allow
+mc-bridge openai-tools > tools.json                  # Responses API format, read-only tools
+mc-bridge openai-tools --format chat > tools.json    # Chat Completions format
+mc-bridge openai-tools --scope paper                 # includes order tools if mcp.toolsets/orderAccounts allow
 ```
 
 Your script sends `tools.json` to the model and runs each tool call it gets back against the local Bridge, for

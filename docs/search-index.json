@@ -2108,7 +2108,7 @@
       "headings": [],
       "kind": "guide",
       "path": "docs/guides/README.md",
-      "text": "Start with the quickstart (five minutes, demo mode, no broker needed) or the docs home, which sorts the guides by what you want to do. These guides go deeper, one topic each. Reference: one page per endpoint and the error codes, openapi.yaml (REST), asyncapi.yaml (streams),...",
+      "text": "Start with the quickstart (five minutes, demo mode, no broker needed) or the docs home, which sorts the guides by what you want to do. These guides go deeper, one topic each. Running mc-bridge. Commands in these guides start with mc-bridge. That command is on your PATH after you...",
       "title": "Mr. Chartist API Bridge: guides"
     },
     {
