@@ -24,25 +24,45 @@ function logQuarantine(log, { file, movedTo, what, reason }) {
   log?.warn?.(`${what}: ${file} ${reason}${movedTo ? `; moved aside to ${movedTo}` : ""}. Starting with an empty ${what}.`, { file, movedTo, reason });
 }
 
+/** A plain reason for a file that cannot be opened. */
+function unreadableWhy(err) {
+  switch (err?.code) {
+    case "EISDIR":
+      return "a folder is in its place, not a file";
+    case "EACCES":
+    case "EPERM":
+      return "permission denied";
+    case "EBUSY":
+      return "another program has it open";
+    default:
+      return `${err?.code ?? "error"}: ${String(err?.message ?? err).slice(0, 100)}`;
+  }
+}
+
 /**
  * Read and parse a JSON file. A missing file is `{ missing: true }`. A file that is empty, not JSON, or that `validate`
- * rejects is moved aside and reported (see the top of this file).
+ * rejects, or that cannot be opened at all (a folder in its place, permission denied), is moved aside and reported
+ * (see the top of this file); it never throws for a bad file.
  * @param {string} file
  * @param {{ what: string, log?: any, now?: number, validate?: (value: any) => boolean | string | void }} opts
  *   validate: return false (or a reason string) to say the content is not a usable store
  * @returns {{ value: any, missing: boolean, quarantinedTo: string | null, reason?: string }}
  */
 export function loadJsonOrQuarantine(file, { what, log, now = Date.now(), validate } = {}) {
-  let text;
+  let text = "";
+  let reason = null;
+  let value = null;
   try {
     text = readFileSync(file, "utf8");
   } catch (err) {
     if (err?.code === "ENOENT") return { value: null, missing: true, quarantinedTo: null };
-    throw err;
+    // Cannot be opened at all (a folder in its place, permission denied, locked by another program): the same road as a damaged
+    // file. It is set aside if it can be, the reason is a plain sentence (never a stack trace at start-up), and the store starts empty.
+    reason = `could not be opened (${unreadableWhy(err)})`;
   }
-  let reason = null;
-  let value = null;
-  if (text.trim() === "") reason = "is empty";
+  if (reason !== null) {
+    /* unreadable: handled below */
+  } else if (text.trim() === "") reason = "is empty";
   else {
     try {
       value = JSON.parse(text);
