@@ -278,9 +278,14 @@ class AsyncStream:
         def put(item: Any) -> None:
             if loop.is_closed():
                 return
+            coro = q.put(item)
             try:
-                asyncio.run_coroutine_threadsafe(q.put(item), loop).result()
+                asyncio.run_coroutine_threadsafe(coro, loop).result()
             except Exception:  # noqa: BLE001 - the loop went away; stop quietly
+                try:
+                    coro.close()  # never scheduled when the loop closed first: do not leave it un-awaited ("was never awaited")
+                except Exception:  # noqa: BLE001 - already running or finished: nothing to clean up
+                    pass
                 self.stream.close()
 
         def pump() -> None:
