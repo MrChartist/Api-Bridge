@@ -26,7 +26,7 @@ import { gunzipSync } from "node:zlib";
 import { BridgeConnectionError } from "./errors.mjs";
 import { ChecksumMismatchError, DownloadFailedError, WaitTimeoutError } from "./errors.mjs";
 import { HistoryAll } from "./history.mjs";
-import { parseTable, toCsv } from "./table.mjs";
+import { parseTable, toCsv, unguardFormulaText } from "./table.mjs";
 
 export { parseTable, toCsv };
 
@@ -602,7 +602,7 @@ export class Collections {
     if (lines.length && /^["']?symbols?["']?(,|$)/i.test(lines[0])) {
       const col = lines[0].split(",")[0].replace(/["']/g, "");
       syms = parseTable(lines.join("\n")).map((r) => String(r[col] ?? "").trim()).filter(Boolean);
-    } else syms = lines.map((l) => l.split(",")[0].trim().replace(/^["']|["']$/g, ""));
+    } else syms = lines.map((l) => unguardFormulaText(l.split(",")[0].trim().replace(/^["']|["']$/g, "")));
     return this.create(name, { symbols: syms, description, tags });
   }
 }
