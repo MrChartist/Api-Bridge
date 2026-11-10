@@ -11,6 +11,7 @@
 - [ ] `npm test`
 - [ ] `npm run typecheck`
 - [ ] `npm run check:mjs`
+- [ ] `npm run docs:check` (run `npm run docs:generate` first if you changed `docs/openapi.yaml` or a guide)
 - [ ] SDK tests, if `sdk/` changed (`node --test sdk/node/test/client.test.mjs sdk/node/test/data.test.mjs sdk/node/test/events.test.mjs sdk/node/test/examples.test.mjs`, `python -m pip install ./sdk/python pytest && python -m pytest sdk/python/tests -q`)
 - [ ] Tried it in demo mode (`npm run dev`), if it changes the dashboard, an integration or an API answer
 

@@ -25,7 +25,7 @@ How every one of the 41 broker adapters in `server/brokers/` should look, how to
 | `server/bridge/accounts/session.mjs` | How the Bridge logs an account in: validates the login fields, calls `adapter.login()` once and keeps only the declared session fields, encrypted. |
 | `src/lib/brokerCatalog*.ts` | The broker catalogue (names, credential fields, docs links) used by the dashboard and `GET /v1/brokers`. |
 
-The vitest `server` project already picks up `server/**/*.{test,spec}.mjs`, so a new `server/brokers/<id>.test.mjs` runs with no config change.
+vitest already picks up `server/**/*.{test,spec}.mjs`, so a new `server/brokers/<id>.test.mjs` runs with no config change.
 
 ## 2. Adapter shape
 
@@ -128,7 +128,7 @@ encrypted secret store keeps the session  <--  only declared auth.sessionFields 
      "expect": { "minRows": 1, "minStrikes": 3, "status": "success", "underlyings": ["NIFTY", "BANKNIFTY"] } }
    ```
    `args` defaults: `expiries`/`ltp` use `[symbol]`; `optionChain` uses `[symbol, expiry]`; the rest use `[]`. Order fixtures pass `args` without the gate: the harness adds no gate, a forged gate and a real gate in turn. `secrets` applies to `login.json` only. Any request that no response matches fails the capability, so no harness run can reach the network.
-3. Add `server/brokers/<id>.contract.test.mjs`:
+3. Add `server/brokers/<id>.test.mjs`:
    ```js
    import { expect, it } from "vitest";
    import * as adapter from "./<id>.mjs";
@@ -193,8 +193,8 @@ Errors and safety
 
 Tests and fixtures
 - [ ] __fixtures__/<id>/manifest.json with official sources; one fixture per declared capability (+ login.json)
-- [ ] <id>.contract.test.mjs: validateAdapter(strict) has no errors; runContractHarness has no failures
-- [ ] npm run typecheck · npm run lint · npx vitest run --project server · node --check server/brokers/<id>*.mjs
+- [ ] <id>.test.mjs: validateAdapter(strict) has no errors; runContractHarness has no failures
+- [ ] npm run typecheck · npm run check:mjs · npx vitest run server/brokers/<id>.test.mjs
 
 Sources (required before merge; see section 0)
 - [ ] Every fact is cited to the broker's official docs, SDK or Postman collection, or flagged for live verification

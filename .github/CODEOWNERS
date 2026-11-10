@@ -1,3 +1,4 @@
-# Code owners: GitHub asks the maintainer below to review every pull request, and a merge to `main` needs
-# their approval. Outside contributions are welcome; see CONTRIBUTING.md for how to send one.
+# Code owners: GitHub asks the maintainer below to review every pull request. Outside contributions are welcome; see
+# CONTRIBUTING.md for how to send one. (Whether a merge to `main` is blocked until they approve is a repository setting,
+# not something this file decides.)
 * @MrChartist

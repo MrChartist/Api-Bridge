@@ -3,6 +3,7 @@
   "pages": [
     {
       "headings": [
+        "Quick path for a first pull request",
         "Development setup",
         "Ground rules",
         "Adding or improving a broker",
@@ -11,7 +12,7 @@
       ],
       "kind": "doc",
       "path": "CONTRIBUTING.md",
-      "text": "Thanks for helping. The most useful contributions right now are: Broker reports. Only Dhan is verified with a live account; the other 40 brokers are beta. Trying one in paper mode and telling us what worked is a real help. Use the bug report form (it has a field for the broker...",
+      "text": "Thanks for helping. This project is a connection layer: one local API in front of Indian broker accounts, with the prices and data behind it and ways for other projects to connect. It does not include analytics, scanners, strategy tools or a trading desk (see what it does not...",
       "title": "Contributing"
     },
     {

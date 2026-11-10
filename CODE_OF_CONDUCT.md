@@ -14,7 +14,7 @@ This project is also not a place to give or ask for investment advice or trading
 
 ## Reporting
 
-If you experience or see unacceptable behaviour, report it privately to the maintainers through GitHub's [private reporting form](https://github.com/MrChartist/api-bridge-v2/security/advisories/new) (choose it even for conduct reports; it reaches the maintainers only), or contact a maintainer directly on GitHub. Every report will be reviewed and investigated promptly and fairly, and the maintainers will respect the privacy and security of the reporter.
+If you experience or see unacceptable behaviour, report it privately to the maintainers through GitHub's [private reporting form](https://github.com/MrChartist/api-bridge-v2/security/advisories/new). It is built for security reports, but it is the project's only private channel and it reaches the maintainers only: start the title with "Conduct report" so it is handled as one. If the report is about a maintainer, say so in the first line; the other maintainers will handle it, and if there is no other maintainer you can also use GitHub's own tools to report the content or the account (<https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam>). The project publishes no e-mail address for reports. Every report will be reviewed and investigated promptly and fairly, and the maintainers will respect the privacy and security of the reporter.
 
 ## Enforcement
 

@@ -11,6 +11,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
 | [downloads.md](downloads.md) | Saving history to files (CSV, JSONL, AmiBroker), datasets that update from their last bar, the API budget share, and the estimate before you start |
 | [backup.md](backup.md) | Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer) |
+| [connect.md](connect.md) | The dashboard's Connect a tool page: pick Excel, an AI assistant, a script or AmiBroker, get a key with only the access it needs and the setup to paste |
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
 | [sources.md](sources.md) | Where prices come from: your brokers, optional free sources and plugins, what delayed, end-of-day and unofficial mean, how to turn a source on |
@@ -19,7 +20,6 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [events.md](events.md) | Bridge events out without polling: SSE and WebSocket with cursor replay, signed webhooks with retries and dead letters, receiver code for Node, Python and the shell |
 | [webhooks.md](webhooks.md) | TradingView, signed generic, ChartInk and GoCharting alerts |
-| [webhooks.md](webhooks.md) | Signed generic, ChartInk and GoCharting alerts |
 | [alert-orders.md](alert-orders.md) | Target-size and basket orders, MIS/NRML words, symbol check, basket margin, market calendar |
 | [telegram.md](telegram.md) | Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting |
 | [notifications.md](notifications.md) | How a message travels (outbox, retries, pacing, quiet hours), the `notify` settings and routes |
