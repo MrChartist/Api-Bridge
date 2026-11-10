@@ -9,7 +9,7 @@
 // Route shapes are the ones in the wave rules: /v1/downloads, /v1/datasets, /v1/recordings (+ /rules), /v1/collections
 // (+ /{name}/resolve). Every function tolerates a missing field: a half-built Bridge never throws here.
 
-import { DASH, formatFixed, formatInt, plural } from "./format.js";
+import { DASH, formatFixed, formatInt, groupIndian, plural } from "./format.js";
 
 // ── Numbers and words ──
 
@@ -40,12 +40,12 @@ export function formatDuration(sec) {
   return `about ${plural(Math.round(hrs / 24), "day")}`;
 }
 
-/** A count in short words: 1200 -> "1200" (no separators, house rule), 1_250_000 -> "1.3 million". */
+/** A count in short words: 1200 -> "1200", 375750 -> "3,75,750" (Indian grouping from 5 digits, read on its own), 1_250_000 -> "1.3 million". */
 export function formatCount(n) {
   const v = Number(n);
   if (!Number.isFinite(v)) return DASH;
   if (v >= 1_000_000) return `${formatFixed(v / 1_000_000, 1)} million`;
-  return formatInt(v);
+  return v >= 10_000 ? groupIndian(formatInt(v)) : formatInt(v);
 }
 
 const IST_MS = 5.5 * 3_600_000;
@@ -143,6 +143,8 @@ export const RANGES = Object.freeze([
   { id: "1m", label: "Last month", days: 31 },
   { id: "3m", label: "3 months", days: 92 },
   { id: "1y", label: "Last year", days: 366 },
+  { id: "2y", label: "2 years", days: 730 },
+  { id: "5y", label: "5 years", days: 1826 },
   { id: "max", label: "As far back as possible", days: null },
   { id: "custom", label: "Pick dates", days: null },
 ]);
@@ -170,6 +172,22 @@ export function rangeDates(rangeId, nowMs, intervals = DEFAULT_INTERVALS, custom
   }
   const r = RANGES.find((x) => x.id === rangeId) ?? RANGES[0];
   return { from: dayOf(base - r.days * dayMs), to: today };
+}
+
+/**
+ * A one-line limit note when the dates reach further back than the Bridge usually gets bars of the chosen sizes
+ * (MAX_BACK_DAYS), or "". The broker has the last word; the file says what it got.
+ */
+export function rangeLimitNote(from, to, intervals = DEFAULT_INTERVALS) {
+  const span = daysBetween(from, to);
+  if (!Number.isFinite(span)) return "";
+  const intra = intervals.filter((i) => intervalInfo(i)?.intraday);
+  const limit = intra.length ? MAX_BACK_DAYS.intraday : MAX_BACK_DAYS.daily;
+  if (span <= limit + 1) return "";
+  const years = Math.round((limit / 365) * 10) / 10;
+  return intra.length
+    ? `Bars of ${intra.join(", ")} usually go back about ${years} years. Older days will probably be missing; the file says what the broker gave.`
+    : `Daily bars usually go back about ${Math.round(years)} years. Older days may be missing; the file says what the broker gave.`;
 }
 
 /** Calendar days from a day to another (inclusive of the first, at least 1). NaN when either is not a day. */

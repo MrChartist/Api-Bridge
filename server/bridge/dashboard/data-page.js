@@ -17,6 +17,7 @@ import {
   LAYOUTS,
   MAX_SYMBOLS,
   RANGES,
+  rangeLimitNote,
   RECORD_PRESETS,
   COMMON_UNDERLYINGS,
   EXPIRY_CHOICES,
@@ -556,6 +557,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
     name: "",
     keep: false,
     dataset: "",
+    pending: "", // text pasted but not added yet: Next adds it
     error: null,
     starting: false,
   };
@@ -567,6 +569,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
     }
     return st.symbols.length;
   };
+  const pendingSymbols = () => (st.collection ? [] : parseSymbolList(st.pending).symbols);
   const dates = () => rangeDates(st.range, Date.now(), st.intervals, st.custom);
   const estimate = () => estimateJob({ symbols: count(), intervals: st.intervals, from: dates().from, to: dates().to, format: st.format, share: share() });
 
@@ -588,7 +591,8 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         if (st.step === 0) {
           const n = count();
           const c = st.collection ? colByName(st.collection) : null;
-          const label = c ? (c.kind === "option-universe" ? `Collection ${c.name}: its symbols are worked out when the download runs` : `Collection ${c.name}: ${plural(n, "symbol")}`) : n ? plural(n, "symbol") : "Nothing picked yet";
+          const waiting = pendingSymbols().length;
+          const label = c ? (c.kind === "option-universe" ? `Collection ${c.name}: its symbols are worked out when the download runs` : `Collection ${c.name}: ${plural(n, "symbol")}`) : n ? plural(n, "symbol") : waiting ? `${plural(waiting, "symbol")} pasted. Press Next to use them.` : "Nothing picked yet. Search, paste a list or pick a collection.";
           put(sumBox, h("p", { class: "dt-estimate-main" }, label), n > MAX_SYMBOLS ? hint(`A download takes ${MAX_SYMBOLS} symbols at most.`, "bad") : null);
           return;
         }
@@ -605,7 +609,7 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         );
       };
       const valid = () => {
-        if (st.step === 0) return count() > 0 && count() <= MAX_SYMBOLS;
+        if (st.step === 0) return (count() > 0 || pendingSymbols().length > 0) && count() <= MAX_SYMBOLS;
         if (st.step === 1) return st.intervals.length > 0 && Boolean(dates().from) && estimate().ok;
         return !st.keep || /^[a-z0-9][a-z0-9-]{0,39}$/.test(st.dataset);
       };
@@ -669,11 +673,14 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         const searchPane = h("div", { class: "dt-pane" }, q, results);
         // Paste
         const ta = h("textarea", { id: "dt-paste", rows: 5, placeholder: "NSE:RELIANCE\nNSE:TCS\nINFY", "aria-label": "Paste symbols", spellcheck: "false" });
+        ta.value = st.pending;
+        ta.addEventListener("input", () => ((st.pending = ta.value), refresh()));
         const pasteMsg = h("p", { class: "hint", "aria-live": "polite" });
         const pastePane = h("div", { class: "dt-pane" }, ta, h("div", { class: "dt-pane-act" }, btn("Add these", "small tinted", () => {
           const r = parseSymbolList(ta.value);
           add(r.symbols);
           ta.value = "";
+          st.pending = "";
           setText(pasteMsg, [r.symbols.length ? `Added ${plural(r.symbols.length, "symbol")}.` : "No symbols found.", r.duplicates ? `${plural(r.duplicates, "repeat")} skipped.` : "", r.invalid.length ? `Not recognised: ${r.invalid.slice(0, 4).join(", ")}${r.invalid.length > 4 ? "…" : ""}.` : "", r.over ? `${plural(r.over, "symbol")} over the ${MAX_SYMBOLS} limit were left out.` : ""].filter(Boolean).join(" "));
         }), pasteMsg), hint("Separate them with commas, spaces or new lines. A bare name like RELIANCE means NSE:RELIANCE."));
         // Collections
@@ -712,7 +719,8 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
         const note = h("p", { class: "hint", "aria-live": "polite" });
         const paintRangeNote = () => {
           const d = dates();
-          setText(note, st.range === "max" ? `Asks for ${dayText(d.from)} onwards. Your broker may keep less history than that; the file says what it got.` : d.from ? `${dayText(d.from)} to ${dayText(d.to)}.` : "Pick the first date.");
+          const limit = d.from ? rangeLimitNote(d.from, d.to, st.intervals) : "";
+          setText(note, `${st.range === "max" ? `Asks for ${dayText(d.from)} onwards. Your broker may keep less history than that; the file says what it got.` : d.from ? `${dayText(d.from)} to ${dayText(d.to)}.` : "Pick the first date."}${limit ? ` ${limit}` : ""}`);
         };
         rangeSeg.addEventListener("change", () => {
           st.range = rangeSeg.value;
@@ -755,6 +763,12 @@ function openDownloadWizard({ collections, share, preset = {}, onStarted }) {
 
       const builders = [stepSymbols, stepBars, stepSave];
       const to = (n) => {
+        if (st.step === 0 && n > 0) {
+          // Pasted symbols that were never added come along: the person pressed Next, not "Add these".
+          const have = new Set(st.symbols);
+          for (const s of pendingSymbols()) if (!have.has(s) && st.symbols.length < MAX_SYMBOLS) st.symbols.push(s);
+          st.pending = "";
+        }
         st.step = Math.max(0, Math.min(2, n));
         setText(stepLabel, `Step ${st.step + 1} of 3: ${TITLES[st.step]}`);
         [...dots.children].forEach((d, i) => setClass(d, "on", i <= st.step));

@@ -36,7 +36,9 @@ import {
   parseSymbolList,
   parseTags,
   presetPlan,
+  RANGES,
   rangeDates,
+  rangeLimitNote,
   recordingProblem,
   recordingView,
   resolveModel,
@@ -75,6 +77,8 @@ describe("numbers and words", () => {
     expect(formatDuration(null)).toBeNull();
     expect(formatCount(1200)).toBe("1200");
     expect(formatCount(1_250_000)).toBe("1.3 million");
+    expect(formatCount(375750)).toBe("3,75,750");
+    expect(formatCount(9999)).toBe("9999");
   });
 
   it("tells IST days, clocks and ages", () => {
@@ -177,7 +181,7 @@ describe("estimate before starting", () => {
   it("writes the estimate in plain words", () => {
     const e = estimateJob({ symbols: 10, intervals: ["5m"], from: "2026-10-09", to: "2026-11-09", nowMs: NOW });
     const l = estimateLines(e);
-    expect(l.size).toMatch(/^About \d+ bars, .+ in 10 files\.$/);
+    expect(l.size).toMatch(/^About [\d,]+ bars, .+ in 10 files\.$/);
     expect(l.calls).toBe("It will cost about 10 broker calls.");
     expect(l.time).toMatch(/at 30% of your spare room\.$/);
   });
@@ -346,7 +350,7 @@ describe("downloads", () => {
   it("shows a running job", () => {
     const v = jobView(running, NOW);
     expect(v).toMatchObject({ title: "5m bars, 2 symbols", word: "Downloading", tone: "info", active: true, percent: 50, current: "Now: TCS 5m", actions: ["pause", "cancel"] });
-    expect(v.summary).toBe("4 of 10 items · 1 failed · 18400 bars · 2.1 MB · about 3 minutes left");
+    expect(v.summary).toBe("4 of 10 items · 1 failed · 18,400 bars · 2.1 MB · about 3 minutes left");
     expect(v.cls.label).toBe("Real-time");
     expect(v.whenText).toBe("Started 20 minutes ago");
   });
@@ -399,7 +403,7 @@ describe("recordings and auto-record", () => {
     const v = recordingView(rec, NOW);
     expect(v).toMatchObject({ title: "Option chain recording", word: "Recording", tone: "ok", live: true, gaps: 1, actions: ["pause", "stop", "files"] });
     expect(v.sub).toBe("NIFTY option chain · every 30 s");
-    expect(v.stats).toBe("12000 rows · 1 MB · last write 09:31:02 · 1 gap");
+    expect(v.stats).toBe("12,000 rows · 1 MB · last write 09:31:02 · 1 gap");
   });
 
   it("every state has the right buttons and words", () => {
@@ -470,7 +474,7 @@ describe("recordings and auto-record", () => {
 describe("datasets and the saving card", () => {
   it("shows a dataset", () => {
     const v = datasetView({ name: "nifty-5m", symbols: ["a", "b"], intervals: ["5m"], rows: 120_000, bytes: 7_500_000, firstBar: "2025-11-10T03:45:00Z", lastBar: "2026-11-06T10:00:00Z", updatedAt: "2026-11-09T05:30:00Z", dataClass: "realtime", tags: ["index"] }, NOW);
-    expect(v).toMatchObject({ name: "nifty-5m", sub: "2 symbols · 5m · 120000 bars · 7.2 MB", range: "10 Nov 2025 to 6 Nov 2026", updated: "Updated 1 hour ago", tags: ["index"] });
+    expect(v).toMatchObject({ name: "nifty-5m", sub: "2 symbols · 5m · 1,20,000 bars · 7.2 MB", range: "10 Nov 2025 to 6 Nov 2026", updated: "Updated 1 hour ago", tags: ["index"] });
     expect(datasetView({}).range).toBe("–");
   });
 
@@ -614,5 +618,20 @@ describe("the client against a fake Bridge", () => {
       "POST /v1/collections/resolve",
     ]);
     expect(calls.at(-1)[2]).toEqual({ kind: "option-universe", universe: { underlying: "NIFTY" } });
+  });
+});
+
+describe("long ranges", () => {
+  it("offers 2 and 5 years and works the dates out", () => {
+    expect(RANGES.map((r) => r.id)).toEqual(["1m", "3m", "1y", "2y", "5y", "max", "custom"]);
+    const now = Date.parse("2026-11-09T06:30:00Z");
+    expect(rangeDates("2y", now)).toEqual({ from: "2024-11-09", to: "2026-11-09" });
+    expect(rangeDates("5y", now).from).toBe("2021-11-09");
+  });
+  it("says when 5 minute bars rarely go back that far, and stays quiet when they do", () => {
+    expect(rangeLimitNote("2024-11-09", "2026-11-09", ["5m"])).toBe("");
+    expect(rangeLimitNote("2021-11-08", "2026-11-09", ["5m"])).toMatch(/Bars of 5m usually go back about 2 years/);
+    expect(rangeLimitNote("2021-11-08", "2026-11-09", ["1d"])).toBe("");
+    expect(rangeLimitNote("", "2026-11-09", ["5m"])).toBe("");
   });
 });
