@@ -29,14 +29,14 @@
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `data` | `RecordingRule` | yes |  |
+| `data` | `RecordingRule` | yes | A rule as stored: everything RecordingRuleCreate takes, plus what the Bridge adds. (Written out in full, not as allOf over the create schema, because that one refuses unknown fields.) |
 | `meta` | `Meta` | yes |  |
 
 #### Fields of `data` (`RecordingRule`)
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `id` | string | no |  |
+| `id` | string | yes |  |
 | `name` | string, up to 60 characters | yes |  |
 | `enabled` | boolean | no | Default `true`. |
 | `kind` | one of `quotes`, `chain` | yes |  |

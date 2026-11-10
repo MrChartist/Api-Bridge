@@ -218,6 +218,20 @@
                 "v1",
                 "accounts"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/accounts"
             }
           },
@@ -235,8 +249,13 @@
               },
               "raw": "{\n  \"broker\": \"paper\",\n  \"id\": \"paper-2\",\n  \"label\": \"Second paper account\"\n}"
             },
-            "description": "Add a broker or paper account (saved to the config file, usable at once)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nAdds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started\nwithout one), keeping the file's other content, and starts using it without a restart. New accounts are always\npaper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks\n`<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with\nPOST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer\nonly. Audited as `account.added`.\n\nDemo mode saves a real broker's account for the next normal start instead (`savedForLater: true`,\n`account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is\ncontacted. `leaveDemo: true` also removes `\"demo\": true` from the file. Paper accounts are refused in demo mode\n(it has its own), and so is everything when the demo dashboard is served to other computers.\n\nReference: docs/api/accounts/addAccount.md in the repository.",
+            "description": "Add a broker or paper account (saved to the config file, usable at once)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nAdds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started\nwithout one), keeping the file's other content, and starts using it without a restart. New accounts are always\npaper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks\n`<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with\nPOST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer\nonly. Audited as `account.added`.\n\nDemo mode saves a real broker's account for the next normal start instead (`savedForLater: true`,\n`account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is\ncontacted. `leaveDemo: true` also removes `\"demo\": true` from the file. Paper accounts are refused in demo mode\n(it has its own), and so is everything when the demo dashboard is served to other computers.\n\nReference: docs/api/accounts/addAccount.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -425,12 +444,41 @@
                 "v1",
                 "keys"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/keys"
             }
           },
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"keyId\", pm.response.json().data.record.id);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Create an API key",
           "request": {
             "body": {
@@ -442,8 +490,13 @@
               },
               "raw": "{\n  \"label\": \"my-script\",\n  \"scopes\": [\n    \"read\",\n    \"paper\"\n  ],\n  \"accounts\": \"*\",\n  \"clientKind\": \"script\"\n}"
             },
-            "description": "Create an API key\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe key is in the response once and cannot be shown again; only a scrypt hash is stored.\n\nReference: docs/api/keys/createKey.md in the repository.",
+            "description": "Create an API key\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nThe key is in the response once and cannot be shown again; only a scrypt hash is stored.\n\nReference: docs/api/keys/createKey.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -483,7 +536,7 @@
               "variable": [
                 {
                   "key": "keyId",
-                  "value": "<keyId>"
+                  "value": "{{keyId}}"
                 }
               ]
             }
@@ -572,7 +625,7 @@
                 {
                   "disabled": true,
                   "key": "expiry",
-                  "value": "2026-11-24"
+                  "value": "{{expiry}}"
                 },
                 {
                   "disabled": true,
@@ -856,6 +909,18 @@
                   "disabled": true,
                   "key": "q",
                   "value": "RELIANCE"
+                },
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
                 }
               ],
               "raw": "{{baseUrl}}/v1/collections"
@@ -873,10 +938,15 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"name\": \"<name>\"\n}"
+              "raw": "{\n  \"name\": \"large-caps\",\n  \"description\": \"My core list\",\n  \"tags\": [\n    \"core\"\n  ],\n  \"symbols\": [\n    \"NSE:RELIANCE\",\n    \"NSE:INFY\",\n    \"NSE:TCS\"\n  ]\n}"
             },
-            "description": "Create a collection\n\n- An API key with the `paper` scope (or `live`).\n\nA static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used\n(`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.\nWriting needs the `paper` scope.\n\nReference: docs/api/collections/createCollection.md in the repository.",
+            "description": "Create a collection\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nA static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used\n(`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.\nWriting needs the `paper` scope.\n\nReference: docs/api/collections/createCollection.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -907,10 +977,15 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"name\": \"from-a-file\",\n  \"symbols\": [\n    \"NSE:RELIANCE\",\n    \"NSE:INFY\"\n  ]\n}"
             },
-            "description": "Make collections from CSV or JSON\n\n- An API key with the `paper` scope (or `live`).\n\nJSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file\nthat `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with\n`name` in the query (or as JSON `{ format: \"csv\", csv, name }`); the symbols are in a column named `symbol`, or the\nfirst column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`\nis true for a CSV.\n\nReference: docs/api/collections/importCollections.md in the repository.",
+            "description": "Make collections from CSV or JSON\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nJSON: a collection (`{ name, kind, symbols | universe }`), a plain list of symbols (with `name` in the query), a file\nthat `GET /v1/collections/{name}/export` wrote, or `{ collections: [...] }`. CSV: send the text as `text/plain` with\n`name` in the query (or as JSON `{ format: \"csv\", csv, name }`); the symbols are in a column named `symbol`, or the\nfirst column when there is no header. Everything is checked first: one bad entry imports nothing, unless `skipInvalid`\nis true for a CSV.\n\nReference: docs/api/collections/importCollections.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -987,7 +1062,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1004,7 +1079,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"tags\": [\n    \"core\",\n    \"daily\"\n  ]\n}"
             },
             "description": "Change a collection, or rename it (send `name`)\n\n- An API key with the `paper` scope (or `live`).\n\nA rename keeps the collection's id and its old name keeps working. The kind cannot change.\n\nReference: docs/api/collections/updateCollection.md in the repository.",
             "header": [
@@ -1028,7 +1103,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1061,7 +1136,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1119,7 +1194,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1136,10 +1211,15 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"name\": \"large-caps-copy\"\n}"
             },
-            "description": "Copy a collection under a new name\n\n- An API key with the `paper` scope (or `live`).\n\nWithout a name the copy is called `<name>-copy` (then `-copy2` ...).\n\nReference: docs/api/collections/duplicateCollection.md in the repository.",
+            "description": "Copy a collection under a new name\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nWithout a name the copy is called `<name>-copy` (then `-copy2` ...).\n\nReference: docs/api/collections/duplicateCollection.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -1161,7 +1241,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1201,7 +1281,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1228,7 +1308,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1272,7 +1352,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -1340,6 +1420,12 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/ltp?symbols=NSE:RELIANCE,NSE:NIFTY"
@@ -1402,6 +1488,12 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/quotes?symbols=NSE:RELIANCE,NSE:NIFTY"
@@ -1445,6 +1537,12 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/depth?symbol=NSE:RELIANCE"
@@ -1518,6 +1616,18 @@
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
+                },
+                {
+                  "description": "`true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`.",
+                  "disabled": true,
+                  "key": "localFirst",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/history?symbol=NSE:RELIANCE&interval=5m&countback=50"
@@ -1526,6 +1636,21 @@
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"expiry\", pm.response.json().data.expiries[0]);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Expiry dates for an underlying",
           "request": {
             "description": "Expiry dates for an underlying\n\n- An API key with the `read` scope (any key).\n\nSee /v1/reference/expiries for kind, lot and holiday shifts.\n\nReference: docs/api/market-data/getExpiries.md in the repository.",
@@ -1567,6 +1692,12 @@
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
               "raw": "{{baseUrl}}/v1/expiries?underlying=NIFTY"
@@ -1595,7 +1726,7 @@
                 },
                 {
                   "key": "expiry",
-                  "value": "2026-11-24"
+                  "value": "{{expiry}}"
                 },
                 {
                   "description": "Strikes on each side of ATM (default all).",
@@ -1648,9 +1779,15 @@
                   "disabled": true,
                   "key": "priority",
                   "value": "interactive"
+                },
+                {
+                  "description": "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored.",
+                  "disabled": true,
+                  "key": "strict",
+                  "value": "false"
                 }
               ],
-              "raw": "{{baseUrl}}/v1/optionchain?underlying=NIFTY&expiry=2026-11-24&strikes=5"
+              "raw": "{{baseUrl}}/v1/optionchain?underlying=NIFTY&expiry={{expiry}}&strikes=5"
             }
           },
           "response": []
@@ -1993,12 +2130,41 @@
                 "v1",
                 "subscriptions"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/subscriptions"
             }
           },
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"subscriptionId\", pm.response.json().data.id);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Send events to a URL, signed (this computer only)",
           "request": {
             "body": {
@@ -2008,10 +2174,15 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"url\": \"<url>\",\n  \"topics\": [\n    \"<topics>\"\n  ],\n  \"secret\": \"xxxxxxxxxxxxxxxx\"\n}"
+              "raw": "{\n  \"url\": \"https://hooks.example.com/bridge\",\n  \"topics\": [\n    \"order.*\",\n    \"download.done\"\n  ],\n  \"secret\": \"replace-with-a-long-random-string\"\n}"
             },
-            "description": "Send events to a URL, signed (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted\n(the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers\nverify `X-Bridge-Signature` (see docs/guides/events.md).\n\nReference: docs/api/events/createSubscription.md in the repository.",
+            "description": "Send events to a URL, signed (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nThe target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted\n(the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers\nverify `X-Bridge-Signature` (see docs/guides/events.md).\n\nReference: docs/api/events/createSubscription.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -2051,7 +2222,7 @@
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 }
               ]
             }
@@ -2068,7 +2239,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"active\": false\n}"
             },
             "description": "Change a subscription (this computer only)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOnly the fields sent change. A new `url` or `secret` is a new target, so this works from this computer only.\n\nReference: docs/api/events/updateSubscription.md in the repository.",
             "header": [
@@ -2092,7 +2263,7 @@
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 }
               ]
             }
@@ -2118,7 +2289,7 @@
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 }
               ]
             }
@@ -2145,7 +2316,7 @@
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 }
               ]
             }
@@ -2184,7 +2355,7 @@
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 }
               ]
             }
@@ -2207,11 +2378,25 @@
                 ":subscriptionId",
                 "dead-letters"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/subscriptions/:subscriptionId/dead-letters",
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 }
               ]
             }
@@ -2238,7 +2423,7 @@
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 }
               ]
             }
@@ -2267,7 +2452,7 @@
               "variable": [
                 {
                   "key": "subscriptionId",
-                  "value": "<subscriptionId>"
+                  "value": "{{subscriptionId}}"
                 },
                 {
                   "key": "deliveryId",
@@ -2325,7 +2510,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"from\": \"INTRADAY\",\n  \"to\": \"CNC\"\n}"
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"from\": \"INTRADAY\",\n  \"to\": \"CNC\",\n  \"quantity\": 1\n}"
             },
             "description": "Convert a position between Intraday (MIS) and carry (NRML)\n\n- An API key with the `paper` scope (or `live`).\n\nPaper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused into Intraday after the square-off time, while the kill switch is on, when the other product holds the opposite side, or into a product the contract cannot be traded in (shares to MARGIN, futures and options to CNC or MTF: INVALID_ORDER, as for an order). Live: not supported through the Bridge yet (CAPABILITY_UNSUPPORTED); convert in the broker's app.\n\nReference: docs/api/portfolio/convertPosition.md in the repository.",
             "header": [
@@ -2416,7 +2601,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"positions\": [\n    {\n      \"symbol\": \"NSE:RELIANCE\",\n      \"side\": \"BUY\"\n    }\n  ]\n}"
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"positions\": [\n    {\n      \"symbol\": \"NSE:RELIANCE\",\n      \"side\": \"BUY\",\n      \"quantity\": 1,\n      \"product\": \"CNC\"\n    }\n  ]\n}"
             },
             "description": "Margin for up to 50 prospective positions (read only)\n\n- An API key with the `read` scope (any key).\n\nWhat the positions would need together, before anything is placed. `source` says where the figure came from:\n`broker` (the broker's own calculator, for an adapter that has one; no shipped adapter does yet) or\n`paper-model` (the paper engine's approximate portfolio model: not the exchange's SPAN, and hedges between the\nlegs are counted). All figures are JSON numbers in rupees. Nothing is stored and no order is created. The same\ncalculation answers the compat-style `margin` call.\n\nReference: docs/api/portfolio/marginBasket.md in the repository.",
             "header": [
@@ -2496,6 +2681,21 @@
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"orderId\", pm.response.json().data.orderId);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Place an order (paper unless you ask for live)",
           "request": {
             "body": {
@@ -2579,7 +2779,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"targetQuantity\": -100000000,\n  \"product\": \"CNC\",\n  \"orderType\": \"MARKET\"\n}"
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"symbol\": \"NSE:RELIANCE\",\n  \"targetQuantity\": 10,\n  \"product\": \"CNC\",\n  \"orderType\": \"MARKET\",\n  \"mode\": \"paper\"\n}"
             },
             "description": "Place only the order that gets a position to a target size\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\n\"Be long 3 lots\", \"be flat\", \"be short 50 shares\", the way a strategy alert says it. The Bridge reads the current\nposition (this symbol, this product), works out the difference and places only that, through the same order\nservice as `POST /v1/orders`: the same safety gates, price checks, mode rules, confirmation rules and\nidempotency. Paper unless you send `\"mode\": \"live\"`.\n\nA position that cannot be read, or cannot be matched with certainty, is `POSITION_UNKNOWN` (503, safe to retry)\nand nothing is placed: unknown is never treated as flat. Live delivery (CNC, MTF) that shows in both today's\npositions and the holdings is also `POSITION_UNKNOWN`. An open order of the Bridge in the same symbol and product that\ncan change the position is `STATE_CONFLICT` unless you send `\"openOrders\": \"ignore\"` (a resting stop does not\ncount). `action` `NONE` places nothing and answers 200. With `dryRun` everything is worked out and checked\n(the `preview` is the same result as `POST /v1/orders/preview`) and nothing is placed.\n\nThe `Idempotency-Key` (or `clientOrderId`) covers the whole request: a retry with the same body gets the first\nanswer back, including \"nothing to do\". Two requests for one symbol and product are handled one at a time.\n\nReference: docs/api/orders/placeOrderToTarget.md in the repository.",
             "header": [
@@ -2619,7 +2819,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"account\": \"demo-paper\",\n  \"orders\": [\n    {}\n  ]\n}"
+              "raw": "{\n  \"account\": \"demo-paper\",\n  \"orders\": [\n    {\n      \"symbol\": \"NSE:RELIANCE\",\n      \"side\": \"BUY\",\n      \"quantity\": 1,\n      \"product\": \"CNC\",\n      \"orderType\": \"MARKET\"\n    },\n    {\n      \"symbol\": \"NSE:INFY\",\n      \"side\": \"BUY\",\n      \"quantity\": 1,\n      \"product\": \"CNC\",\n      \"orderType\": \"MARKET\"\n    }\n  ],\n  \"mode\": \"paper\"\n}"
             },
             "description": "Place up to 20 independent orders in one call\n\n- An API key with the `paper` scope (or `live`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nA convenience for alerts that need two legs (a hedge and a main order), not a strategy engine: the legs do not\nknow about each other and nothing is rolled back. Every leg goes through the same order service as\n`POST /v1/orders` (same checks, safety gates, mode and confirmation rules), one after another, and each gets its\nown entry in `results`, always in the order sent.\n\nNothing is hidden. The HTTP status is 201 only when every leg was placed; 207 when at least one leg went out (or\nmay have, `outcome_unknown`) and at least one did not; 422 when no leg went out. `data.ok`, `data.summary` and\neach leg's `status` say the same. Leg `i` uses the request's `Idempotency-Key` plus `:i` as its own key, so a\nretry cannot place a leg twice; a retry of the whole request with the same body gets the first answer back. A\nbatch where nothing went out may be retried with the same key. A live leg needs the key (or its own\n`clientOrderId`). With `stopOnError`, legs after the first that did not go out are `skipped`.\n\nReference: docs/api/orders/placeOrderBatch.md in the repository.",
             "header": [
@@ -2735,7 +2935,7 @@
               "variable": [
                 {
                   "key": "orderId",
-                  "value": "<orderId>"
+                  "value": "{{orderId}}"
                 }
               ]
             }
@@ -2781,7 +2981,7 @@
               "variable": [
                 {
                   "key": "orderId",
-                  "value": "<orderId>"
+                  "value": "{{orderId}}"
                 }
               ]
             }
@@ -2813,7 +3013,7 @@
               "variable": [
                 {
                   "key": "orderId",
-                  "value": "<orderId>"
+                  "value": "{{orderId}}"
                 }
               ]
             }
@@ -3276,6 +3476,7 @@
               ],
               "query": [
                 {
+                  "description": "What to explain. The four capabilities a source can have, plus `depth` (market depth is served by your own brokers only).",
                   "key": "capability",
                   "value": "quotes"
                 },
@@ -3314,7 +3515,7 @@
               },
               "raw": "{\n  \"autoFallback\": false\n}"
             },
-            "description": "Use free sources automatically when your brokers cannot answer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`autoFallback: true` lets a read that no broker account can answer go to a source you turned on, without the\nread asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills\nand alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the\nBridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited\n(`sources.setting_changed`). Only from this computer.\n\nReference: docs/api/sources/updateSourcesSettings.md in the repository.",
+            "description": "Use free sources automatically when your brokers cannot answer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`autoFallback: true` lets a read that no broker account can answer go to a source you turned on, without the\nread asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills\nand alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the\nBridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited\n(`sources.setting_changed`). Only from this computer. The answer also repeats the setting's fields at the top level of\nthe body, as older clients read them there; read `data`, which is the documented place.\n\nReference: docs/api/sources/updateSourcesSettings.md in the repository.",
             "header": [
               {
                 "key": "Content-Type",
@@ -3349,7 +3550,7 @@
               },
               "raw": "{\n  \"enabled\": false\n}"
             },
-            "description": "Turn a source on or off\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`\nequal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored\nfirst (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`\nturns it off at once. Your broker accounts (`builtin`) cannot be switched off here.\n\nReference: docs/api/sources/updateSource.md in the repository.",
+            "description": "Turn a source on or off\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`\nequal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored\nfirst (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`\nturns it off at once. Your broker accounts (`builtin`) cannot be switched off here. The answer also repeats the\nsource's fields at the top level of the body, as older clients read them there; read `data`.\n\nReference: docs/api/sources/updateSource.md in the repository.",
             "header": [
               {
                 "key": "Content-Type",
@@ -3586,7 +3787,7 @@
               "variable": [
                 {
                   "key": "keyId",
-                  "value": "<keyId>"
+                  "value": "{{keyId}}"
                 }
               ]
             }
@@ -3612,7 +3813,7 @@
               "variable": [
                 {
                   "key": "keyId",
-                  "value": "<keyId>"
+                  "value": "{{keyId}}"
                 }
               ]
             }
@@ -3677,8 +3878,13 @@
               },
               "raw": "{\n  \"token\": \"<hook token>\"\n}"
             },
-            "description": "Add a Telegram bot (or replace the token of the same bot)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nThe token is checked with Telegram (getMe) and stored encrypted in the secrets store. It is never returned, logged or audited.\n\nReference: docs/api/notifications/createNotifyTarget.md in the repository.",
+            "description": "Add a Telegram bot (or replace the token of the same bot)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nThe token is checked with Telegram (getMe) and stored encrypted in the secrets store. It is never returned, logged or audited.\n\nReference: docs/api/notifications/createNotifyTarget.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -3997,12 +4203,41 @@
                 "v1",
                 "recordings"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/recordings"
             }
           },
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"recordingId\", pm.response.json().data.id);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Start a recording of quotes or an option chain",
           "request": {
             "body": {
@@ -4012,10 +4247,15 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"kind\": \"quotes\",\n  \"everySec\": 1\n}"
+              "raw": "{\n  \"kind\": \"quotes\",\n  \"symbols\": [\n    \"NSE:RELIANCE\",\n    \"NSE:INFY\"\n  ],\n  \"everySec\": 5\n}"
             },
-            "description": "Start a recording of quotes or an option chain\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReal-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written. everySec is at least 1 for quotes from the live feed (5 or more to read symbols the feed does not carry) and at least 15 for a chain. With sessionOnly (the default) it records only inside market hours, from the market calendar. One file per symbol per IST trading day.\n\nReference: docs/api/recordings/createRecording.md in the repository.",
+            "description": "Start a recording of quotes or an option chain\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReal-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written. everySec is at least 1 for quotes from the live feed (5 or more to read symbols the feed does not carry) and at least 15 for a chain. With sessionOnly (the default) it records only inside market hours, from the market calendar. One file per symbol per IST trading day.\n\nReference: docs/api/recordings/createRecording.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -4198,8 +4438,13 @@
               },
               "raw": "{}"
             },
-            "description": "Create the preset's rule and turn auto-record on\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nApplying a preset again does not duplicate its rule (answers 200). my-watchlist reads a collection named watchlist unless the body names another; it needs the library of collections (422 when it is not there).\n\nReference: docs/api/recordings/applyRecordingPreset.md in the repository.",
+            "description": "Create the preset's rule and turn auto-record on\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nApplying a preset again does not duplicate its rule (answers 200). my-watchlist reads a collection named watchlist unless the body names another; it needs the library of collections (422 when it is not there).\n\nReference: docs/api/recordings/applyRecordingPreset.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -4244,12 +4489,41 @@
                 "recordings",
                 "rules"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/recordings/rules"
             }
           },
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"ruleId\", pm.response.json().data.id);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Add an auto-record rule",
           "request": {
             "body": {
@@ -4259,10 +4533,15 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"name\": \"<name>\",\n  \"kind\": \"quotes\",\n  \"everySec\": 1\n}"
+              "raw": "{\n  \"name\": \"watchlist-quotes\",\n  \"kind\": \"quotes\",\n  \"symbols\": [\n    \"NSE:RELIANCE\",\n    \"NSE:INFY\"\n  ],\n  \"everySec\": 5\n}"
             },
-            "description": "Add an auto-record rule\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nFor example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours. The universe is chosen again every day (and every 30 minutes for a moving ATM window); an ATM window is never built from a delayed or stale price.\n\nReference: docs/api/recordings/createRecordingRule.md in the repository.",
+            "description": "Add an auto-record rule\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nFor example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours. The universe is chosen again every day (and every 30 minutes for a moving ATM window); an ATM window is never built from a delayed or stale price.\n\nReference: docs/api/recordings/createRecordingRule.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -4304,7 +4583,7 @@
               "variable": [
                 {
                   "key": "ruleId",
-                  "value": "<ruleId>"
+                  "value": "{{ruleId}}"
                 }
               ]
             }
@@ -4321,7 +4600,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"enabled\": false\n}"
             },
             "description": "Change a rule\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOnly the fields sent change. A rule written in the config file is refused with 409.\n\nReference: docs/api/recordings/patchRecordingRule.md in the repository.",
             "header": [
@@ -4346,7 +4625,7 @@
               "variable": [
                 {
                   "key": "ruleId",
-                  "value": "<ruleId>"
+                  "value": "{{ruleId}}"
                 }
               ]
             }
@@ -4381,7 +4660,7 @@
               "variable": [
                 {
                   "key": "ruleId",
-                  "value": "<ruleId>"
+                  "value": "{{ruleId}}"
                 }
               ]
             }
@@ -4407,7 +4686,7 @@
               "variable": [
                 {
                   "key": "recordingId",
-                  "value": "<recordingId>"
+                  "value": "{{recordingId}}"
                 }
               ]
             }
@@ -4433,7 +4712,7 @@
               "variable": [
                 {
                   "key": "recordingId",
-                  "value": "<recordingId>"
+                  "value": "{{recordingId}}"
                 }
               ]
             }
@@ -4460,7 +4739,7 @@
               "variable": [
                 {
                   "key": "recordingId",
-                  "value": "<recordingId>"
+                  "value": "{{recordingId}}"
                 }
               ]
             }
@@ -4487,7 +4766,7 @@
               "variable": [
                 {
                   "key": "recordingId",
-                  "value": "<recordingId>"
+                  "value": "{{recordingId}}"
                 }
               ]
             }
@@ -4514,7 +4793,7 @@
               "variable": [
                 {
                   "key": "recordingId",
-                  "value": "<recordingId>"
+                  "value": "{{recordingId}}"
                 }
               ]
             }
@@ -4541,7 +4820,7 @@
               "variable": [
                 {
                   "key": "recordingId",
-                  "value": "<recordingId>"
+                  "value": "{{recordingId}}"
                 }
               ]
             }
@@ -4569,11 +4848,11 @@
               "variable": [
                 {
                   "key": "recordingId",
-                  "value": "<recordingId>"
+                  "value": "{{recordingId}}"
                 },
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps"
                 }
               ]
             }
@@ -4966,6 +5245,12 @@
                   "disabled": true,
                   "key": "limit",
                   "value": "100"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
                 }
               ],
               "raw": "{{baseUrl}}/v1/downloads"
@@ -4974,6 +5259,21 @@
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"downloadId\", pm.response.json().data.id);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Start a history download, or only estimate it with dryRun=1",
           "request": {
             "body": {
@@ -4983,10 +5283,15 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"intervals\": [\n    \"1m\"\n  ],\n  \"from\": \"2026-11-02\"\n}"
+              "raw": "{\n  \"symbols\": [\n    \"NSE:RELIANCE\",\n    \"NSE:INFY\"\n  ],\n  \"intervals\": [\n    \"1d\"\n  ],\n  \"from\": \"2026-10-01\",\n  \"dataset\": \"large-caps-1d\"\n}"
             },
-            "description": "Start a history download, or only estimate it with dryRun=1\n\n- An API key with the `read` scope (any key).\n\nSaves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.\n\nReference: docs/api/data-downloads/createDownload.md in the repository.",
+            "description": "Start a history download, or only estimate it with dryRun=1\n\n- An API key with the `read` scope (any key).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nSaves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.\n\nReference: docs/api/data-downloads/createDownload.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -5089,7 +5394,7 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 }
               ]
             }
@@ -5106,7 +5411,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"name\": \"Large caps, daily\"\n}"
             },
             "description": "Rename a job or change its tags\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/data-downloads/updateDownload.md in the repository.",
             "header": [
@@ -5130,7 +5435,7 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 }
               ]
             }
@@ -5156,7 +5461,7 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 }
               ]
             }
@@ -5183,7 +5488,7 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 }
               ]
             }
@@ -5210,7 +5515,7 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 }
               ]
             }
@@ -5237,7 +5542,7 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 }
               ]
             }
@@ -5264,7 +5569,7 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 }
               ]
             }
@@ -5292,11 +5597,11 @@
               "variable": [
                 {
                   "key": "downloadId",
-                  "value": "<downloadId>"
+                  "value": "{{downloadId}}"
                 },
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "NSE_RELIANCE_1d.csv"
                 }
               ]
             }
@@ -5322,6 +5627,18 @@
                   "disabled": true,
                   "key": "tag",
                   "value": "<tag>"
+                },
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
                 }
               ],
               "raw": "{{baseUrl}}/v1/datasets"
@@ -5348,7 +5665,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps-1d"
                 }
               ]
             }
@@ -5365,7 +5682,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"title\": \"Large caps, daily\",\n  \"tags\": [\n    \"core\"\n  ]\n}"
             },
             "description": "Rename a dataset or change its tags and title\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/data-downloads/updateDatasetInfo.md in the repository.",
             "header": [
@@ -5389,7 +5706,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps-1d"
                 }
               ]
             }
@@ -5415,7 +5732,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps-1d"
                 }
               ]
             }
@@ -5425,8 +5742,14 @@
         {
           "name": "Fetch what is new since the last stored bar",
           "request": {
-            "description": "Fetch what is new since the last stored bar\n\n- An API key with the `read` scope (any key).\n\nStarts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is already running, that job is returned and `meta.existing` is true.\n\nReference: docs/api/data-downloads/updateDataset.md in the repository.",
-            "header": [],
+            "description": "Fetch what is new since the last stored bar\n\n- An API key with the `read` scope (any key).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nStarts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is already running, that job is returned and `meta.existing` is true.\n\nReference: docs/api/data-downloads/updateDataset.md in the repository.",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              }
+            ],
             "method": "POST",
             "url": {
               "host": [
@@ -5442,7 +5765,7 @@
               "variable": [
                 {
                   "key": "name",
-                  "value": "<name>"
+                  "value": "large-caps-1d"
                 }
               ]
             }
@@ -5589,14 +5912,14 @@
                 },
                 {
                   "key": "expiry",
-                  "value": "2026-11-24"
+                  "value": "{{expiry}}"
                 },
                 {
                   "key": "format",
                   "value": "csv"
                 }
               ],
-              "raw": "{{baseUrl}}/xl/chain?underlying=NIFTY&expiry=2026-11-24&format=csv"
+              "raw": "{{baseUrl}}/xl/chain?underlying=NIFTY&expiry={{expiry}}&format=csv"
             }
           },
           "response": []
@@ -5999,12 +6322,41 @@
                 "v1",
                 "hooks"
               ],
+              "query": [
+                {
+                  "description": "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
+                  "description": "Opaque cursor from `meta.nextCursor`.",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": "<cursor>"
+                }
+              ],
               "raw": "{{baseUrl}}/v1/hooks"
             }
           },
           "response": []
         },
         {
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "  try {",
+                  "    pm.collectionVariables.set(\"hookId\", pm.response.json().data.id);",
+                  "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "name": "Create a hook; the URL with its token is shown once",
           "request": {
             "body": {
@@ -6016,8 +6368,13 @@
               },
               "raw": "{\n  \"source\": \"generic\",\n  \"label\": \"my alert\",\n  \"account\": \"demo-paper\",\n  \"mode\": \"paper\"\n}"
             },
-            "description": "Create a hook; the URL with its token is shown once\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/webhooks/createHook.md in the repository.",
+            "description": "Create a hook; the URL with its token is shown once\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/webhooks/createHook.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -6057,7 +6414,7 @@
               "variable": [
                 {
                   "key": "hookId",
-                  "value": "<hookId>"
+                  "value": "{{hookId}}"
                 }
               ]
             }
@@ -6116,7 +6473,7 @@
               "variable": [
                 {
                   "key": "hookId",
-                  "value": "<hookId>"
+                  "value": "{{hookId}}"
                 }
               ]
             }
@@ -6158,7 +6515,7 @@
               "variable": [
                 {
                   "key": "hookId",
-                  "value": "<hookId>"
+                  "value": "{{hookId}}"
                 }
               ]
             }
@@ -7370,6 +7727,46 @@
       "key": "apiKey",
       "type": "string",
       "value": ""
+    },
+    {
+      "key": "expiry",
+      "type": "string",
+      "value": "2026-11-24"
+    },
+    {
+      "key": "orderId",
+      "type": "string",
+      "value": "<orderId>"
+    },
+    {
+      "key": "keyId",
+      "type": "string",
+      "value": "<keyId>"
+    },
+    {
+      "key": "hookId",
+      "type": "string",
+      "value": "<hookId>"
+    },
+    {
+      "key": "downloadId",
+      "type": "string",
+      "value": "<downloadId>"
+    },
+    {
+      "key": "recordingId",
+      "type": "string",
+      "value": "<recordingId>"
+    },
+    {
+      "key": "ruleId",
+      "type": "string",
+      "value": "<ruleId>"
+    },
+    {
+      "key": "subscriptionId",
+      "type": "string",
+      "value": "<subscriptionId>"
     }
   ]
 }

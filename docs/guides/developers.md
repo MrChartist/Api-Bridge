@@ -59,18 +59,43 @@ Retry only what is safe. A read can always be repeated. A write can be repeated 
 Every error is `application/problem+json` with a stable `code`, `status`, `detail`, `retryable` and `requestId`. Switch on
 `code`, never on `detail`. The full list, with what each means and what to do, is in the dashboard (Developers > Errors),
 at `GET /v1/errors` (the list of this Bridge's own codes) and in [the error codes page](../api/errors.md). A test fails when a
-code has no entry there. When you report a problem, quote the `requestId`.
+code has no entry there. When you report a problem, quote the `requestId`. The problem's `type` is a stable identifier of the form `https://bridge.mrchartist.local/errors/<code-in-lower-case-with-dashes>`;
+it is a name, not an address you can open. A `401` also carries `WWW-Authenticate: Bearer`, and every answer carries `X-API-Version: v1`.
+
+Ids come in a few styles, each stable once made: downloads `dl_...`, recordings `rec_...`, subscriptions `sub_...`, hooks `hk_...`,
+collections `col_...` (the name also works), keys a short random id, recording rules the slug of their name, paper orders
+`PAPER-<date>-<number>`. Treat every id as an opaque string.
 
 ## Pagination
 
 List routes take `limit` and an opaque `cursor`; the answer's `meta.nextCursor` is the cursor for the next page and is `null`
-on the last one. Do not build or read a cursor.
+on the last one. Do not build or read a cursor. Without `limit` you get the whole list (downloads: the newest 100), so a client
+that never pages sees what it always saw.
+
+Routes that page: instruments search, orders, trades, audit, downloads, datasets, collections, recordings and their rules,
+subscriptions and their dead letters, keys, accounts and hooks. `GET /v1/events` pages with `since`; its `meta.nextCursor` is the
+`since` for the next page. Other lists are short and always come back whole. Each page is a slice of the list sorted as the route
+documents, and the cursor names the last item you got, so adding or removing items between two calls does not repeat or skip one.
+
+### A parameter the Bridge does not know
+
+Bodies are strict (an unknown field is a 400). On the price and history reads (`/v1/ltp`, `/quotes`, `/depth`, `/history`,
+`/expiries`, `/optionchain`) a query parameter the route does not know, such as `maxAge` for `maxAgeMs`, is reported instead of
+ignored: the answer still comes, with `X-MCB-Ignored-Params: maxAge` and `X-MCB-Param-Hint: maxAge: did you mean maxAgeMs`.
+Add `strict=true` to get a 400 `VALIDATION_FAILED` for it instead. Other routes ignore what they do not read.
 
 ## Idempotency
 
-Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write. A repeat with the same key and
+Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write and every create listed below. A repeat with the same key and
 the same body returns the first result (the answer has `Idempotency-Replayed: true`); the same key with a different body is
 `IDEMPOTENCY_KEY_REUSED`; while the first is still running you get `IDEMPOTENCY_IN_PROGRESS`, which is safe to retry.
+
+The same header works on the routes where a repeat would make a duplicate: `POST /v1/keys`, `/v1/accounts`, `/v1/hooks`,
+`/v1/notify/targets`, `/v1/collections` (and `/import`, `/{name}/duplicate`), `/v1/downloads`, `/v1/datasets/{name}/update`,
+`/v1/subscriptions`, `/v1/recordings`, `/v1/recordings/rules` and `/v1/recordings/presets/{id}/apply`. There the stored answer
+is kept in memory for 24 hours (a restart forgets it, so look at the list route before you retry after a restart), and a request
+that failed can be retried with the same key. A write route that does not take the header answers with `Idempotency-Ignored: true`
+when you send one, so you know a retry is not protected.
 
 ## Events
 

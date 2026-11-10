@@ -23,6 +23,7 @@ See /v1/reference/expiries for kind, lot and holiday shifts.
 | `backup` | query | boolean | no | Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source "backup", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources). |
 | `purpose` | query | `Purpose` | no | What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a delayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled source. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer. |
 | `account` | query | `AccountId` | no | Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling. |
+| `strict` | query | boolean | no | `true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a "did you mean" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored. Default `false`. |
 
 ## Responses
 
@@ -46,6 +47,52 @@ See /v1/reference/expiries for kind, lot and holiday shifts.
 | `underlying` | string | yes |  |
 | `expiries` | array of string (date) | yes |  |
 | `freshness` | `Freshness` | yes |  |
+
+### Example 200 answer
+
+```json
+{
+  "data": {
+    "underlying": "NIFTY",
+    "expiries": [
+      "2026-11-17",
+      "2026-11-23",
+      "2026-12-01",
+      "2026-12-08"
+    ],
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61",
+    "accountId": null,
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  }
+}
+```
 
 ## Errors
 

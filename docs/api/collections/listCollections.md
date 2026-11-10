@@ -20,6 +20,8 @@ Summaries without symbol lists, ordered by name. `tag` may repeat or be comma se
 | `tag` | query | string | no | Tags to match, all of them (comma separated, or repeat the parameter). |
 | `kind` | query | one of `static`, `option-universe` | no |  |
 | `q` | query | string, up to 64 characters | no | Text found in the name, description or a tag. |
+| `limit` | query | integer, min 1, max 500 | no | Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page. |
+| `cursor` | query | string, up to 512 characters | no | Opaque cursor from `meta.nextCursor`. |
 
 ## Responses
 

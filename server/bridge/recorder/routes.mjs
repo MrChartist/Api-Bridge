@@ -18,6 +18,7 @@ import { pipeline } from "node:stream/promises";
 import { z } from "zod";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { json, noContent } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 
 const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
 const parse = (schema, value, detail) => {
@@ -57,7 +58,9 @@ export function createRecorderRoutes(deps) {
   return {
     async list(ctx) {
       const s = svc().status();
-      return { data: svc().list(), meta: meta(ctx, { status: s.line, dataClass: "realtime" }) };
+      const { limit, cursor } = pageParams(ctx.query);
+      const { items, nextCursor } = paginate(svc().list(), { limit, cursor, keyOf: (r) => r.id });
+      return { data: items, meta: meta(ctx, { status: s.line, dataClass: "realtime", nextCursor }) };
     },
     async create(ctx) {
       const rec = await svc().create(ctx.body ?? {}, { who: ctx.principal?.kind === "key" ? `key:${ctx.principal.id}` : "this-computer" });
@@ -133,7 +136,9 @@ export function createRecorderRoutes(deps) {
       return json({ data, meta: meta(ctx) }, { status: data.created ? 201 : 200, headers: NO_STORE });
     },
     async listRules(ctx) {
-      return { data: svc().listRules(), meta: meta(ctx, { auto: svc().auto().enabled }) };
+      const { limit, cursor } = pageParams(ctx.query);
+      const { items, nextCursor } = paginate(svc().listRules(), { limit, cursor, keyOf: (r) => r.id });
+      return { data: items, meta: meta(ctx, { auto: svc().auto().enabled, nextCursor }) };
     },
     async createRule(ctx) {
       const data = await svc().createRule(ctx.body ?? {});

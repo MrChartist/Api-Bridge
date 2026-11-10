@@ -77,7 +77,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s "http://127.0.0.1:4300/v1/collections/<name>/resolve" \
+curl -s "http://127.0.0.1:4300/v1/collections/large-caps/resolve" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -88,6 +88,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("GET", "/v1/collections/<name>/resolve")
+response = bridge.request("GET", "/v1/collections/large-caps/resolve")
 print(response.body)
 ```

@@ -8,12 +8,20 @@
 | Operation | `createCollection` |
 | Scope | `paper` |
 | This computer only | no |
+| Idempotency-Key | send one on every write |
 
 - An API key with the `paper` scope (or `live`).
+- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
 A static collection holds a list of symbols. An option universe holds a rule that is worked out each time it is used
 (`GET /v1/collections/{name}/resolve`). Names are letters, digits and `_ . -`, unique without regard to case.
 Writing needs the `paper` scope.
+
+## Parameters
+
+| Name | In | Type | Required | Notes |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets, collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so with `Idempotency-Ignored: true` in the answer. |
 
 ## Request body
 
@@ -32,7 +40,16 @@ Example:
 
 ```json
 {
-  "name": "<name>"
+  "name": "large-caps",
+  "description": "My core list",
+  "tags": [
+    "core"
+  ],
+  "symbols": [
+    "NSE:RELIANCE",
+    "NSE:INFY",
+    "NSE:TCS"
+  ]
 }
 ```
 
@@ -68,6 +85,34 @@ Example:
 | `createdAt` | string (date-time) | yes |  |
 | `updatedAt` | string (date-time) | yes |  |
 
+### Example 201 answer
+
+```json
+{
+  "data": {
+    "id": "col_geh4as5cz7",
+    "name": "large-caps",
+    "description": "My core list",
+    "tags": [
+      "core"
+    ],
+    "kind": "static",
+    "createdAt": "2026-11-10T04:05:33.784Z",
+    "updatedAt": "2026-11-10T04:05:33.784Z",
+    "previousNames": [],
+    "symbolCount": 3,
+    "symbols": [
+      "NSE:RELIANCE",
+      "NSE:INFY",
+      "NSE:TCS"
+    ]
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61"
+  }
+}
+```
+
 ## Errors
 
 Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).
@@ -78,6 +123,8 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 | `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
 | `SCOPE_REQUIRED` | 403 | no |
+| `IDEMPOTENCY_IN_PROGRESS` | 409 | yes |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | no |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | no |
 | `RATE_LIMITED` | 429 | yes |
 
@@ -89,7 +136,8 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X POST "http://127.0.0.1:4300/v1/collections" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name":"<name>"}'
+  -H "Idempotency-Key: my-order-0001" \
+  -d '{"name":"large-caps","description":"My core list","tags":["core"],"symbols":["NSE:RELIANCE","NSE:INFY","NSE:TCS"]}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -99,6 +147,16 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/collections", body={"name": "<name>"})
+response = bridge.request(
+    "POST",
+    "/v1/collections",
+    body={
+    "name": "large-caps",
+    "description": "My core list",
+    "tags": ["core"],
+    "symbols": ["NSE:RELIANCE", "NSE:INFY", "NSE:TCS"],
+},
+    idempotency_key="my-order-0001",
+)
 print(response.body)
 ```

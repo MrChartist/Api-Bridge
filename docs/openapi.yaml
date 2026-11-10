@@ -43,12 +43,17 @@ info:
     `/v1/symbols/convert`.
 
     ## Responses, freshness and errors
-    JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`. Every market-data item carries
+    JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`, except `GET /v1/meta` and `GET /v1/health`, which are plain objects. Every market-data item carries
     `freshness` (`source`: stream, cache, broker, paper, backup or plugin; `asOf`; `ageMs`; `stale`; which account served
     it; and how current the data is: `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`), so you
     always know how old a number is and where it came from. Errors are RFC 9457 `application/problem+json` with a stable `code` and a
     `retryable` flag. Times are ISO-8601 with the IST offset (`+05:30`) unless an endpoint says otherwise; candle times
-    are epoch seconds. List endpoints are paginated with `limit` and an opaque `cursor` (`meta.nextCursor`).
+    are epoch seconds. List endpoints take `limit` and an opaque `cursor`; the answer's `meta.nextCursor` is the cursor of the next
+    page and is null on the last one (without `limit` the whole list comes back). The routes that page: instruments search, orders,
+    trades, audit, downloads, datasets, collections, recordings and their rules, subscriptions and their dead letters, keys,
+    accounts and hooks; `GET /v1/events` pages with `since` and also gives `meta.nextCursor`. Market reads (prices, quotes,
+    depth, history, expiries, option chain) tell you about a query parameter they do not know with `X-MCB-Ignored-Params`
+    (`strict=true` refuses it instead).
 
     ## Data sources
     Real-time data and option chains come from your own broker accounts. Optional free sources and plugins (see
@@ -69,7 +74,7 @@ info:
     file, a `live` key, the request source allowed for that account, `"mode": "live"` in the request, and every safety
     check (kill switch, order-rate cap default 5/s per account, daily order and loss limits, value and lot caps, price
     band, market-order protection). Send an `Idempotency-Key` with every order write; a retry with the same key returns
-    the first result. A write that times out returns `OUTCOME_UNKNOWN`: check the order book before sending it again.
+    the first result (the create routes for keys, downloads, collections, recordings and subscriptions honour it too). A write that times out returns `OUTCOME_UNKNOWN`: check the order book before sending it again.
 
     ## Demo mode
     `mc-bridge start --demo` serves generated sample data from a demo adapter with no broker connected and live
@@ -309,7 +314,7 @@ paths:
                     type: object
                     required: [state, exposed, headline, tone, alerts, sheets, checks]
                     properties:
-                      state: { type: string, enum: [off, on] }
+                      state: { type: string, enum: ["off", "on"] }
                       exposed: { type: array, items: { type: string, enum: [alerts, sheets] } }
                       headline: { type: string }
                       tone: { type: string, enum: [ok, warn, bad] }
@@ -430,6 +435,9 @@ paths:
       description: Only accounts this key may use are listed. Never includes credentials.
       x-module: accounts
       x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Accounts.
@@ -462,6 +470,8 @@ paths:
       x-module: accounts
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -640,6 +650,9 @@ paths:
       x-module: auth
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Keys.
@@ -661,6 +674,8 @@ paths:
       x-module: auth
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -884,7 +899,8 @@ paths:
         - name: capability
           in: query
           required: true
-          schema: { $ref: "#/components/schemas/SourceCapability" }
+          description: What to explain. The four capabilities a source can have, plus `depth` (market depth is served by your own brokers only).
+          schema: { type: string, enum: [quotes, history, expiries, optionChain, depth] }
         - name: symbols
           in: query
           required: true
@@ -919,7 +935,8 @@ paths:
         read asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills
         and alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the
         Bridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited
-        (`sources.setting_changed`). Only from this computer.
+        (`sources.setting_changed`). Only from this computer. The answer also repeats the setting's fields at the top level of
+        the body, as older clients read them there; read `data`, which is the documented place.
       x-module: sources
       x-scope: admin
       x-loopback-only: true
@@ -951,7 +968,8 @@ paths:
         `enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`
         equal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored
         first (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`
-        turns it off at once. Your broker accounts (`builtin`) cannot be switched off here.
+        turns it off at once. Your broker accounts (`builtin`) cannot be switched off here. The answer also repeats the
+        source's fields at the top level of the body, as older clients read them there; read `data`.
       x-module: sources
       x-scope: admin
       x-loopback-only: true
@@ -1504,6 +1522,8 @@ paths:
         - { name: tag, in: query, description: "Tags to match, all of them (comma separated, or repeat the parameter).", schema: { type: string } }
         - { name: kind, in: query, schema: { type: string, enum: [static, option-universe] } }
         - { name: q, in: query, description: "Text found in the name, description or a tag.", schema: { type: string, maxLength: 64 } }
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Collections.
@@ -1527,16 +1547,20 @@ paths:
         Writing needs the `paper` scope.
       x-module: library
       x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
+            example: {"name":"large-caps","description":"My core list","tags":["core"],"symbols":["NSE:RELIANCE","NSE:INFY","NSE:TCS"]}
             schema: { $ref: "#/components/schemas/CollectionCreate" }
       responses:
         "201":
           description: Created.
           content:
             application/json:
+              example: {"data":{"id":"col_geh4as5cz7","name":"large-caps","description":"My core list","tags":["core"],"kind":"static","createdAt":"2026-11-10T04:05:33.784Z","updatedAt":"2026-11-10T04:05:33.784Z","previousNames":[],"symbolCount":3,"symbols":["NSE:RELIANCE","NSE:INFY","NSE:TCS"]},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1560,6 +1584,7 @@ paths:
       x-module: library
       x-scope: paper
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - { name: name, in: query, description: "Name of the new collection (required for CSV and for a plain list).", schema: { type: string } }
         - { name: format, in: query, schema: { type: string, enum: [csv, json] } }
         - { name: tags, in: query, description: "Comma separated tags for a single collection.", schema: { type: string } }
@@ -1570,6 +1595,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"name":"from-a-file","symbols":["NSE:RELIANCE","NSE:INFY"]}
             schema: { type: object }
           text/plain:
             schema: { type: string }
@@ -1630,6 +1656,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"tags":["core","daily"]}
             schema: { $ref: "#/components/schemas/CollectionPatch" }
       responses:
         "200":
@@ -1710,10 +1737,13 @@ paths:
       description: Without a name the copy is called `<name>-copy` (then `-copy2` ...).
       x-module: library
       x-scope: paper
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: false
         content:
           application/json:
+            example: {"name":"large-caps-copy"}
             schema:
               type: object
               additionalProperties: false
@@ -1841,11 +1871,13 @@ paths:
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Prices; symbols that failed are listed in `errors`.
           content:
             application/json:
+              example: {"data":[{"symbol":"NSE:RELIANCE","ltp":1458.8,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},{"symbol":"NSE:NIFTY","ltp":24552.25,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}],"errors":[],"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1871,11 +1903,13 @@ paths:
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Quotes.
           content:
             application/json:
+              example: {"data":[{"symbol":"NSE:RELIANCE","ltp":1460.8,"open":1460.4,"high":1464.1,"low":1456.5,"close":1460.4,"change":0.4,"changePct":0.0274,"volume":130661,"oi":null,"bid":1460.6,"ask":1461,"bidQty":29,"askQty":28,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}],"errors":[],"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1898,6 +1932,7 @@ paths:
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Depth.
@@ -1946,11 +1981,14 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/Strict"
+        - { name: localFirst, in: query, description: "`true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`.", schema: { type: boolean, default: false } }
       responses:
         "200":
           description: Candles, ascending.
           content:
             application/json:
+              example: {"data":{"symbol":"NSE:RELIANCE","interval":"1d","candles":[{"time":1794162600,"open":1453.2,"high":1468.7,"low":1450.2,"close":1460.4,"volume":215004},{"time":1794249000,"open":1460.4,"high":1463.9,"low":1455.9,"close":1460.8,"volume":38459}],"partial":false,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":null,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1982,11 +2020,13 @@ paths:
         - $ref: "#/components/parameters/Backup"
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: ISO dates, ascending.
           content:
             application/json:
+              example: {"data":{"underlying":"NIFTY","expiries":["2026-11-17","2026-11-23","2026-12-01","2026-12-08"],"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":null,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}}
               schema:
                 type: object
                 required: [data, meta]
@@ -2041,6 +2081,7 @@ paths:
         - $ref: "#/components/parameters/MaxAge"
         - $ref: "#/components/parameters/Swr"
         - $ref: "#/components/parameters/ReadPriority"
+        - $ref: "#/components/parameters/Strict"
       responses:
         "200":
           description: Chain.
@@ -2168,6 +2209,7 @@ paths:
       x-module: downloads
       x-scope: read
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - name: dryRun
           in: query
           description: "`1` or `true` returns the estimate and starts nothing."
@@ -2176,6 +2218,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"symbols":["NSE:RELIANCE","NSE:INFY"],"intervals":["1d"],"from":"2026-10-01","dataset":"large-caps-1d"}
             schema: { $ref: "#/components/schemas/DownloadRequest" }
       responses:
         "200":
@@ -2194,6 +2237,7 @@ paths:
             Location: { description: "The job's address.", schema: { type: string } }
           content:
             application/json:
+              example: {"data":{"id":"dl_435e6691d280","name":"large-caps-1d","status":"queued","reason":null,"message":null,"progress":{"total":2,"done":0,"failed":0,"rows":0,"bytes":0,"etaSec":null,"current":null,"waiting":null},"request":{"symbols":["NSE:RELIANCE","NSE:INFY"],"intervals":["1d"],"from":"2026-10-01","to":null,"format":"csv","layout":"per-symbol","dataset":"large-caps-1d","account":null,"backup":false,"afterHoursOnly":false},"dataset":"large-caps-1d","tags":[],"dataClass":"realtime","source":null,"official":null,"delaySec":null,"callsSaved":0,"notes":[],"createdAt":"2026-11-10T04:05:25.794Z","startedAt":null,"finishedAt":null,"manifestUrl":"/v1/downloads/dl_435e6691d280/files/manifest.json","items":[{"symbol":"NSE:RELIANCE","interval":"1d","status":"pending","rows":0},{"symbol":"NSE:INFY","interval":"1d","status":"pending","rows":0}]},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -2222,6 +2266,7 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Jobs.
@@ -2321,6 +2366,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"name":"Large caps, daily"}
             schema:
               type: object
               additionalProperties: false
@@ -2511,6 +2557,8 @@ paths:
         - name: tag
           in: query
           schema: { type: string, maxLength: 32 }
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Datasets.
@@ -2563,6 +2611,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"title":"Large caps, daily","tags":["core"]}
             schema:
               type: object
               additionalProperties: false
@@ -2608,6 +2657,7 @@ paths:
       x-module: downloads
       x-scope: read
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - name: name
           in: path
           required: true
@@ -2841,6 +2891,9 @@ paths:
       description: The URL's path and the signing secret are never returned, only the host.
       x-module: events
       x-scope: admin
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Subscriptions.
@@ -2865,10 +2918,13 @@ paths:
       x-module: events
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
+            example: {"url":"https://hooks.example.com/bridge","topics":["order.*","download.done"],"secret":"replace-with-a-long-random-string"}
             schema: { $ref: "#/components/schemas/SubscriptionCreate" }
       responses:
         "201":
@@ -2918,6 +2974,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"active":false}
             schema: { $ref: "#/components/schemas/SubscriptionUpdate" }
       responses:
         "200":
@@ -3010,6 +3067,9 @@ paths:
       summary: Events that could not be delivered, newest first
       x-module: events
       x-scope: admin
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Dead letters.
@@ -3112,9 +3172,14 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","from":"INTRADAY","to":"CNC","quantity":1}
             schema:
               type: object
               required: [account, symbol, from, to]
+              description: "Send exactly one of `quantity` (units) or `lots`."
+              oneOf:
+                - { required: [quantity] }
+                - { required: [lots] }
               properties:
                 account: { type: string }
                 symbol: { type: string }
@@ -3201,6 +3266,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","positions":[{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC"}]}
             schema: { $ref: "#/components/schemas/MarginBasketRequest" }
       responses:
         "200":
@@ -3261,6 +3327,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET","mode":"paper"}
             schema: { $ref: "#/components/schemas/OrderRequest" }
       responses:
         "201":
@@ -3269,6 +3336,7 @@ paths:
             Idempotency-Replayed: { $ref: "#/components/headers/IdempotencyReplayed" }
           content:
             application/json:
+              example: {"data":{"orderId":"PAPER-20261110-000001","clientOrderId":null,"accountId":"demo-paper","broker":"paper","mode":"paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"filledQuantity":1,"avgPrice":1459,"price":null,"triggerPrice":null,"orderType":"MARKET","product":"CNC","validity":"DAY","status":"filled","brokerStatus":null,"statusMessage":null,"legs":[{"brokerOrderId":null,"quantity":1,"status":"filled","error":null}],"source":"rest","tag":null,"placedAt":"2026-11-10T09:46:00.404+05:30","updatedAt":"2026-11-10T09:46:00.404+05:30","warnings":[]},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":"demo-paper","mode":"paper"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -3290,6 +3358,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET","mode":"paper"}
             schema: { $ref: "#/components/schemas/OrderRequest" }
       responses:
         "200":
@@ -3333,6 +3402,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","targetQuantity":10,"product":"CNC","orderType":"MARKET","mode":"paper"}
             schema: { $ref: "#/components/schemas/TargetOrderRequest" }
       responses:
         "200":
@@ -3385,6 +3455,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","orders":[{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"},{"symbol":"NSE:INFY","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"}],"mode":"paper"}
             schema: { $ref: "#/components/schemas/OrderBatchRequest" }
       responses:
         "201":
@@ -4653,6 +4724,9 @@ paths:
       x-module: hooks
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Hooks.
@@ -4673,6 +4747,8 @@ paths:
       x-module: hooks
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -4883,6 +4959,8 @@ paths:
       x-module: notify
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -5116,6 +5194,9 @@ paths:
       description: "A recording saves this Bridge's own real-time data going forward, because brokers give no history for option chains, open interest snapshots or ticks. Every item says dataClass realtime."
       x-module: recorder
       x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: The recordings, oldest first.
@@ -5137,10 +5218,13 @@ paths:
       x-module: recorder
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
+            example: {"kind":"quotes","symbols":["NSE:RELIANCE","NSE:INFY"],"everySec":5}
             schema: { $ref: "#/components/schemas/RecordingCreate" }
       responses:
         "201":
@@ -5311,6 +5395,8 @@ paths:
       x-module: recorder
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -5338,6 +5424,9 @@ paths:
       description: "Rules from this computer's data folder and from recorder.autoRecord.rules in the config file (source config, read-only here)."
       x-module: recorder
       x-scope: read
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
           description: Rules.
@@ -5359,10 +5448,13 @@ paths:
       x-module: recorder
       x-scope: admin
       x-loopback-only: true
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
+            example: {"name":"watchlist-quotes","kind":"quotes","symbols":["NSE:RELIANCE","NSE:INFY"],"everySec":5}
             schema: { $ref: "#/components/schemas/RecordingRuleCreate" }
       responses:
         "201":
@@ -5415,6 +5507,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"enabled":false}
             schema: { $ref: "#/components/schemas/RecordingRulePatch" }
       responses:
         "200":
@@ -6817,6 +6910,16 @@ components:
       in: query
       description: Opaque cursor from `meta.nextCursor`.
       schema: { type: string, maxLength: 512 }
+    ListLimit:
+      name: limit
+      in: query
+      description: "Page size, 1 to 500. Without it the whole list comes back (`meta.nextCursor` is then null). With it, send `meta.nextCursor` as `cursor` for the next page."
+      schema: { type: integer, minimum: 1, maximum: 500 }
+    Strict:
+      name: strict
+      in: query
+      description: "`true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a \"did you mean\" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored."
+      schema: { type: boolean, default: false }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -6826,6 +6929,12 @@ components:
         while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST
         trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the
         header is absent.
+
+        The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets,
+        collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and
+        recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a
+        request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so
+        with `Idempotency-Ignored: true` in the answer.
       schema: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9_.:-]+$" }
     EventTopics:
       name: topics
@@ -6877,7 +6986,7 @@ components:
       type: object
       required: [type, title, status, code, retryable]
       properties:
-        type: { type: string, format: uri }
+        type: { type: string, format: uri, description: "A stable name for the problem, `https://bridge.mrchartist.local/errors/<code in lower case, words joined by dashes>` (VALIDATION_FAILED is `.../validation-failed`). It is an identifier, not a page: the explanation for each code is in docs/api/errors.md and `GET /v1/errors`. Switch on `code`." }
         title: { type: string }
         status: { type: integer }
         detail: { type: string, description: "Human text. Do not parse it." }
@@ -6898,7 +7007,7 @@ components:
           description: "Throttling refusals only: the limit that tripped."
           required: [name, remaining, resetMs]
           properties:
-            name: { type: string, description: "For example `key-per-second`, `dhan-quote-per-second`, `queue-depth`." }
+            name: { type: string, description: "The budget that tripped. For a refusal of your own key (`scope: client`): `perSecond`, `perDay` or `concurrency`. Other scopes name their own budget; switch on `scope` and `retryAfterMs`, not on this text." }
             remaining: { type: number, description: "What is left of it now (0 when it tripped)." }
             resetMs: { type: integer, minimum: 0, description: "Time until it has room again." }
         broker:
@@ -7352,7 +7461,7 @@ components:
               perMinute: { type: number }
               perDay: { type: number }
               verified: { type: boolean }
-              source: { type: string, format: uri }
+              source: { type: string, description: "Where the figure comes from: the broker documentation address, or a short note for the demo broker." }
         maxQuoteBatch: { type: integer }
         feed:
           type: object
@@ -8228,6 +8337,9 @@ components:
       type: object
       required: [account, symbol, product, orderType]
       additionalProperties: false
+      oneOf:
+        - { required: [targetQuantity] }
+        - { required: [targetLots] }
       properties:
         account: { $ref: "#/components/schemas/AccountId" }
         symbol: { $ref: "#/components/schemas/Symbol" }
@@ -8364,6 +8476,10 @@ components:
             type: object
             required: [symbol, side]
             additionalProperties: false
+            description: "Send exactly one of `quantity` (units) or `lots`."
+            oneOf:
+              - { required: [quantity] }
+              - { required: [lots] }
             properties:
               symbol: { $ref: "#/components/schemas/Symbol" }
               side: { type: string, enum: [BUY, SELL] }
@@ -8776,8 +8892,8 @@ components:
             today: { type: integer, minimum: 0 }
         health: { $ref: "#/components/schemas/SourceHealth" }
         terms:
-          type: object
-          description: The vendor's terms. Not present for your own broker accounts.
+          type: [object, "null"]
+          description: The vendor's terms. Null for your own broker accounts.
           properties:
             url: { type: string, format: uri }
             note: { type: string, description: "One plain sentence about what you accept by turning it on." }
@@ -9071,7 +9187,7 @@ components:
           type: object
           description: ip and seenBy only for callers on this computer or with the admin scope.
           properties:
-            mode: { type: string, enum: [off, lookup, manual] }
+            mode: { type: string, enum: ["off", lookup, manual] }
             checkedAt: { type: [string, "null"], format: date-time }
             family: { type: [string, "null"], enum: [ipv4, ipv6, null] }
             seenBy: { type: [string, "null"] }
@@ -9467,19 +9583,35 @@ components:
         compress: { type: boolean }
         format: { type: string, enum: [csv, jsonl] }
     RecordingRule:
-      allOf:
-        - { $ref: "#/components/schemas/RecordingRuleCreate" }
-        - type: object
-          properties:
-            id: { type: string }
-            source: { type: string, enum: [user, config] }
-            preset: { type: string }
-            recordingId: { type: [string, "null"], description: The recording that carries this rule's files. }
-            state: { type: string, enum: [recording, waiting, paused, stopped, blocked, off] }
-            statusText: { type: string }
-            blockedBy: { type: [string, "null"] }
-            createdAt: { type: [string, "null"] }
-            updatedAt: { type: [string, "null"] }
+      type: object
+      description: "A rule as stored: everything RecordingRuleCreate takes, plus what the Bridge adds. (Written out in full, not as allOf over the create schema, because that one refuses unknown fields.)"
+      required: [id, name, kind, everySec]
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 60 }
+        enabled: { type: boolean, default: true }
+        kind: { type: string, enum: [quotes, chain] }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        collection: { type: string }
+        underlying:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        universe: { $ref: "#/components/schemas/RecordingUniverse" }
+        everySec: { type: integer, minimum: 1 }
+        schedule: { $ref: "#/components/schemas/RecordingSchedule" }
+        keepDays: { type: [integer, "null"] }
+        maxDiskMb: { type: [integer, "null"] }
+        compress: { type: boolean }
+        format: { type: string, enum: [csv, jsonl], default: csv }
+        source: { type: string, enum: [user, config] }
+        preset: { type: string }
+        recordingId: { type: [string, "null"], description: The recording that carries this rule's files. }
+        state: { type: string, enum: [recording, waiting, paused, stopped, blocked, "off"] }
+        statusText: { type: string }
+        blockedBy: { type: [string, "null"] }
+        createdAt: { type: [string, "null"] }
+        updatedAt: { type: [string, "null"] }
     RecordingPreset:
       type: object
       properties:

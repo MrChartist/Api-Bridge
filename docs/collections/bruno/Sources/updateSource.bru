@@ -33,7 +33,8 @@ docs {
   `enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`
   equal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored
   first (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`
-  turns it off at once. Your broker accounts (`builtin`) cannot be switched off here.
+  turns it off at once. Your broker accounts (`builtin`) cannot be switched off here. The answer also repeats the
+  source's fields at the top level of the body, as older clients read them there; read `data`.
 
   Reference: docs/api/sources/updateSource.md in the repository.
 }

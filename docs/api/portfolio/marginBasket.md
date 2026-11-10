@@ -25,16 +25,19 @@ Required, `application/json`, schema `MarginBasketRequest`.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `account` | `AccountId` | no |  |
-| `positions` | array of object | yes |  |
+| `positions` | array of any or any | yes |  |
 
 Example:
 
 ```json
 {
+  "account": "demo-paper",
   "positions": [
     {
       "symbol": "NSE:RELIANCE",
-      "side": "BUY"
+      "side": "BUY",
+      "quantity": 1,
+      "product": "CNC"
     }
   ]
 }
@@ -98,7 +101,7 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X POST "http://127.0.0.1:4300/v1/margin/basket" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"positions":[{"symbol":"NSE:RELIANCE","side":"BUY"}]}'
+  -d '{"account":"demo-paper","positions":[{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC"}]}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -111,7 +114,17 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "POST",
     "/v1/margin/basket",
-    body={"positions": [{"symbol": "NSE:RELIANCE", "side": "BUY"}]},
+    body={
+    "account": "demo-paper",
+    "positions": [
+        {
+            "symbol": "NSE:RELIANCE",
+            "side": "BUY",
+            "quantity": 1,
+            "product": "CNC",
+        },
+    ],
+},
 )
 print(response.body)
 ```

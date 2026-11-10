@@ -21,7 +21,7 @@ answer would carry.
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `capability` | query | `SourceCapability` | yes |  |
+| `capability` | query | one of `quotes`, `history`, `expiries`, `optionChain`, `depth` | yes | What to explain. The four capabilities a source can have, plus `depth` (market depth is served by your own brokers only). |
 | `symbols` | query | string, up to 8000 characters | yes | Comma-separated symbols (for expiries and option chains, the underlying). |
 | `purpose` | query | `Purpose` | no | What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a delayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled source. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer. |
 | `maxAgeMs` | query | integer, min 0, max 3600000 | no | The oldest data the caller would accept, in ms. A delayed or end-of-day source whose delay is longer cannot answer. |

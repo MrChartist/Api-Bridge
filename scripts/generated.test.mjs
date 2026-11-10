@@ -54,10 +54,12 @@ describe("collections", () => {
 
   it("is a Postman v2.1 collection with baseUrl and an empty apiKey variable", () => {
     expect(postman.info.schema).toBe("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
-    expect(postman.variable).toEqual([
+    expect(postman.variable.slice(0, 2)).toEqual([
       { key: "baseUrl", value: "http://127.0.0.1:4300", type: "string" },
       { key: "apiKey", value: "", type: "string" },
     ]);
+    // The rest are the ids and the expiry that one call stores for the next (CAPTURES in scripts/lib/examples.mjs).
+    expect(postman.variable.slice(2).map((v) => v.key).sort()).toEqual(["downloadId", "expiry", "hookId", "keyId", "orderId", "recordingId", "ruleId", "subscriptionId"]);
     expect(postman.auth.bearer[0].value).toBe("{{apiKey}}");
     const env = JSON.parse(collections.get("docs/collections/postman/local.postman_environment.json"));
     expect(env.values.find((v) => v.key === "apiKey")).toMatchObject({ value: "", type: "secret" });

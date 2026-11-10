@@ -8,10 +8,12 @@
 | Operation | `addAccount` |
 | Scope | `admin` |
 | This computer only | yes |
+| Idempotency-Key | send one on every write |
 | Guide | [accounts.md](../../guides/accounts.md) |
 
 - An API key with the `admin` scope.
 - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
 Adds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started
 without one), keeping the file's other content, and starts using it without a restart. New accounts are always
@@ -24,6 +26,12 @@ Demo mode saves a real broker's account for the next normal start instead (`save
 `account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is
 contacted. `leaveDemo: true` also removes `"demo": true` from the file. Paper accounts are refused in demo mode
 (it has its own), and so is everything when the demo dashboard is served to other computers.
+
+## Parameters
+
+| Name | In | Type | Required | Notes |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets, collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so with `Idempotency-Ignored: true` in the answer. |
 
 ## Request body
 
@@ -84,6 +92,8 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 | `UNAUTHENTICATED` | 401 | no |
 | `LOOPBACK_ONLY` | 403 | no |
 | `SCOPE_REQUIRED` | 403 | no |
+| `IDEMPOTENCY_IN_PROGRESS` | 409 | yes |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | no |
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | no |
 | `RATE_LIMITED` | 429 | yes |
 
@@ -95,6 +105,7 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X POST "http://127.0.0.1:4300/v1/accounts" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: my-order-0001" \
   -d '{"broker":"paper","id":"paper-2","label":"Second paper account"}'
 ```
 
@@ -109,6 +120,7 @@ response = bridge.request(
     "POST",
     "/v1/accounts",
     body={"broker": "paper", "id": "paper-2", "label": "Second paper account"},
+    idempotency_key="my-order-0001",
 )
 print(response.body)
 ```

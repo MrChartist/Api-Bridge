@@ -22,6 +22,7 @@
 import { z } from "zod";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { json, noContent } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { canSee, matchesAny, topicInfo, topicsFor, viewerOf } from "./catalog.mjs";
 import { parseStreamQuery } from "./clients.mjs";
 import { toEnvelope } from "./eventLog.mjs";
@@ -77,8 +78,10 @@ export function createEventsRoutes({ eventLog, webhooks, registry, audit, cfg })
         r = eventLog.since(0, { filter: pass, limit: Number.MAX_SAFE_INTEGER });
         r = { ...r, events: r.events.slice(-limit), gap: false, gapReason: null, more: false };
       } else r = eventLog.since(q.since, { filter: pass, limit });
+      const cursor = String(r.events.at(-1)?.seq ?? (q.since ?? r.latest));
       return json(
-        { data: r.events.map(toEnvelope), meta: meta(ctx, { cursor: String(r.events.at(-1)?.seq ?? (q.since ?? r.latest)), latest: String(r.latest), oldest: r.oldest === null ? null : String(r.oldest), gap: r.gap, gapReason: r.gapReason, hasMore: r.more }) },
+        // nextCursor is the same cursor under the name every list route uses: pass it as `since` for the next page (null when there is no more).
+        { data: r.events.map(toEnvelope), meta: meta(ctx, { cursor, nextCursor: r.more ? cursor : null, latest: String(r.latest), oldest: r.oldest === null ? null : String(r.oldest), gap: r.gap, gapReason: r.gapReason, hasMore: r.more }) },
         { headers: NO_STORE },
       );
     },
@@ -88,7 +91,9 @@ export function createEventsRoutes({ eventLog, webhooks, registry, audit, cfg })
     },
 
     listSubscriptions(ctx) {
-      return { data: webhooks.list(), meta: meta(ctx) };
+      const { limit, cursor } = pageParams(ctx.query);
+      const { items, nextCursor } = paginate(webhooks.list(), { limit, cursor, keyOf: (s) => s.id });
+      return { data: items, meta: meta(ctx, { nextCursor }) };
     },
     async createSubscription(ctx) {
       const body = parse(createBody, ctx.body, 'Send { "url": "https://...", "topics": ["order.*"], "secret": "<16 to 256 characters>" }.');
@@ -124,7 +129,9 @@ export function createEventsRoutes({ eventLog, webhooks, registry, audit, cfg })
       return { data: webhooks.deliveries(subId(ctx), { limit, outcome }), meta: meta(ctx) };
     },
     listDeadLetters(ctx) {
-      return { data: webhooks.deadLetters(subId(ctx)), meta: meta(ctx) };
+      const { limit, cursor } = pageParams(ctx.query);
+      const { items, nextCursor } = paginate(webhooks.deadLetters(subId(ctx)), { limit, cursor, keyOf: (d) => d.id });
+      return { data: items, meta: meta(ctx, { nextCursor }) };
     },
     async retryDeadLetter(ctx) {
       const id = subId(ctx);

@@ -34,7 +34,12 @@ Required, `application/json`, schema `CollectionPatch`.
 Example:
 
 ```json
-{}
+{
+  "tags": [
+    "core",
+    "daily"
+  ]
+}
 ```
 
 ## Responses
@@ -87,10 +92,10 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X PATCH "http://127.0.0.1:4300/v1/collections/<name>" \
+curl -s -X PATCH "http://127.0.0.1:4300/v1/collections/large-caps" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"tags":["core","daily"]}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -100,6 +105,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("PATCH", "/v1/collections/<name>", body={})
+response = bridge.request("PATCH", "/v1/collections/large-caps", body={"tags": ["core", "daily"]})
 print(response.body)
 ```

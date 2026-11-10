@@ -10,8 +10,13 @@ get {
   auth: bearer
 }
 
+params:query {
+  ~limit: 1
+  ~cursor: <cursor>
+}
+
 params:path {
-  subscriptionId: <subscriptionId>
+  subscriptionId: {{subscriptionId}}
 }
 
 auth:bearer {

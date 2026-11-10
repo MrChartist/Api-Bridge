@@ -305,6 +305,9 @@ export function endpointPage(spec, op) {
     }
   }
 
+  const withExample = op.responses.find((r) => /^2\d\d$/.test(r.status) && r.example !== undefined);
+  if (withExample) out.push(`### Example ${withExample.status} answer`, "", "```json", JSON.stringify(withExample.example, null, 2), "```", "");
+
   const codes = errorCodesFor(op);
   if (codes.length) {
     out.push("## Errors", "", "Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).", "", "| Code | HTTP | Retryable |", "|---|---|---|");

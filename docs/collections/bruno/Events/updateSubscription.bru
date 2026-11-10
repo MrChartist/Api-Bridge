@@ -11,7 +11,7 @@ patch {
 }
 
 params:path {
-  subscriptionId: <subscriptionId>
+  subscriptionId: {{subscriptionId}}
 }
 
 auth:bearer {
@@ -19,7 +19,9 @@ auth:bearer {
 }
 
 body:json {
-  {}
+  {
+    "active": false
+  }
 }
 
 docs {

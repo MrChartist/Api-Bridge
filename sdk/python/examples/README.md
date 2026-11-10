@@ -23,5 +23,3 @@ python sdk/python/examples/prices.py
 | `events_listen.py` | listening to Bridge events with reconnect, continuing from a saved cursor |
 | `webhook_receiver.py` | a small receiver that verifies the Bridge's webhook signature |
 | `history_all.py` | candles over a long range, local-first, with the label and optional Parquet |
-
-`strategies/` holds the strategy-file examples used by `python -m mrchartist_bridge strategy run`.

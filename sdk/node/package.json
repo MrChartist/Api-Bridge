@@ -42,7 +42,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/client.test.mjs test/data.test.mjs test/events.test.mjs test/examples.test.mjs"
+    "test": "node --test test/client.test.mjs test/data.test.mjs test/events.test.mjs test/examples.test.mjs test/integration.test.mjs"
   },
   "peerDependencies": {
     "ws": "^8.0.0"

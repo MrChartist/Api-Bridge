@@ -190,7 +190,9 @@ describe("datasets", () => {
   it("tags, rename and tag filter", async () => {
     await bridge.downloads.wait(await bridge.downloads.create({ symbols: ["NSE:A"], intervals: "5m", from: "2024-01-01", dataset: "d1" }));
     await bridge.downloads.wait(await bridge.downloads.create({ symbols: ["NSE:B"], intervals: "5m", from: "2024-01-01", dataset: "d2" }));
-    await bridge.datasets.edit("d1", { tags: ["index"], description: "five minute bars" });
+    const edited = await bridge.datasets.edit("d1", { tags: ["index"], description: "five minute bars" });
+    assert.equal(edited.title, "five minute bars");
+    assert.deepEqual(lastBody("PATCH", "/v1/datasets/d1"), { tags: ["index"], title: "five minute bars" });
     assert.deepEqual((await bridge.datasets.list({ tag: "index" })).map((d) => d.name), ["d1"]);
     assert.deepEqual(fake.requests().filter((r) => r.path === "/v1/datasets").at(-1).query, { tag: "index" });
     assert.equal((await bridge.datasets.edit("d2", { newName: "d2-renamed" })).name, "d2-renamed");

@@ -13,7 +13,7 @@
  */
 import { fileURLToPath } from "node:url";
 import { BASE_URL, REPO_ROOT, byTag, isCallable, loadSpec, operations, slug, stableJson } from "./lib/openapi-model.mjs";
-import { queryString, requestExample } from "./lib/examples.mjs";
+import { CAPTURES, VARIABLES, queryString, requestExample } from "./lib/examples.mjs";
 import { noteBlock } from "./lib/notes.mjs";
 import { runCli } from "./lib/outputs.mjs";
 
@@ -41,19 +41,22 @@ function extraHeaders(op, ex) {
 
 // --- Postman --------------------------------------------------------------------------------------------------------
 
+/** `data.expiries[0]` as a guarded JavaScript read of a parsed answer. */
+const jsRead = (path) => `pm.response.json().${path}`;
+
 function postmanItem(spec, op) {
   const ex = requestExample(spec, op);
   const segs = segments(op.path);
-  const qs = queryString(ex);
+  const qs = queryString(ex, { vars: true });
   const url = {
     raw: `{{baseUrl}}/${segs.join("/")}${qs ? `?${qs}` : ""}`,
     host: ["{{baseUrl}}"],
     path: segs,
   };
   if (ex.query.length) {
-    url.query = ex.query.map((q) => ({ key: q.name, value: q.value, ...(q.enabled ? {} : { disabled: true }), ...(q.description ? { description: q.description } : {}) }));
+    url.query = ex.query.map((q) => ({ key: q.name, value: q.var ? `{{${q.var}}}` : q.value, ...(q.enabled ? {} : { disabled: true }), ...(q.description ? { description: q.description } : {}) }));
   }
-  if (ex.pathParams.length) url.variable = ex.pathParams.map((p) => ({ key: p.name, value: p.value }));
+  if (ex.pathParams.length) url.variable = ex.pathParams.map((p) => ({ key: p.name, value: p.var ? `{{${p.var}}}` : p.value }));
   const header = extraHeaders(op, ex).map((h) => ({ key: h.name, value: h.value, type: "text", ...(h.disabled ? { disabled: true } : {}) }));
   const request = { method: op.method, header, url, description: requestDescription(op) };
   if (ex.bodyText !== null) {
@@ -61,7 +64,14 @@ function postmanItem(spec, op) {
     if (!header.some((h) => h.key.toLowerCase() === "content-type")) header.push({ key: "Content-Type", value: "application/json", type: "text" });
   }
   if (op.noAuth || op.bodyKey) request.auth = { type: "noauth" };
-  return { name: op.summary, request, response: [] };
+  const item = { name: op.summary, request, response: [] };
+  const captures = Object.entries(CAPTURES[op.id] ?? {});
+  if (captures.length) {
+    // Keep what this call made (an order id, a download id, an expiry) so the calls that use it need no copying.
+    const exec = ["if (pm.response.code < 300) {", "  try {", ...captures.map(([name, path]) => `    pm.collectionVariables.set(${JSON.stringify(name)}, ${jsRead(path)});`), "  } catch (e) { /* the answer had another shape: leave the variable as it was */ }", "}"];
+    item.event = [{ listen: "test", script: { type: "text/javascript", exec } }];
+  }
+  return item;
 }
 
 export function postmanCollection(spec, ops) {
@@ -83,6 +93,7 @@ export function postmanCollection(spec, ops) {
     variable: [
       { key: "baseUrl", value: BASE_URL, type: "string" },
       { key: "apiKey", value: "", type: "string" },
+      ...Object.entries(VARIABLES).map(([key, value]) => ({ key, value, type: "string" })),
     ],
     item,
   };
@@ -105,17 +116,19 @@ const folderName = (tag) => tag.replace(/[()/\\:*?"<>|]/g, " ").replace(/\s+/g, 
 function brunoRequest(spec, op, seq) {
   const ex = requestExample(spec, op);
   const segs = segments(op.path).join("/");
-  const qs = queryString(ex);
+  const qs = queryString(ex, { vars: true });
   const hasKey = !op.noAuth && !op.bodyKey;
   const out = [];
   out.push(`meta {\n  name: ${op.summary.replace(/\n/g, " ")}\n  type: http\n  seq: ${seq}\n}\n`);
   out.push(`${op.method.toLowerCase()} {\n  url: {{baseUrl}}/${segs}${qs ? `?${qs}` : ""}\n  body: ${ex.bodyText !== null ? "json" : "none"}\n  auth: ${hasKey ? "bearer" : "none"}\n}\n`);
-  if (ex.query.length) out.push(`params:query {\n${ex.query.map((q) => `  ${q.enabled ? "" : "~"}${q.name}: ${q.value}`).join("\n")}\n}\n`);
-  if (ex.pathParams.length) out.push(`params:path {\n${ex.pathParams.map((p) => `  ${p.name}: ${p.value}`).join("\n")}\n}\n`);
+  if (ex.query.length) out.push(`params:query {\n${ex.query.map((q) => `  ${q.enabled ? "" : "~"}${q.name}: ${q.var ? `{{${q.var}}}` : q.value}`).join("\n")}\n}\n`);
+  if (ex.pathParams.length) out.push(`params:path {\n${ex.pathParams.map((p) => `  ${p.name}: ${p.var ? `{{${p.var}}}` : p.value}`).join("\n")}\n}\n`);
   const headers = extraHeaders(op, ex);
   if (headers.length) out.push(`headers {\n${headers.map((h) => `  ${h.disabled ? "~" : ""}${h.name}: ${h.value}`).join("\n")}\n}\n`);
   if (hasKey) out.push("auth:bearer {\n  token: {{apiKey}}\n}\n");
   if (ex.bodyText !== null) out.push(`body:json {\n${indent(ex.bodyText)}\n}\n`);
+  const captures = Object.entries(CAPTURES[op.id] ?? {});
+  if (captures.length) out.push(`vars:post-response {\n${captures.map(([name, path]) => `  ${name}: res.body.${path}`).join("\n")}\n}\n`);
   out.push(`docs {\n${indent(requestDescription(op))}\n}\n`);
   return out.join("\n");
 }
@@ -135,8 +148,11 @@ function readme(spec, ops, groups) {
     "- Every request says in its description which scope it needs and whether it works only from this computer.",
     "- Order examples are **paper orders** on the demo paper account (`demo-paper`, from `mc-bridge start --demo`).",
     "  A live order needs the opt-ins in [safety.md](../guides/safety.md); nothing here turns them on.",
-    "- Calls that act on something you create (an order id, a key id, a ticket) show a placeholder such as `<orderId>`: replace it.",
-    "- Dates such as `expiry` in the examples are samples. Send **Expiries** first and use one of the dates it returns.",
+    "- Calls that act on something you create (an order, a download, a recording, a hook, a key, a subscription) read its id from a variable",
+    "  (`orderId`, `downloadId`, `recordingId`, `ruleId`, `hookId`, `keyId`, `subscriptionId`) that the call which made it fills in: send the",
+    "  create call first. A ticket id has no such call (it comes from a pending confirmation): paste it.",
+    "- `expiry` is a variable too. Send **Expiries** first: it stores the first date the Bridge returns, and the option chain calls use it. Until",
+    "  then it holds a sample date, which a Bridge may not have.",
     "",
     "## Postman",
     "",

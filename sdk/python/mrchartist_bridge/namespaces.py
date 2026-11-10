@@ -128,12 +128,19 @@ class Hooks:
         """Configured hooks (never their secret tokens)."""
         return list(self._b.client._get("/v1/hooks").get("data") or [])
 
-    def signals(self, hook_id: str, *, since: Optional[str] = None, status: Optional[str] = None, limit: Optional[int] = None, cursor: Optional[str] = None) -> Result[Dict[str, Any]]:
-        """Recent signals a hook received, and what became of each (``GET /v1/hooks/{id}/signals``)."""
+    def signals(self, hook_id: str, *, outcome: Optional[str] = None, limit: Optional[int] = None, status: Optional[str] = None) -> Result[Dict[str, Any]]:
+        """Recent signals a hook received, newest first, and what became of each (``GET /v1/hooks/{id}/signals``).
+
+        ``outcome`` filters (the Bridge's ``HookSignalOutcome`` values) and ``limit`` is 1 to 200 (default 50); ``status`` is
+        an older name for ``outcome``. The list is the Bridge's bounded in-memory log: it has no cursor. The result's
+        ``meta`` carries the hook's ``counts``, ``queue`` and ``lastSignalAt`` next to the request id."""
         path = "/v1/hooks/%s/signals" % urllib.parse.quote(hook_id, safe="")
         self._b.require_route("GET", "/v1/hooks/:hookId/signals", "the hook signal log")
-        r = self._b.client._get(path, {"since": since, "status": status, "limit": limit, "cursor": cursor})
-        return Result(list(r.get("data") or []), r.get("meta"), problems_from(r.get("errors")))
+        r = self._b.client._get(path, {"outcome": outcome if outcome is not None else status, "limit": limit})
+        data = r.get("data") if isinstance(r.get("data"), dict) else {}
+        meta = dict(r.get("meta") or {})
+        meta.update({k: data[k] for k in ("hookId", "counts", "countsSince", "queue", "lastSignalAt", "lastAuthFailureAt", "serverTime") if k in data})
+        return Result([dict(i) for i in (data.get("signals") or []) if isinstance(i, dict)], meta, problems_from(r.get("errors")))
 
     def test(self, hook_id: str, message: Optional[Union[str, Mapping[str, Any]]] = None) -> Any:
         """Send a test alert through a hook's own checks without placing an order (``POST /v1/hooks/{id}/test``).

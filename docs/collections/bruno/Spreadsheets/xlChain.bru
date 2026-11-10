@@ -5,14 +5,14 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/xl/chain?underlying=NIFTY&expiry=2026-11-24&format=csv
+  url: {{baseUrl}}/xl/chain?underlying=NIFTY&expiry={{expiry}}&format=csv
   body: none
   auth: bearer
 }
 
 params:query {
   underlying: NIFTY
-  expiry: 2026-11-24
+  expiry: {{expiry}}
   format: csv
 }
 

@@ -28,6 +28,8 @@ Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in o
 | `backup` | query | boolean | no | Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source "backup", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources). |
 | `purpose` | query | `Purpose` | no | What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a delayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled source. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer. |
 | `account` | query | `AccountId` | no | Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling. |
+| `strict` | query | boolean | no | `true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a "did you mean" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored. Default `false`. |
+| `localFirst` | query | boolean | no | `true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`. Default `false`. |
 
 ## Responses
 
@@ -53,6 +55,66 @@ Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in o
 | `candles` | array of `Candle` | yes |  |
 | `freshness` | `Freshness` | yes |  |
 | `partial` | boolean | yes | True when the broker could not supply the whole range (history depth limits). |
+
+### Example 200 answer
+
+```json
+{
+  "data": {
+    "symbol": "NSE:RELIANCE",
+    "interval": "1d",
+    "candles": [
+      {
+        "time": 1794162600,
+        "open": 1453.2,
+        "high": 1468.7,
+        "low": 1450.2,
+        "close": 1460.4,
+        "volume": 215004
+      },
+      {
+        "time": 1794249000,
+        "open": 1460.4,
+        "high": 1463.9,
+        "low": 1455.9,
+        "close": 1460.8,
+        "volume": 38459
+      }
+    ],
+    "partial": false,
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61",
+    "accountId": null,
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  }
+}
+```
 
 ## Errors
 

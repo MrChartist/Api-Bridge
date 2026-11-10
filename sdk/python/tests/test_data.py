@@ -290,7 +290,7 @@ def test_recording_lifecycle(bridge, fake, tmp_path):
     rec = bridge.recordings.create("quotes", ["NSE:A", "NSE:B"], every_sec=1)
     assert last_body(fake, "POST", "/v1/recordings") == {"kind": "quotes", "symbols": ["NSE:A", "NSE:B"], "everySec": 1}
     assert rec.is_running and rec.data_class == "realtime"
-    assert bridge.recordings.pause(rec).status == "paused" and bridge.recordings.resume(rec).status == "running"
+    assert bridge.recordings.pause(rec).status == "paused" and bridge.recordings.resume(rec).status == "recording"
     assert bridge.recordings.get(rec.id).id == rec.id and len(bridge.recordings.list()) == 1
     files = bridge.recordings.files(rec)
     assert files[0].day == "2026-11-09"
@@ -586,3 +586,68 @@ def test_async_namespaces(fake):
 
     fake.data.history_series["NSE:A"] = bars(1760000000, 5)
     asyncio.run(main())
+
+
+# ── shapes captured from a real demo Bridge (so a model cannot drift from the server again) ──
+
+REAL_RECORDING = {
+    "id": "rec_50cc19d4", "name": "Quotes: 2 symbols", "kind": "quotes", "status": "waiting", "statusText": "Waiting for the next trading session.", "auto": False, "ruleId": None,
+    "target": {"symbols": ["NSE:RELIANCE", "NSE:INFY"]}, "everySec": 5, "sessionOnly": True, "schedule": "market-hours", "format": "csv", "createdAt": "2026-11-10T09:35:28.842+05:30",
+    "dataClass": "realtime", "delaySec": 0, "source": "this Bridge's own live feed and broker reads (real-time class only; delayed and end-of-day data is refused)",
+    "symbols": {"count": 0, "sample": [], "resolvedAt": None, "rule": None, "via": None, "notes": [], "stale": False, "problem": None, "onLiveFeed": 0, "notOnLiveFeed": 0},
+    "rows": 0, "bytes": 0, "today": {"date": None, "rows": 0, "bytes": 0, "gaps": 0}, "lastWriteAt": None, "gaps": {"total": 3, "today": 1, "open": None}, "refused": {"total": 0, "last": None},
+    "apiCalls": {"madeToday": 0, "savedToday": 0}, "disk": {"usedBytes": 2048, "limitMb": None, "totalUsedBytes": 2048, "totalLimitMb": 5000, "blocked": None}, "keepDays": None,
+    "nextStartAt": None, "issue": None, "filesUrl": "/v1/recordings/rec_50cc19d4/files",
+}
+REAL_DATASET = {
+    "name": "py-ds", "title": "Large caps", "tags": ["a"], "format": "csv", "createdAt": "2026-11-10T04:05:25.793Z", "updatedAt": "2026-11-10T04:05:25.829Z",
+    "request": {"symbols": ["NSE:RELIANCE"], "collection": None, "intervals": ["1d"], "from": "2026-10-01", "backup": False, "account": None, "afterHoursOnly": False},
+    "dataClass": "realtime", "source": "demo", "official": True, "delaySec": 0, "series": 1, "rows": 28, "bytes": 1344, "gaps": 1, "lastJobId": "dl_435e6691d280", "activeJobId": None,
+    "files": [{"symbol": "NSE:RELIANCE", "interval": "1d", "name": "NSE_RELIANCE_1d.csv", "rows": 28, "bytes": 1344, "firstBar": "2026-10-01T00:00:00.000+05:30", "lastBar": "2026-11-09T00:00:00.000+05:30",
+               "coverage": {"from": "2026-10-01T00:00:00.000+05:30", "to": "2026-11-09T23:59:59.000+05:30"}, "sha256": "ab" * 32,
+               "gaps": [{"from": "2026-11-08T00:00:00.000+05:30", "to": "2026-11-08T00:00:00.000+05:30", "missing": 1, "kind": "missing-days"}], "gapsTotal": 1}],
+    "notes": [],
+}
+
+
+def test_a_recording_as_the_server_sends_it():
+    from mrchartist_bridge import Recording
+
+    r = Recording.from_dict(REAL_RECORDING)
+    assert r.symbols == ("NSE:RELIANCE", "NSE:INFY") and r.underlying is None and r.expiry is None and r.collection is None
+    assert r.status == "waiting" and r.status_text.startswith("Waiting") and r.is_active and not r.is_running
+    assert r.gap_count == 3 and r.disk_bytes == 2048 and r.every_sec == 5 and r.data_class == "realtime"
+    chain = Recording.from_dict(dict(REAL_RECORDING, kind="chain", target={"underlying": "NIFTY", "expiry": "2026-11-12"}, status="recording",
+                                     symbols=dict(REAL_RECORDING["symbols"], count=41, sample=["NFO:NIFTY-2026-11-12-26000-CE"])))
+    assert chain.underlying == "NIFTY" and chain.expiry == "2026-11-12" and chain.is_running and chain.symbol_count == 41 and chain.symbols == ("NFO:NIFTY-2026-11-12-26000-CE",)
+    coll = Recording.from_dict(dict(REAL_RECORDING, target={"collection": "index-options"}))
+    assert coll.collection == "index-options" and coll.symbols == ()
+
+
+def test_a_dataset_as_the_server_sends_it():
+    from mrchartist_bridge import Dataset
+
+    d = Dataset.from_dict(REAL_DATASET)
+    assert d.description == d.title == "Large caps" and d.symbols == ("NSE:RELIANCE",) and d.intervals == ("1d",)
+    assert d.first_bar.isoformat().startswith("2026-10-01T00:00:00") and d.last_bar.isoformat().startswith("2026-11-09T00:00:00")
+    assert d.rows == 28 and d.gaps == 1 and d.format == "csv" and d.last_job_id == "dl_435e6691d280" and d.active_job_id is None
+    listed = Dataset.from_dict({k: v for k, v in REAL_DATASET.items() if k != "files"})  # the list route sends no files
+    assert listed.first_bar is None and listed.symbols == ("NSE:RELIANCE",) and listed.rows == 28
+
+
+def test_dataset_edit_sends_the_servers_field_names(bridge, fake):
+    bridge.downloads.wait(bridge.downloads.create(["NSE:A"], "5m", from_="2024-01-01", dataset="e1"))
+    assert bridge.datasets.edit("e1", description="Large caps").title == "Large caps"
+    assert last_body(fake, "PATCH", "/v1/datasets/e1") == {"title": "Large caps"}
+    assert bridge.datasets.edit("e1", title="x", tags=["t"]).tags == ("t",)
+    assert last_body(fake, "PATCH", "/v1/datasets/e1") == {"tags": ["t"], "title": "x"}
+
+
+def test_not_found_only_blames_an_old_bridge_when_the_route_is_missing(bridge, fake):
+    fake.extra_routes.append({"method": "GET", "path": "/v1/collections/:name", "scope": "read", "auth": "key"})
+    with pytest.raises(NotFound) as e:
+        bridge.collections.get("nope")
+    assert "older than this library" not in str(e.value)
+    with pytest.raises(NotFound) as e2:
+        bridge.get("/v1/no-such-route")
+    assert "older than this library" in str(e2.value)

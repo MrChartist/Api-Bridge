@@ -30,7 +30,7 @@ batch where nothing went out may be retried with the same key. A live leg needs 
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. |
+| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets, collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so with `Idempotency-Ignored: true` in the answer. |
 
 ## Request body
 
@@ -50,8 +50,22 @@ Example:
 {
   "account": "demo-paper",
   "orders": [
-    {}
-  ]
+    {
+      "symbol": "NSE:RELIANCE",
+      "side": "BUY",
+      "quantity": 1,
+      "product": "CNC",
+      "orderType": "MARKET"
+    },
+    {
+      "symbol": "NSE:INFY",
+      "side": "BUY",
+      "quantity": 1,
+      "product": "CNC",
+      "orderType": "MARKET"
+    }
+  ],
+  "mode": "paper"
 }
 ```
 
@@ -113,7 +127,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/orders/batch" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"account":"demo-paper","orders":[{}]}'
+  -d '{"account":"demo-paper","orders":[{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"},{"symbol":"NSE:INFY","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"}],"mode":"paper"}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -126,7 +140,26 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "POST",
     "/v1/orders/batch",
-    body={"account": "demo-paper", "orders": [{}]},
+    body={
+    "account": "demo-paper",
+    "orders": [
+        {
+            "symbol": "NSE:RELIANCE",
+            "side": "BUY",
+            "quantity": 1,
+            "product": "CNC",
+            "orderType": "MARKET",
+        },
+        {
+            "symbol": "NSE:INFY",
+            "side": "BUY",
+            "quantity": 1,
+            "product": "CNC",
+            "orderType": "MARKET",
+        },
+    ],
+    "mode": "paper",
+},
     idempotency_key="my-order-0001",
 )
 print(response.body)

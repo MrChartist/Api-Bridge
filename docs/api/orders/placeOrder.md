@@ -24,7 +24,7 @@ product or order type. MARKET and SL-M orders get market protection (or are refu
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. |
+| `Idempotency-Key` | header | string, up to 255 characters | no | Your unique id for this write (UUID recommended). A retry with the same key and the same body returns the first result with `Idempotency-Replayed: true`; a different body is refused with 409 IDEMPOTENCY_KEY_REUSED; a retry while the first is still running gets 409 IDEMPOTENCY_IN_PROGRESS. Keys are kept until the end of the IST trading day and at least 24 hours. For POST /v1/orders, `clientOrderId` in the body works the same way when the header is absent. The create routes that are not orders honour it too, with the same rules: keys, accounts, hooks, notify targets, collections (create, import, duplicate), downloads, dataset updates, subscriptions, recordings, recording rules and recording presets. For these the stored answer is kept in memory for 24 hours and is forgotten on restart, and a request that failed is forgotten at once so it can be retried. Every other write route ignores the header and says so with `Idempotency-Ignored: true` in the answer. |
 
 ## Request body
 
@@ -107,6 +107,51 @@ Example:
 | `tag` | string or null | no |  |
 | `placedAt` | string (date-time) | yes |  |
 | `updatedAt` | string (date-time) | yes |  |
+
+### Example 201 answer
+
+```json
+{
+  "data": {
+    "orderId": "PAPER-20261110-000001",
+    "clientOrderId": null,
+    "accountId": "demo-paper",
+    "broker": "paper",
+    "mode": "paper",
+    "symbol": "NSE:RELIANCE",
+    "side": "BUY",
+    "quantity": 1,
+    "filledQuantity": 1,
+    "avgPrice": 1459,
+    "price": null,
+    "triggerPrice": null,
+    "orderType": "MARKET",
+    "product": "CNC",
+    "validity": "DAY",
+    "status": "filled",
+    "brokerStatus": null,
+    "statusMessage": null,
+    "legs": [
+      {
+        "brokerOrderId": null,
+        "quantity": 1,
+        "status": "filled",
+        "error": null
+      }
+    ],
+    "source": "rest",
+    "tag": null,
+    "placedAt": "2026-11-10T09:46:00.404+05:30",
+    "updatedAt": "2026-11-10T09:46:00.404+05:30",
+    "warnings": []
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61",
+    "accountId": "demo-paper",
+    "mode": "paper"
+  }
+}
+```
 
 ## Errors
 

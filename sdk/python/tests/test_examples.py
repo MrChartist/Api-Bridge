@@ -57,7 +57,7 @@ def test_collections_and_datasets_runs(fake, tmp_path):
 def test_record_chains_runs(fake, tmp_path):
     r = run(fake, "record_chains.py", cwd=tmp_path)
     assert r.returncode == 0, r.stderr
-    assert "rule rule_" in r.stdout and "running" in r.stdout
+    assert "rule rule_" in r.stdout and "recording" in r.stdout
 
 
 def test_history_all_runs(fake, tmp_path):

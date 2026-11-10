@@ -16,7 +16,7 @@ Paper: moves the quantity to the other product at its average price (no order, n
 
 ## Request body
 
-Required, `application/json`.
+Required, `application/json`. Send exactly one of: `quantity` or `lots`.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -35,7 +35,8 @@ Example:
   "account": "demo-paper",
   "symbol": "NSE:RELIANCE",
   "from": "INTRADAY",
-  "to": "CNC"
+  "to": "CNC",
+  "quantity": 1
 }
 ```
 
@@ -80,7 +81,7 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X POST "http://127.0.0.1:4300/v1/positions/convert" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","from":"INTRADAY","to":"CNC"}'
+  -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","from":"INTRADAY","to":"CNC","quantity":1}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -98,6 +99,7 @@ response = bridge.request(
     "symbol": "NSE:RELIANCE",
     "from": "INTRADAY",
     "to": "CNC",
+    "quantity": 1,
 },
 )
 print(response.body)

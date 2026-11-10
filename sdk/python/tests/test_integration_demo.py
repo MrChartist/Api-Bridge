@@ -25,7 +25,7 @@ sys.path.insert(0, str(HERE.parent))
 REPO = HERE.parents[2]
 CLI = REPO / "bin" / "mc-bridge.mjs"
 
-from mrchartist_bridge import AsyncBridge, Bridge, LiveNotConfirmed, PaperOnly, Tick  # noqa: E402
+from mrchartist_bridge import AsyncBridge, Bridge, LiveNotConfirmed, NotFound, PaperOnly, Tick, option_universe  # noqa: E402
 
 pytestmark = pytest.mark.integration
 
@@ -217,3 +217,105 @@ def test_a_real_recording_writes_files_and_presets_list(bridge):
     finally:
         bridge.recordings.stop(rec)
         bridge.recordings.delete(rec)
+# ── data: downloads, datasets, recordings, collections, hooks, against the real routes (the fakes cannot drift now) ──
+
+
+def test_download_to_dataset_round_trip_against_the_real_routes(bridge, tmp_path):
+    job = bridge.downloads.create(["NSE:RELIANCE"], "1d", from_="2026-10-01", dataset="py-ds")
+    assert job.status in ("queued", "running", "done")
+    done = bridge.downloads.wait(job, timeout=60, poll=0.2)
+    assert done.is_done and done.data_class == "realtime" and done.progress.total == 1 and done.progress.rows > 0
+    files = bridge.downloads.files(done)
+    assert len(files) == 1 and files[0].symbol == "NSE:RELIANCE" and files[0].interval == "1d" and files[0].rows > 0 and files[0].sha256
+    assert any(j.id == done.id for j in bridge.downloads.list())
+    saved = bridge.downloads.save(done, str(tmp_path))
+    assert saved[0].bytes == files[0].bytes and (tmp_path / "manifest.json").exists()
+    rows = bridge.downloads.read(done)
+    assert len(rows) == files[0].rows and "close" in rows[0]
+
+    ds = bridge.datasets.get("py-ds")
+    assert ds.symbols == ("NSE:RELIANCE",) and ds.intervals == ("1d",) and ds.rows == files[0].rows
+    assert ds.first_bar is not None and ds.last_bar is not None and ds.first_bar < ds.last_bar  # per-file bars, as the server sends them
+    assert any(d.name == "py-ds" for d in bridge.datasets.list())
+    hist = bridge.datasets.read("py-ds")
+    assert len(hist) > 0 and hist.freshness is not None
+    edited = bridge.datasets.edit("py-ds", description="Large caps", tags=["py"])
+    assert edited.title == "Large caps" and edited.tags == ("py",)
+    assert [d.name for d in bridge.datasets.list(tag="py")] == ["py-ds"]
+    upd = bridge.datasets.update("py-ds", wait=True, timeout=60, poll=0.2)
+    assert upd.is_done
+    assert bridge.datasets.edit("py-ds", new_name="py-ds2").name == "py-ds2"
+    bridge.downloads.delete(done)
+
+
+def test_recordings_and_rules_against_the_real_routes(bridge):
+    rec = bridge.recordings.create("quotes", ["NSE:RELIANCE", "NSE:INFY"], every_sec=5, name="py-rec")
+    try:
+        assert rec.kind == "quotes" and rec.symbols == ("NSE:RELIANCE", "NSE:INFY") and rec.every_sec == 5
+        assert rec.status in ("recording", "waiting") and rec.is_active and rec.status_text
+        assert rec.data_class == "realtime" and rec.gap_count == 0 and rec.disk_bytes == 0
+        assert bridge.recordings.get(rec.id).id == rec.id and any(r.id == rec.id for r in bridge.recordings.list())
+        assert bridge.recordings.pause(rec).status == "paused"
+        assert bridge.recordings.resume(rec).is_active
+        chain = bridge.recordings.create("chain", underlying="NIFTY", every_sec=30)
+        try:
+            assert chain.underlying == "NIFTY" and chain.kind == "chain"
+        finally:
+            bridge.recordings.delete(chain)
+        assert bridge.recordings.stop(rec).status == "stopped"
+        assert bridge.recordings.files(rec) == []
+    finally:
+        bridge.recordings.delete(rec)
+    rule = bridge.recordings.rules.create("py-rule", "quotes", 5, symbols=["NSE:INFY"])
+    try:
+        assert rule.name == "py-rule" and rule.kind == "quotes" and rule.symbols == ("NSE:INFY",) and rule.schedule == "market-hours"
+        assert any(r.id == rule.id for r in bridge.recordings.rules.list())
+        assert bridge.recordings.rules.update(rule.id, every_sec=10).every_sec == 10
+    finally:
+        bridge.recordings.rules.delete(rule.id)
+
+
+def test_collections_against_the_real_routes_and_a_missing_one_is_not_blamed_on_an_old_bridge(bridge):
+    c = bridge.collections.create("py-col", ["NSE:RELIANCE", "NSE:INFY"], tags=["py"], description="two")
+    try:
+        assert c.symbols == ("NSE:RELIANCE", "NSE:INFY") and c.tags == ("py",) and c.kind == "static" and c.id
+        assert bridge.collections.get("py-col").description == "two"
+        assert [x.name for x in bridge.collections.list(tag="py")] == ["py-col"]
+        assert set(bridge.collections.tag("py-col", "more").tags) == {"py", "more"}
+        assert bridge.collections.resolve("py-col").symbols == ("NSE:RELIANCE", "NSE:INFY")
+        assert bridge.collections.estimate("py-col", intervals=["1d"], days=30)
+        assert "py-col" in str(bridge.collections.usage("py-col")) or isinstance(bridge.collections.usage("py-col"), dict)
+        assert "NSE:INFY" in bridge.collections.export("py-col", "csv")
+        dup = bridge.collections.duplicate("py-col", "py-col-2")
+        assert dup.symbols == c.symbols
+        bridge.collections.delete("py-col-2")
+        assert bridge.collections.rename("py-col", "py-col-b").name == "py-col-b"
+    finally:
+        for n in ("py-col", "py-col-b", "py-col-2"):
+            try:
+                bridge.collections.delete(n)
+            except NotFound:
+                pass
+    uni = bridge.collections.create("py-uni", universe=option_universe("NIFTY", "current-weekly", count=2))
+    try:
+        assert uni.is_dynamic and uni.universe
+    finally:
+        bridge.collections.delete("py-uni")
+    with pytest.raises(NotFound) as e:
+        bridge.collections.get("nope")
+    assert "older than this library" not in str(e.value)
+    with pytest.raises(NotFound) as e2:
+        bridge.get("/v1/no-such-route")
+    assert "older than this library" in str(e2.value)
+
+
+def test_hook_signals_read_the_servers_shape(bridge):
+    h = bridge.client._post("/v1/hooks", {"source": "generic", "label": "py-hook", "account": "demo-paper"})["data"]
+    try:
+        r = bridge.hooks.signals(h["id"], limit=5)
+        assert list(r) == [] and r.meta["hookId"] == h["id"] and "counts" in r.meta
+        with pytest.raises(NotFound) as e:
+            bridge.hooks.signals("hk_nope")
+        assert "older than this library" not in str(e.value)
+    finally:
+        bridge.client.request("DELETE", "/v1/hooks/" + h["id"])

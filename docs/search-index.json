@@ -2302,6 +2302,7 @@
         "Limits and retries",
         "Errors",
         "Pagination",
+        "A parameter the Bridge does not know",
         "Idempotency",
         "Events",
         "Data downloads",
@@ -2480,7 +2481,7 @@
         "Events and webhooks",
         "Rate limits and many symbols",
         "Alerts",
-        "The original client and strategies"
+        "The original client"
       ],
       "kind": "guide",
       "path": "docs/guides/python.md",

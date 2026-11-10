@@ -29,6 +29,13 @@ export function deref(spec, node, seen = 0) {
   return node;
 }
 
+/** The example a media object carries: `example`, else the first of `examples`; undefined when there is none. */
+export function mediaExample(media) {
+  if (media?.example !== undefined) return media.example;
+  const first = Object.values(media?.examples ?? {})[0];
+  return first?.value;
+}
+
 export const refName = (node) => (typeof node?.$ref === "string" ? node.$ref.split("/").pop() : null);
 
 export const slug = (s) => String(s).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -40,8 +47,8 @@ export const slug = (s) => String(s).toLowerCase().replace(/&/g, " and ").replac
  *   scope: string|null, loopbackOnly: boolean, noAuth: boolean, queryKey: boolean, bodyKey: boolean, publicIngress: boolean,
  *   demoOnly: boolean, websocket: boolean, module: string|null,
  *   parameters: Array<{ name: string, in: string, required: boolean, description: string, schema: any, ref: string|null }>,
- *   requestBody: null|{ required: boolean, contentType: string, schema: any, schemaRef: string|null },
- *   responses: Array<{ status: string, description: string, contentType: string|null, schema: any, schemaRef: string|null }>,
+ *   requestBody: null|{ required: boolean, contentType: string, schema: any, schemaRef: string|null, example: any },
+ *   responses: Array<{ status: string, description: string, contentType: string|null, schema: any, schemaRef: string|null, example: any }>,
  *   idempotent: boolean, html: boolean }>}
  */
 export function operations(spec) {
@@ -59,12 +66,12 @@ export function operations(spec) {
       if (op.requestBody) {
         const rb = deref(spec, op.requestBody);
         const [contentType, media] = Object.entries(rb.content ?? {})[0] ?? ["application/json", {}];
-        requestBody = { required: Boolean(rb.required), contentType, schema: media?.schema ?? {}, schemaRef: refName(media?.schema) };
+        requestBody = { required: Boolean(rb.required), contentType, schema: media?.schema ?? {}, schemaRef: refName(media?.schema), example: mediaExample(media) };
       }
       const responses = Object.entries(op.responses ?? {}).map(([status, r]) => {
         const rr = deref(spec, r);
         const [contentType, media] = Object.entries(rr.content ?? {})[0] ?? [null, null];
-        return { status: String(status), description: rr.description ?? "", contentType, schema: media?.schema ?? null, schemaRef: refName(media?.schema) };
+        return { status: String(status), description: rr.description ?? "", contentType, schema: media?.schema ?? null, schemaRef: refName(media?.schema), example: mediaExample(media) };
       });
       const tag = op.tags?.[0] ?? "Other";
       const security = op.security;
@@ -145,7 +152,7 @@ export const HINTS = Object.freeze({
   source: "generic",
   token: "<hook token>",
   field: "ltp",
-  capability: "ltp",
+  capability: "quotes",
 });
 
 const fmtSamples = { "date-time": "2026-10-19T10:00:00+05:30", date: "2026-10-27", uri: "https://example.com/", email: "me@example.com" };

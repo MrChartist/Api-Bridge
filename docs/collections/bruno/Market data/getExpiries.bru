@@ -16,10 +16,15 @@ params:query {
   ~backup: false
   ~purpose: display
   ~account: demo-paper
+  ~strict: false
 }
 
 auth:bearer {
   token: {{apiKey}}
+}
+
+vars:post-response {
+  expiry: res.body.data.expiries[0]
 }
 
 docs {

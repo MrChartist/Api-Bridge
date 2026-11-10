@@ -194,6 +194,8 @@ export function problemHeaders(err) {
   if (err instanceof BridgeError && err.retryAfterMs !== undefined) {
     h["Retry-After"] = String(err.scope !== undefined ? jitteredRetryAfterSeconds(err.retryAfterMs) : Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
   }
+  // RFC 9110: a 401 names the way to authenticate.
+  if (err instanceof BridgeError && err.status === 401 && h["WWW-Authenticate"] === undefined) h["WWW-Authenticate"] = 'Bearer realm="mc-bridge"';
   return h;
 }
 

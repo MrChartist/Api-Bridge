@@ -277,7 +277,11 @@ class SavedFile:
 
 @dataclass(frozen=True)
 class Dataset:
-    """A named, growing set of downloaded bars (``GET /v1/datasets/{name}``)."""
+    """A named, growing set of downloaded bars (``GET /v1/datasets/{name}``).
+
+    ``title`` is the Bridge's free-text label (``description`` is the same text, kept as an older name). The first and
+    last bar are the earliest and latest over the files; the list route (``datasets.list``) has no files, so there they
+    are ``None`` until you ``get()`` the dataset."""
 
     name: str
     description: Optional[str]
@@ -295,27 +299,52 @@ class Dataset:
     updated_at: Optional[datetime]
     files: Tuple[DataFile, ...] = ()
     collection: Optional[str] = None
+    gaps: int = 0
+    """How many stretches with missing bars the dataset has (over all files)."""
+    format: Optional[str] = None
+    last_job_id: Optional[str] = None
+    active_job_id: Optional[str] = None
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Dataset":
         cls_, src, delay, official = _fresh_fields(d)
         files = tuple(DataFile.from_dict(f) for f in d.get("files") or [])
-        symbols = tuple(str(s) for s in d.get("symbols") or ()) or tuple(dict.fromkeys(f.symbol for f in files if f.symbol))
-        intervals = tuple(str(s) for s in d.get("intervals") or ()) or tuple(dict.fromkeys(f.interval for f in files if f.interval))
-        return cls(str(d.get("name")), d.get("description"), tuple(str(t) for t in d.get("tags") or ()), cls_, src, official, delay, symbols, intervals,
+        req = _d(d.get("request"))
+        symbols = tuple(str(s) for s in d.get("symbols") or req.get("symbols") or ()) or tuple(dict.fromkeys(f.symbol for f in files if f.symbol))
+        intervals = tuple(str(s) for s in d.get("intervals") or req.get("intervals") or ()) or tuple(dict.fromkeys(f.interval for f in files if f.interval))
+        firsts = [f.first_bar for f in files if f.first_bar is not None]
+        lasts = [f.last_bar for f in files if f.last_bar is not None]
+        first = parse_time(d.get("firstBar")) or (min(firsts) if firsts else None)
+        last = parse_time(d.get("lastBar")) or (max(lasts) if lasts else None)
+        title = d.get("title") if d.get("title") is not None else d.get("description")
+        gaps = d.get("gaps")
+        return cls(str(d.get("name")), title, tuple(str(t) for t in d.get("tags") or ()), cls_, src, official, delay, symbols, intervals,
                    _int(d.get("rows")) if d.get("rows") is not None else (sum(f.rows or 0 for f in files) if files else None),
                    _int(d.get("bytes")) if d.get("bytes") is not None else (sum(f.bytes or 0 for f in files) if files else None),
-                   parse_time(d.get("firstBar")), parse_time(d.get("lastBar")), parse_time(d.get("updatedAt")), files, d.get("collection"), dict(d))
+                   first, last, parse_time(d.get("updatedAt")), files, d.get("collection") or req.get("collection"),
+                   (_int(gaps) or 0) if not isinstance(gaps, (list, tuple)) else len(gaps), d.get("format"), d.get("lastJobId"), d.get("activeJobId"), dict(d))
+
+    @property
+    def title(self) -> Optional[str]:
+        return self.description
 
     @property
     def label(self) -> str:
         return _label(self.data_class, self.source, self.delay_sec)
 
 
+RECORDING_STATUSES = ("recording", "waiting", "paused", "stopped", "blocked")
+"""What the Bridge reports for a recording. ``waiting``: outside the session, or no login yet. ``blocked``: a disk limit was reached."""
+
+
 @dataclass(frozen=True)
 class Recording:
-    """A recording of quotes or option chains saved going forward from this Bridge's own live data."""
+    """A recording of quotes or option chains saved going forward from this Bridge's own live data.
+
+    ``status`` is one of ``RECORDING_STATUSES``. ``symbols`` are what the recording was asked to record (``target.symbols``),
+    or, for a collection or an option universe, the symbols it resolved to at last look (a sample, see ``symbol_count``);
+    ``underlying``, ``expiry`` and ``collection`` come from ``target`` too."""
 
     id: str
     name: Optional[str]
@@ -337,26 +366,49 @@ class Recording:
     rule_id: Optional[str] = None
     collection: Optional[str] = None
     files: Tuple[DataFile, ...] = ()
+    status_text: Optional[str] = None
+    symbol_count: int = 0
+    gap_total: int = 0
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Recording":
         cls_, src, _delay, _official = _fresh_fields(d)
+        target = _d(d.get("target"))
+        status_obj = d.get("symbols") if isinstance(d.get("symbols"), Mapping) else {}
+        listed = target.get("symbols") if isinstance(target.get("symbols"), list) else (d.get("symbols") if isinstance(d.get("symbols"), list) else None)
+        syms = tuple(str(s) for s in (listed if listed is not None else status_obj.get("sample") or ()))
+        underlying = target.get("underlying", d.get("underlying"))
+        if isinstance(underlying, (list, tuple)):
+            underlying = ", ".join(str(u) for u in underlying)
         gaps = d.get("gaps")
-        gap_rows = tuple(g if isinstance(g, Mapping) else {"count": g} for g in (gaps if isinstance(gaps, list) else ([] if gaps is None else [gaps])) if g is not None)
-        return cls(str(d.get("id")), d.get("name"), str(d.get("kind")), str(d.get("status")), tuple(str(s) for s in d.get("symbols") or ()), d.get("underlying"), d.get("expiry"), _num(d.get("everySec")),
+        if isinstance(gaps, Mapping):
+            gap_rows: Tuple[Mapping[str, Any], ...] = ()
+            gap_total = _int(gaps.get("total")) or 0
+        else:
+            gap_rows = tuple(g if isinstance(g, Mapping) else {"count": g} for g in (gaps if isinstance(gaps, list) else ([] if gaps is None else [gaps])) if g is not None)
+            gap_total = sum(int(g.get("count", 1)) if isinstance(g.get("count", 1), (int, float)) else 1 for g in gap_rows)
+        disk = d.get("disk")
+        disk_bytes = _int(disk.get("usedBytes")) if isinstance(disk, Mapping) else _int(d.get("diskBytes") if d.get("diskBytes") is not None else disk)
+        return cls(str(d.get("id")), d.get("name"), str(d.get("kind")), str(d.get("status")), syms, underlying, target.get("expiry", d.get("expiry")), _num(d.get("everySec")),
                    bool(d.get("sessionOnly", True)), d.get("format"), _int(d.get("rows")) or 0, _int(d.get("bytes")) or 0, parse_time(d.get("lastWriteAt")), gap_rows,
-                   _int(d.get("diskBytes") if d.get("diskBytes") is not None else d.get("disk")), cls_, src, d.get("ruleId"), d.get("collection"),
-                   tuple(DataFile.from_dict(f) for f in d.get("files") or []), dict(d))
+                   disk_bytes, cls_, src, d.get("ruleId"), target.get("collection", d.get("collection")),
+                   tuple(DataFile.from_dict(f) for f in d.get("files") or []), d.get("statusText"), _int(status_obj.get("count")) or len(syms), gap_total, dict(d))
 
     @property
     def is_running(self) -> bool:
-        return self.status == "running"
+        """Writing rows now (``status == "recording"``)."""
+        return self.status == "recording"
+
+    @property
+    def is_active(self) -> bool:
+        """Running or waiting for the next session: it will write by itself (not paused, stopped or blocked)."""
+        return self.status in ("recording", "waiting")
 
     @property
     def gap_count(self) -> int:
         """How many times the feed was silent while this recording was due to write."""
-        return sum(int(g.get("count", 1)) if isinstance(g.get("count", 1), (int, float)) else 1 for g in self.gaps)
+        return self.gap_total
 
 
 @dataclass(frozen=True)
@@ -937,11 +989,12 @@ class Datasets(_Ns):
         job = DownloadJob.from_dict(_data(self._c.update_dataset(name)))
         return self._b.downloads.wait(job, **wait_kw) if wait else job
 
-    def edit(self, name: str, *, new_name: Optional[str] = None, tags: Optional[Sequence[str]] = None, description: Optional[str] = None) -> Dataset:
-        """Rename a dataset, or change its tags or description."""
-        ch = {k: v for k, v in {"name": new_name, "tags": list(tags) if tags is not None else None, "description": description}.items() if v is not None}
+    def edit(self, name: str, *, new_name: Optional[str] = None, tags: Optional[Sequence[str]] = None, title: Optional[str] = None, description: Optional[str] = None) -> Dataset:
+        """Rename a dataset, or change its tags or title (``description`` is an older name for ``title``)."""
+        label = title if title is not None else description
+        ch = {k: v for k, v in {"name": new_name, "tags": list(tags) if tags is not None else None, "title": label}.items() if v is not None}
         if not ch:
-            raise ValueError("give new_name, tags or description")
+            raise ValueError("give new_name, tags or title")
         return Dataset.from_dict(_data(self._c.edit_dataset(name, ch)))
 
     def read(self, name: str, symbol: Optional[str] = None, interval: Optional[str] = None, from_: Union[str, date, datetime, None] = None, to: Union[str, date, datetime, None] = None, *,

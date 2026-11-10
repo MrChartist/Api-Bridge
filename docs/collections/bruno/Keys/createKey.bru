@@ -10,6 +10,10 @@ post {
   auth: bearer
 }
 
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
 auth:bearer {
   token: {{apiKey}}
 }
@@ -26,11 +30,16 @@ body:json {
   }
 }
 
+vars:post-response {
+  keyId: res.body.data.record.id
+}
+
 docs {
   Create an API key
 
   - An API key with the `admin` scope.
   - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
   The key is in the response once and cannot be shown again; only a scrypt hash is stored.
 

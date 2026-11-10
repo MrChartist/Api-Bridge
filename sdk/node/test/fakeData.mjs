@@ -77,13 +77,13 @@ export function createDataRoutes(problem) {
     d.jobFiles.set(job.id, files);
     const ds = job.request.dataset;
     if (ds) {
-      const cur = d.datasets.get(ds) ?? { name: ds, tags: [], description: null, dataClass: job.dataClass, source: job.source, official: job.official, delaySec: job.delaySec, files: [], updates: 0 };
+      const cur = d.datasets.get(ds) ?? { name: ds, tags: [], title: null, dataClass: job.dataClass, source: job.source, official: job.official, delaySec: job.delaySec, files: [], updates: 0 };
       d.datasets.set(ds, cur);
       cur.updates += 1;
       const merged = new Map(cur.files.map((f) => [f.name, f]));
       for (const [n, c] of files) merged.set(n, fileRow(n, c));
       cur.files = [...merged.values()];
-      Object.assign(cur, { firstBar: "2025-10-09T14:23:20+05:30", lastBar: "2025-10-09T14:33:20+05:30", updatedAt: "2026-11-09T10:05:00+05:30" });
+      Object.assign(cur, { updatedAt: "2026-11-09T10:05:00+05:30" }); // the real Bridge keeps the first and last bar per file (fileRow), not on the dataset
     }
     d.emit("download.done", { id: job.id });
   }
@@ -186,7 +186,9 @@ export function createDataRoutes(problem) {
     if (method === "GET" && parts.length === 1) return ok(ds);
     if (method === "PATCH" && parts.length === 1) {
       if ("tags" in (body ?? {})) ds.tags = body.tags;
-      if ("description" in (body ?? {})) ds.description = body.description;
+      if ("title" in (body ?? {})) ds.title = body.title;
+      const unknown = Object.keys(body ?? {}).filter((k) => !["name", "tags", "title"].includes(k));
+      if (unknown.length) return pr(400, "VALIDATION_FAILED", `Unrecognized key: "${unknown[0]}"`);
       if (body?.name) {
         d.datasets.delete(ds.name);
         ds.name = body.name;
@@ -195,7 +197,7 @@ export function createDataRoutes(problem) {
       return ok(ds);
     }
     if (method === "POST" && parts[1] === "update") {
-      const req = { symbols: [...new Set(ds.files.map((f) => f.symbol))].sort(), intervals: [...new Set(ds.files.map((f) => f.interval))].sort(), dataset: ds.name, from: ds.lastBar };
+      const req = { symbols: [...new Set(ds.files.map((f) => f.symbol))].sort(), intervals: [...new Set(ds.files.map((f) => f.interval))].sort(), dataset: ds.name, from: ds.files.map((f) => f.lastBar).sort().at(-1) };
       return ok(queuedView(newJob(req, { name: `update ${ds.name}`, dataClass: ds.dataClass, source: ds.source, official: ds.official, delaySec: ds.delaySec })), 202);
     }
     return pr(404, "NOT_FOUND", "No such route.");

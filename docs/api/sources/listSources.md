@@ -50,7 +50,7 @@ API keys of sources that need one are never returned; `configured` only says whe
 | `limits` | object | yes | The vendor's documented limits. The Bridge never goes above them. |
 | `usage` | object | yes |  |
 | `health` | `SourceHealth` | yes |  |
-| `terms` | object | no | The vendor's terms. Not present for your own broker accounts. |
+| `terms` | object or null | no | The vendor's terms. Null for your own broker accounts. |
 | `noticeVersion` | string | no | Opt-in sources: the notice version `acknowledge` must equal to turn it on. |
 | `needsKey` | boolean | yes |  |
 | `consent` | object or null | no | When you acknowledged the notice, or null. |

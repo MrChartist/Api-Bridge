@@ -16,7 +16,8 @@
 `enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`
 equal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored
 first (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`
-turns it off at once. Your broker accounts (`builtin`) cannot be switched off here.
+turns it off at once. Your broker accounts (`builtin`) cannot be switched off here. The answer also repeats the
+source's fields at the top level of the body, as older clients read them there; read `data`.
 
 ## Parameters
 
@@ -73,7 +74,7 @@ Example:
 | `limits` | object | yes | The vendor's documented limits. The Bridge never goes above them. |
 | `usage` | object | yes |  |
 | `health` | `SourceHealth` | yes |  |
-| `terms` | object | no | The vendor's terms. Not present for your own broker accounts. |
+| `terms` | object or null | no | The vendor's terms. Null for your own broker accounts. |
 | `noticeVersion` | string | no | Opt-in sources: the notice version `acknowledge` must equal to turn it on. |
 | `needsKey` | boolean | yes |  |
 | `consent` | object or null | no | When you acknowledged the notice, or null. |

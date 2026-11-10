@@ -1,11 +1,11 @@
-"""A small in-process fake of the Bridge REST API for the strategy tests (standard library only).
+"""A small in-process fake of the Bridge REST API for the SDK tests (standard library only).
 
-It serves what strategies and the typed client call: orders (paper fills at the price table, with the Bridge's limits on
+It serves what the typed client calls: orders (paper fills at the price table, with the Bridge's limits on
 lots, idempotent replays, lookups by id and client id), positions, funds, accounts, LTP and quotes with freshness labels,
 expiries, an option chain (with open interest), instrument search, sources, tickets, meta (the route list), health, and
 optional ``to-target`` and ``batch`` routes. Every request is recorded so tests can check the key, the Idempotency-Key and
 the body. ``fake.fault(...)`` makes the next matching request fail (a problem reply, or a dropped connection). No stream
-(see fake_ws.py): strategy tests feed ticks to Strategy.dispatch() directly.
+(see fake_ws.py).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 
 from fake_data import DataRoutes, Frames, Raw
 
-KEY = "mcb_test_strategy_key"
+KEY = "mcb_test_sdk_key"
 EXPIRY = "2026-11-03"
 
 

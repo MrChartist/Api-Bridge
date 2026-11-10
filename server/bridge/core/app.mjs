@@ -27,9 +27,10 @@ import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
 import { errorCatalogue } from "./errorCatalogue.mjs";
 import { createEventBus } from "./eventBus.mjs";
+import { createWriteIdempotency, fingerprint as requestFingerprint, ignoresIdempotencyKey, isIdempotentRoute, readIdempotencyKey } from "./idempotency.mjs";
 import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
-import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
+import { Reply, json, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
 import { MIN_COMPRESS_BYTES, createCompressionCache, etagFor, ifNoneMatches, isCompressible, negotiateEncoding } from "./staticCompress.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
@@ -320,6 +321,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
 
   // ── Request pipeline ──
   const cors = createCors(config.cors);
+  const writeIdempotency = createWriteIdempotency({ now: () => deps.clock.now() });
   const handle = async (req, res, listener) => {
     const supplied = req.headers["x-request-id"];
     const requestId = typeof supplied === "string" && REQUEST_ID_RE.test(supplied) ? supplied : newRequestId();
@@ -334,6 +336,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     let path = "";
     /** @type {any} */
     let matched = null;
+    /** @type {ReturnType<ReturnType<typeof createWriteIdempotency>["begin"]> | null} */
+    let idem = null;
     try {
       let url;
       try {
@@ -417,17 +421,42 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         ctx.body = parseBody(raw, req.headers["content-type"], bodyMode);
       }
 
+      // Idempotency-Key on the create routes that are not orders (core/idempotency.mjs): a repeat returns the first answer.
+      if (method !== "GET" && method !== "HEAD") {
+        const idemKey = readIdempotencyKey(req.headers);
+        if (idemKey !== undefined) {
+          if (isIdempotentRoute(method, route.pattern)) {
+            const begun = writeIdempotency.begin(`${ctx.principal.kind}:${ctx.principal.id}`, idemKey, requestFingerprint({ method, path: url.pathname, query: url.searchParams, body: ctx.body }));
+            if (begun.replay) {
+              status = begun.reply.status;
+              send(res, new Reply(begun.reply.status, begun.reply.body, { ...begun.reply.headers, "Idempotency-Replayed": "true" }), { ...headers, ...ctx.responseHeaders });
+              return;
+            }
+            idem = begun;
+          } else if (ignoresIdempotencyKey(method, route.pattern)) {
+            ctx.setHeader("Idempotency-Ignored", "true"); // this route does not take the header: do not believe a retry is safe
+          }
+        }
+      }
+
       // Every broker call this request causes is credited to its consumer (API › Rate limits, Top consumers).
       const consumer = httpConsumer({ headers: req.headers, path: url.pathname, principal: ctx.principal });
       const result = await runAsConsumer(consumer, () => route.handler(ctx), ctx);
       if (res.headersSent || res.writableEnded) {
         status = res.statusCode;
+        idem?.release();
         return;
       }
       const reply = result === undefined ? noContent() : config.demo ? labelDemoResult(result) : result;
       status = reply instanceof Reply ? reply.status : 200;
+      if (idem) {
+        const stored = reply instanceof Reply ? reply : json(reply);
+        if (stored.status < 400) idem.done({ status: stored.status, body: stored.body, headers: stored.headers });
+        else idem.release();
+      }
       send(res, reply, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
     } catch (err) {
+      idem?.release(); // a failed write is forgotten, so the same key can retry it
       const problem = toProblem(err, { requestId });
       if (config.demo && problem.code === "ACCOUNT_NOT_FOUND") problem.detail = `${problem.detail ?? ""} ${DEMO_ACCOUNT_HINT}`.trim();
       status = problem.status;

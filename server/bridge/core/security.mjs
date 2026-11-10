@@ -94,9 +94,9 @@ export function createCors({ allowedOrigins = [] }) {
       return {
         "Access-Control-Allow-Origin": origin,
         Vary: "Origin",
-        "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-API-Key, X-Request-Id, X-MCB-Signature",
-        "Access-Control-Expose-Headers": "X-Request-Id, RateLimit, RateLimit-Policy, Retry-After, Idempotency-Replayed",
+        "Access-Control-Expose-Headers": "X-Request-Id, RateLimit, RateLimit-Policy, Retry-After, Idempotency-Replayed, Idempotency-Ignored, X-MCB-Ignored-Params, X-MCB-Param-Hint, X-API-Version",
         "Access-Control-Max-Age": "600",
       };
     },
@@ -120,6 +120,8 @@ export const BASE_HEADERS = Object.freeze({
   "Cache-Control": "no-store",
   "X-Frame-Options": "DENY",
   "Cross-Origin-Resource-Policy": "same-origin",
+  // The contract these answers follow (docs/openapi.yaml: /v1). Under it nothing is removed or renamed; see docs/guides/developers.md.
+  "X-API-Version": "v1",
 });
 
 /**
