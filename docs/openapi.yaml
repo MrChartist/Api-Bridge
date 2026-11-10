@@ -157,6 +157,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
 
+  /v1/ready:
+    get:
+      tags: [System]
+      operationId: getReady
+      summary: Ready to take work (503 while starting or when the disk is full)
+      description: No key needed. 200 when the Bridge has finished starting and can save; 503 otherwise. Callers on this computer also see the reasons. For a Docker health check, a load balancer or a script that waits for the Bridge.
+      x-module: core
+      security: []
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ready" }
+        "503":
+          description: Not ready yet, or the disk is too full to save changes safely.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ready" }
+
   /:
     get:
       tags: [System]
@@ -7031,13 +7051,53 @@ components:
         input: { type: string }
         code: { $ref: "#/components/schemas/ErrorCode" }
         message: { type: string }
+    Ready:
+      type: object
+      required: [ready]
+      properties:
+        ready: { type: boolean }
+        reasons:
+          type: array
+          description: For callers on this computer.
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string, enum: [starting, storage_critical] }
+              message: { type: string }
+              jobs: { type: array, items: { type: object } }
     Health:
       type: object
       required: [status, version, apiVersion]
       properties:
-        status: { type: string, enum: [ok] }
+        status: { type: string, enum: [ok, degraded], description: "`degraded` when something needs attention: little free disk space, a file that could not be saved, a damaged file set aside, the order records damaged, or the kill switch on. The HTTP status stays 200; callers on this computer see `problems`." }
         version: { type: string }
         apiVersion: { type: string }
+        problems:
+          type: array
+          description: For callers on this computer. What is wrong, in plain words. Empty when status is ok.
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string, enum: [storage_low, storage_critical, write_errors, data_quarantined, order_state_damaged, kill_switch_on] }
+              message: { type: string }
+        storage:
+          type: object
+          description: For callers on this computer. Free space on the data folder's disk and how many files could not be saved.
+          properties:
+            level: { type: string, enum: [ok, low, critical] }
+            freeMb: { type: [integer, "null"] }
+            totalMb: { type: [integer, "null"] }
+            minFreeMb: { type: integer }
+            hardFreeMb: { type: integer }
+            checkedAt: { type: [string, "null"], format: date-time }
+            writeErrors:
+              type: object
+              properties:
+                open: { type: integer, description: "Files that could not be written and have not been written since." }
+                total: { type: integer, description: "Failed writes since the Bridge started." }
+                last: { type: [object, "null"] }
         startedAt: { type: string, format: date-time }
         uptimeSeconds: { type: integer }
         demo: { type: boolean, description: "Present and true only in demo mode (sample data, no real broker)." }

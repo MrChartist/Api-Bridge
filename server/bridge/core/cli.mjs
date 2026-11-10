@@ -239,12 +239,12 @@ export function readinessDoctorChecks(config) {
   return out;
 }
 
-async function bootServices(flags, io, { server = false } = {}) {
+async function bootServices(flags, io, { server = false, instanceLock = null } = {}) {
   const { config, warnings, source } = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true });
   const { createApp } = await import("./app.mjs");
   // The server logs at the configured level; one-shot commands only show warnings and errors.
   const logger = createLogger({ level: server || config.logging.level === "debug" ? config.logging.level : "warn" });
-  const app = await createApp({ config, logger, warnings, configFile: configFileForWrites(source, io.env) });
+  const app = await createApp({ config, logger, warnings, configFile: configFileForWrites(source, io.env), ...(instanceLock ? { instanceLock } : {}) });
   return { app, config: app.config, warnings, source, logger };
 }
 
@@ -455,6 +455,10 @@ export async function runCli(positionals, flags, io) {
           await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
           return 0;
         }
+        // One Bridge per data folder: take the lock before reading any file, so a second Bridge is refused with the
+        // other one's process id and port (core/instanceLock.mjs).
+        const { acquireInstanceLock } = await import("./instanceLock.mjs");
+        const instanceLock = acquireInstanceLock({ dataDir: planned.dataDir, port: planned.server.port || null, version: (await import("./app.mjs")).BRIDGE_VERSION });
         // A new Bridge version may change how files are stored: copy the data first (never stops the start).
         const snapshot = await (await import("../backup/manager.mjs")).createBackupManager({
           dataDir: planned.dataDir,
@@ -464,7 +468,13 @@ export async function runCli(positionals, flags, io) {
           env: io.env,
         }).snapshotBeforeStart();
         if (snapshot.message) io.err(snapshot.message);
-        const { app } = await bootServices(flags, io, { server: true });
+        let app;
+        try {
+          ({ app } = await bootServices(flags, io, { server: true, instanceLock }));
+        } catch (err) {
+          instanceLock.release();
+          throw err;
+        }
         let port;
         let publicPort;
         let sheetsPort;

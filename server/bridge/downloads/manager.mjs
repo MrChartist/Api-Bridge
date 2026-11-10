@@ -41,7 +41,7 @@ const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
 const FINISHED = new Set(["done", "failed", "cancelled"]);
 /** Pause reasons that clear by themselves: the job continues when the cause is gone. */
-const AUTO_REASONS = new Set(["kill_switch", "session_lost", "market_hours"]);
+const AUTO_REASONS = new Set(["kill_switch", "session_lost", "market_hours", "disk_low"]);
 const CLASS_RANK = Object.freeze({ realtime: 0, delayed: 1, eod: 2 });
 const TRANSIENT = new Set(["UPSTREAM_RATE_LIMITED", "UPSTREAM_TIMEOUT", "BROKER_UNAVAILABLE"]);
 /** Longest single wait inside a job before it looks at pause, cancel and the kill switch again. */
@@ -112,6 +112,8 @@ export function createDownloadManager(deps, opts = {}) {
   let started = false;
   let stopped = false;
   let diskBytes = 0;
+  /** The disk holding the data folder is nearly full (storage module, topic storage.status): nothing new starts, running jobs wait. */
+  let diskCritical = false;
   let housekeeping = null;
   const unsubs = [];
 
@@ -507,6 +509,7 @@ export function createDownloadManager(deps, opts = {}) {
   }
 
   async function create(body, o = {}) {
+    if (diskCritical) throw new BridgeError("DISK_FULL", "The disk holding the Bridge's data is almost full, so no new download was started. Free some space (delete old downloads and recordings) and try again.");
     const c = cfg();
     const p = await plan(body, o);
     const est = await estimateOf(p, o);
@@ -1325,6 +1328,12 @@ export function createDownloadManager(deps, opts = {}) {
       bus.on("safety.kill_switch", (e) => {
         if (e?.engaged) pauseAuto("kill_switch", "The kill switch is on, so downloads are paused. They continue when it is released.").catch(() => {});
         else resumeAuto("kill_switch").catch(() => {});
+      }),
+      // The storage module's free-space floor: below it, jobs pause (reason disk_low) and continue when there is room again.
+      bus.on("storage.status", (e) => {
+        diskCritical = e?.level === "critical";
+        if (diskCritical) pauseAuto("disk_low", "The disk holding the Bridge's data is almost full, so downloads are paused. They continue when space is freed.").catch(() => {});
+        else resumeAuto("disk_low").catch(() => {});
       }),
       bus.on("account.status", () => onAccountChange().catch(() => {})),
       bus.on("account.session_rejected", () => onAccountChange().catch(() => {})),

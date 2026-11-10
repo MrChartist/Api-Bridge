@@ -43,12 +43,13 @@ const requestOn = (port) => (path, { method = "GET", headers = {}, body } = {}) 
   });
 };
 
-async function boot({ demo, sources = {}, audit = fakeAudit, dataDir: givenDir }) {
+async function boot({ demo, sources = {}, audit = fakeAudit, dataDir: givenDir, shareFolder = false }) {
   const dataDir = givenDir ?? mkdtempSync(join(tmpdir(), "mcb-sources-mod-"));
   const { config } = loadConfig({ raw: { server: { port: 0 }, dataDir, sources }, env: {}, demo });
   const logLines = [];
   const logger = createLogger({ level: "debug", write: (l) => logLines.push(l) });
-  const app = await createApp({ config, modules: [authModule, sourcesModule], overrides: { audit }, logger });
+  // shareFolder: a second Bridge on the folder of a running one (a "restart" next to it), so no data-folder lock
+  const app = await createApp({ config, modules: [authModule, sourcesModule], overrides: { audit }, logger, ...(shareFolder ? { instanceLock: false } : {}) });
   const { port } = await app.listen();
   const { key: admin } = await app.deps.keyStore.create({ label: "cli admin", scopes: ["admin"] });
   const { key: read } = await app.deps.keyStore.create({ label: "reader", scopes: ["read"] });
@@ -300,7 +301,7 @@ describe("PATCH /v1/sources/settings: the automatic fallback switch", () => {
     expect(list.json.meta).toMatchObject({ autoFallback: true, autoFallbackSource: "setting" });
     expect(audits.at(-1)).toMatchObject({ type: "sources.setting_changed", data: { setting: "autoFallback", from: false, to: true } });
     expect(JSON.parse(readFileSync(join(dataDir, "sources", "state.json"), "utf8")).settings).toEqual({ autoFallback: true });
-    const second = await boot({ demo: true, dataDir });
+    const second = await boot({ demo: true, dataDir, shareFolder: true });
     try {
       expect((await second.call("/v1/sources")).json.meta).toMatchObject({ autoFallback: true, autoFallbackSource: "setting" });
       expect(second.app.deps.backupData.autoFallback()).toBe(true);
@@ -313,7 +314,7 @@ describe("PATCH /v1/sources/settings: the automatic fallback switch", () => {
     const off = await env.call("/v1/sources/settings", { method: "PATCH", body: { autoFallback: false } });
     expect(off.json.data).toMatchObject({ autoFallback: false, autoFallbackSource: "setting" });
     expect(audits.at(-1).data).toEqual({ setting: "autoFallback", from: true, to: false });
-    const withConfigOn = await boot({ demo: true, dataDir, sources: { autoFallback: true } });
+    const withConfigOn = await boot({ demo: true, dataDir, sources: { autoFallback: true }, shareFolder: true });
     try {
       expect((await withConfigOn.call("/v1/sources")).json.meta).toMatchObject({ autoFallback: false, autoFallbackSource: "setting" });
     } finally {

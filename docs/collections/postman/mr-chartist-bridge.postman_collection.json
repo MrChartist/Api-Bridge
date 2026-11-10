@@ -41,6 +41,28 @@
           "response": []
         },
         {
+          "name": "Ready to take work (503 while starting or when the disk is full)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Ready to take work (503 while starting or when the disk is full)\n\n- No API key needed.\n\nNo key needed. 200 when the Bridge has finished starting and can save; 503 otherwise. Callers on this computer also see the reasons. For a Docker health check, a load balancer or a script that waits for the Bridge.\n\nReference: docs/api/system/getReady.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "ready"
+              ],
+              "raw": "{{baseUrl}}/v1/ready"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Versions, brokers, modules and routes",
           "request": {
             "description": "Versions, brokers, modules and routes\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/system/getMeta.md in the repository.",

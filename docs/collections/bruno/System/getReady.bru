@@ -1,0 +1,21 @@
+meta {
+  name: Ready to take work (503 while starting or when the disk is full)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/ready
+  body: none
+  auth: none
+}
+
+docs {
+  Ready to take work (503 while starting or when the disk is full)
+
+  - No API key needed.
+
+  No key needed. 200 when the Bridge has finished starting and can save; 503 otherwise. Callers on this computer also see the reasons. For a Docker health check, a load balancer or a script that waits for the Bridge.
+
+  Reference: docs/api/system/getReady.md in the repository.
+}

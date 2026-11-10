@@ -26,6 +26,7 @@
  * handleTick(tick).
  */
 import { join } from "node:path";
+import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { CAPITAL_MAX, CAPITAL_MIN, DEMO_STARTING_CAPITAL, EXCHANGE_SESSION_END, EXCHANGE_SQUARE_OFF, PAPER_DEFAULTS, paperConfig } from "./config.mjs";
 import { DEFAULT_SESSIONS, defaultSessionFor } from "../reference/defaults.mjs";
@@ -183,19 +184,34 @@ export function createPaperEngine(deps, options = {}) {
     interest = next;
   }
 
-  function save(st) {
+  /**
+   * Write a book to disk. A failure is logged and the engine keeps running from memory (a changed stop price, a fill
+   * by the price feed): the next save writes it again. `strict` (a new order) throws instead, so the caller can undo.
+   * @param {object} st
+   * @param {{ strict?: boolean }} [opts]
+   * @returns {boolean} whether it was written
+   */
+  function save(st, { strict = false } = {}) {
     // Keep the last known price of every open position so unrealised P&L survives a restart.
     st.marks = {};
     for (const p of Object.values(st.positions)) {
       const lp = lastPrice.get(p.symbol);
       if (p.netQty !== 0 && lp) st.marks[p.symbol] = { ltp: lp.ltp, at: lp.at };
     }
+    let written = true;
+    let failure = null;
     try {
       store.save(st.accountId, st);
     } catch (err) {
+      written = false;
+      failure = err;
       log?.error?.("paper state could not be saved", { accountId: st.accountId, err });
     }
     recomputeInterest();
+    if (!written && strict) {
+      throw new BridgeError(isDiskFull(failure) ? "DISK_FULL" : "INTERNAL", "The paper order could not be saved to disk, so it was not accepted. Nothing was placed. Free some disk space and try again.", { cause: failure });
+    }
+    return written;
   }
 
   function checkAccountId(accountId) {
@@ -349,6 +365,8 @@ export function createPaperEngine(deps, options = {}) {
     };
   }
 
+  /** While a new order is being applied, events wait here: they go out only once the order is on disk (see place()). */
+  let heldEvents = null;
   function emit(o, extra = {}) {
     const payload = {
       orderId: o.orderId,
@@ -362,7 +380,8 @@ export function createPaperEngine(deps, options = {}) {
       ...extra,
     };
     if (o.clientOrderId) payload.clientOrderId = o.clientOrderId;
-    bus?.emit("order.updated", payload);
+    if (heldEvents) heldEvents.push(payload);
+    else bus?.emit("order.updated", payload);
   }
 
   function setStatus(o, status, message, t, extra) {
@@ -879,33 +898,49 @@ export function createPaperEngine(deps, options = {}) {
       await ensureSpots(bookSymbols(book(accountId), [o.symbol]));
       const st = book(accountId); // re-read: a reset may have replaced the book while we waited
       const t = now();
-      Object.assign(o, {
-        orderId: nextOrderId(),
-        accountId,
-        status: isStop(o.orderType) ? "trigger_pending" : "open",
-        statusMessage: null,
-        filledQuantity: 0,
-        avgPrice: null,
-        triggered: false,
-        placedAt: toIstIso(t),
-        updatedAt: toIstIso(t),
-      });
-      st.ordersToday += 1;
-      const why = refusal(st, o, market, t);
-      st.orders.push(o);
-      if (why) {
-        o.status = "rejected";
-        o.statusMessage = why;
-        emit(o);
-      } else if (!(market && apply(st, o, market, { immediate: true, t }))) {
-        if (o.validity === "IOC" && o.status === "open") {
-          o.status = "cancelled";
-          o.statusMessage = "IOC order could not be matched immediately.";
+      // From here to the save nothing waits (no await), so the book can be put back if the order cannot be saved: a paper
+      // order is never accepted unless it is on disk, and nobody hears about it (events are held) until it is.
+      const before = structuredClone(st);
+      const idsBefore = { ...ids };
+      heldEvents = [];
+      try {
+        Object.assign(o, {
+          orderId: nextOrderId(),
+          accountId,
+          status: isStop(o.orderType) ? "trigger_pending" : "open",
+          statusMessage: null,
+          filledQuantity: 0,
+          avgPrice: null,
+          triggered: false,
+          placedAt: toIstIso(t),
+          updatedAt: toIstIso(t),
+        });
+        st.ordersToday += 1;
+        const why = refusal(st, o, market, t);
+        st.orders.push(o);
+        if (why) {
+          o.status = "rejected";
+          o.statusMessage = why;
+          emit(o);
+        } else if (!(market && apply(st, o, market, { immediate: true, t }))) {
+          if (o.validity === "IOC" && o.status === "open") {
+            o.status = "cancelled";
+            o.statusMessage = "IOC order could not be matched immediately.";
+          }
+          emit(o);
         }
-        emit(o);
+        trim(st);
+        save(st, { strict: true });
+      } catch (err) {
+        heldEvents = null;
+        books.set(accountId, before);
+        ids = idsBefore;
+        recomputeInterest();
+        throw err;
       }
-      trim(st);
-      save(st);
+      const held = heldEvents;
+      heldEvents = null;
+      for (const payload of held) bus?.emit("order.updated", payload);
       return project(o);
     },
 

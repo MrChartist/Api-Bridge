@@ -61,6 +61,7 @@ import {
 } from "./orderValidation.mjs";
 import { bridgeStatus, mapRows, symbolFor, toFunds, toHolding, toPosition, toTrade, unwrap } from "./portfolio.mjs";
 import { findLegInBook } from "./reconcile.mjs";
+import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { createStateFile } from "./stateFile.mjs";
 import { REJECT_REASON_MAX, createTicketBook } from "./tickets.mjs";
 import { DAY_MS, istDay, istIso } from "./time.mjs";
@@ -214,7 +215,8 @@ export function createOrderService(deps) {
       return true;
     } catch (err) {
       log.error("audit append failed", { type, code: err?.code ?? "ERROR" });
-      if (required) throw new BridgeError("INTERNAL", "The audit log could not be written, so the live order was not sent.");
+      // A live order is never sent without its audit record: if it cannot be written, nothing goes out.
+      if (required) throw saveFailure("The audit log could not be written, so the live order was not sent.", err);
       return false;
     }
   }
@@ -958,6 +960,11 @@ export function createOrderService(deps) {
     return o;
   }
 
+  /** The error for "could not be saved": DISK_FULL when the disk is full (the fix is different), else INTERNAL. */
+  function saveFailure(message, err = stateFile?.lastError?.() ?? null) {
+    return isDiskFull(err) || isDiskFull(err?.cause) ? new BridgeError("DISK_FULL", `${message} The disk is full: free some space and try again.`) : new BridgeError("INTERNAL", message);
+  }
+
   /** A damaged order-records file was set aside (stateFile.mjs): no live order until the owner has checked the order book. */
   function assertOrderStateUsable() {
     const d = stateFile?.damage();
@@ -1031,7 +1038,7 @@ export function createOrderService(deps) {
       live.set(liveRec.order.orderId, liveRec);
       if (scopeKey) idem.attach(scopeKey, { orderId: liveRec.order.orderId, accountId: p.summary.id, mode: "live" });
       if (cid) idem.linkClientId(cid.accountId, cid.clientOrderId, cid.day, { orderId: liveRec.order.orderId, mode: "live" });
-      if (!persist()) throw new BridgeError("INTERNAL", "The order record could not be saved to disk, so the live order was not sent.");
+      if (!persist()) throw saveFailure("The order record could not be saved to disk, so the live order was not sent.");
       audited = true;
       await audit(ctx, "order.requested", { accountId: p.summary.id, required: true, data: { orderId: liveRec.order.orderId, mode: "live", order: auditOrder(liveRec.order), legs: p.legs, warnings } });
 

@@ -312,10 +312,7 @@ describe("delivery", () => {
     await b.svc.create(SUB);
     for (let i = 1; i <= 6; i += 1) order(b, i);
     await b.svc.pump();
-    expect(peak).toBe(2);
-    expect(rx.calls).toHaveLength(2);
-    await b.svc.pump();
-    await b.svc.pump();
+    expect(peak).toBe(2); // never more than `concurrency` at once, and slots are refilled as attempts end
     expect(rx.calls).toHaveLength(6);
   });
 
@@ -373,7 +370,7 @@ describe("durability", () => {
     expect(text).not.toContain(SECRET);
   });
 
-  it("notices a lost secret at start and says so in plain words; delivery waits in the dead letters until it is set again", async () => {
+  it("notices a lost secret at start and says so in plain words; deliveries wait in the queue (not the dead letters) until it is set again", async () => {
     const dir = tmpDir();
     const secrets = createFakeSecretStore();
     const a = bootWebhooks({ dir, secrets });
@@ -388,15 +385,13 @@ describe("durability", () => {
     order(b);
     await b.svc.pump();
     expect(b.receiver.calls).toEqual([]);
-    const [d] = b.svc.deadLetters(s.id);
-    expect(d).toMatchObject({ reason: "secret_missing" });
-    expect(d.message).toMatch(/signing secret is missing/);
-    expect(b.svc.deliveries(s.id)[0]).toMatchObject({ outcome: "dead", code: "secret_missing" });
+    // OPS-15: the delivery is held, not thrown away
+    expect(b.svc.deadLetters(s.id)).toEqual([]);
+    expect(b.svc.get(s.id)).toMatchObject({ pending: 1, health: { state: "needs-secret" } });
     await expect(b.svc.test(s.id)).rejects.toMatchObject({ code: "STATE_CONFLICT" });
-    // set it again, send the dead letter again
+    // set it again: the held delivery goes out
     await b.svc.update(s.id, { secret: SECRET, url: URL_OK });
     expect(b.svc.get(s.id).health.state).not.toBe("needs-secret");
-    await b.svc.retryDead(s.id, d.id);
     await b.svc.pump();
     expect(b.receiver.calls).toHaveLength(1);
     expect(b.receiver.calls[0].signatureOk).toBe(true);

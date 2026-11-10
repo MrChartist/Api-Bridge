@@ -32,8 +32,11 @@ export function createStateFile(path, { logger, now = () => Date.now() } = {}) {
     // A marker that cannot be read still means "damaged": fail closed.
     damaged = { at: new Date(now()).toISOString(), file: path, movedTo: null, reason: "the damage marker itself could not be read" };
   }
+  let lastError = null;
   return {
     path,
+    /** The error of the last failed write, or null when the last write worked. */
+    lastError: () => lastError,
     /** The damage that is still waiting for the owner, or null. */
     damage: () => (damaged ? { ...damaged } : null),
     /** The owner checked the order book: clear the marker. @returns {boolean} whether there was one */
@@ -66,8 +69,10 @@ export function createStateFile(path, { logger, now = () => Date.now() } = {}) {
     write(data) {
       try {
         writeFileAtomic(path, JSON.stringify({ version: STATE_VERSION, ...data }));
+        lastError = null;
         return true;
       } catch (err) {
+        lastError = err;
         logger?.error("orders state file could not be written", { path, err: String(err?.message ?? err), code: err?.code });
         return false;
       }

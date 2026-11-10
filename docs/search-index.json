@@ -143,7 +143,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "217 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "218 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -2018,6 +2018,15 @@
     },
     {
       "headings": [
+        "GET /v1/ready"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getReady.md",
+      "text": "GET /v1/ready. No key needed.",
+      "title": "Ready to take work (503 while starting or when the disk is full)"
+    },
+    {
+      "headings": [
         "GET /"
       ],
       "kind": "endpoint",
@@ -2146,7 +2155,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 212 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 213 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {

@@ -45,6 +45,8 @@ export const EVENT_TOPICS = Object.freeze(
     { topic: "backup.completed", scope: "admin", accounts: false, description: "A backup was written." },
     { topic: "backup.failed", scope: "admin", accounts: false, description: "A backup could not be written." },
     { topic: "config.warning", scope: "admin", accounts: false, description: "The Bridge found something in the config worth fixing." },
+    { topic: "storage.status", scope: "admin", accounts: false, description: "Free space on the Bridge's disk became low, critical or normal again." },
+    { topic: "data.quarantined", scope: "admin", accounts: false, description: "A damaged data file was set aside and the Bridge started without it." },
   ].map((t) => Object.freeze(t)),
 );
 
