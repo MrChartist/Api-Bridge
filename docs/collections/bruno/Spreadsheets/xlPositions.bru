@@ -14,8 +14,10 @@ params:query {
   ~account: demo-paper
   ~open: false
   ~mode: paper
+  ~limit: 1
   ~format: csv
   ~cache: false
+  ~errors: 200
 }
 
 auth:bearer {
@@ -27,7 +29,7 @@ docs {
 
   - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
 
-  Columns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer gives one row with its name and an `error` text; the others are unaffected. Read-only.
+  Columns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer (logged out, broker down) gives one row with its name and an `error` text; the others are unaffected, and a logged-out account is never left out. Read-only.
 
   Reference: docs/api/spreadsheets/xlPositions.md in the repository.
 }

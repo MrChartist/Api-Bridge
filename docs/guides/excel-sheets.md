@@ -146,6 +146,12 @@ sheet needs; `mc-bridge doctor` warns about it.
    (1, 5, 10, 15 and 30 are the intervals Google allows).
 5. Or use `=BRIDGE_QUOTES(A5:A30)` in any cell: the whole range in one request, with the freshness columns.
 
+The script puts each value under the column of the same name, so a column the Bridge adds (such as `demo`) cannot shift
+anything. Each sheet is refreshed on its own: a problem on one shows as `ERROR: ...` in that sheet's cell A2 and the others
+still refresh. An answer that is not a Bridge table (a tunnel's notice page) leaves the old values in place and shows
+`NO ANSWER: The answer is not a Bridge table ...`. The script is run against a demo Bridge for every sheet in the tests;
+it has **not** been run in Google's own Apps Script, so the first run there is yours.
+
 Google's own limits (Apps Script quotas page): 20,000 URL Fetch calls a day for a consumer account (100,000 for
 Workspace), 90 minutes a day of trigger run time on a consumer account, 30 seconds for a custom function. One refresh
 is at most five requests, so every minute is about 7,200 a day. Every 5 minutes is plenty for a book, and gentler on

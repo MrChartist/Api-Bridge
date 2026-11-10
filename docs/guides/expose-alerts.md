@@ -148,6 +148,7 @@ mc-bridge expose sheets --provider cloudflare --host sheet.example.com --yes
 | `--port` | The listener's local port (default 4301 for alerts, 4302 for Sheets) |
 | `--allow-ips` | `tradingview` (default for alerts), `none`, or a comma-separated list of addresses or IPv4 ranges |
 | `--yes` | Ask nothing; fail with a clear message if something needed is missing |
+| `--dry-run` | Print what would change and stop: nothing is written and no backup copy is made, even with `--yes` (also for `expose off`). With `--json`, the plan |
 | `--check` | Run the self-check right after writing (the Bridge must already run with the new settings) |
 | `--public-url` and `--allow-outbound` | With `check`: also test the public address from this computer |
 | `--json` | One JSON object instead of text |
