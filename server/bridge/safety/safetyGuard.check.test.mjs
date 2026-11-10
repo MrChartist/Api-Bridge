@@ -36,11 +36,12 @@ function rig({ safety = {}, accounts, t = MON_OPEN, reference, env = {}, dir, ma
   const events = [];
   bus.on("safety.limit", (e) => events.push(e));
   const stateDir = dir ?? mkdtempSync(join(tmpdir(), "mcb-guard-check-"));
+  const audit = createFakeAuditLog({ clock });
   const guard = createSafetyGuard(
-    { config, logger: createNullLogger(), bus, clock, paths: { dataDir: stateDir }, audit: createFakeAuditLog({ clock }), accounts: notImplementedService("accounts"), ...(reference ? { reference } : {}) },
+    { config, logger: createNullLogger(), bus, clock, paths: { dataDir: stateDir }, audit, accounts: notImplementedService("accounts"), ...(reference ? { reference } : {}) },
     { env, dir: stateDir, ...(marketSession ? { marketSession } : {}) },
   );
-  return { guard, clock, config, events, dir: stateDir };
+  return { guard, clock, config, events, dir: stateDir, audit };
 }
 
 const ctx = (scopes = ["paper", "live"], accountsAllowed = "*") => {
@@ -289,13 +290,14 @@ describe("market hours (live orders are refused when the market is closed; paper
     expect((await guard.check(ctx(), place())).ok).toBe(true);
   });
 
-  it("MCX and CDS follow their own weekday windows: MCX 09:00 to 23:55, CDS 09:00 to 17:00, never at the weekend", async () => {
+  it("MCX and CDS use short, unverified weekday windows: MCX 09:00 to 23:30 (never the later 23:55), CDS 09:00 to 17:00, never at the weekend", async () => {
     const sym = (s) => place({ order: { ...place().order, symbol: s }, ltp: 100 });
     const cases = [
       ["MCX:CRUDEOIL-2026-10-19-FUT", at(19, 8, 59), false],
       ["MCX:CRUDEOIL-2026-10-19-FUT", at(19, 9, 0), true],
-      ["MCX:CRUDEOIL-2026-10-19-FUT", at(19, 23, 54), true],
-      ["MCX:CRUDEOIL-2026-10-19-FUT", at(19, 23, 55), false],
+      ["MCX:CRUDEOIL-2026-10-19-FUT", at(19, 23, 29), true],
+      ["MCX:CRUDEOIL-2026-10-19-FUT", at(19, 23, 30), false],
+      ["MCX:CRUDEOIL-2026-10-19-FUT", at(19, 23, 54), false],
       ["MCX:CRUDEOIL-2026-10-19-FUT", at(24, 12, 0), false],
       ["CDS:USDINR-2026-10-28-FUT", at(19, 16, 59), true],
       ["CDS:USDINR-2026-10-28-FUT", at(19, 17, 0), false],
@@ -306,7 +308,7 @@ describe("market hours (live orders are refused when the market is closed; paper
       const v = await guard.check(ctx(), sym(symbol));
       expect(v.ok, `${symbol} at ${new Date(t).toISOString()}`).toBe(ok);
       if (!ok) expect(v.reasons[0]).toMatchObject({ code: "MARKET_CLOSED", rule: "marketHours" });
-      else expect(v.warnings.join(" ")).toMatch(/holidays are not checked/);
+      else expect(v.warnings.join(" ")).toMatch(/unverified/);
     }
     const { guard } = rig({ t: at(24, 12) });
     expect((await guard.check(ctx(), { ...paperPlace(), order: { ...place().order, symbol: "MCX:CRUDEOIL-2026-10-19-FUT" } })).ok).toBe(true); // paper only warns
@@ -453,5 +455,53 @@ describe("tightening limits for the rest of the day (nothing at runtime can loos
     await first.guard.tightenLimits(ctx(), null, { dailyMaxOrders: 50 });
     const second = rig({ dir: first.dir, safety: { dailyMaxOrders: 20 } });
     expect(second.guard.limits("live-acc").limits.dailyMaxOrders).toBe(20);
+  });
+});
+
+describe("the audit trail of refusals folds only identical repeats", () => {
+  const ctxOf = (id) => {
+    const c = createCallContext({ source: "rest", key: { id, label: id, scopes: ["paper"], accounts: "*" }, log: createNullLogger() });
+    c.loopback = true;
+    return c;
+  };
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+  const tryPlace = (symbol, quantity) => place({ order: { ...place().order, symbol, quantity }, quantity });
+
+  it("another key, another symbol or another size inside the minute gets its own record; a true repeat is counted, not repeated", async () => {
+    const { guard, audit, clock } = rig();
+    await guard.check(ctxOf("agent-key"), tryPlace("NSE:RELIANCE", 1)); // refused: no live scope
+    clock.t += 5_000;
+    await guard.check(ctxOf("other-key"), tryPlace("NSE:TCS", 5000));
+    await guard.check(ctxOf("agent-key"), tryPlace("NSE:TCS", 1));
+    await guard.check(ctxOf("agent-key"), tryPlace("NSE:RELIANCE", 2));
+    await flush();
+    const rec = audit.ofType("safety.refused");
+    expect(rec.map((r) => [r.data.keyId, r.data.symbol, r.data.quantity])).toEqual([
+      ["agent-key", "NSE:RELIANCE", 1],
+      ["other-key", "NSE:TCS", 5000],
+      ["agent-key", "NSE:TCS", 1],
+      ["agent-key", "NSE:RELIANCE", 2],
+    ]);
+    // identical repeats: one more record only after the minute, carrying the count
+    for (let i = 0; i < 3; i += 1) await guard.check(ctxOf("other-key"), tryPlace("NSE:TCS", 5000));
+    await flush();
+    expect(audit.ofType("safety.refused")).toHaveLength(4);
+    clock.t += 61_000;
+    await guard.check(ctxOf("other-key"), tryPlace("NSE:TCS", 5000));
+    await flush();
+    const all = audit.ofType("safety.refused");
+    expect(all).toHaveLength(5);
+    expect(all[4].data.suppressed).toBe(3);
+  });
+});
+
+describe("a live order outside the years of the shipped holiday list", () => {
+  const T2027 = Date.UTC(2027, 0, 26, 4, 30); // Tuesday 26 January 2027 10:00 IST (Republic Day, not in the shipped list)
+  it("is not refused but carries a loud NOT HOLIDAY-CHECKED warning; paper and covered dates carry none", async () => {
+    const v = await rig({ t: T2027 }).guard.check(ctx(), place());
+    expect(v.ok).toBe(true);
+    expect(v.warnings.join(" ")).toMatch(/NOT HOLIDAY-CHECKED.*does not cover 2027/);
+    expect((await rig({ t: T2027 }).guard.check(ctx(), paperPlace())).warnings.join(" ")).not.toMatch(/HOLIDAY-CHECKED/);
+    expect((await rig().guard.check(ctx(), place())).warnings.join(" ")).not.toMatch(/HOLIDAY-CHECKED/);
   });
 });

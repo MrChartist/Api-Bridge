@@ -29,6 +29,31 @@ describe("the shipped session rules", () => {
     }
   });
 
+  it("a verified row's note never says the circular was not opened or read (the flag and the note agree)", () => {
+    for (const r of SHIPPED_SESSIONS.rules) {
+      if (r.verified) expect(r.note ?? "", r.id).not.toMatch(/\b(not|never|n't)\b[^.]{0,30}\b(opened|read)\b/i);
+    }
+  });
+
+  it("the derivatives rows quote the paragraph they rest on: the 15:40 and 15:45 times and the expiring index wording", () => {
+    const { rules } = shippedSessionRules();
+    expect(ruleFor(rules, "NFO", "2026-08-03").note).toMatch(/3:40 p\.m\./);
+    const dec = ruleFor(rules, "NFO", "2026-12-07").note;
+    expect(dec).toMatch(/3:45 p\.m\./);
+    expect(dec).toMatch(/expiry days.*expiring index derivatives contracts ceases at 3:30 p\.m\./);
+  });
+
+  it("the same derivatives rows with verified:false could not lengthen the live window past 15:30", () => {
+    const { rules, gateFloor } = shippedSessionRules();
+    for (const d of ["2026-08-03", "2026-12-07"]) {
+      const row = { ...ruleFor(rules, "NFO", d), verified: false };
+      const win = windowOfRule(row, gateFloor);
+      expect(win.close).not.toBe("15:30"); // shown read-only as the data states it
+      expect(win.gate.close).toBe("15:30");
+      expect(closeOf(win, d, { gate: true, instrument: { kind: "stock", expiry: null } })).toBe("15:30");
+    }
+  });
+
   it("the rows of one segment follow each other without a gap or an overlap", () => {
     for (const seg of ["cash", "derivatives"]) {
       const rows = SHIPPED_SESSIONS.rules.filter((r) => r.segment === seg).sort((a, b) => (a.from < b.from ? -1 : 1));
