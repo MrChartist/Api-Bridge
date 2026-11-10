@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-221 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+222 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -158,6 +158,7 @@ Paper and live orders with idempotency and safety checks.
 | [POST /v1/orders/batch](orders/placeOrderBatch.md) | Place up to 20 independent orders in one call | `paper` |
 | [POST /v1/orders/cancel-all](orders/cancelAllOrders.md) | Cancel every open order for an account (or all accounts this key may use) | `paper` |
 | [POST /v1/orders/state/acknowledge](orders/acknowledgeOrderState.md) | Allow live orders again after the order records were damaged | `admin`, this computer only |
+| [GET /v1/orders/drift](orders/getOrderDrift.md) | Does the broker's order book match the Bridge's live orders? (read-only check) | `read` |
 | [GET /v1/orders/by-client-id/{clientOrderId}](orders/getOrderByClientId.md) | Look up an order by your own clientOrderId | `read` |
 | [GET /v1/orders/{orderId}](orders/getOrder.md) | One order (refreshed from the broker for live orders) | `read` |
 | [PATCH /v1/orders/{orderId}](orders/modifyOrder.md) | Modify an open order | `paper` |

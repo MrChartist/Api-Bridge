@@ -86,6 +86,8 @@ describe("every tool is called once, against the demo Bridge", () => {
       get_option_chain: () => ({ underlying: "NIFTY", expiry: expiries[0], strikes: 2 }),
       search_instruments: () => ({ query: "RELIANCE", limit: 5 }),
       convert_symbol: () => ({ input: "NSE:RELIANCE" }),
+      resolve_symbol: () => ({ query: "RELIANCE" }),
+      market_status: () => ({ exchange: "NSE" }),
       option_chain_summary: () => ({ underlying: "NIFTY", expiry: expiries[0] }),
       history_summary: () => ({ symbol: "NSE:RELIANCE", interval: "1d", countback: 5 }),
       list_accounts: () => ({}),
@@ -143,6 +145,39 @@ describe("every tool is called once, against the demo Bridge", () => {
     called.push("prepare_order", "check_order_ticket", "submit_confirmed_order");
 
     expect(called.sort()).toEqual(TOOL_DEFS.map((t) => t.name).sort());
+  });
+});
+
+describe("assistants can tell if the market is open and can resolve a name", () => {
+  it("market_status answers for an exchange; resolve_symbol never guesses; search_instruments can narrow by underlying and expiry", async () => {
+    const client = await connect(keys.read);
+    const call = (name, args) => client.callTool({ name, arguments: args });
+    const st = await call("market_status", { exchange: null });
+    expect(st.isError, text(st)).toBeFalsy();
+    expect(st.structuredContent.data).toMatchObject({ exchange: "NSE", status: expect.stringMatching(/^(open|pre-open|closed)$/), asOf: expect.stringMatching(/\+05:30$/) });
+    const nfo = await call("market_status", { exchange: "NFO" });
+    expect(nfo.structuredContent.data.exchange).toBe("NFO");
+    expect((await call("market_status", { exchange: "MCX" })).isError).toBe(true); // not in the Bridge's session list
+
+    const one = await call("resolve_symbol", { query: "NSE:RELIANCE", exchange: null, kind: null });
+    expect(one.isError, text(one)).toBeFalsy();
+    expect(one.structuredContent.data).toMatchObject({ status: "resolved", symbol: "NSE:RELIANCE" });
+    const none = await call("resolve_symbol", { query: "zzzzqqqq", exchange: null, kind: null });
+    expect(none.isError).toBeFalsy();
+    expect(none.structuredContent.data).toMatchObject({ status: "not_found", symbol: null });
+    const vague = await call("resolve_symbol", { query: "nifty", exchange: null, kind: null });
+    expect(["resolved", "ambiguous"]).toContain(vague.structuredContent.data.status);
+    if (vague.structuredContent.data.status === "ambiguous") {
+      expect(vague.structuredContent.data.symbol).toBeNull();
+      expect(vague.structuredContent.data.candidates.length).toBeGreaterThan(1);
+    }
+
+    const expiries = (await call("get_expiries", { underlying: "NIFTY" })).structuredContent.data.expiries;
+    const narrowed = await call("search_instruments", { query: "nifty", exchange: null, kind: null, underlying: "NIFTY", expiry: expiries[0], limit: 50, cursor: null });
+    expect(narrowed.isError, text(narrowed)).toBeFalsy();
+    const rows = narrowed.structuredContent.data;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.underlying === "NIFTY" && r.expiry === expiries[0])).toBe(true);
   });
 });
 

@@ -47,6 +47,12 @@ Same guarantees as the Python client: an `Idempotency-Key` on every order write,
 an error is retryable, never a blind retry of a write (`BridgeConnectionError` with `outcomeUnknown: true`), the key
 sent only as a header, and single-use stream tokens.
 
+## What the data is for, and smaller answers
+
+Every market read takes `purpose` (`"display"`, `"analysis"`, `"alert"`, `"paper"`, `"risk"` or `"order"`):
+`await bridge.ltp(["NSE:NIFTY"], { purpose: "order" })`. The Bridge refuses data that is not good enough for it. `history()` also takes
+`timeIso`, `tz` (`"IST"` or `"UTC"`) and `fields`, and `quotes()` takes `fields`; see [developers](developers.md).
+
 ## Downloads, recordings, collections, history and events
 
 The Bridge can fetch history for many symbols in the background and keep it as files, record option chains and quotes going

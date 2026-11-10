@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- API: daily candles carry the IST `date`; `timeIso` and `tz` on history; one documented time rule; ETag, 304 and gzip on history, chain, instrument search and the spec; `fields=` on quotes, candles and instrument search; MCP `market_status`, `resolve_symbol` and `underlying`/`expiry` search filters; `purpose` in the Python and Node SDK reads.
 - Order-book check ([docs/guides/orders-drift.md](docs/guides/orders-drift.md)): a read-only, periodic compare of the Bridge's live orders with the broker's order book (`GET /v1/orders/drift`, readiness `orderBook`, event `orders.drift`, a Telegram line, a Safety card). It never changes or cancels anything.
 
 - Tests: `npm run test:future` runs the whole suite with the clock moved forward (CI at 100 days); three tests that would have failed

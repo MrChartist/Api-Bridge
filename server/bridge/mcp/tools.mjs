@@ -28,6 +28,8 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { createCalendarView } from "../market/calendarView.mjs";
+import { publicCandidate } from "../symbols/routes.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 import { DEFAULT_TOOLSETS, mcpConfig } from "./config.mjs";
 
@@ -368,13 +370,15 @@ export const TOOL_DEFS = Object.freeze([
         query: z.string().min(1).max(64),
         exchange: exchangeIn.nullable(),
         kind: z.enum(["INDEX", "EQ", "FUT", "OPT"]).nullable(),
+        underlying: z.string().min(1).max(30).nullable().describe("Only contracts on this underlying, for example NIFTY; null for any."),
+        expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().describe("Only contracts expiring on this date (YYYY-MM-DD); null for any."),
         limit: limitIn,
         cursor: cursorIn,
       }),
     output: z.strictObject({ data: z.array(z.looseObject({ canonical: z.string() })), meta: metaOut, untrusted: z.literal(true) }),
     annotations: READ_LOCAL,
     handler: async (a, _ctx, rt) => {
-      const r = await svc(rt.deps, "symbols").search({ q: a.query, exchange: a.exchange, kind: a.kind, limit: Math.min(a.limit ?? 20, rt.cfg.maxItems), cursor: a.cursor });
+      const r = await svc(rt.deps, "symbols").search({ q: a.query, exchange: a.exchange, kind: a.kind, ...(a.underlying ? { underlying: a.underlying } : {}), ...(a.expiry ? { expiry: a.expiry } : {}), limit: Math.min(a.limit ?? 20, rt.cfg.maxItems), cursor: a.cursor });
       return { data: r.items ?? [], meta: { nextCursor: r.nextCursor ?? null } };
     },
   },
@@ -393,6 +397,38 @@ export const TOOL_DEFS = Object.freeze([
     output: z.strictObject({ data: z.looseObject({ canonical: z.string(), aliases: z.record(z.string(), z.string()) }), meta: metaOut, untrusted: z.literal(true) }),
     annotations: READ_LOCAL,
     handler: async (a, _ctx, rt) => ({ data: await svc(rt.deps, "symbols").convert({ input: a.input, from: a.from ?? "auto", broker: a.broker, exchange: a.exchange }) }),
+  },
+  {
+    name: "resolve_symbol",
+    title: "Resolve a name to a symbol",
+    toolset: "market",
+    description: "Turn a name or a loose symbol (RELIANCE, nifty 25000 ce, banknifty fut) into one canonical symbol, with the rule used and how sure the match is. When more than one instrument fits, it says so and lists the candidates instead of guessing: ask the person which one.",
+    input: () => z.strictObject({ query: z.string().min(1).max(64), exchange: exchangeIn.nullable(), kind: z.enum(["INDEX", "EQ", "FUT", "OPT"]).nullable() }),
+    output: z.strictObject({ data: z.looseObject({ status: z.enum(["resolved", "ambiguous", "not_found"]), candidates: z.array(anyObj) }), meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => {
+      const r = await svc(rt.deps, "symbols").resolveInput({ q: a.query, exchange: a.exchange ?? undefined, kind: a.kind ?? undefined, limit: 10 });
+      return {
+        data: {
+          status: r.status,
+          input: r.input,
+          symbol: r.status === "resolved" ? r.symbol : null,
+          confidence: r.confidence ?? null,
+          rule: r.rule ?? null,
+          candidates: (r.candidates ?? []).slice(0, 10).map(publicCandidate),
+        },
+      };
+    },
+  },
+  {
+    name: "market_status",
+    title: "Is the market open?",
+    toolset: "market",
+    description: "Whether an exchange is open, in pre-open or closed right now (IST), why, and when it next opens, from the Bridge's holiday and session-hours list. Check it before saying a price is live.",
+    input: () => z.strictObject({ exchange: z.enum(["NSE", "BSE", "NFO", "BFO"]).nullable().describe("Exchange; null for NSE. (The Bridge has no session list for MCX or CDS.)") }),
+    output: z.strictObject({ data: z.looseObject({ exchange: z.string(), status: z.enum(["open", "pre-open", "closed"]), asOf: z.string() }), meta: metaOut, untrusted: z.literal(true) }),
+    annotations: READ_LOCAL,
+    handler: async (a, _ctx, rt) => ({ data: createCalendarView({ now: rt.now }).status(a.exchange ?? "NSE") }),
   },
 
   // ── analytics ──

@@ -144,7 +144,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "221 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "222 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -1290,6 +1290,15 @@
     },
     {
       "headings": [
+        "GET /v1/orders/drift"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/getOrderDrift.md",
+      "text": "GET /v1/orders/drift. The last result of the order-book check.",
+      "title": "Does the broker's order book match the Bridge's live orders? (read-only check)"
+    },
+    {
+      "headings": [
         "GET /v1/orders"
       ],
       "kind": "endpoint",
@@ -2183,7 +2192,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 216 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 217 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {
@@ -2362,6 +2371,8 @@
         "Errors",
         "Pagination",
         "A parameter the Bridge does not know",
+        "Times and time zones",
+        "Big answers: fields, ETag and gzip",
         "Idempotency",
         "Events",
         "Data downloads",
@@ -2552,6 +2563,18 @@
       "path": "docs/guides/operations.md",
       "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). What the Bridge does to stay up, what it tells you when something is wrong, and what to do about it. Everything here is for a Bridge on your own computer or server. Run...",
       "title": "Running the Bridge day to day"
+    },
+    {
+      "headings": [
+        "When it runs",
+        "What it reports",
+        "Where you see it",
+        "What it does not do"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/orders-drift.md",
+      "text": "The Bridge keeps its own record of the live orders it sent. Your broker keeps the real order book. They can disagree: you cancel an order in the broker app, an order fills while the computer was asleep, or an order was placed outside the Bridge. The order-book check compares the...",
+      "title": "Order-book check"
     },
     {
       "headings": [
@@ -2755,6 +2778,7 @@
     },
     {
       "headings": [
+        "What the data is for, and smaller answers",
         "Downloads, recordings, collections, history and events",
         "Browser apps"
       ],

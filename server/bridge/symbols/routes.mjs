@@ -60,7 +60,7 @@ export function toPublicInstrument(r, { withRefs = false } = {}) {
 }
 
 /** One candidate on the wire: the instrument's key fields plus why it matched. */
-const publicCandidate = (c) => {
+export const publicCandidate = (c) => {
   const i = c.instrument;
   return { symbol: i.canonical, exchange: i.exchange, kind: i.kind, name: i.name ?? null, expiry: i.expiry, strike: i.strike, right: i.right, lotSize: i.lotSize, tickSize: i.tickSize, reason: c.reason };
 };

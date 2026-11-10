@@ -315,9 +315,11 @@ class Bridge:
 
     # ── market data ──
 
-    def ltp(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Result[Ltp]:
-        """Last prices of up to 200 symbols. Symbols that failed are in ``result.errors``; the rest are returned."""
-        r = self.client.ltp(symbols, account=account, max_age_ms=max_age_ms)
+    def ltp(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None, purpose: Optional[str] = None) -> Result[Ltp]:
+        """Last prices of up to 200 symbols. Symbols that failed are in ``result.errors``; the rest are returned.
+        ``purpose`` ("display", "analysis", "alert", "paper", "risk" or "order") says what the price is for: the Bridge refuses a price
+        that is not good enough for it (delayed or end-of-day data never feeds an order, a risk check or an alert)."""
+        r = self.client.ltp(symbols, account=account, max_age_ms=max_age_ms, purpose=purpose)
         return Result([Ltp.from_dict(i) for i in r.get("data") or []], r.get("meta"), problems_from(r.get("errors")))
 
     def price(self, symbol: str, **kw: Any) -> Ltp:
@@ -328,8 +330,8 @@ class Bridge:
             raise error_from_problem({"status": 404, "code": e.code if e else "SYMBOL_NOT_FOUND", "detail": e.message if e else "No price for %s." % symbol})
         return res[0]
 
-    def quotes(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Result[Quote]:
-        r = self.client.quotes(symbols, account=account, max_age_ms=max_age_ms)
+    def quotes(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None, purpose: Optional[str] = None) -> Result[Quote]:
+        r = self.client.quotes(symbols, account=account, max_age_ms=max_age_ms, purpose=purpose)
         return Result([Quote.from_dict(i) for i in r.get("data") or []], r.get("meta"), problems_from(r.get("errors")))
 
     def quote(self, symbol: str, **kw: Any) -> Quote:
@@ -339,15 +341,15 @@ class Bridge:
             raise error_from_problem({"status": 404, "code": e.code if e else "SYMBOL_NOT_FOUND", "detail": e.message if e else "No quote for %s." % symbol})
         return res[0]
 
-    def depth(self, symbol: str, *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Depth:
-        return Depth.from_dict(self.client.depth(symbol, account=account, max_age_ms=max_age_ms)["data"])
+    def depth(self, symbol: str, *, account: Optional[str] = None, max_age_ms: Optional[int] = None, purpose: Optional[str] = None) -> Depth:
+        return Depth.from_dict(self.client.depth(symbol, account=account, max_age_ms=max_age_ms, purpose=purpose)["data"])
 
     def history(self, symbol: str, interval: str, *, countback: Optional[int] = None, from_: Optional[Union[str, int]] = None, to: Optional[Union[str, int]] = None, account: Optional[str] = None,
-                local_first: Optional[bool] = None, dataset: Optional[str] = None) -> History:
+                local_first: Optional[bool] = None, dataset: Optional[str] = None, purpose: Optional[str] = None) -> History:
         """Candles (ascending) with their label. Needs ``countback``, or ``from_`` and ``to``. The data may be delayed or
         end-of-day when a free source served it: read ``history.freshness`` before using it for anything but analysis.
         ``local_first=True`` serves bars the Bridge already stored (``dataset="name"`` for one dataset) and asks the broker only for the rest."""
-        r = self.client.history(symbol, interval, from_=from_, to=to, countback=countback, account=account, local_first=local_first, dataset=dataset)
+        r = self.client.history(symbol, interval, from_=from_, to=to, countback=countback, account=account, local_first=local_first, dataset=dataset, purpose=purpose)
         return History.from_dict(r["data"])
 
     def history_all(self, symbol: str, interval: str, from_: Any, to: Any = None, *, chunk_days: Optional[int] = None, local_first: bool = False, dataset: Optional[str] = None,
@@ -362,9 +364,9 @@ class Bridge:
         d = self.client.expiries(underlying, exchange=exchange, account=account).get("data") or {}
         return list(d.get("expiries") or [])
 
-    def option_chain(self, underlying: str, expiry: str, *, strikes: Optional[int] = None, greeks: Optional[bool] = None, account: Optional[str] = None) -> Dict[str, Any]:
+    def option_chain(self, underlying: str, expiry: str, *, strikes: Optional[int] = None, greeks: Optional[bool] = None, account: Optional[str] = None, purpose: Optional[str] = None) -> Dict[str, Any]:
         """The option chain as the Bridge's dict (``rows``, ``freshness`` ...); a typed chain is not modelled yet."""
-        return self.client.option_chain(underlying, expiry, strikes=strikes, greeks=greeks, account=account)["data"]
+        return self.client.option_chain(underlying, expiry, strikes=strikes, greeks=greeks, account=account, purpose=purpose)["data"]
 
     # ── portfolio ──
 

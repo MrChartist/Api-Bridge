@@ -117,6 +117,21 @@ class ReadTests(Base):
         self.assertEqual(requests()[-1]["query"]["greeks"], "false")
         self.assertEqual(c.quotes("NSE:RELIANCE")["data"][0]["bid"], 99.95)
 
+    def test_purpose_fields_and_time_options_are_sent(self):
+        c = self.client()
+        c.ltp(["NSE:NIFTY"], purpose="order")
+        self.assertEqual(requests()[-1]["query"]["purpose"], "order")
+        c.quotes("NSE:RELIANCE", purpose="alert", fields=["ltp", "bid"])
+        self.assertEqual(requests()[-1]["query"]["purpose"], "alert")
+        self.assertEqual(requests()[-1]["query"]["fields"], "ltp,bid")
+        c.option_chain("NIFTY", "2026-10-27", purpose="analysis")
+        self.assertEqual(requests()[-1]["query"]["purpose"], "analysis")
+        c.history("NSE:NIFTY", "1d", countback=2, purpose="paper", time_iso=True, tz="UTC", fields="close")
+        q = requests()[-1]["query"]
+        self.assertEqual((q["purpose"], q["timeIso"], q["tz"], q["fields"]), ("paper", "true", "UTC", "close"))
+        c.ltp(["NSE:NIFTY"])
+        self.assertNotIn("purpose", requests()[-1]["query"])
+
     def test_paginate(self):
         c = self.client()
         ids = [o["orderId"] for o in c.paginate(c.orders, account="dhan-main")]

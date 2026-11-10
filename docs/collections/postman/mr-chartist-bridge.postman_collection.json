@@ -669,6 +669,12 @@
                   "value": "{{expiry}}"
                 },
                 {
+                  "description": "Comma-separated columns to keep in each instrument, for example `lotSize,tickSize`. `symbol` is always kept. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list.",
+                  "disabled": true,
+                  "key": "fields",
+                  "value": "lotSize,tickSize"
+                },
+                {
                   "disabled": true,
                   "key": "limit",
                   "value": "100"
@@ -1550,6 +1556,12 @@
                   "value": "NSE:RELIANCE,NSE:NIFTY"
                 },
                 {
+                  "description": "Comma-separated columns to keep in each quote, for example `ltp,bid`. `symbol` and `freshness` (the data-class label) are always kept. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list.",
+                  "disabled": true,
+                  "key": "fields",
+                  "value": "ltp,bid"
+                },
+                {
                   "description": "Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source \"backup\", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources).",
                   "disabled": true,
                   "key": "backup",
@@ -1649,7 +1661,7 @@
         {
           "name": "Historical candles, automatically split across broker limits",
           "request": {
-            "description": "Historical candles, automatically split across broker limits\n\n- An API key with the `read` scope (any key).\n\nGive `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.\n\nReference: docs/api/market-data/getHistory.md in the repository.",
+            "description": "Historical candles, automatically split across broker limits\n\n- An API key with the `read` scope (any key).\n\nGive `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps. Each candle's `time` is epoch seconds; daily, weekly and monthly candles also carry `date`, the IST trading date (a daily bar opens at IST midnight, so the UTC date of `time` is the day before). `timeIso=true` or `tz` adds `timeIso`, the same instant as an ISO string. For times in this API, see \"Times and time zones\" in the Developers guide.\n\nReference: docs/api/market-data/getHistory.md in the repository.",
             "header": [],
             "method": "GET",
             "url": {
@@ -1718,6 +1730,24 @@
                   "disabled": true,
                   "key": "strict",
                   "value": "false"
+                },
+                {
+                  "description": "Comma-separated columns to keep in each candle, for example `close` or `close,date`. `time` is always kept. Naming `timeIso` turns it on. JSON only. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list. The history answer's own `freshness` and `partial` do not change.",
+                  "disabled": true,
+                  "key": "fields",
+                  "value": "close,date"
+                },
+                {
+                  "description": "`true` adds `timeIso` to each candle: the epoch `time` as an ISO-8601 string (IST `+05:30` unless `tz=UTC`). JSON only.",
+                  "disabled": true,
+                  "key": "timeIso",
+                  "value": "false"
+                },
+                {
+                  "description": "Zone of `timeIso`: `IST` (default, `+05:30`) or `UTC` (`Z`). Sending it turns `timeIso` on. JSON only. The epoch `time` and the IST `date` do not change.",
+                  "disabled": true,
+                  "key": "tz",
+                  "value": "IST"
                 },
                 {
                   "description": "`true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`.",
@@ -3005,6 +3035,34 @@
                 "acknowledge"
               ],
               "raw": "{{baseUrl}}/v1/orders/state/acknowledge"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Does the broker's order book match the Bridge's live orders? (read-only check)",
+          "request": {
+            "description": "Does the broker's order book match the Bridge's live orders? (read-only check)\n\n- An API key with the `read` scope (any key).\n\nThe last result of the order-book check. While live trading is on, a live account is logged in and the market is open,\nthe Bridge reads the broker's order book now and then (default every 5 minutes, at the lowest priority of the rate-limit\nscheduler) and compares it with its own record of live orders. This route makes no broker call: it reports what the last\ncheck found.\n\nThe check only compares and reports. It never changes the Bridge's record, and never places, modifies or cancels an\norder. A difference is for you to look at in your broker app. Paper accounts are not checked.\n\n`differences[].kind`: `closed_at_broker` (the Bridge has the order open, the broker shows it finished), `missing_at_broker`\n(the Bridge has it open, the broker has no such order), `status_mismatch`, `quantity_mismatch`, `fill_mismatch`,\n`unknown_at_broker` (an open broker order the Bridge did not place) and `outcome_unknown` (the Bridge does not know\nwhether it placed the order; `brokerMatches` lists the broker's orders that fit it). A key sees only its own accounts.\nThe same result is the `orderBook` item of `GET /v1/readiness`, the bus topic `orders.drift` and a card on the Safety page.\n\nReference: docs/api/orders/getOrderDrift.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                "drift"
+              ],
+              "query": [
+                {
+                  "description": "Only this account.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/orders/drift"
             }
           },
           "response": []

@@ -61,6 +61,7 @@ Example:
 | `notifications` | object | no |  |
 | `method` | string | yes |  |
 | `referenceData` | `ReferenceDataFreshness` | no | How current the reference data shipped with the Bridge is (holidays, session hours, special sessions, freeze quantities, charges, delivery margin). It warns when the holiday calendar has no rows for next year or a dataset's asOf is older than six months. A warning never blocks an order. |
+| `orderBook` | object | no | The read-only order-book check as one item (details on GET /v1/orders/drift). Only the accounts the key may use. |
 
 ## Errors
 
