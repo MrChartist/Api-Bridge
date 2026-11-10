@@ -122,7 +122,7 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
     ],
     excel: [
       {
-        title: "Excel (Windows): one value in one cell. For a list use the workbook above: one request for every row. Put the key in a cell named BridgeKey",
+        title: "Excel for Windows: one value in one cell (the key goes in a cell named BridgeKey). For a whole list, download the workbook or use the link further down",
         lang: "excel",
         code: [
           `=VALUE(WEBSERVICE("${host}/xl/ltp?symbol="&ENCODEURL(A2)&"&key="&BridgeKey))`,
@@ -131,9 +131,9 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       },
       { title: "Your key for the BridgeKey cell", lang: "text", code: url },
       {
-        title: "A whole list in one request (CSV: Power Query, curl, IMPORTDATA). Each row says how current it is",
+        title: "Mac Excel and Google Sheets: a whole list in one link (Excel: Data, From Web. Sheets: =IMPORTDATA). The link has your key in it, so do not share it. Each row says how current it is",
         lang: "text",
-        code: `${host}/xl/quotes?symbols=NSE:RELIANCE,NSE:TCS,NSE:NIFTY&fields=ltp,chg,pct,volume&format=csv`,
+        code: `${host}/xl/quotes?symbols=NSE:RELIANCE,NSE:TCS,NSE:NIFTY&fields=ltp,chg,pct,volume&format=csv&key=${url}`,
       },
       {
         title: "Google Sheets (needs your own tunnel; use the Apps Script from this page)",
