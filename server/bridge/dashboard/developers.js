@@ -368,7 +368,7 @@ export async function renderDevelopers() {
         subsHost.replaceChildren(
           gone
             ? emptyState("bolt", "Events are switched off", "This Bridge was started without the events module. Set events.enabled to true in bridge.config.json and restart it.", null, { compact: true })
-            : alertBox({ title: "Receivers need an admin key", detail: "Only an admin key (the one the dashboard signs in with, on this computer) may see or change them. Sign in again with mc-bridge open." }, "warn"),
+            : alertBox({ title: "Receivers need an admin key", detail: "Only an admin key (the one the dashboard signs in with, on this computer) may see or change them. Sign in again with " + cli + " open." }, "warn"),
         );
         addBtn.hidden = true;
         return;
@@ -688,7 +688,7 @@ export async function renderDevelopers() {
   function appsPanel() {
     const wrap = h("div", { class: "stack dev-apps" });
     if (state.keysError) {
-      wrap.append(alertBox({ title: "Apps need an admin key", detail: "This page lists your API keys, and only an admin key (the one the dashboard signs in with, on this computer) may. Sign in again with mc-bridge open." }, "warn"));
+      wrap.append(alertBox({ title: "Apps need an admin key", detail: "This page lists your API keys, and only an admin key (the one the dashboard signs in with, on this computer) may. Sign in again with " + cli + " open." }, "warn"));
     }
     const list = h("div", { class: "list dev-list", role: "group", "aria-label": "Apps" });
     const appsN = h("strong", {}, "0");

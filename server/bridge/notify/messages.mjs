@@ -166,6 +166,12 @@ export function rateLimitMessage({ count, windowMinutes, worst }, h = {}) {
   return { key: "ratelimit.refused", group: "ratelimit", text: `Rate limits slowed ${count} requests in the last ${windowMinutes} minutes.${where} Prices may lag a little; nothing is lost.` };
 }
 
+/** backup.failed { kind, at, message }. The reason stays in the Bridge's log: a file path has no place in a chat message. */
+export function backupFailedMessage(p) {
+  const how = p?.kind === "scheduled" || p?.kind === "daily" ? "The daily backup" : "A backup";
+  return { key: "backup.failed", group: "backup.failed", text: `${how} could not be written, so your data may not be backed up. Check free disk space and the backup settings on this computer; \`mc-bridge doctor\` says more.` };
+}
+
 export function sourceMessage(s) {
   return { key: "source.ejected", group: `source:${s.id}`, text: `Data source ${clip(s.name ?? s.id, 40)} is paused after repeated failures. The Bridge tries it again by itself.` };
 }

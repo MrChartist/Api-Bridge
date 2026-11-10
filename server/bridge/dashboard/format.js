@@ -103,3 +103,11 @@ export function formatDayMonth(isoDay) {
   const d = new Date(`${isoDay}T00:00:00Z`);
   return Number.isNaN(d.getTime()) ? isoDay : DAY_MONTH.format(d);
 }
+
+/**
+ * Where the dashboard's "Guide" links point. One place, so there is one line to change. They name the `main` branch
+ * because no release tag exists yet; the first release changes GUIDE_REF to its version tag (`v2.0.0`), so a Bridge of
+ * an older version reads the guides written for it (docs/release-process.md, "Cutting a release").
+ */
+export const GUIDE_REF = "main";
+export const guideUrl = (name, anchor = "") => `https://github.com/MrChartist/api-bridge-v2/blob/${GUIDE_REF}/docs/guides/${name}.md${anchor}`;

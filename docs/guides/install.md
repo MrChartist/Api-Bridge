@@ -199,7 +199,7 @@ listed in `SHA256SUMS.txt`.
 | One line on Mac or Linux | `curl -fsSL https://github.com/MrChartist/api-bridge-v2/releases/latest/download/install.sh \| sh -s -- --uninstall` (your settings and data stay in `~/.mc-bridge`; add `--purge` to delete them too) |
 | One line on Windows | `$env:MCB_UNINSTALL = "1"; irm https://github.com/MrChartist/api-bridge-v2/releases/latest/download/install.ps1 \| iex` (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
 | Setup.exe on Windows | **Settings → Apps → Installed apps → Mr. Chartist API Bridge → Uninstall** (your settings and data stay in `%APPDATA%\MrChartist\Bridge`) |
-| Ready-to-run download | Delete the **Mr Chartist Bridge** folder. |
+| Ready-to-run download | Delete the **Mr Chartist Bridge** folder. **This also deletes your settings and data** (keys, paper accounts, the audit log): the start file keeps `bridge.config.json` and the data folder next to itself. To keep them, copy `bridge.config.json` and the data folder out first, or make a backup with `mc-bridge backup` ([backup.md](backup.md)). |
 | Android (Termux) | In Termux: `curl -fsSL https://github.com/MrChartist/api-bridge-v2/releases/latest/download/install.sh \| sh -s -- --uninstall` |
 
 ## If something goes wrong
@@ -207,6 +207,7 @@ listed in `SHA256SUMS.txt`.
 | What you see | What to do |
 |---|---|
 | "Could not download …" | Check your internet connection and run it again. Office networks sometimes block downloads; try at home. |
+| The one-line Windows command is blocked, or says it is disabled | PowerShell's execution policy applies to script files, not to `irm ... \| iex` typed in a window, so it normally does not stop this. A company proxy, antivirus or application-control rule can. Use the [ready-to-run download](#ready-to-run-download), which needs no PowerShell command. This has not been tried against every Windows policy, and no release exists yet to run it against. |
 | "STOPPED: … does not match its published checksum" | The download was damaged or changed on the way. Nothing was installed. Run it again; if it fails again, do not install and [open an issue](https://github.com/MrChartist/api-bridge-v2/issues). |
 | The browser does not open | Copy the link printed in the small window into your browser. It works once, for 10 minutes; start again for a new one. |
 | "Port 4300 is already in use by another program" | Another program uses the Bridge's port. Close it, or change `server.port` in `bridge.config.json`. |

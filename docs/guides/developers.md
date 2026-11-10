@@ -29,8 +29,10 @@ features (downloads, events) say plainly "this Bridge does not have it yet" on a
 
 ## Auth and scopes
 
-Every call except `GET /v1/health` and `GET /openapi.yaml` needs `Authorization: Bearer mcb_<id>_<secret>`. Never put a
-key in a web address; the one exception is `?key=` on the read-only `/xl/*` routes for tools that cannot send headers.
+Every call except `GET /v1/health`, `GET /v1/ready` and `GET /openapi.yaml` needs a key, sent as `Authorization: Bearer mcb_<id>_<secret>` or as
+`X-API-Key: mcb_<id>_<secret>` (both work, and the OpenAPI file says both). A bare key in some other header is not read.
+Never put a key in a web address; the one exception is `?key=` on the read-only `/xl/*` routes for tools that cannot send
+headers, and only for a key made with `--allow-query` ("Allow in URLs" in the dashboard).
 
 | Scope | May | Use it for |
 |---|---|---|

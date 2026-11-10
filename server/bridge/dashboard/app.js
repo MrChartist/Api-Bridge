@@ -33,7 +33,7 @@ export function signInCodeFromHash(hash) {
 }
 
 /** The message shown when a sign-in link does not work (the Bridge says the same). */
-export const SIGN_IN_FAILED = { title: "This sign-in link did not work", detail: "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open." };
+export const SIGN_IN_FAILED = { title: "This sign-in link did not work", detail: "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open (in a git checkout: npm run bridge -- open)." };
 
 /**
  * Exchange a sign-in code for a key. Never throws. Pure apart from the injected fetch.
@@ -1520,7 +1520,7 @@ async function signIn() {
     shell.hidden = true;
     if (session.get(ENDED_SLOT)) {
       session.set(ENDED_SLOT, null);
-      showLoginError(alertBox({ title: "You were signed out", detail: "The key this page was using was revoked or has expired. Sign in with another key, or run mc-bridge open for a new sign-in link." }, "warn"));
+      showLoginError(alertBox({ title: "You were signed out", detail: "The key this page was using was revoked or has expired. Sign in with another key, or run mc-bridge open (in a git checkout: npm run bridge -- open) for a new sign-in link." }, "warn"));
     }
     // /v1/health needs no key, so the sign-in screen can say "demo" before anyone signs in.
     const demoNotice = document.getElementById("login-demo");

@@ -65,7 +65,8 @@ Created key bizshnjiv3 (read, paper). Copy it now; it will not be shown again:
   mcb_bizshnjiv3_<the rest of the key>
 ```
 
-(The CLI also prints a note saying which folder the keys live in.) Keep the key in an environment variable. The Bridge
+(The CLI also prints a note saying which folder the keys live in. When you have no `bridge.config.json`, that is the data folder
+the Bridge printed at start, so it is the right one.) Keep the key in an environment variable. The Bridge
 stores only a fingerprint, so a lost key cannot be shown again: revoke it and make a new one.
 
 ```bash
@@ -239,13 +240,15 @@ node stream.mjs
 ```text
 heartbeat  
 status  
+status  
 snapshot  
 tick NSE:RELIANCE 1461.7
 tick NSE:RELIANCE 1461.7
 tick NSE:RELIANCE 1461.7
 ```
 
-The `heartbeat`, `status` and `snapshot` messages come first; then a `tick` for every price change. (Demo prices change
+The `heartbeat`, two `status` and `snapshot` messages come first (how many `status` lines you see depends on the feed); then a
+`tick` for every price change. (Demo prices change
 slowly, so ticks can repeat a value.) The message formats are in [streaming.md](streaming.md). Node 22 also has a
 built-in `WebSocket`, so outside this folder you do not need `ws`.
 

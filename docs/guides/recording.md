@@ -160,6 +160,9 @@ const { rows, gaps, recordings } = readRecorded({ dataDir, symbol: "NSE:NIFTY", 
 
 It reads plain and `.gz` files, orders the rows by time and returns the gaps inside the range, so the caller can ask the broker only for the gaps and the missing tail. Pandas: `pd.read_csv(path)` (or `read_json(path, lines=True)`).
 
+Line endings: recordings use LF (`\n`), while CSV files from [downloads](downloads.md) end their lines with CRLF (`\r\n`). Both open in Excel and in pandas;
+a tool that joins or compares the two kinds as raw text should read them in text mode.
+
 ## Disk safety and retention
 
 | Setting | Default | What it does |

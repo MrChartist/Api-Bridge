@@ -2433,6 +2433,18 @@
         "Is paper trading safe?",
         "Where is my data stored?",
         "How do I reset?",
+        "Common problems",
+        "mc-bridge: command not found",
+        "Why do I get 401?",
+        "Why do I get 403 SCOPE_REQUIRED?",
+        "Why is my order refused with PAPER_ONLY?",
+        "I typed a symbol and got SYMBOLNOTFOUND",
+        "Why is a price old, or marked stale, delayed or eod?",
+        "Why does the guide say \"API > Keys\" when my dashboard has no API page?",
+        "The first example in a guide did not work on Windows",
+        "Google Sheets cannot read my prices",
+        "My Excel ?key= link answers 401",
+        "LOOPBACK_ONLY through a tunnel",
         "More questions"
       ],
       "kind": "guide",
@@ -2652,7 +2664,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/streaming.md",
-      "text": "One port serves both. Messages are described in asyncapi.yaml. This page is about prices; for events (orders, logins, downloads, the kill switch) with replay and signed webhooks, see events.md. The token is single use and must be used within 60 seconds; the connection then lives...",
+      "text": "One port serves both. Messages are described in asyncapi.yaml (a file in the repository; the Bridge serves /openapi.yaml but not this one). This page is about prices; for events (orders, logins, downloads, the kill switch) with replay and signed webhooks, see events.md. The...",
       "title": "Live streaming: WebSocket and SSE"
     },
     {

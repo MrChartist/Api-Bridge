@@ -50,7 +50,9 @@ export MCB_API_KEY=mcb_...                                             # the key
 curl "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
-The full walk-through, with the output of every command (a paper order, the sources list, a WebSocket stream) and fixes for the usual problems, is [docs/guides/quickstart.md](docs/guides/quickstart.md). Demo prices are generated on your computer; they are not market data.
+On Windows use PowerShell: `$env:MCB_API_KEY = "mcb_..."` and `Invoke-RestMethod "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -Headers @{ Authorization = "Bearer $env:MCB_API_KEY" }` ([windows.md](docs/guides/windows.md)). On another port, set `MCB_BRIDGE_URL` (the commands and SDKs all read it).
+
+The full walk-through, with the output of every command (a paper order, the sources list, a WebSocket stream) and fixes for the usual problems, is [docs/guides/quickstart.md](docs/guides/quickstart.md). When something does not work, see [troubleshooting](docs/guides/troubleshooting.md). Demo prices are generated on your computer; they are not market data.
 
 ### Docker
 

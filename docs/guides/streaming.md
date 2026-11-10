@@ -1,6 +1,6 @@
 # Live streaming: WebSocket and SSE
 
-One port serves both. Messages are described in [asyncapi.yaml](../asyncapi.yaml). This page is about prices; for events (orders,
+One port serves both. Messages are described in [asyncapi.yaml](../asyncapi.yaml) (a file in the repository; the Bridge serves `/openapi.yaml` but not this one). This page is about prices; for events (orders,
 logins, downloads, the kill switch) with replay and signed webhooks, see [events.md](events.md).
 
 ## Authenticate without putting your key in a URL

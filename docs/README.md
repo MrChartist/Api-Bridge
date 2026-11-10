@@ -14,6 +14,7 @@ API Bridge v2 is one local API in front of your Indian broker accounts. These pa
 3. **[API reference](api/README.md).** One page per endpoint (scope, parameters, answers, error codes, a curl and a Python example), the [error codes](api/errors.md), and the full [OpenAPI](openapi.yaml) and [AsyncAPI](asyncapi.yaml) files. To try calls without code, import a [Postman or Bruno collection](collections/README.md).
 4. **Sources and limits.** [Where prices come from](guides/sources.md) (your broker, optional free sources, plugins; what delayed and end-of-day mean) and [how the Bridge stays inside each broker's limits](guides/rate-limits.md).
 5. **[Safety](guides/safety.md).** Paper and live modes, API keys and scopes, limits, the kill switch and the audit log. Read this before you turn live trading on.
+6. **Stuck, or a word you do not know?** [Troubleshooting](guides/troubleshooting.md) (by symptom and by error code), the [FAQ](guides/faq.md), the [glossary](guides/glossary.md), and [Windows notes](guides/windows.md) (PowerShell instead of bash).
 
 All guides, one line each: [guides/README.md](guides/README.md).
 
@@ -35,7 +36,7 @@ All guides, one line each: [guides/README.md](guides/README.md).
 
 ## Generated files
 
-`api/`, the collections, `llms.txt`, `llms-full.txt` and `search-index.json` are written by scripts from `openapi.yaml` and the guides. Do not edit them by hand:
+`api/`, the collections, `guides/glossary.md` (from the dashboard glossary), `llms.txt`, `llms-full.txt` and `search-index.json` are written by scripts from `openapi.yaml` and the guides. Do not edit them by hand:
 
 ```bash
 npm run docs:generate     # rewrite them

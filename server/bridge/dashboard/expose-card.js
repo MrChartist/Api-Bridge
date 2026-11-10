@@ -5,7 +5,7 @@
 //
 // exposeModel and checkModel are pure and exported for expose-card.test.mjs; the DOM code runs only in a browser.
 import { alertBox, api, app, copyButton, h, icon, pill, toast } from "./app.js";
-import { GUIDE_URL } from "./readiness.js";
+import { guideUrl } from "./format.js";
 
 /** The state as words: the pill, the headline, one row per listener and the problems (each with its one-line fix). Pure. */
 export function exposeModel(state, cli = "mc-bridge") {
@@ -42,7 +42,7 @@ export function checkModel(result) {
   };
 }
 
-const guideLink = (text = "Guide") => h("a", { class: "btn small quiet", href: `${GUIDE_URL}expose-alerts.md`, target: "_blank", rel: "noopener", "aria-label": `${text}: reaching the Bridge from outside (opens in a new tab)` }, text, icon("external"));
+const guideLink = (text = "Guide") => h("a", { class: "btn small quiet", href: guideUrl("expose-alerts"), target: "_blank", rel: "noopener", "aria-label": `${text}: reaching the Bridge from outside (opens in a new tab)` }, text, icon("external"));
 
 const row = ({ title, sub, chips, aside }) =>
   h("div", { class: "list-row static api-row" }, h("div", { class: "api-row-main" }, h("div", { class: "api-row-title" }, h("strong", {}, title)), sub ? h("div", { class: "api-row-sub" }, sub) : null, chips ? h("div", { class: "chips" }, chips) : null), aside ? h("div", { class: "api-row-aside" }, aside) : null);

@@ -2,7 +2,7 @@
 // except small conveniences in localStorage (theme, density, the last tab of each page).
 import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage, whenIdle } from "./app.js";
 import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, killBanner, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
-import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
+import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, guideUrl, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
 import { exposeCard } from "./expose-card.js";
@@ -2431,7 +2431,7 @@ async function renderSafety() {
           { class: "sf-kill-text" },
           h("p", { class: "sf-kill-title" }, "Kill switch", pill("Off")),
           h("p", {}, "Stops every new order, from every tool: the API, webhooks, AI assistants, the CLI and this dashboard. Cancels still work."),
-          h("p", { class: "sf-kill-note" }, "From a terminal: ", h("span", { class: "cli-cmd" }, "mc-bridge kill")),
+          h("p", { class: "sf-kill-note" }, "From a terminal: ", h("span", { class: "cli-cmd" }, `${cliHint()} kill`)),
         ),
         h("button", { type: "button", id: "kill-action", class: "destructive lg", onclick: engage }, icon("stop"), "Stop all orders"),
       );
@@ -2951,8 +2951,8 @@ async function renderIntegrations() {
       panel.setAttribute("aria-labelledby", picker.querySelector(`[data-id="${active}"]`)?.id ?? "");
       if (active === "telegram") {
         // Its own card (telegram-card.js): no key, no snippets. The token is typed here, on this computer.
-        const guideUrl = `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${GUIDES.telegram}.md`;
-        panel.replaceChildren(h("header", { class: "card-head" }, iconTile(glyph, tint, "lg"), h("div", { class: "card-titles" }, h("h2", {}, name), h("p", {}, INTRO.telegram))), h("div", { class: "card-body ai-body" }, createTelegramCard({ guideHref: guideUrl })));
+        const telegramGuide = guideUrl(GUIDES.telegram);
+        panel.replaceChildren(h("header", { class: "card-head" }, iconTile(glyph, tint, "lg"), h("div", { class: "card-titles" }, h("h2", {}, name), h("p", {}, INTRO.telegram))), h("div", { class: "card-body ai-body" }, createTelegramCard({ guideHref: telegramGuide })));
         return;
       }
       const s = snippets({ base: location.origin, key: createdKeys[active] ?? null, account: paperAcc, symbol: "NSE:NIFTY", folder: app.state.meta?.installDir || undefined })[active] ?? [];
@@ -2977,7 +2977,7 @@ async function renderIntegrations() {
         });
       }
       const sheets = active === "excel" ? (await import("./sheets-panel.js")).sheetsPanel({ accounts, download: (opts) => import("./workbook.js").then((m) => m.downloadWorkbook(opts)) }) : null;
-      const guide = h("a", { class: "btn small quiet", href: `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${name} guide (opens in a new tab)` }, "Guide", icon("external"));
+      const guide = h("a", { class: "btn small quiet", href: guideUrl(GUIDES[active]), target: "_blank", rel: "noopener", "aria-label": `${name} guide (opens in a new tab)` }, "Guide", icon("external"));
       const parts = [
         h("header", { class: "card-head" }, iconTile(glyph, tint, "lg"), h("div", { class: "card-titles" }, h("h2", {}, name), h("p", {}, INTRO[active])), h("div", { class: "card-actions" }, guide)),
         h(
@@ -3005,8 +3005,8 @@ async function renderIntegrations() {
 
 /** Where the dashboard remembers the public address typed for hooks (this browser only; a convenience, never required). */
 const HOOK_PUBLIC_SLOT = "mcb.dashboard.hookPublicAddress";
-const TV_GUIDE = "https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/webhooks.md#tradingview";
-const EXPOSE_GUIDE = "https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/expose-alerts.md";
+const TV_GUIDE = guideUrl("webhooks", "#tradingview");
+const EXPOSE_GUIDE = guideUrl("expose-alerts");
 
 /** One test alert: the button, and a slot that shows what happened in plain words. `onDone` runs after an answer. */
 function hookTester(hook, onDone) {
