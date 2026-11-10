@@ -28,11 +28,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
+from urllib.parse import urlsplit
+
+from .secret import SecretStr
 
 DEFAULT_BASE_URL = "http://127.0.0.1:4300"
 CLIENT_FILE = "client.json"
@@ -42,7 +47,7 @@ CONFIG_FILE = "bridge.config.json"
 @dataclass(frozen=True)
 class Settings:
     base_url: str
-    api_key: Optional[str]
+    api_key: Optional[str]  # a SecretStr: repr, vars, copy, pickle and dataclasses.asdict show *** (str(key) is the real key)
     url_source: str
     key_source: str
     account: Optional[str] = None
@@ -96,7 +101,19 @@ def normalize_url(url: str) -> str:
     u = url.strip().rstrip("/")
     if not u.lower().startswith(("http://", "https://")):
         raise ValueError("The Bridge URL must start with http:// or https:// (got %r). The default is %s." % (url, DEFAULT_BASE_URL))
+    if u.lower().startswith("http://") and not is_loopback_url(u):
+        warnings.warn(
+            "The Bridge URL %s is plain http on another computer: your API key is sent without encryption. Use https://, or reach the Bridge through an SSH tunnel or a VPN." % u,
+            UserWarning,
+            stacklevel=3,
+        )
     return u
+
+
+def is_loopback_url(url: str) -> bool:
+    """True for http(s)://127.x.x.x, localhost and [::1] (any port): the Bridge on this same computer."""
+    host = (urlsplit(url).hostname or "").lower()
+    return host == "localhost" or host == "::1" or re.fullmatch(r"127(\.\d{1,3}){3}", host) is not None
 
 
 def discover(
@@ -153,7 +170,7 @@ def discover(
         key, key_source = client["apiKey"].strip(), str(home / CLIENT_FILE)
 
     acct = account or env.get("MCB_ACCOUNT") or (client.get("account") if isinstance(client.get("account"), str) else None)
-    return Settings(url, key or None, url_source, key_source, acct)
+    return Settings(url, SecretStr(key) if key else None, url_source, key_source, acct)
 
 
 def save_credentials(base_url: Optional[str], api_key: str, *, account: Optional[str] = None, home: Optional[Path] = None) -> Path:

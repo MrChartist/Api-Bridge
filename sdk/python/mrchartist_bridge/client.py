@@ -34,6 +34,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Union
 
+from .secret import SecretStr
 from .errors import BridgeApiError, BridgeConnectionError, BridgeNotRunning, error_from_problem
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -93,7 +94,9 @@ class BridgeClient:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.base_url = (base_url or os.environ.get("MCB_BRIDGE_URL") or DEFAULT_BASE_URL).rstrip("/")
-        self.__api_key = api_key if api_key is not None else os.environ.get("MCB_API_KEY")
+        raw_key = api_key if api_key is not None else os.environ.get("MCB_API_KEY")
+        # A SecretStr shows *** in repr(), vars(), copy and pickle (a logger that dumps the object cannot leak the key).
+        self.__api_key = SecretStr(raw_key) if raw_key else raw_key
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_base = retry_base

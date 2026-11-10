@@ -49,6 +49,8 @@ def _cli(argv: Optional[List[str]] = None) -> int:
             from .bridge import Bridge
             from .discovery import save_credentials
 
+            if key:
+                sys.stderr.write("Note: a key typed after --key is visible to other users of this computer (the process list) and stays in your shell history. Run login without --key to be asked, with the input hidden.\n")
             k = key or getpass.getpass("API key (input hidden): ")
             path = save_credentials(url, k, account=account)
             sys.stdout.write("Saved to %s (only you can read it).\n" % path)
