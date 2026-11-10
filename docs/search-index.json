@@ -104,14 +104,22 @@
     },
     {
       "headings": [
-        "Start here",
+        "Trade on paper",
+        "Connect a broker",
+        "Connect a tool",
+        "Get alerts in",
+        "Receive events",
+        "Write your own program",
+        "Save data",
+        "Run it for weeks",
+        "Stuck, or a word you do not know?",
         "For AI assistants and search",
         "Reference",
         "Generated files"
       ],
       "kind": "doc",
       "path": "docs/README.md",
-      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. These pages are for people who run it and people who build on it. Everything here works in demo mode first: sample prices, no broker, paper orders. Quickstart. Five minutes from a fresh clone to a price, a...",
+      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. It is open source (MIT), runs on your own computer and has no hosted service. These pages are for people who run it and people who build on it. Everything works in demo mode first: sample prices, no broker,...",
       "title": "Documentation"
     },
     {
@@ -2337,6 +2345,44 @@
     },
     {
       "headings": [
+        "How the file is read",
+        "Environment variables",
+        "Settings that no longer exist",
+        "Sections",
+        "general",
+        "server",
+        "cors",
+        "logging",
+        "accounts",
+        "safety",
+        "morningLogin",
+        "ratelimit",
+        "symbols",
+        "market",
+        "stream",
+        "orders",
+        "paper",
+        "readiness",
+        "integrations",
+        "hooks",
+        "mcp",
+        "compat",
+        "sources",
+        "backup",
+        "notify",
+        "library",
+        "events",
+        "downloads",
+        "recorder",
+        "storage"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/config.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Every setting of bridge.config.json: what it is, its type, its default and what it does. This page is generated from the Bridge's own settings checker and...",
+      "title": "Configuration reference"
+    },
+    {
+      "headings": [
         "What each tool gets",
         "Simple and Advanced view",
         "Something wrong?",
@@ -2346,6 +2392,21 @@
       "path": "docs/guides/connect.md",
       "text": "The dashboard's Connect a tool page (#/connect, in the sidebar under Bridge, on the Accounts page and in the search palette) gives Excel, an AI assistant or a script its own key and the setup to paste, in three steps: Choose the tool: Excel or Google Sheets, an AI assistant...",
       "title": "Connect a tool"
+    },
+    {
+      "headings": [
+        "Which part for which data",
+        "What you get, and what it says about itself",
+        "Your API budget stays yours",
+        "Recipe 1: two years of 5-minute bars for a watchlist",
+        "Recipe 2: record index option chains every day, and read them back in Python",
+        "Recipe 3: keep a dataset up to date with a scheduled command",
+        "When something is off"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/data.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can keep data for you as plain files on your own computer. This page ties the four parts together, says which one to use for what, and walks through three jobs from...",
+      "title": "Saving data: downloads, recordings, collections and datasets"
     },
     {
       "headings": [
@@ -2383,6 +2444,41 @@
       "path": "docs/guides/developers.md",
       "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). This is the short path for someone who writes code against the Bridge: a working call in five minutes, which key to use, what to do when something fails, and what will not...",
       "title": "Building on the Bridge: the developer guide"
+    },
+    {
+      "headings": [
+        "What you need from Dhan",
+        "1. Add the account",
+        "2. Log in",
+        "3. Test it",
+        "4. A first real price",
+        "What the Dhan adapter does",
+        "Limits, and how the Bridge keeps inside them",
+        "The daily routine",
+        "Going live",
+        "When it does not work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/dhan.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Dhan is the broker this project has checked end to end with a real account (the project maintainer did that before the verification ladder existed; the date was not recorded,...",
+      "title": "Connect Dhan, step by step"
+    },
+    {
+      "headings": [
+        "Start",
+        "What the compose file sets up",
+        "The dashboard and \"this computer only\"",
+        "Running commands in the container",
+        "Add a broker, turn on live trading",
+        "Where things are, logs and the clock",
+        "Back up and restore",
+        "Upgrade",
+        "When it does not work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/docker.md",
+      "text": "> mc-bridge ... on this page means the command inside the container: docker compose exec bridge mc-bridge ... (running it in other set-ups). The repository has a Dockerfile and a docker-compose.yml. They run the Bridge in a container on your own computer, reachable on...",
+      "title": "Docker"
     },
     {
       "headings": [
@@ -2578,6 +2674,25 @@
     },
     {
       "headings": [
+        "Paper first",
+        "Place a paper order",
+        "The words you can write",
+        "Check an order before you send it",
+        "Live orders",
+        "Tickets: approval stays on this computer",
+        "Be at a size, or send several orders",
+        "Idempotency: a retry must not place a second order",
+        "Statuses",
+        "OUTCOME_UNKNOWN: the broker did not say",
+        "If something goes wrong"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/orders.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). On Windows, curl in PowerShell is something else: see windows.md. This page is the whole story of an order in one place: how to send a paper order, what live trading needs, when...",
+      "title": "Orders: paper, live, confirmation and what to do when the result is unknown"
+    },
+    {
+      "headings": [
         "What it does",
         "Examples (NIFTY at 26344, lot 65, 3 November expiry, demo prices)",
         "Where you see it",
@@ -2756,6 +2871,21 @@
     },
     {
       "headings": [
+        "What TradingView needs",
+        "1. Make a paper hook, and test it without TradingView",
+        "2. Let TradingView reach it",
+        "TradingView's sender addresses",
+        "3. The alert in TradingView",
+        "4. Is it working?",
+        "5. Live"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/tradingview.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). On Windows curl in PowerShell is something else: see windows.md. This is the short path from nothing to a TradingView alert that places a paper order, with the exact messages to...",
+      "title": "TradingView alerts in ten minutes"
+    },
+    {
+      "headings": [
         "By what you see",
         "By error code",
         "UNAUTHENTICATED (401)",
@@ -2786,6 +2916,21 @@
       "path": "docs/guides/typescript.md",
       "text": "A small client with no runtime dependencies (Node 20+), with TypeScript types in src/index.d.ts. Streaming uses Node 22's built-in WebSocket or the ws package. Full method list: sdk/node/README.md. The client reads MCBBRIDGEURL (when the Bridge is not at http://127.0.0.1:4300)...",
       "title": "TypeScript and Node"
+    },
+    {
+      "headings": [
+        "Which version you have",
+        "Before you upgrade",
+        "What the Bridge does by itself",
+        "Upgrade",
+        "Settings that a new version no longer accepts",
+        "Go back",
+        "Quick checks when an upgrade does not start"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/upgrading.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). How to move to a newer version of the Bridge without losing anything, how the Bridge protects your data while you do it, and how to go back. Your settings, keys, paper books,...",
+      "title": "Upgrading"
     },
     {
       "headings": [

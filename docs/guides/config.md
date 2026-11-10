@@ -335,6 +335,9 @@ How orders wait for confirmation, how an unknown result is looked up again, and 
 | `orders.maxSlices` | whole number, 1 to 40 | `10` | The most orders one sliced order may be split into. |
 | `orders.orderRetentionDays` | whole number, 1 to 90 | `7` | Days that live order records are kept on disk. |
 | `orders.maxOrderLookups` | whole number, 100 to 20000 | `2000` | Paper orders read per account for one listing. |
+| `orders.drift.enabled` | true or false | `true` | Compare the Bridge's live orders with the broker's order book from time to time (read-only: it never changes or cancels anything). Needs live trading on and a logged-in live account. |
+| `orders.drift.intervalMinutes` | whole number, 1 to 240 | `5` | The least number of minutes between two order-book comparisons (1 to 240). |
+| `orders.drift.marketHoursOnly` | true or false | `true` | Only compare while the market is open or in pre-open. Turn off to compare at any time a live account is logged in. |
 
 ## paper
 

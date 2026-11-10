@@ -229,6 +229,9 @@ d("orders.sliceAboveFreeze", "Split an order above the exchange's freeze quantit
 d("orders.maxSlices", "The most orders one sliced order may be split into.");
 d("orders.orderRetentionDays", "Days that live order records are kept on disk.");
 d("orders.maxOrderLookups", "Paper orders read per account for one listing.");
+d("orders.drift.enabled", "Compare the Bridge's live orders with the broker's order book from time to time (read-only: it never changes or cancels anything). Needs live trading on and a logged-in live account.");
+d("orders.drift.intervalMinutes", "The least number of minutes between two order-book comparisons (1 to 240).");
+d("orders.drift.marketHoursOnly", "Only compare while the market is open or in pre-open. Turn off to compare at any time a live account is logged in.");
 
 // ---- paper ------------------------------------------------------------------------------------------------------
 d("paper.startingCapital", "Rupees in a new or reset paper account. Demo mode starts with 25 lakh when this is left at its default.");

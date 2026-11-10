@@ -12,6 +12,7 @@ stream. Then pick what you want to do below. Every guide is also listed, one lin
 Orders are paper unless you ask for live and every opt-in is in place. Practise the whole flow first.
 
 - Orders in one place: [orders.md](guides/orders.md) covers paper and live, tickets and confirmation, product words, target-size and basket orders, idempotency and what `OUTCOME_UNKNOWN` means.
+- Does the Bridge agree with your broker? [orders-drift.md](guides/orders-drift.md): a read-only check that compares the orders the Bridge knows with the broker's order book and helps resolve an `OUTCOME_UNKNOWN`.
 - Size and baskets: [alert-orders.md](guides/alert-orders.md) has "be long 3 lots", several orders at once, basket margin and the market calendar.
 - The simulator: [paper-margin.md](guides/paper-margin.md) says how margin is estimated for F&O.
 - The rules that protect you: [safety.md](guides/safety.md) lists the limits, the kill switch, keys and the audit log. Read it before you turn live trading on.
