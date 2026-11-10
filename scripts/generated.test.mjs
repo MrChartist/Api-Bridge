@@ -42,7 +42,7 @@ describe("generated files are in sync", () => {
 
   it("no generated file holds a timestamp, a machine path or a key that looks real", () => {
     for (const [path, text] of all) {
-      expect(text, path).not.toMatch(/generatedAt|Generated on|\/home\/user|\/tmp\/claude/);
+      expect(text, path).not.toMatch(/"generatedAt"\s*:|Generated on|\/home\/user|\/tmp\/claude/);
       expect(text, path).not.toMatch(/mcb_[a-z0-9]{8,}_[A-Za-z0-9]{12,}/);
     }
   });
@@ -219,7 +219,7 @@ describe("llms.txt and the search index", () => {
     const full = docs.get("docs/llms-full.txt");
     expect(full).toContain("## API overview");
     for (const g of guideRows(REPO_ROOT)) expect(full).toContain(`<!-- docs/guides/${g.file} -->`);
-    expect(full.length).toBeLessThan(400_000);
+    expect(full.length).toBeLessThan(500_000);
   });
 
   it("the search index lists every page with title, path, headings and a short text", () => {

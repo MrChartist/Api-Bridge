@@ -1,5 +1,7 @@
 # Recording: save prices and option chains as they happen
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Brokers give you old candles, but they do not give you old option chains, old open-interest snapshots or old tick-by-tick prices. If you want those later, someone has to write them down while the market is open. The recorder does that for you, from the Bridge's own live data, into plain files on this computer.
 
 - It saves **real-time data only**. If the only answer available is delayed or end-of-day, the recorder does not write it. It counts it, says why on the recording, and logs a gap. A file never mixes data of different quality.
@@ -157,6 +159,9 @@ const { rows, gaps, recordings } = readRecorded({ dataDir, symbol: "NSE:NIFTY", 
 ```
 
 It reads plain and `.gz` files, orders the rows by time and returns the gaps inside the range, so the caller can ask the broker only for the gaps and the missing tail. Pandas: `pd.read_csv(path)` (or `read_json(path, lines=True)`).
+
+Line endings: recordings use LF (`\n`), while CSV files from [downloads](downloads.md) end their lines with CRLF (`\r\n`). Both open in Excel and in pandas;
+a tool that joins or compares the two kinds as raw text should read them in text mode.
 
 ## Disk safety and retention
 

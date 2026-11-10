@@ -7,7 +7,9 @@
  *  help      one plain sentence
  *  default   on or off until the person decides
  *  critical  bypasses quiet hours and is never folded into a digest line that hides it
- *  topics    the bus topics that can produce it (docs/ARCHITECTURE.md; core/eventBus.mjs)
+ *  topics    the bus topics that can produce it (docs/ARCHITECTURE.md; core/eventBus.mjs). An empty list means the event
+ *            is made by the notifier itself (source.ejected and the reminders come from polling in service.mjs), not
+ *            by a bus topic; it works, there is just no topic to subscribe to.
  */
 export const EVENT_CATALOG = Object.freeze([
   { key: "order.rejected", label: "An order is rejected", help: "Your broker or the Bridge's safety checks refused an order.", default: true, critical: false, topics: ["order.updated"] },
@@ -24,6 +26,7 @@ export const EVENT_CATALOG = Object.freeze([
   { key: "hook.failed", label: "A webhook alert failed after it was accepted", help: "The alert was accepted but the order could not be made.", default: true, critical: false, topics: ["hook.failed"] },
   { key: "limit.reached", label: "A daily safety limit is reached", help: "Daily loss or order count reached.", default: true, critical: false, topics: ["safety.limit"] },
   { key: "ratelimit.refused", label: "Many requests are being slowed by rate limits", help: "Sent once when the number of throttled requests passes your threshold.", default: true, critical: false, topics: ["limits.throttled"] },
+  { key: "backup.failed", label: "A backup could not be written", help: "A daily or manual backup failed, so your data may not be saved. Check the disk and the backup settings on this computer.", default: true, critical: false, topics: ["backup.failed"] },
   { key: "source.ejected", label: "A data source is switched off after failures", help: "A price source stopped answering and is paused for a while.", default: true, critical: false, topics: [] },
   { key: "reminder.morning", label: "Morning reminder to log in", help: "On trading days before the open, if a broker account is not logged in.", default: true, critical: false, topics: [] },
   { key: "summary.eod", label: "End-of-day summary", help: "Orders, fills, rejections and profit or loss for the day.", default: false, critical: false, topics: [] },

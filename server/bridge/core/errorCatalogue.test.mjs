@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { loadSpec } from "../../../scripts/lib/openapi-model.mjs";
 import { ERROR_CODES } from "./errors.mjs";
 import { ERROR_GUIDE, errorCatalogue, retryAdvice, undocumentedCodes } from "./errorCatalogue.mjs";
 
@@ -74,5 +75,17 @@ describe("error catalogue", () => {
       const path = m[1].replace(/\/$/, "");
       expect(openapi.includes(`  ${path}:`), `${path} is in docs/openapi.yaml`).toBe(true);
     }
+  });
+
+  it("names the right HTTP method for every route it mentions (a POST on a GET-only route answers 405)", () => {
+    const spec = loadSpec();
+    const text = JSON.stringify(ERROR_GUIDE);
+    let seen = 0;
+    for (const m of text.matchAll(/\b(GET|POST|PUT|PATCH|DELETE) (\/v1\/[a-z/{}A-Z-]+)/g)) {
+      const path = m[2].replace(/\/$/, "");
+      expect(spec.paths[path]?.[m[1].toLowerCase()], `${m[1]} ${path} is a real operation`).toBeTruthy();
+      seen++;
+    }
+    expect(seen).toBeGreaterThan(5);
   });
 });

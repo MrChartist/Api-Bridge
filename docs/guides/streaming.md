@@ -1,6 +1,6 @@
 # Live streaming: WebSocket and SSE
 
-One port serves both. Messages are described in [asyncapi.yaml](../asyncapi.yaml). This page is about prices; for events (orders,
+One port serves both. Messages are described in [asyncapi.yaml](../asyncapi.yaml) (a file in the repository; the Bridge serves `/openapi.yaml` but not this one). This page is about prices; for events (orders,
 logins, downloads, the kill switch) with replay and signed webhooks, see [events.md](events.md).
 
 ## Authenticate without putting your key in a URL
@@ -19,7 +19,7 @@ its open connections at once.
 ```js
 const ws = new WebSocket(`ws://127.0.0.1:4300/v1/stream?token=${encodeURIComponent(token)}`);
 ws.onopen = () => {
-  ws.send(JSON.stringify({ op: "subscribe", symbols: ["NSE:NIFTY", "NFO:NIFTY-2026-10-27-25000-CE"], mode: "quote", id: "s1" }));
+  ws.send(JSON.stringify({ op: "subscribe", symbols: ["NSE:NIFTY", "NSE:RELIANCE"], mode: "quote", id: "s1" }));
   ws.send(JSON.stringify({ op: "subscribe_orders", accounts: ["paper"] }));
 };
 ws.onmessage = (e) => {

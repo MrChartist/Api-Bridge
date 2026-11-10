@@ -34,7 +34,7 @@ export const ROUTES = Object.freeze([
 /** Label of the admin key a sign-in creates (the dashboard's welcome checklist does not count these as tool keys). */
 export const SIGN_IN_KEY_LABEL = "Dashboard sign-in";
 /** The one answer for a sign-in code that is wrong, expired or already used. */
-export const SIGN_IN_FAILED = "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open.";
+export const SIGN_IN_FAILED = "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open (in a git checkout: npm run bridge -- open).";
 /** Failed sign-in attempts allowed per minute (all callers are on this computer) before the route refuses for a while. */
 export const MAX_FAILED_SIGN_IN = 20;
 const SIGN_IN_WINDOW_MS = 60_000;
@@ -102,7 +102,7 @@ export function createHandlers(deps) {
       const t = now();
       while (failedSignIns.length && failedSignIns[0] <= t - SIGN_IN_WINDOW_MS) failedSignIns.shift();
       if (failedSignIns.length >= MAX_FAILED_SIGN_IN) {
-        throw new BridgeError("RATE_LIMITED", "Too many sign-in attempts. Wait a minute, then open the Bridge again from its shortcut, or run mc-bridge open.", { retryAfterMs: failedSignIns[0] + SIGN_IN_WINDOW_MS - t });
+        throw new BridgeError("RATE_LIMITED", "Too many sign-in attempts. Wait a minute, then open the Bridge again from its shortcut, or run mc-bridge open (in a git checkout: npm run bridge -- open).", { retryAfterMs: failedSignIns[0] + SIGN_IN_WINDOW_MS - t });
       }
       const body = ctx.body;
       const code = body && typeof body === "object" && !Array.isArray(body) ? body.code : undefined;

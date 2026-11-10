@@ -33,6 +33,7 @@
 |---|---|---|---|
 | `killSwitch` | `KillSwitchState` | yes |  |
 | `liveTrading` | boolean | yes | Global config switch. |
+| `day` | string | no | The IST day the counters are for (YYYY-MM-DD). |
 | `accounts` | array of object | no |  |
 
 ## Errors

@@ -5,7 +5,7 @@ export const EVENT_GROUPS = Object.freeze([
   ["Orders", ["order.rejected", "order.outcome_unknown", "order.filled", "order.placed", "ticket.prepared"]],
   ["Safety and logins", ["session.expired", "kill_switch.engaged", "kill_switch.released", "limit.reached", "readiness.changed"]],
   ["Webhook alerts", ["hook.rejected", "hook.stale", "hook.failed"]],
-  ["Data and limits", ["source.ejected", "ratelimit.refused"]],
+  ["Data and limits", ["source.ejected", "ratelimit.refused", "backup.failed"]],
   ["Reminders", ["reminder.morning", "summary.eod"]],
 ]);
 

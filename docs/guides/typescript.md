@@ -7,6 +7,12 @@ Node 22's built-in `WebSocket` or the `ws` package. Full method list: [sdk/node/
 npm install /path/to/api-bridge-v2/sdk/node      # or: npm install ws  (Node 20/21 streaming)
 ```
 
+The client reads `MCB_BRIDGE_URL` (when the Bridge is not at `http://127.0.0.1:4300`) and `MCB_API_KEY`, like every other
+tool in this project; pass `baseUrl` and `apiKey` to override. The order example needs the id of a paper account: in demo
+mode it is `demo-paper`; use your own account id otherwise (the call returns `404 ACCOUNT_NOT_FOUND` for an id the Bridge
+does not have).
+
+<!-- runs against a demo Bridge in scripts/guide-examples.test.mjs -->
 ```ts
 import { BridgeClient, BridgeApiError } from "@mrchartist/bridge-client";
 
@@ -17,18 +23,25 @@ for (const q of data) console.log(q.symbol, q.ltp, q.freshness.source, q.freshne
 
 try {
   const { data: order, replayed, idempotencyKey } = await bridge.placeOrder({
-    account: "paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET",
+    account: "demo-paper", symbol: "NSE:RELIANCE", side: "BUY", quantity: 1, product: "CNC", orderType: "MARKET",   // your paper account id
   });
   console.log(order.orderId, order.status, replayed, idempotencyKey);
 } catch (e) {
   if (e instanceof BridgeApiError) console.error(e.status, e.code, e.detail);
   else throw e;
 }
+```
 
+A live stream keeps running until you close it, so it is a separate block:
+
+```ts
 const stream = bridge.stream({ symbols: ["NSE:NIFTY"], mode: "ltp", orders: true });
 stream.on("tick", (t) => console.log(t.symbol, t.ltp));
 stream.on("order", (m) => console.log(m.order.status));
 ```
+
+One share of RELIANCE is far inside the default limit of Rs 2,00,000 per order (`safety.maxOrderValue`); a larger order is
+refused with `INVALID_ORDER` and the limit it hit.
 
 Same guarantees as the Python client: an `Idempotency-Key` on every order write, retries only where the Bridge says
 an error is retryable, never a blind retry of a write (`BridgeConnectionError` with `outcomeUnknown: true`), the key
@@ -53,6 +66,9 @@ try {
 await bridge.downloads.save(job, "data/");      // each file checked against its SHA-256; manifest.json (with the data class) written
 await bridge.datasets.update("large-caps-5m", { wait: true });   // later: only the bars after the last stored one
 
+// Recordings and rules need an admin key from the Bridge's computer; a read or paper key gets SCOPE_REQUIRED.
+// The collection must exist before a rule can name it:
+await bridge.collections.create("index-options", { universe: optionUniverse({ underlying: "NIFTY", count: 10 }) });
 await bridge.recordings.rules.create({ name: "Index chains", kind: "chain", everySec: 30, collection: "index-options" });
 await bridge.collections.create("nifty-near", { universe: optionUniverse({ underlying: "NIFTY", count: 10 }) });
 const { symbols, warnings } = await bridge.collections.resolve("nifty-near");   // refused (422/503) on a delayed or stale price unless { allowStale: true }; then warnings say so

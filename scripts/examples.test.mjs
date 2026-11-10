@@ -133,7 +133,7 @@ describe("docs examples run against a demo Bridge", () => {
 
   /** The curl with the key, the address and the time-dependent values filled in; null (and why) when it cannot run. */
   async function prepare(curl) {
-    let text = curl.replaceAll(DOC_BASE, base).replaceAll("$MCB_API_KEY", key).replaceAll("${MCB_API_KEY}", key).replaceAll("YOUR_API_KEY", key);
+    let text = curl.replaceAll(DOC_BASE, base).replaceAll("$MCB_BRIDGE_URL", base).replaceAll("${MCB_BRIDGE_URL}", base).replaceAll("$MCB_API_KEY", key).replaceAll("${MCB_API_KEY}", key).replaceAll("YOUR_API_KEY", key);
     if (expiry) {
       text = text.replace(/expiry=\d{4}-\d{2}-\d{2}/, `expiry=${expiry}`).replace(/"expiry_date":"\d{2}[A-Z]{3}\d{2}"/, `"expiry_date":"${isoToCompact(expiry)}"`);
     }

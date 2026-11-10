@@ -133,6 +133,22 @@ describe("kill switch on a running Bridge", () => {
       expect(await runCli(["kill", "release"], {}, a.io)).toBe(0);
       expect(app.deps.safety.status().killSwitch.engaged).toBe(false);
 
+      // A read key exported as MCB_API_KEY (the quickstart says to) must not stop `kill release` on this computer: the
+      // control token is used first, and only without a token does MCB_API_KEY serve as the fallback.
+      const { key: readKey } = await app.deps.keyStore.create({ label: "read-only", scopes: ["read"], accounts: "*" });
+      a.io.env = { MCB_BRIDGE_URL: `http://127.0.0.1:${port}`, MCB_API_KEY: readKey };
+      expect(await runCli(["kill"], { reason: "with a read key exported" }, a.io)).toBe(0);
+      expect(app.deps.safety.status().killSwitch.engaged).toBe(true);
+      expect(await runCli(["kill", "release"], {}, a.io)).toBe(0);
+      expect(app.deps.safety.status().killSwitch.engaged).toBe(false);
+      a.io.env = { MCB_BRIDGE_URL: `http://127.0.0.1:${port}` };
+
+      // A command that needs a key, run with none: say what to do, not "this API key is not valid" (no key was given).
+      expect(await runCli(["sources", "list"], {}, a.io)).toBe(1);
+      expect(a.err.at(-1)).toMatch(/needs an admin key/);
+      expect(a.err.at(-1)).toMatch(/MCB_ADMIN_KEY/);
+      expect(a.err.at(-1)).not.toMatch(/not valid, has expired or was revoked/);
+
       // The token works only on the kill-switch routes.
       const token = readFileSync(tokenFile, "utf8").trim();
       const keys = await fetch(`http://127.0.0.1:${port}/v1/keys`, { headers: { authorization: `Bearer ${token}` } });

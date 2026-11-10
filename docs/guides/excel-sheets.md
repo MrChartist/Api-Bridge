@@ -1,9 +1,12 @@
 # Excel and Google Sheets
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Prices and your own book in a spreadsheet, with **one request per refresh** instead of one per cell. Nothing a
 spreadsheet can call is able to place, change or cancel an order: every `/xl` route is a read-only GET.
 
-Fastest way: open the dashboard, **API > Integrations > Excel and Sheets**. Choose what to show, make a read-only key,
+Fastest way: open the dashboard, **API > Integrations > Excel and Sheets** (in the Simple view the API page is hidden: press
+Ctrl K and type *Integrations*, or switch to Advanced in the account menu). Choose what to show, make a read-only key,
 download the workbook (or copy the Apps Script), and press **Test it** to see the same single request a sheet makes,
 with each price's freshness label.
 
@@ -44,11 +47,23 @@ A price that is not live is refused with the reason in a one-row table. See [col
 
 ### The key
 
-The workbook holds **no key** unless you tick "Put this key inside the workbook" when you download it; then the key is
-stored as a workbook name (Formulas > Name Manager), not in a cell. Otherwise it lives in the yellow cell, and Setup
-tells you whether a key is there. The key travels in the web address of each request, so it can appear in logs on the
-way (this computer's own logs do not record it). Use a read-only key with an expiry, and **clear the cell before you
-share or email the file**.
+Excel's `WEBSERVICE` cannot send a header, so the key has to travel in the web address of each request (`?key=`). The
+Bridge accepts that only for a **read-only key made for it**. From a terminal:
+
+```bash
+mc-bridge keys create --label excel --scope read --allow-query --expires 90d
+```
+
+The flag is `--allow-query`; the dashboard calls it **Allow in URLs**, and Connect a tool and the Excel preset set it for you.
+A read key made without it works everywhere else but is refused here with `401` and the words "may not be sent in a web
+address". A key that is simply wrong or expired gets "not accepted: it may be wrong, expired or revoked".
+
+Where the key sits in the file: a workbook from **Integrations** holds **no key** unless you tick "Put this key inside the
+workbook"; the workbook from **Connect a tool** always has the key inside. Either way the key is stored as a workbook name
+(Formulas > Name Manager), not in a cell. Without it, the key lives in the yellow cell (Setup, B6), and Setup tells you
+whether a key is there. The key travels in the web address of each request, so it can appear in logs on the way (this
+computer's own logs do not record it). Use a read-only key with an expiry, and **clear the cell, and do not email a
+workbook that has a key stored inside, before you share the file**.
 
 ### Refreshing, and how often
 
@@ -87,7 +102,11 @@ the risks there first: your data then passes through the tunnel provider and Goo
 it ([compliance](compliance.md#tunnels-and-public-endpoints)), and requests that arrive through a tunnel are never
 treated as coming from this computer, so the dashboard and every admin route refuse them.
 
-Sheets formulas and Apps Script run on Google's servers and cannot reach `127.0.0.1`. Run `mc-bridge expose sheets`: it
+**The safe way to hold the key is an Apps Script with the key in a script property, sent in a header.** `=IMPORTDATA("...&key=...")`
+is the one thing not to do: the key then sits in a web address that everyone who can see the sheet can read (and Google
+and the tunnel log it). The dashboard's Connect a tool page says the same.
+
+Run `mc-bridge expose sheets`: it
 turns on a separate **Sheets listener** (`server.sheetsIngress`, port 4302) that serves only `GET /xl/*`, only for
 read-only keys, with its own host list and a request cap. Point your tunnel at that port and at nothing else (never at
 4300); the dashboard, `/v1` and every admin route do not exist on it. Make a read-only key with an expiry, limited to the
@@ -120,7 +139,7 @@ decimal point and no thousands separator; times in IST as `YYYY-MM-DD HH:MM:SS`)
 
 | Route | What |
 |---|---|
-| `/xl/quotes?symbols=A,B,C&fields=ltp,chg,pct,volume` | One row per symbol, in the order asked, duplicates kept. At most 100 symbols (`integrations.xl.maxSymbols`, up to 200). `fields` chooses value columns from `ltp open high low close chg pct volume oi bid ask`; `as_of age_s class source stale error` always follow. A bad symbol gives blank values and a text in `error`: it never fails the table |
+| `/xl/quotes?symbols=A,B,C&fields=ltp,chg,pct,volume` | One row per symbol, in the order asked, duplicates kept. At most 100 symbols (`integrations.xl.maxSymbols`, up to 200). `fields` chooses value columns from `ltp open high low close chg pct volume oi bid ask`; `as_of age_s class source stale error` always follow (and `demo`, in demo mode only). A bad symbol gives blank values and a text in `error`: it never fails the table |
 | `/xl/positions`, `/xl/holdings`, `/xl/funds`, `/xl/orders` | Your book, fixed columns. Every account the key may use that can answer, or `?account=`. An account that cannot answer (not logged in) gives one row with its name and an `error` |
 | `/xl/instrument?symbol=NSE:RELIANCE&field=lot` | One symbol and one field: a bare number. Several symbols or fields: a table of `lot tick freeze name kind` |
 | `/xl/ltp`, `/xl/quote`, `/xl/chain`, `/xl/history` | Unchanged: one value (`#N/A` on error), the option chain, candles |
@@ -149,7 +168,8 @@ Rules these routes keep:
 | `429` / "Too many refreshes: wait N seconds" | Too many requests from one key (about 50 a second), or your broker's limit | Refresh less often; one sheet is one request, so look for a macro or a loop |
 | `Stale` = true, or `Class` = `delayed` | The value is older than the Bridge's target, or comes from a delayed feed | Do not trade on it; the `As of` time says how old. Press F9 once the market feed is back |
 | `DEMO DATA` | The Bridge is in demo mode: sample prices | Expected until a real broker is connected |
-| `symbol could not be priced` | A typo, an expired contract or a symbol your broker does not carry | Bridge symbols: `NSE:RELIANCE`, `NSE:M&M`, `NFO:NIFTY-2026-11-24-FUT`. Search with `GET /v1/instruments/search` |
+| `SYMBOL_NOT_FOUND: NSE:NOPE is not in any connected broker's instrument master` (in the table's Error column; the Apps Script status line says `could not be priced`) | A typo, an expired contract or a symbol your broker does not carry | Bridge symbols: `NSE:RELIANCE`, `NSE:M&M`, and for a future `NFO:NIFTY-<expiry>-FUT` with a live expiry. Search with `GET /v1/instruments/search` |
+| `401`, "may not be sent in a web address" | The key is valid but was not made with Allow in URLs | Make a key with `--allow-query` (see [The key](#the-key)) |
 | `401` on a table, key was working | The key expired or was revoked | Make a new one; the dashboard shows expiries under API > Keys |
 | Excel for Mac or the web shows nothing | No `WEBSERVICE` there | Use `quotes.pq` (Power Query) or Google Sheets |
 

@@ -3106,6 +3106,8 @@ button.sf-check[aria-expanded="true"] .chev { rotate: 90deg; }
 .cn-test { display: flex; flex-direction: column; gap: 10px; padding-top: 4px; }
 .cn-result:empty { display: none; }
 .cn-cannot-line { padding-inline-start: 2px; }
+.cn-needs-code { display: block; margin-top: 6px; padding: 8px 10px; border-radius: var(--r-md); background: var(--fill-2); overflow-wrap: anywhere; user-select: all; }
+.cn-caps .cn-needs { display: block; }
 .cn-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-inline: -8px; }
 .alert-fix { margin-top: 8px; }
 .row.nowrap:has(> .acct-connect) { flex-wrap: wrap; justify-content: flex-end; }

@@ -44,6 +44,8 @@ today's counters. `series=1` adds each account's calls per second over the last 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `accounts` | array of object | no |  |
+| `generatedAt` | string (date-time) | no |  |
+| `consumers` | array of object | no | Who has used the budget (keys and tools), when any have. |
 | `savings` | object | no | Broker calls avoided today. |
 
 ## Errors

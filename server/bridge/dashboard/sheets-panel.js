@@ -5,12 +5,12 @@
 // Nothing here can place an order: the sheets only read.
 import { alertBox, api, copyButton, emptyState, h, icon, pill, table, toast } from "./app.js";
 import { defaultKeyName } from "./flows.js";
-import { DASH, formatFixed, formatInt, plural } from "./format.js";
+import { DASH, formatFixed, formatInt, guideUrl, plural } from "./format.js";
 import { APPS_SCRIPT } from "./sheets-script.js";
 import { KEY_PRESETS } from "./snippets.js";
 import { CAPACITY, SAMPLE_SYMBOLS, SHEET_CHOICES } from "./workbook-core.js";
 
-const GUIDE = (name) => `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${name}.md`;
+const GUIDE = (name) => guideUrl(name);
 
 /** Symbols typed one per line or comma-separated -> a clean list (blanks and repeats dropped, capped to the sheet's room). */
 export function parseSymbols(text) {

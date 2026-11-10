@@ -1,12 +1,14 @@
 # Telegram: alerts on your phone, and prices when you ask
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge can send you a short Telegram message when something needs you (an order was rejected, a broker is logged
 out, the kill switch went on) and can answer a few **read-only** questions: prices, positions, orders, funds, status.
 
 It needs a Telegram account and a bot you make yourself (two minutes, free). The Bridge talks to Telegram only from this
 computer, outward: no port is opened, no tunnel, no webhook.
 
-Set it up in the dashboard: **API, Integrations, Telegram**. Or in a terminal: `mc-bridge notify telegram setup`.
+Set it up in the dashboard: **API, Integrations, Telegram** (in the Simple view the API page is not in the menu: press Ctrl K and type its name, or choose Advanced in the account menu ([details](connect.md#simple-and-advanced-view)).). Or in a terminal: `mc-bridge notify telegram setup`.
 
 ## What it does, and what it never does
 
@@ -85,6 +87,7 @@ All are on or off in the dashboard (or `PUT /v1/notify/events`). Messages are pl
 | A webhook alert failed after it was accepted | on | `A webhook alert was accepted but its order failed on "NIFTY scalp". Reason: ...` |
 | A daily safety limit is reached | on | `Daily loss limit reached on Dhan Main: ₹5,200 against a limit of ₹5,000. New orders on it are blocked for today.` |
 | A data source is switched off after failures | on | `Data source NSE end of day is paused after repeated failures. The Bridge tries it again by itself.` |
+| A backup could not be written | on | `The daily backup could not be written, so your data may not be backed up. Check free disk space and the backup settings on this computer; mc-bridge doctor says more.` |
 | Many requests are slowed by rate limits | on | `Rate limits slowed 23 requests in the last 10 minutes. Most of it on Dhan Main (quote). Prices may lag a little; nothing is lost.` |
 | Morning reminder to log in | on | `2 accounts are not logged in: Zerodha Main, Dhan Main. Log in on this computer before the market opens at 09:15.` |
 | End-of-day summary | off | one line per account: orders, fills, rejections, P&L |
@@ -92,7 +95,9 @@ All are on or off in the dashboard (or `PUT /v1/notify/events`). Messages are pl
 An order whose result is unknown is never called "failed": it may well have reached the exchange. The message says
 "unknown, check your broker".
 
-There is no event for backup results: the Bridge has no backup job today.
+The Bridge does have a daily backup (`backup.schedule`, off until you turn it on; [backup.md](backup.md)). Its failures reach your
+phone as the "A backup could not be written" message above. A successful backup sends nothing to Telegram; it is an event
+(`backup.completed`, admin only) that your own programs can read ([events.md](events.md)).
 
 **What is never in a message:** a bot token, an API key, an order confirmation token, a webhook address, a broker password
 or a session value. Every message is scrubbed for anything shaped like those before it is queued, and a test checks it.

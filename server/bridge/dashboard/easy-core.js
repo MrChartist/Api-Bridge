@@ -75,7 +75,7 @@ export const tabsShown = (page, mode, activeTabId = null) => (page.tabs ?? []).f
  * groups (snippets.js) shown once the key exists, `test` how "Test it" asks.
  */
 export const CONNECT_TOOLS = Object.freeze([
-  { id: "excel", name: "Excel or Google Sheets", blurb: "Live prices in your cells", use: "excel", preset: "excel", orders: "never", tabs: ["excel"], test: "sheet", paste: "The easiest way is the ready workbook: it already has your key and a watchlist.", steps: ["Press Download a ready workbook below and open it in Excel. The key is already in it (sheet Setup, cell B6), so do not share the file.", "Or use your own file: click a cell, type BridgeKey in the Name Box (the small box left of the formula bar) and press Enter. Then type the key into that cell.", "Excel for Windows: paste the formula next to a symbol such as NSE:RELIANCE.", "Mac Excel and Google Sheets: use the link under Mac Excel and Google Sheets instead. In Excel choose Data, then From Web. In Sheets use =IMPORTDATA with the link."] },
+  { id: "excel", name: "Excel or Google Sheets", blurb: "Live prices in your cells", use: "excel", preset: "excel", orders: "never", tabs: ["excel"], test: "sheet", paste: "The easiest way is the ready workbook: it already has your key and a watchlist.", steps: ["Press Download a ready workbook below and open it in Excel for Windows. The key is stored inside the file (Formulas, Name Manager), not in a cell, so do not share or email the file.", "Or use your own file: click a cell, type BridgeKey in the Name Box (the small box left of the formula bar) and press Enter. Then type the key into that cell.", "Excel for Windows: paste the formula next to a symbol such as NSE:RELIANCE.", "Excel for Mac and Excel on the web have no WEBSERVICE. Use Power Query with quotes.pq from the Bridge folder (integrations/excel): it sends the key in a header. The link under Mac Excel below is the fallback (Data, then From Web); it has your key in it, so keep it to yourself.", "Google Sheets runs on Google's servers, which cannot reach this computer, so it needs a tunnel you set up yourself and the Apps Script from Integrations (the key goes in a script property, never in an IMPORTDATA link). The Excel and Sheets guide has the steps."] },
   { id: "ai", name: "An AI assistant", blurb: "Claude, ChatGPT and others", use: "claude", orders: "optional", tabs: ["claude", "chatgpt"], test: "api", paste: "Paste this into your assistant's settings, then restart the assistant." },
   { id: "python", name: "A Python script", blurb: "Scripts and notebooks", use: "python", orders: "optional", tabs: ["python", "rest"], test: "api", paste: "Run the first block once, then paste the second block into your script." },
   { id: "node", name: "A Node script", blurb: "Scripts and services", use: "node", orders: "optional", tabs: ["node", "rest"], test: "api", paste: "Run the first block once, then paste the second block into your script." },
@@ -107,13 +107,20 @@ export function connectKey(toolId, { orders = false, now = new Date(), taken = [
   return body;
 }
 
+/**
+ * The order tools of an AI assistant are off until the Bridge's own settings turn them on; the key alone does not
+ * (docs/guides/mcp.md, "Letting an assistant prepare orders"). Shown with the choice, so nobody is promised a tool that is absent.
+ */
+export const MCP_ORDERS_NEEDS = "A paper key is not enough on its own. The assistant sees the order tools only after you add this to bridge.config.json (use your own paper account id) and restart the Bridge. The MCP guide has the steps.";
+export const MCP_ORDERS_CONFIG = '"mcp": { "toolsets": ["market", "analytics", "account", "orders"], "orderAccounts": ["demo-paper"] }';
+
 /** One line each: what the tool can do and what it cannot, in the words a person uses. */
 export function connectCapabilities(toolId, { orders = false } = {}) {
   const tool = connectTool(toolId);
   const withOrders = tool?.orders === "optional" && orders;
   if (tool?.id === "ai") {
     return withOrders
-      ? { can: "Read prices and positions, and prepare a practice order for you to approve.", cannot: "It cannot send an order on its own, place a real-money order or change your keys." }
+      ? { can: "Read prices and positions, and prepare a practice order for you to approve.", cannot: "It cannot send an order on its own, place a real-money order or change your keys.", needs: MCP_ORDERS_NEEDS, needsCode: MCP_ORDERS_CONFIG }
       : { can: "Read prices, charts and your positions.", cannot: "It cannot place any order or change anything." };
   }
   if (withOrders) return { can: "Read prices, and place and cancel practice (paper) orders.", cannot: "It cannot place real-money orders or change your keys." };

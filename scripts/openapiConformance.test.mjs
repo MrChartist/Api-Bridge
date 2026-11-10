@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootDemoBridge } from "../server/bridge/core/__fixtures__/demoBridge.mjs";
 import { HINTS, isCallable, loadSpec, operations, sample } from "./lib/openapi-model.mjs";
-import { validate } from "./lib/json-schema-lite.mjs";
+import { undeclaredFields, validate } from "./lib/json-schema-lite.mjs";
 
 const spec = loadSpec();
 const ops = operations(spec).filter((o) => o.method === "GET" && isCallable(o));
@@ -126,6 +126,9 @@ describe("real answers match docs/openapi.yaml", () => {
       if (documented?.contentType === "application/json" && documented.schema) {
         const errors = validate(spec, documented.schema, res.json, { maxErrors: 8 });
         expect(errors, `${op.id} (${url}) does not match its documented schema:\n${errors.map((e) => `  ${e.path}: ${e.message}`).join("\n")}\nbody: ${res.text.slice(0, 400)}`).toEqual([]);
+        // A field the Bridge sends that the schema does not list is dropped by a client generated from it: list it.
+        const extra = [...new Set(undeclaredFields(spec, documented.schema, res.json).map((f) => f.replace(/\[\d+\]/g, "[]")))];
+        expect(extra, `${op.id} (${url}) answers fields that docs/openapi.yaml does not list: add them to the 200 schema`).toEqual([]);
       }
     });
   }

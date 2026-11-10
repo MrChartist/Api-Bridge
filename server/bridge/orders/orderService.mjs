@@ -225,6 +225,9 @@ export function createOrderService(deps) {
   }
 
   function emitUpdate(order) {
+    // A paper order's transitions are published by the paper engine itself (with the P&L it realised). Publishing them
+    // here too made one fill arrive as two order.updated events with different shapes.
+    if (order?.mode === "paper") return;
     try {
       bus.emit("order.updated", {
         orderId: order.orderId,

@@ -16,7 +16,7 @@
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `account` | query | `AccountId` | yes |  |
+| `account` | query | `AccountId` | yes | The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it. |
 | `mode` | query | one of `paper`, `live` | no | `paper` reads the account's paper book; `live` the broker's (default for portfolio reads). Default `"live"`. |
 
 ## Responses
@@ -45,6 +45,7 @@
 | `withdrawable` | number or null | no |  |
 | `realisedPnl` | number or null | no |  |
 | `unrealisedPnl` | number or null | no |  |
+| `charges` | number or null | no | Paper accounts: the estimated charges taken so far. |
 
 ## Errors
 

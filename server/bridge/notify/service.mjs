@@ -454,6 +454,7 @@ export function createNotifyService(deps, opts = {}) {
     on("hook.failed", (p) => publish(msg.hookMessage("failed", p)));
     on("safety.limit", (p) => publish(msg.limitMessage(p, helpers)));
     on("limits.throttled", onThrottle);
+    on("backup.failed", (p) => publish(msg.backupFailedMessage(p)));
   }
 
   // ── reminders ──

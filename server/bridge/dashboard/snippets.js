@@ -169,12 +169,12 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
       },
       { title: "Your key for the BridgeKey cell", lang: "text", code: url },
       {
-        title: "Mac Excel and Google Sheets: a whole list in one link (Excel: Data, From Web. Sheets: =IMPORTDATA). The link has your key in it, so do not share it. Each row says how current it is",
+        title: "Excel for Mac, if you cannot use Power Query: a whole list in one link (Data, From Web). The link has your key in it, so keep it on this computer and do not share it. Not for Google Sheets. Each row says how current it is",
         lang: "text",
         code: `${host}/xl/quotes?symbols=NSE:RELIANCE,NSE:TCS,NSE:NIFTY&fields=ltp,chg,pct,volume&format=csv&key=${url}`,
       },
       {
-        title: "Google Sheets (needs your own tunnel; use the Apps Script from this page)",
+        title: "Google Sheets: needs your own tunnel and the Apps Script from Integrations (Excel and Sheets), with the key in a script property. Never put the key in an IMPORTDATA link",
         lang: "excel",
         code: `=BRIDGE_QUOTES(A5:A30)\n=BRIDGE_QUOTE("NSE:RELIANCE", "pct")`,
       },

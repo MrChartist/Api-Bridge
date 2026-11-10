@@ -2,12 +2,20 @@
 
 Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker needed) or the [docs home](../README.md), which sorts the guides by what you want to do. These guides go deeper, one topic each.
 
-**Running `mc-bridge`.** Commands in these guides start with `mc-bridge`. That command is on your PATH after you use one of the installers in [install.md](install.md). From a git checkout, use `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`) in the repository folder instead. Do not run it through npx: this project is not published to npm, and the name `mc-bridge` there belongs to an unrelated package.
+## Running mc-bridge
+
+Commands in these guides start with `mc-bridge`. That command is on your PATH after you use one of the installers in [install.md](install.md). From a git checkout it is not on your PATH, so use `npm run bridge -- <command>` in the repository folder instead (for example `npm run bridge -- keys create --label me --scope read`). `node bin/mc-bridge.mjs <command>` does the same. Do not run it through npx: this project is not published to npm, and the name `mc-bridge` there belongs to an unrelated package. The Bridge's own hints (the dashboard and the command line) show the form that fits your setup.
+
+On Windows, run the commands in PowerShell, and read [windows.md](windows.md) for the few places where the shell matters.
 
 | Guide | For |
 |---|---|
 | [quickstart.md](quickstart.md) | Clone, start in demo mode, make a key, get a price, place a paper order, read a stream; and what to do when it does not work |
+| [troubleshooting.md](troubleshooting.md) | What you see, the cause and the fix: by symptom and by error code, with real example answers |
+| [glossary.md](glossary.md) | What the words mean: freshness, data class, ATM, ticket, cursor, dead letter and the rest (generated from the dashboard's own glossary) |
 | [faq.md](faq.md) | Is it free, is my broker supported, why pooling is off, why Yahoo is not real-time, where the data lives, how to reset |
+| [cli.md](cli.md) | Every `mc-bridge` command group, which credential each needs (none, the local control token, a read key, an admin key), exit codes, where the Bridge looks for settings |
+| [windows.md](windows.md) | PowerShell instead of bash, `curl.exe`, where the files are on Windows, protecting the master key, firewall, start at login |
 | [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
 | [downloads.md](downloads.md) | Saving history to files (CSV, JSONL, AmiBroker), datasets that update from their last bar, the API budget share, and the estimate before you start |
 | [backup.md](backup.md) | Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer) |
@@ -21,6 +29,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [events.md](events.md) | Bridge events out without polling: SSE and WebSocket with cursor replay, signed webhooks with retries and dead letters, receiver code for Node, Python and the shell |
 | [webhooks.md](webhooks.md) | TradingView, signed generic, ChartInk and GoCharting alerts |
+| [symbols.md](symbols.md) | How an instrument is written (shares, indices, futures, options), finding and converting a symbol, expiries and strikes, why an expired contract is not found |
 | [alert-orders.md](alert-orders.md) | Target-size and basket orders, MIS/NRML words, symbol check, basket margin, market calendar |
 | [telegram.md](telegram.md) | Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting |
 | [notifications.md](notifications.md) | How a message travels (outbox, retries, pacing, quiet hours), the `notify` settings and routes |

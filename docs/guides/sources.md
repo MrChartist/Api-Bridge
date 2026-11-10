@@ -1,5 +1,7 @@
 # Data sources: where prices come from, and how the Bridge labels them
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Your broker accounts are the Bridge's main source of market data. They give real-time prices and option chains, and they
 are the only sources that orders, risk checks, paper fills and alerts use. The Bridge can also read from optional free
 sources and from plugins you add. Those are slower or less certain, so every answer from them says so.

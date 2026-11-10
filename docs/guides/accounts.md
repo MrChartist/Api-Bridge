@@ -1,5 +1,7 @@
 # Brokers and multiple accounts
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its
 own rate-limit budget and its own credentials; one account's credentials are never used for another account's calls.
 
@@ -102,6 +104,11 @@ channels subscribe to it by name.
 ```json
 "morningLogin": { "enabled": true, "remindAt": "08:45", "warnBeforeEndMinutes": 30 }
 ```
+
+Two settings have the same default time and are **independent**: `morningLogin.remindAt` sets when this *event* is emitted
+(for your own programs and the dashboard), and `notify.morning.at` sets when the *Telegram message* "N accounts are not logged
+in" is sent (and `notify.morning.secondAt` the second nudge at the open; [notifications.md](notifications.md)). Moving one does
+not move the other: to get the phone message at 08:30, change `notify.morning.at`.
 
 **One session per app.** For brokers whose documentation allows only one session per app key (the XTS family), logging in
 again ends the first session, for example one open in another tool. The login sheet warns about it first, and

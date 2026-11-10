@@ -1,5 +1,7 @@
 # Collections: lists of instruments and option universes
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 A **collection** is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python
 library can then say `collection: "nifty-weekly"` instead of pasting the same symbols again.
 
@@ -23,7 +25,7 @@ the sheet. To use a collection in a sheet, see [In Excel and Google Sheets](#in-
 # a read key can make and change collections (the same scope as starting a download); only deleting one needs admin
 mc-bridge keys create --label collections --scope read
 
-export MCB_API_KEY=mcb_...
+export MCB_API_KEY=mcb_...                        # PowerShell: $env:MCB_API_KEY = "mcb_..."
 mc-bridge collections create banks --symbols NSE:HDFCBANK,NSE:ICICIBANK,NSE:SBIN --tags cash,banks
 mc-bridge collections universe nifty-weekly --underlying NIFTY --expiries current-weekly --strikes atm:10 --tags options
 mc-bridge collections resolve nifty-weekly        # the 43 symbols it means right now, and why

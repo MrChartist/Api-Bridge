@@ -1,5 +1,7 @@
 # Backup and restore
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge keeps everything you cannot make again in one data folder: your API key records, accounts, safety and quota
 state, paper books, order records, audit log and source settings. This guide shows how to copy that folder safely, how
 to put a copy back, and what to do when a disk dies, an upgrade goes wrong or you move to another computer.

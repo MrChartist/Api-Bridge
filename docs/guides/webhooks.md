@@ -1,5 +1,7 @@
 # Alerts: TradingView, signed generic hooks, ChartInk and GoCharting
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 An alert from your own code or a charting site becomes an order through a **hook**: a URL with a secret token, tied
 to one account and a set of limits. Every signal goes through the same safety checks, rate limits, idempotency and
 audit log as an order sent from a script. Hooks are **paper** by default.
@@ -51,7 +53,7 @@ sends one, cannot place a second order.
 
 ### Set it up
 
-1. **Make the hook.** Dashboard: API, Integrations, Webhooks, choose **TradingView**, then **Create webhook**. Copy the
+1. **Make the hook.** Dashboard: API, Integrations, Webhooks (in the Simple view the API page is not in the menu: press Ctrl K and type its name, or choose Advanced in the account menu ([details](connect.md#simple-and-advanced-view)).), choose **TradingView**, then **Create webhook**. Copy the
    **webhook address** and the **passphrase** now; the Bridge keeps only a fingerprint of each and cannot show them
    again. (The same from the API: `POST /v1/hooks` with `"source": "tradingview"`.)
 2. **Give TradingView an address on the internet.** `http://127.0.0.1:4300/...` only works on this computer. Follow
@@ -240,10 +242,10 @@ curl -X POST http://127.0.0.1:4300/v1/hooks -H "Authorization: Bearer $MCB_ADMIN
   "label": "NIFTY breakout",
   "account": "paper",
   "mode": "paper",
-  "product": "MARGIN",
+  "product": "CNC",
   "orderType": "LIMIT",
   "maxLotsPerSignal": 2,
-  "allowedSymbols": ["NFO:NIFTY-2026-10-27-FUT"],
+  "allowedSymbols": ["NSE:RELIANCE"],
   "requireConfirmation": false
 }'
 ```

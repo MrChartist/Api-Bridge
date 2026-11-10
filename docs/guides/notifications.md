@@ -1,5 +1,7 @@
 # Notifications: how the Bridge tells you things
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge listens to its own events (orders, tickets, the kill switch, broker sessions, webhook alerts, safety limits,
 data sources) and turns the ones you chose into short plain messages. Today the way to receive them is
 **Telegram**: see the step-by-step [Telegram guide](telegram.md). This page is the reference: how a message travels, the
@@ -49,7 +51,7 @@ Everything has a default. `bridge.config.json`, section `notify` (all optional):
 | Setting | Meaning |
 |---|---|
 | `events` | Event key to on or off. Keys are in the table of [telegram.md](telegram.md). What you save in the dashboard wins over the file. |
-| `quietHours`, `morning` | Times are IST, 24-hour `"HH:MM"`. `morning.enabled` and `morning.endOfDay.enabled` only choose where the two reminder switches start. |
+| `quietHours`, `morning` | Times are IST, 24-hour `"HH:MM"`. `morning.enabled` and `morning.endOfDay.enabled` only choose where the two reminder switches start. `morning.at` (and `secondAt`) set when the Telegram reminder goes; they are **separate** from `morningLogin.remindAt` in [accounts.md](accounts.md#3-sessions), which sets when the `account.login_needed` event is emitted. Changing one does not change the other. |
 | `coalesceSeconds`, `dedupeSeconds` | Burst window and duplicate window. `0` switches that off. |
 | `rateLimitAlert` | The "many requests are slowed by rate limits" message is sent once when `threshold` slowed requests happen within `windowMinutes`. |
 | `pacing` | Telegram's documented limits are one message per second per chat, 20 a minute to a group, about 30 a second for a bot. These defaults stay under them. They are settings because Telegram may change them. |

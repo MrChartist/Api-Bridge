@@ -6,7 +6,7 @@
 //
 // The view-model (backupModel, formatBytes, ageText) is pure and exported for backup-card.test.mjs; the DOM code runs
 // only in a browser. Words are plain: what happened, what to do next.
-import { alertBox, api, codeBlock, h, icon, iconTile, pill, toast } from "./app.js";
+import { alertBox, api, app, codeBlock, h, icon, iconTile, pill, toast } from "./app.js";
 import { formatFixed, formatInt, plural } from "./format.js";
 
 const DAY = 86_400_000;
@@ -146,7 +146,7 @@ export function backupSection() {
       const refused = err?.status === 403 || err?.code === "LOOPBACK_ONLY" || err?.code === "FORBIDDEN";
       body.replaceChildren(
         refused
-          ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Backups are made from the computer the Bridge runs on"), h("span", { class: "detail" }, "They need an admin key and a page opened on that computer. In a terminal there, run: mc-bridge backup")))
+          ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Backups are made from the computer the Bridge runs on"), h("span", { class: "detail" }, "They need an admin key and a page opened on that computer. In a terminal there, run: " + (app.state.meta?.cliCommand || "npm run bridge --") + " backup")))
           : alertBox(err),
       );
     }

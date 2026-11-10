@@ -734,9 +734,12 @@ async function killCommand(sub, flags, io) {
   if (alive) {
     // No key needed on this computer: the running Bridge keeps a control token in its data folder (controlToken.mjs).
     warnKeyOnArgv(flags, io);
-    const key = typeof flags.key === "string" ? flags.key : (io.env.MCB_API_KEY ?? readControlToken(config.dataDir));
+    // On this computer the control token comes before MCB_API_KEY: the quickstart tells people to export a read key as
+    // MCB_API_KEY, and that key must not stand in the way of releasing the kill switch (it needs admin). An admin key in
+    // --key or MCB_ADMIN_KEY still wins; MCB_API_KEY is the fallback when the token is not here (another computer).
+    const key = typeof flags.key === "string" ? flags.key : (io.env.MCB_ADMIN_KEY ?? readControlToken(config.dataDir) ?? io.env.MCB_API_KEY);
     if (!key) {
-      throw new BridgeError("UNAUTHENTICATED", `The Bridge is running at ${baseUrl} but its control token is not in ${config.dataDir} (another data folder, or another computer). Pass --key (or MCB_API_KEY)${release ? " with an admin key" : ""}, or use the dashboard's Safety page.`);
+      throw new BridgeError("UNAUTHENTICATED", `The Bridge is running at ${baseUrl} but its control token is not in ${config.dataDir} (another data folder, or another computer). Pass --key (or set MCB_ADMIN_KEY)${release ? " with an admin key" : ""}, or use the dashboard's Safety page.`);
     }
     const res = await fetch(`${baseUrl}/v1/safety/kill-switch`, {
       method: release ? "DELETE" : "POST",
@@ -745,7 +748,7 @@ async function killCommand(sub, flags, io) {
     });
     if (!res.ok) {
       const problem = await res.json().catch(() => ({}));
-      const usedControlToken = typeof flags.key !== "string" && !io.env.MCB_API_KEY;
+      const usedControlToken = typeof flags.key !== "string" && !io.env.MCB_ADMIN_KEY && readControlToken(config.dataDir) !== null;
       if (usedControlToken && res.status === 401) io.err(`Error: the running Bridge did not accept the control token in ${config.dataDir} (it may belong to another Bridge). Pass --key, or use the dashboard's Safety page.`);
       else io.err(`Error: ${problem.detail ?? `the Bridge answered HTTP ${res.status}`}`);
       return 1;
@@ -912,9 +915,13 @@ async function sourcesClient(flags, io) {
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const hint = explicit === undefined && (res.status === 401 || res.status === 403) ? ` The control token in ${config.dataDir} was not accepted for this action; pass --key with an admin key.` : "";
       const code = typeof json.code === "string" && json.code in ERROR_CODES_FOR_CLI ? json.code : "UPSTREAM_ERROR";
-      throw new BridgeError(code, `${json.detail ?? `the Bridge answered HTTP ${res.status}`}${hint}`);
+      // No key was sent (only this computer's control token, which is accepted for a few commands): say what to do, not
+      // "this API key is not valid", which names a key the person never gave.
+      if (explicit === undefined && (res.status === 401 || res.status === 403)) {
+        throw new BridgeError(code, `This command needs an admin key; the control token on this computer is accepted only for the kill switch, downloads and order-state acknowledgement. Set MCB_ADMIN_KEY, or pass --key (make one with: ${cliCommand(io.env)} keys create --label cli --scope admin).`);
+      }
+      throw new BridgeError(code, `${json.detail ?? `the Bridge answered HTTP ${res.status}`}`);
     }
     return json;
   };

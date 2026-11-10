@@ -1,5 +1,7 @@
 # Events out: react to the Bridge without polling
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge can tell your own programs when something happens: an order was filled, a broker login ended, a data download
 finished, the kill switch was turned on. You can listen live (a stream), ask for what you missed (replay), or have the Bridge
 call your program (a signed webhook).
@@ -88,6 +90,18 @@ while true; do
 done
 ```
 
+The same loop in PowerShell (it needs no `jq`):
+
+```powershell
+$cursor = 0
+while ($true) {
+  $r = Invoke-RestMethod "http://127.0.0.1:4300/v1/events?since=$cursor&topics=order.*" -Headers @{ Authorization = "Bearer $env:KEY" }
+  $r.data | ForEach-Object { $_ | ConvertTo-Json -Compress }
+  $cursor = $r.meta.cursor
+  Start-Sleep 5
+}
+```
+
 ## Which events, and who sees them
 
 `GET /v1/events/topics` lists what your key may receive. A **read** key sees the topics marked read. **Admin-only** topics
@@ -96,7 +110,7 @@ receives events about those accounts; events that name no account (the kill swit
 
 | Topic | Who | When |
 |---|---|---|
-| `order.updated` | read | An order (paper or live) changed state: `orderId`, `accountId`, `mode`, `status`, `filledQuantity`, `avgPrice`, `source` |
+| `order.updated` | read | An order (paper or live) changed state: `orderId`, `accountId`, `mode`, `status`, `filledQuantity`, `avgPrice`, `source`; a paper fill also carries `realisedPnl`. One event per change of state: a market order that fills is one `filled` event |
 | `order.outcome_unknown` | read | The broker did not confirm an order. Check the broker before sending it again |
 | `position.converted` | read | A position was moved between products |
 | `account.status` | read | A broker login changed: `connected`, `expired`, `missing`, `error` |

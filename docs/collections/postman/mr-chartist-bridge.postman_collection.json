@@ -1749,7 +1749,7 @@
         {
           "name": "Option chain with IV and Greeks",
           "request": {
-            "description": "Option chain with IV and Greeks\n\n- An API key with the `read` scope (any key).\n\nWorks for every F&O stock; see /v1/options/underlyings.\n\nReference: docs/api/market-data/getOptionChain.md in the repository.",
+            "description": "Option chain with IV and Greeks\n\n- An API key with the `read` scope (any key).\n\nWorks for every F&O stock and index the broker lists; `GET /v1/expiries?underlying=` lists the expiries it can answer for.\n\nReference: docs/api/market-data/getOptionChain.md in the repository.",
             "header": [],
             "method": "GET",
             "url": {
@@ -2526,6 +2526,7 @@
               ],
               "query": [
                 {
+                  "description": "The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it.",
                   "key": "account",
                   "value": "demo-paper"
                 },
@@ -2592,6 +2593,7 @@
               ],
               "query": [
                 {
+                  "description": "The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it.",
                   "key": "account",
                   "value": "demo-paper"
                 }
@@ -2617,6 +2619,7 @@
               ],
               "query": [
                 {
+                  "description": "The account id from your config (`GET /v1/accounts` lists them). Always required here, even with one account: the Bridge never guesses whose positions, holdings or funds to show, and answers 400 VALIDATION_FAILED without it.",
                   "key": "account",
                   "value": "demo-paper"
                 },

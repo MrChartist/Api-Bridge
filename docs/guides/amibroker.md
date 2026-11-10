@@ -1,5 +1,7 @@
 # AmiBroker
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Everything AmiBroker can reach is read-only: `/xl/*` cannot place orders. Full instructions and the files:
 [integrations/amibroker](../../integrations/amibroker/README.md).
 
@@ -8,15 +10,17 @@ Everything AmiBroker can reach is read-only: `/xl/*` cannot place orders. Full i
 1. Copy `integrations/amibroker/mrchartist-bridge.afl` into AmiBroker's `Formulas\Include` folder.
 2. Create a read-only URL key (AmiBroker cannot send headers):
    `mc-bridge keys create --label amibroker --scope read --allow-query`
-3. Store it outside your formulas: the Windows user variable `MCB_AMIBROKER_KEY` (restart AmiBroker), or the only line
-   of `%USERPROFILE%\.mc-bridge\amibroker.key`.
+3. Store it outside your formulas: the Windows user variable `MCB_AMIBROKER_KEY` (set it in **Settings, System, About,
+   Advanced system settings, Environment Variables**, then restart AmiBroker; a PowerShell window opened before that does
+   not see it), or the only line of `%APPDATA%\MrChartist\Bridge\amibroker.key`, next to the Bridge's own settings. The
+   include also still reads the older `%USERPROFILE%\.mc-bridge\amibroker.key`.
 4. Use it:
 
 ```c
 #include_once <mrchartist-bridge.afl>
 
 nifty = McbLtp("NSE:NIFTY");
-oi    = McbQuote("NFO:NIFTY-2026-10-27-FUT", "oi");
+oi    = McbQuote("NFO:NIFTY-<expiry>-FUT", "oi");
 chg   = McbQuote("NSE:RELIANCE", "changePct");
 
 Title = StrFormat("NIFTY %.2f   FUT OI %.0f   RELIANCE %.2f%%", nifty, oi, chg);

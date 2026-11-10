@@ -56,6 +56,9 @@ An admin key limited to some accounts lists only the hooks of those accounts.
 | `sourceIpPreset` | one of `tradingview`, `null` | no | Also accept alerts only from this published address list (see /v1/hooks/presets). |
 | `maxAgeSec` | integer or null | no | An alert whose own time is older than this many seconds is refused as stale. TradingView hooks default to 120; null means no age check. |
 | `hasPassphrase` | boolean | no | True for tradingview hooks: alerts must carry the passphrase shown when the hook was created. |
+| `acknowledgeUnsignedLive` | boolean | no | A live hook on an unsigned source was acknowledged as such when it was made. |
+| `createdByKeyId` | string or null | no | The key that made the hook. |
+| `templates` | array of `HookTemplate` | no | Alert messages to paste into the sender. |
 | `createdAt` | string (date-time) | yes |  |
 | `lastSignalAt` | string (date-time) or null (date-time) | no |  |
 | `readiness` | `ReadinessState` or null | no | Live hooks: the readiness state of the hook's account (orders are refused with CANNOT_TRADE while it is cannot_trade). null for paper hooks. |

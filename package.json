@@ -47,8 +47,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:mjs": "node scripts/check-mjs.mjs",
     "capabilities": "node scripts/generate-broker-capabilities.mjs",
-    "docs:generate": "node scripts/gen-collections.mjs && node scripts/gen-docs-index.mjs",
-    "docs:check": "node scripts/gen-collections.mjs --check && node scripts/gen-docs-index.mjs --check",
+    "docs:generate": "node scripts/gen-collections.mjs && node scripts/gen-glossary.mjs && node scripts/gen-docs-index.mjs",
+    "docs:check": "node scripts/gen-collections.mjs --check && node scripts/gen-glossary.mjs --check && node scripts/gen-docs-index.mjs --check",
     "notices": "node scripts/release/third-party-notices.mjs",
     "notices:check": "node scripts/release/third-party-notices.mjs --check"
   },

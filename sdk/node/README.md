@@ -24,16 +24,16 @@ import { BridgeClient } from "@mrchartist/bridge-client";
 const bridge = new BridgeClient({ apiKey: process.env.MCB_API_KEY }); // baseUrl defaults to http://127.0.0.1:4300
 
 // Partial failures come back with HTTP 200: data[] holds what worked, errors[] the rest (data[] can be empty).
-const { data, errors } = await bridge.ltp(["NSE:NIFTY", "NFO:NIFTY-2026-10-27-25000-CE"]);
+const { data, errors } = await bridge.ltp(["NSE:NIFTY", "NSE:RELIANCE"]);
 for (const q of data) console.log(q.symbol, q.ltp, q.freshness.source);
 for (const e of errors) console.log(e.symbol, e.code, e.message);
 
-const chain = await bridge.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", strikes: 10 });
+const chain = await bridge.optionChain({ underlying: "NIFTY", expiry: "<a live expiry>", strikes: 10 });
 
 // Paper order (the default). Live needs mode: "live", a live-scoped key and an account enabled for live trading.
 const { data: order, replayed, idempotencyKey } = await bridge.placeOrder({
-  account: "dhan-main", symbol: "NFO:NIFTY-2026-10-27-25000-CE", side: "BUY",
-  lots: 1, product: "MARGIN", orderType: "LIMIT", price: 180,
+  account: "demo-paper", symbol: "NSE:RELIANCE", side: "BUY",   // "demo-paper" exists in demo mode; use your own account id
+  quantity: 1, product: "CNC", orderType: "MARKET",
 });
 ```
 
@@ -88,7 +88,7 @@ const rows = await bridge.downloads.read(job);
 await bridge.datasets.update("large-caps-5m", { wait: true });   // later: only the bars after the last stored one
 
 // Record what brokers do not give you, by hand or by rule
-await bridge.recordings.create({ kind: "chain", underlying: "NIFTY", expiry: "2026-11-12", everySec: 30 });
+await bridge.recordings.create({ kind: "chain", underlying: "NIFTY", expiry: "<a live expiry>", everySec: 30 });
 await bridge.recordings.rules.create({ name: "Index chains", kind: "chain", everySec: 30, collection: "index-options" });
 
 // Named lists and option universes

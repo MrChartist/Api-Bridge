@@ -36,7 +36,7 @@ Invoke-WebRequest -Headers $h -OutFile nifty-5m.csv `
 Then *File → Import ASCII*, choose the file and the matching *Mr. Chartist Bridge* type.
 
 **Tickers.** AmiBroker stores each symbol as a file, so the Bridge drops the `:`: NSE, NFO, MCX and CDS symbols keep
-the part after the colon (`NSE:RELIANCE` → `RELIANCE`, `NFO:NIFTY-2026-10-27-FUT` → `NIFTY-2026-10-27-FUT`); BSE and
+the part after the colon (`NSE:RELIANCE` → `RELIANCE`, a future such as `NFO:NIFTY-<expiry>-FUT` → `NIFTY-<expiry>-FUT`); BSE and
 BFO get a suffix (`BSE:RELIANCE` → `RELIANCE.BSE`). Add `&ticker=MYNAME` to choose your own (letters, digits and
 `& . _ ^ # -`).
 
@@ -53,7 +53,8 @@ BFO get a suffix (`BSE:RELIANCE` → `RELIANCE.BSE`). Add `&ticker=MYNAME` to ch
 
 3. Store it **outside your formulas**, either:
    - as the Windows user environment variable `MCB_AMIBROKER_KEY` (then restart AmiBroker), or
-   - as the only line of `%USERPROFILE%\.mc-bridge\amibroker.key`.
+   - as the only line of `%APPDATA%\MrChartist\Bridge\amibroker.key` (the older `%USERPROFILE%\.mc-bridge\amibroker.key`
+     is still read).
 4. In any formula: `#include_once <mrchartist-bridge.afl>` and see `example-display.afl`.
 
 Never paste the key into a strategy file: strategy files get shared, backed up and posted on forums. A URL key only

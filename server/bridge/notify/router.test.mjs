@@ -129,6 +129,16 @@ describe("events become short plain messages", () => {
     expect(t[2]).toMatch(/^A webhook alert was accepted but its order failed on "NIFTY scalp"/);
   });
 
+  it("a failed backup reaches the phone, without the file path or the reason text", async () => {
+    const n = await ready();
+    n.bus.emit("backup.failed", { kind: "scheduled", at: "2026-11-10T02:30:00.000Z", message: "ENOSPC: no space left on device, write '/home/someone/.mc-bridge/backups/x.tar.gz'" });
+    await n.settle();
+    const t = n.tg.texts();
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatch(/^The daily backup could not be written, so your data may not be backed up/);
+    expect(t[0]).not.toMatch(/ENOSPC|\/home\//);
+  });
+
   it("a daily limit reached is announced with the figures", async () => {
     const n = await ready();
     n.bus.emit("safety.limit", { accountId: "dhan-main", limit: "dailyMaxLoss", value: -5200, threshold: 5000 });

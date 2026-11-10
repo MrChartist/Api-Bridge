@@ -31,6 +31,7 @@ No key needed. Callers on this computer also see which services are built.
 | `storage` | object | no | For callers on this computer. Free space on the data folder's disk and how many files could not be saved. |
 | `startedAt` | string (date-time) | no |  |
 | `uptimeSeconds` | integer | no |  |
+| `sources` | object | no | How many data sources there are and how many are switched on. |
 | `demo` | boolean | no | Present and true only in demo mode (sample data, no real broker). |
 | `dataNotice` | string | no | In demo mode: a plain sentence saying the data is sample data. |
 | `services` | object | no |  |

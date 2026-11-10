@@ -27,6 +27,9 @@
 | `bridgeVersion` | string | yes |  |
 | `apiVersion` | string | yes |  |
 | `brokerContractVersion` | integer | no |  |
+| `installDir` | string | no | For callers on this computer: the folder the Bridge runs from. |
+| `dataDir` | string | no | For callers on this computer: the data folder. |
+| `cliCommand` | string | no | For callers on this computer: how to run a Bridge command in this setup (`mc-bridge`, or `npm run bridge --` from a checkout). |
 | `brokers` | array of string | yes |  |
 | `modules` | array of object | yes |  |
 | `routes` | array of object | yes |  |

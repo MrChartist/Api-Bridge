@@ -26,6 +26,15 @@ describe("auth on /xl", () => {
     expect((await get(`/xl/ltp?symbol=NSE:NIFTY&key=${KEYS.READ}`, {})).status).toBe(401); // not created with allowQuery
     expect((await get(`/xl/ltp?symbol=NSE:NIFTY&key=${KEYS.PAPER_Q}`, {})).status).toBe(401); // more than read
   });
+  it("a valid read key without Allow in URLs is told how to make one, not that it is wrong or expired", async () => {
+    const r = await get(`/xl/quotes?symbols=NSE:NIFTY&key=${KEYS.READ}`, {});
+    expect(r.status).toBe(401);
+    expect(r.raw).toMatch(/web address/);
+    expect(r.raw).toMatch(/--allow-query/);
+    expect(r.raw).not.toMatch(/wrong, expired or revoked/);
+    const wrong = await get("/xl/quotes?symbols=NSE:NIFTY&key=mcb_nope000000_aaaaaaaaaaaaaaaaaaaa", {});
+    expect(wrong.raw).toMatch(/wrong, expired or revoked/);
+  });
   it("a pinned account outside the key's list is refused before any read", async () => {
     const before = t.marketData.calls.length;
     const r = await get("/xl/ltp?symbol=NSE:NIFTY&account=zerodha-family", bearer(KEYS.ONE_ACCOUNT));

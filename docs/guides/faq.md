@@ -14,11 +14,14 @@ current pricing.
 ## Is my broker supported?
 
 41 brokers are supported; the list, with how each logs in and what it can do, is in [BROKERS.md](../BROKERS.md) and on the
-dashboard's Accounts page. Only **Dhan** has been verified end to end with a live account. The other 40 are **beta**:
-written from the broker's official documentation and tested against recorded sample responses. Live order mapping exists
-only for Dhan (verified) and for Zerodha and Upstox (beta, with a warning on every live order); for every other broker the
-Bridge answers a live order with a "use paper mode" error. Reading data and paper trading work wherever the adapter says
-they do.
+dashboard's Accounts page. They sit on a published ladder: 1 is **live-verified** (Dhan, checked end to end with a real
+account), 36 are **contract-tested** (every contract case passes on recorded broker replies, no real broker yet) and 4 are
+**beta** (recorded samples only, at least one contract case still missing). The adapters are written from each broker's
+official documentation. That ladder is about how far an adapter has been proven; it is a different question from which
+brokers can send a live order. Live order mapping exists only for Dhan (verified) and for Zerodha and Upstox (beta, with a
+warning on every live order); for every other broker the Bridge answers a live order with a "use paper mode" error. Reading
+data and paper trading work wherever the adapter says they do. The counts come from `server/brokers/verification.json`, and
+a test fails when this paragraph and that file disagree.
 
 If your broker is not on the list, open the "New broker request" issue form (see [CONTRIBUTING.md](../../CONTRIBUTING.md)).
 Adapters are written only from a broker's official documentation.
@@ -68,11 +71,71 @@ encryption master key sits in the data folder next to the secrets, because a bac
   `POST /v1/paper/accounts/{id}/reset` (a key with the `paper` scope; optional `{"startingCapital": 500000}`). It clears
   paper orders and positions. `POST /v1/paper/accounts/{id}/reset/undo` puts the old book back for 2 minutes, if no order
   has been placed since.
-- **A key:** revoke it on the API page or with `npm run bridge -- keys revoke <keyId>`, and make a new one.
+- **A key:** revoke it on the API page (Simple view: Ctrl K, then type *Keys*) or with `npm run bridge -- keys revoke <keyId>`, and make a new one.
 - **Everything, starting fresh:** stop the Bridge (Ctrl+C), then move or delete the data folder. That removes keys, paper
   state, the audit log and any stored broker credentials. To try the Bridge without touching your real folder, point it at an
-  empty one: `MCB_HOME=$(mktemp -d) npm run dev`. If you installed with the one-line installer, `--purge` removes the data
+  empty one: `MCB_HOME=$(mktemp -d) npm run dev` (PowerShell: `$env:MCB_HOME = (New-Item -ItemType Directory (Join-Path $env:TEMP ([guid]::NewGuid()))).FullName; npm run dev`). If you installed with the one-line installer, `--purge` removes the data
   too ([install.md](install.md)).
+
+## Common problems
+
+Each answer is short; [troubleshooting.md](troubleshooting.md) has the error codes with real example answers.
+
+### `mc-bridge: command not found`
+
+From a git checkout the command is not on your PATH. Run `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`)
+in the repository folder. After an installer, `mc-bridge` is on your PATH. Do not run it through npx
+([why](README.md#running-mc-bridge)).
+
+### Why do I get 401?
+
+No key reached the Bridge, or it did not match: mistyped, revoked, expired, or made for another data folder. Send
+`Authorization: Bearer <key>` (or `X-API-Key: <key>`). A fresh key can only be made again, never shown again
+([troubleshooting](troubleshooting.md#unauthenticated-401)).
+
+### Why do I get 403 `SCOPE_REQUIRED`?
+
+The key is valid but its scope is too small, for example a `read` key placing an order. Make a key with the scope the route needs
+([developers.md](developers.md#auth-and-scopes)).
+
+### Why is my order refused with `PAPER_ONLY`?
+
+Live trading is off by default and needs every opt-in in [safety.md](safety.md#live-orders-need-every-one-of-these). Nothing in the API
+can turn it on. Paper orders need none of that.
+
+### I typed a symbol and got `SYMBOL_NOT_FOUND`
+
+Use `EXCHANGE:NAME` (`NSE:RELIANCE`). Search with `GET /v1/instruments/search?q=...`. A future or option has an expiry in its
+symbol, and a contract that has expired is not found: list live ones with `GET /v1/expiries?underlying=NIFTY`.
+
+### Why is a price old, or marked `stale`, `delayed` or `eod`?
+
+The market is closed, the feed went quiet, or the answer came from a free delayed source. Read the `freshness` block on the
+answer. Delayed and end-of-day data never feeds an order ([glossary.md](glossary.md)).
+
+### Why does the guide say "API > Keys" when my dashboard has no API page?
+
+The Simple view hides it. Press Ctrl K and type *Keys*, or choose Advanced in the account menu
+([connect.md](connect.md#simple-and-advanced-view)).
+
+### The first example in a guide did not work on Windows
+
+The guides use bash. In PowerShell `curl` is an alias for another command and `export` does not exist; see
+[windows.md](windows.md) for the PowerShell forms.
+
+### Google Sheets cannot read my prices
+
+Google's servers cannot reach `127.0.0.1`. A sheet needs a tunnel that you set up, the Apps Script with the key in a script
+property, and never `IMPORTDATA` with the key in the link ([excel-sheets.md](excel-sheets.md#google-sheets)).
+
+### My Excel `?key=` link answers 401
+
+The key must be read-only and made with `--allow-query` (the dashboard calls it **Allow in URLs**): see
+[excel-sheets.md](excel-sheets.md#the-key).
+
+### `LOOPBACK_ONLY` through a tunnel
+
+Keys, settings and anything that can move money work only from the computer the Bridge runs on, never through a tunnel.
 
 ## More questions
 

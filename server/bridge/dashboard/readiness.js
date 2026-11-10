@@ -7,13 +7,12 @@
 // what was checked and where the fact came from, never advice. Every reading is local: the badge polls
 // GET /v1/readiness, which answers from the monitor's cache and never calls a broker.
 import { api, app, codeBlock, h, icon, modal, alertBox, pill, sheetPopover, toast } from "./app.js";
-import { DASH, formatInt, formatRupeeGrouped, isFigure, plural } from "./format.js";
+import { DASH, formatInt, formatRupeeGrouped, guideUrl, isFigure, plural } from "./format.js";
 import { setAttr, setText } from "./motion.js";
 
 /** How often the badge reads /v1/readiness while the tab is visible. */
 export const POLL_MS = 30_000;
 /** Where the guides live (the dashboard does not serve docs). */
-export const GUIDE_URL = "https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/";
 
 const IST_OFFSET_MS = 330 * 60_000;
 const finite = (v) => typeof v === "number" && Number.isFinite(v);
@@ -426,7 +425,7 @@ export function onReadiness(fn) {
   return () => state.listeners.delete(fn);
 }
 const canSeeIp = () => /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
-const guide = (name, text) => h("a", { href: `${GUIDE_URL}${name}.md`, target: "_blank", rel: "noopener" }, text, h("span", { class: "sr-only" }, " (opens in a new tab)"));
+const guide = (name, text) => h("a", { href: guideUrl(name), target: "_blank", rel: "noopener" }, text, h("span", { class: "sr-only" }, " (opens in a new tab)"));
 const busyOn = (b, on) => {
   if (!b) return;
   b.disabled = on;
@@ -546,7 +545,7 @@ export async function releaseKillSwitch() {
       "div",
       { class: "stack ks-sheet" },
       h("p", { class: "ks-lead" }, "New orders are accepted again, from every tool."),
-      h("p", { class: "muted" }, "Releasing works from this computer only and needs an admin key. From another device, use mc-bridge kill release on this computer."),
+      h("p", { class: "muted" }, "Releasing works from this computer only and needs an admin key. From another device, run `" + (app.state.meta?.cliCommand || "npm run bridge --") + " kill release` on this computer."),
       h("label", { class: "field" }, h("span", {}, "Type RELEASE to confirm"), typed),
     ),
     buttons: [{ label: "Keep stopped", value: false }, { label: "Release", cls: "primary", ref: (b) => { releaseBtn = b; b.disabled = typed.value !== "RELEASE"; }, onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly, in capitals", { tone: "warn" }), false)) }],
