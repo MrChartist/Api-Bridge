@@ -1399,6 +1399,61 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "The concrete symbols of an option universe that is not saved yet",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"kind\": \"option-universe\",\n  \"universe\": {\n    \"underlying\": \"NIFTY\",\n    \"expiries\": \"current-weekly\",\n    \"strikes\": {\n      \"around\": \"atm\",\n      \"count\": 10\n    },\n    \"sides\": [\n      \"CE\",\n      \"PE\"\n    ]\n  }\n}"
+            },
+            "description": "The concrete symbols of an option universe that is not saved yet\n\n- An API key with the `read` scope (any key).\n\nThe preview behind the collection builder: the same work as `GET /v1/collections/{name}/resolve`, for a universe you\nare still editing. Nothing is saved. The price rules are the same: a delayed, end-of-day or stale price for the\nat-the-money strike is refused (422 or 503) unless `allowStale=true`, and then the answer says so in `atmSource` and\n`warnings`.\n\nReference: docs/api/collections/resolveCollectionDraft.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "collections",
+                "resolve"
+              ],
+              "query": [
+                {
+                  "description": "Accept a stale, delayed or end-of-day price for the ATM (it is labelled).",
+                  "disabled": true,
+                  "key": "allowStale",
+                  "value": "false"
+                },
+                {
+                  "description": "Work out the ATM from this price instead of reading one.",
+                  "disabled": true,
+                  "key": "spot",
+                  "value": "1"
+                },
+                {
+                  "description": "Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling.",
+                  "disabled": true,
+                  "key": "account",
+                  "value": "demo-paper"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/collections/resolve"
+            }
+          },
+          "response": []
         }
       ],
       "name": "Collections"

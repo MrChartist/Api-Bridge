@@ -185,3 +185,30 @@ def test_async_stream_raises_fatal_errors_in_the_consumer(srv):
 
     with pytest.raises(Exception):
         asyncio.run(asyncio.wait_for(main(), 10))
+
+
+def test_async_stream_leaves_no_unawaited_coroutine_when_the_loop_goes_away_first(srv, monkeypatch):
+    # The pump thread builds `queue.put(item)` and then schedules it on the loop; if the loop has closed in between, scheduling
+    # raises. The un-scheduled coroutine used to be dropped un-awaited ("coroutine 'Queue.put' was never awaited").
+    import gc
+    import warnings
+
+    s = srv([[("wait_op", "subscribe"), dict(TICK)]])
+
+    def loop_is_gone(coro, loop):
+        raise RuntimeError("Event loop is closed")
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", loop_is_gone)
+
+    async def main():
+        ab = AsyncBridge(s.url, "mcb_test_stream_key", max_retries=0)
+        stream = ab.stream(["NSE:NIFTY"], reconnect=False)
+        stream._start()
+        stream._thread.join(10)  # the pump ends: every put failed quietly and closed the stream
+        assert not stream._thread.is_alive()
+
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        asyncio.run(asyncio.wait_for(main(), 15))
+        gc.collect()
+    assert [str(w.message) for w in seen if "never awaited" in str(w.message)] == []

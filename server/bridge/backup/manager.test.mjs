@@ -25,7 +25,7 @@ function make({ version = "2.0.0", backup = {}, clockAt = new Date(2026, 10, 9, 
   const warnings = [];
   const logger = { warn: (...a) => warnings.push(a), info() {}, error() {} };
   const mgr = (v = version, extra = {}) => createBackupManager({ dataDir, config: { backup: cfg(backup) }, bridgeVersion: v, logger, bus, clock, freeBytesFn, ...extra });
-  return { root, dataDir, mgr, events, warnings, advance: (ms) => (now += ms), setNow: (d) => (now = d.getTime()) };
+  return { root, dataDir, mgr, events, warnings, advance: (ms) => (now += ms), now: () => now, setNow: (d) => (now = d.getTime()) };
 }
 const files = (dataDir) => readdirSync(join(dataDir, "backups")).filter((n) => n.endsWith(".tar.gz"));
 
@@ -260,11 +260,14 @@ describe("doctor", () => {
   it("warns when there is data and no backup, is quiet for an empty folder", async () => {
     const t = make();
     const config = { dataDir: t.dataDir, backup: cfg() };
-    expect(backupDoctorChecks({ config }).find((c) => c.check === "backup").message).toMatch(/No backup of your data yet/);
+    // The manager ran on the test's fixed clock, so the doctor is asked the time on that same clock (not the real one, which
+    // would call the backup "old" once the real date is 30 days past it).
+    const now = t.now();
+    expect(backupDoctorChecks({ config, now }).find((c) => c.check === "backup").message).toMatch(/No backup of your data yet/);
     await t.mgr().run({ kind: "manual" });
-    expect(backupDoctorChecks({ config }).find((c) => c.check === "backup")).toMatchObject({ level: "ok" });
-    expect(backupDoctorChecks({ config: { dataDir: join(t.root, "nope") } })).toEqual([]);
-    expect(backupDoctorChecks({ config, now: Date.now() + 40 * 86_400_000 }).find((c) => c.check === "backup")).toMatchObject({ level: "warn" });
-    expect(backupDoctorChecks({ config }).find((c) => c.check === "backup-schedule").message).toMatch(/off/);
+    expect(backupDoctorChecks({ config, now }).find((c) => c.check === "backup")).toMatchObject({ level: "ok" });
+    expect(backupDoctorChecks({ config: { dataDir: join(t.root, "nope") }, now })).toEqual([]);
+    expect(backupDoctorChecks({ config, now: now + 40 * 86_400_000 }).find((c) => c.check === "backup")).toMatchObject({ level: "warn" });
+    expect(backupDoctorChecks({ config, now }).find((c) => c.check === "backup-schedule").message).toMatch(/off/);
   });
 });

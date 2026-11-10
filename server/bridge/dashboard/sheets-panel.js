@@ -7,7 +7,7 @@ import { alertBox, api, copyButton, emptyState, h, icon, pill, table, toast } fr
 import { defaultKeyName } from "./flows.js";
 import { DASH, formatFixed, formatInt, guideUrl, plural } from "./format.js";
 import { APPS_SCRIPT } from "./sheets-script.js";
-import { KEY_PRESETS } from "./snippets.js";
+import { KEY_PRESETS, presetKeyBody } from "./snippets.js";
 import { CAPACITY, SAMPLE_SYMBOLS, SHEET_CHOICES } from "./workbook-core.js";
 
 const GUIDE = (name) => guideUrl(name);
@@ -102,8 +102,7 @@ export function sheetsPanel({ accounts, download, base = location.origin }) {
       const existing = await api("/v1/keys").then((r) => (r.data.data ?? []).map((k) => k.label), () => []);
       const preset = KEY_PRESETS.excel;
       const urlKey = state.keyFor === "excel";
-      const body = { label: defaultKeyName("excel", new Date(), existing), scopes: preset.scopes, accounts: acct.value === "*" ? "*" : [acct.value], clientKind: preset.clientKind, expiresAt: new Date(Date.now() + Number(days.value) * 86_400_000).toISOString() };
-      if (urlKey) body.allowQuery = true;
+      const body = presetKeyBody(preset, { label: defaultKeyName("excel", new Date(), existing), accounts: acct.value === "*" ? "*" : [acct.value], expiresDays: Number(days.value), allowQuery: urlKey });
       const r = await api("/v1/keys", { method: "POST", body });
       state.key = { value: r.data.data.key, urlKey };
       toast("Key made. Copy it now: it is shown only on this page.");

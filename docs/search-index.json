@@ -144,7 +144,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "220 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "221 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -335,6 +335,15 @@
       "path": "docs/api/collections/resolveCollection.md",
       "text": "GET /v1/collections/{name}/resolve. A static collection answers its list.",
       "title": "The concrete symbols of a collection right now"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/resolve"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/resolveCollectionDraft.md",
+      "text": "POST /v1/collections/resolve. The preview behind the collection builder: the same work as GET /v1/collections/{name}/resolve, for a universe you are still editing.",
+      "title": "The concrete symbols of an option universe that is not saved yet"
     },
     {
       "headings": [
@@ -2174,7 +2183,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 215 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 216 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {

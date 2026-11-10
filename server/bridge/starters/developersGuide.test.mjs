@@ -5,6 +5,7 @@ import { createHmac } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { realNow } from "../../../test/realClock.mjs";
 
 const guide = readFileSync(join(import.meta.dirname, "..", "..", "..", "docs", "guides", "developers.md"), "utf8");
 const block = (lang) => new RegExp("```" + lang + "\\n([\\s\\S]*?)```").exec(guide)[1];
@@ -28,6 +29,7 @@ describe("docs/guides/developers.md", () => {
   it("the Python signature check agrees", (ctx) => {
     const run = (code) => spawnSync("python3", ["-c", code], { encoding: "utf8" });
     if (run("print(1)").status !== 0) return ctx.skip();
+    const T = Math.floor(realNow() / 1000); // a Python child reads the real clock
     const sig = header(SECRET, T, BODY);
     const script = `${block("python")}\nprint(verify("${SECRET}", "${T}", "${sig}", b'${BODY}'), verify("${SECRET}", "${T}", "${sig}", b'${BODY} '), verify("${SECRET}", "${T - 3600}", "${header(SECRET, T - 3600, BODY)}", b'${BODY}'))`;
     const r = run(script);

@@ -101,7 +101,8 @@ describe("manual quotes recording", () => {
     w.hub.pushTick({ symbol: NIFTY, ltp: 24030 });
     await w.run(30_000, 5000);
     const times = readRows(r.id, "2026-11-09__NSE_NIFTY.csv").map((x) => x.time.slice(11, 16));
-    expect(times.every((t) => t >= "09:15" && t < "15:31")).toBe(true);
+    expect(times.length).toBeGreaterThan(0);
+    expect(times.every((t) => t >= "09:15" && t < "15:30")).toBe(true); // the close itself (15:30:00) is outside the window
     expect(w.svc.get(r.id).status).toBe("waiting");
     // Tuesday 10th is a holiday: nothing is recorded; the next start is Wednesday 11th
     await w.clock.set(at("2026-11-10T10:00:00"));

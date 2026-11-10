@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Tests: `npm run test:future` runs the whole suite with the clock moved forward (CI at 100 days); three tests that would have failed
+  on 13, 17 and 25 November are fixed; the order-safety rules, the boot-time kill switch and all 20 MCP tools have tests; dashboard
+  request bodies are checked against the OpenAPI schemas; the test guard refuses real connections from node's own sockets too.
+- Fixes found by those tests: the Collections form accepted names with spaces that the Bridge refuses (it now says "use a dash");
+  the builder's live preview called a route that did not exist (`POST /v1/collections/resolve`, now there: it resolves an option
+  universe that is not saved yet); `AsyncStream` in the Python client no longer leaves an un-awaited coroutine when the loop closes.
+
 - Operation ([docs/guides/operations.md](docs/guides/operations.md)): one Bridge per data folder (`bridge.lock`); every damaged state
   file is set aside and reported instead of stopping the start, and a damaged order record refuses live orders (`ORDER_STATE_DAMAGED`,
   `mc-bridge orders acknowledge-state`) while paper keeps working; a disk monitor with `/v1/health` `degraded` and `problems`,

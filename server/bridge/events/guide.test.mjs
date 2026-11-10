@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { EVENT_TOPICS } from "./catalog.mjs";
 import { computeSignature, signatureHeaders, verifySignature } from "./signature.mjs";
 import { tmpDir } from "./testkit.mjs";
+import { realNow } from "../../../test/realClock.mjs";
 
 const GUIDE = readFileSync(resolve(import.meta.dirname, "../../../docs/guides/events.md"), "utf8");
 
@@ -29,9 +30,9 @@ const BODY = '{"id":"7","topic":"order.updated","time":"2026-11-09T04:01:02.000Z
 const now = () => Math.floor(Date.now() / 1000);
 
 /** The matrix: the same requests every implementation must judge the way verifySignature() does. */
-function cases() {
+function cases(nowMs = Date.now()) {
   const good = (ts, body = BODY, secret = SECRET) => ({ secret: SECRET, timestamp: String(ts), signature: `v1=${computeSignature(secret, ts, body)}`, body });
-  const t = now();
+  const t = Math.floor(nowMs / 1000);
   return [
     ["a good request", good(t)],
     ["a request 250 s old", good(t - 250)],
@@ -50,7 +51,7 @@ function cases() {
     ["a missing timestamp", { ...good(t), timestamp: "" }],
     ["a timestamp that is not a number", { ...good(t), timestamp: "1e9" }],
     ["a negative timestamp", { ...good(t), timestamp: "-5" }],
-  ].map(([name, c]) => ({ name, ...c, expected: verifySignature({ secret: c.secret, timestamp: c.timestamp || undefined, signature: c.signature || undefined, body: c.body }).ok }));
+  ].map(([name, c]) => ({ name, ...c, expected: verifySignature({ secret: c.secret, timestamp: c.timestamp || undefined, signature: c.signature || undefined, body: c.body, nowMs }).ok }));
 }
 
 describe("docs/guides/events.md topic table", () => {
@@ -130,7 +131,7 @@ describe.skipIf(py.status !== 0)("Python snippet", () => {
       join(dir, "harness.py"),
       ["import base64, json, sys", "sys.path.insert(0, sys.argv[1])", "from verify import verify", "cases = json.load(sys.stdin)", "print(json.dumps([verify(c['secret'], c['timestamp'], c['signature'], base64.b64decode(c['body'])) for c in cases]))"].join("\n"),
     );
-    const list = cases();
+    const list = cases(realNow()); // a Python child reads the real clock
     const input = JSON.stringify(list.map((c) => ({ secret: c.secret, timestamp: c.timestamp, signature: c.signature, body: Buffer.from(c.body).toString("base64") })));
     const r = spawnSync("python3", ["-I", join(dir, "harness.py"), lib], { input, encoding: "utf8" });
     expect(r.stderr).toBe("");
@@ -154,7 +155,7 @@ describe.skipIf(sh.status !== 0)("shell snippet", () => {
     const dir = tmpDir("mcb-guide-sh-");
     const script = join(dir, "verify-bridge-signature.sh");
     writeFileSync(script, snippet("shell"), { mode: 0o700 });
-    for (const c of cases()) {
+    for (const c of cases(realNow())) { // a shell child reads the real clock
       writeFileSync(join(dir, "body"), c.body);
       const r = spawnSync("bash", [script, c.secret, c.timestamp, c.signature, join(dir, "body")], { encoding: "utf8" });
       expect(r.status === 0, c.name).toBe(c.expected);
@@ -166,7 +167,7 @@ describe.skipIf(sh.status !== 0)("shell snippet", () => {
     const script = join(dir, "v.sh");
     writeFileSync(script, snippet("shell"), { mode: 0o700 });
     writeFileSync(join(dir, "body"), BODY);
-    const t = now() - 100;
+    const t = Math.floor(realNow() / 1000) - 100;
     const sig = `v1=${computeSignature(SECRET, t, BODY)}`;
     expect(spawnSync("bash", [script, SECRET, String(t), sig, join(dir, "body")], { env: { ...process.env, TOLERANCE_SEC: "50" } }).status).toBe(1);
     expect(spawnSync("bash", [script, SECRET, String(t), sig, join(dir, "body")], { env: { ...process.env, TOLERANCE_SEC: "500" } }).status).toBe(0);

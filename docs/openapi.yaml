@@ -1898,6 +1898,42 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/collections/resolve:
+    post:
+      tags: [Collections]
+      operationId: resolveCollectionDraft
+      summary: The concrete symbols of an option universe that is not saved yet
+      description: |
+        The preview behind the collection builder: the same work as `GET /v1/collections/{name}/resolve`, for a universe you
+        are still editing. Nothing is saved. The price rules are the same: a delayed, end-of-day or stale price for the
+        at-the-money strike is refused (422 or 503) unless `allowStale=true`, and then the answer says so in `atmSource` and
+        `warnings`.
+      x-module: library
+      x-scope: read
+      parameters:
+        - { name: allowStale, in: query, description: "Accept a stale, delayed or end-of-day price for the ATM (it is labelled).", schema: { type: boolean } }
+        - { name: spot, in: query, description: "Work out the ATM from this price instead of reading one.", schema: { type: number } }
+        - $ref: "#/components/parameters/AccountQueryOptional"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example: {"kind":"option-universe","universe":{"underlying":"NIFTY","expiries":"current-weekly","strikes":{"around":"atm","count":10},"sides":["CE","PE"]}}
+            schema: { $ref: "#/components/schemas/CollectionResolveDraft" }
+      responses:
+        "200":
+          description: The symbols for now.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/CollectionDraftResolution" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/ltp:
     get:
       tags: [Market data]
@@ -8000,6 +8036,31 @@ components:
               strikes: { type: integer }
         viaOldName: { type: boolean }
         warnings: { type: array, items: { type: string }, description: "Plain sentences: a last-close or stale price, a shifted expiry, an expired contract, a skipped date." }
+
+    CollectionResolveDraft:
+      type: object
+      required: [universe]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [option-universe] }
+        universe: { $ref: "#/components/schemas/CollectionUniverse" }
+
+    CollectionDraftResolution:
+      type: object
+      required: [draft, kind, resolvedAt, rule, symbols, count, atmSource, warnings]
+      description: What `CollectionResolution` says, for a universe that is not saved (so it has no id or name).
+      properties:
+        draft: { type: boolean, enum: [true] }
+        kind: { type: string, enum: [option-universe] }
+        resolvedAt: { type: string, format: date-time }
+        rule: { type: string, description: "The rule that was used, in words (expiry rule, strikes, sides)." }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        count: { type: integer }
+        atmSource: { $ref: "#/components/schemas/CollectionResolution/properties/atmSource" }
+        strikeSource: { $ref: "#/components/schemas/CollectionResolution/properties/strikeSource" }
+        underlying: { $ref: "#/components/schemas/CollectionResolution/properties/underlying" }
+        expiries: { $ref: "#/components/schemas/CollectionResolution/properties/expiries" }
+        warnings: { type: array, items: { type: string } }
 
     CollectionUsage:
       type: object

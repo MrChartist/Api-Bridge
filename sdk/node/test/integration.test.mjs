@@ -18,6 +18,9 @@ before(async () => {
     demo = await fixture.bootDemoBridge({ raw: { events: { webhooks: { allowPrivateTargets: true } } } });
     bridge = new BridgeClient({ baseUrl: demo.base, apiKey: demo.key, account: "demo-paper" });
   } catch (err) {
+    // Published on its own, the SDK has no Bridge beside it and this test skips. In the repository's CI (CI is set) a broken
+    // fixture must be a failure, not a quiet "skipped".
+    if (process.env.CI && process.env.CI !== "false") throw err;
     skip = `the repository's Bridge is not available (${String(err?.message ?? err).slice(0, 80)})`;
   }
 });

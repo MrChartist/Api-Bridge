@@ -24,7 +24,7 @@ describe("route table", () => {
       expect(options.public).toBeUndefined();
       expect(options.allowQueryKey).toBeUndefined();
     }
-    expect(ROUTES).toHaveLength(11);
+    expect(ROUTES).toHaveLength(12);
   });
 
   it("a read key makes and changes collections (the scope of starting a download), but cannot delete or replace; no key gets 401", async () => {
@@ -161,6 +161,56 @@ describe("resolve", () => {
     const before = t.market.calls.length;
     expect((await r("/v1/collections/n/resolve", t.keys.oneAccount)).status).toBe(200);
     expect(t.market.calls.slice(before).find((c) => c[0] === "ltp")[2].allowedAccounts).toEqual(["dhan-main"]);
+  });
+
+  describe("a universe that is not saved yet (POST /v1/collections/resolve, the builder's preview)", () => {
+    const draft = (body, query = "", key = t.keys.read) => t.request(`/v1/collections/resolve${query}`, { method: "POST", key, body });
+
+    it("answers what the saved universe would, saves nothing and says it is a draft", async () => {
+      await w("/v1/collections", { name: "n", universe: UNIVERSE });
+      const saved = (await r("/v1/collections/n/resolve")).json.data;
+      const res = await draft({ kind: "option-universe", universe: UNIVERSE });
+      expect(res.status).toBe(200);
+      const d = res.json.data;
+      expect(d).toMatchObject({ draft: true, kind: "option-universe", atmSource: "live", count: 11 });
+      expect(d.symbols).toEqual(saved.symbols);
+      expect(d.rule).toBe(saved.rule);
+      expect(d.expiries[0]).toMatchObject({ expiry: "2026-11-10", atm: 25000 });
+      expect(d).not.toHaveProperty("id");
+      expect(d).not.toHaveProperty("name");
+      expect(d.resolvedAt).toBe(res.json.meta.resolvedAt);
+      // the same universe without `kind`, and a different one, nothing stored
+      expect((await draft({ universe: { ...UNIVERSE, strikes: { around: "atm", count: 1 } } })).json.data.count).toBe(7);
+      expect((await r("/v1/collections")).json.data.map((c) => c.name)).toEqual(["n"]);
+    });
+
+    it("follows the price rules of a saved universe: an untrusted price is refused unless allowStale, spot is taken", async () => {
+      t.market.setPrice("NSE:NIFTY", 25012, { class: "delayed", source: "backup" });
+      expect((await draft({ universe: UNIVERSE })).status).toBe(422);
+      const ok = await draft({ universe: UNIVERSE }, "?allowStale=true");
+      expect(ok.status).toBe(200);
+      expect(ok.json.data.atmSource).toBe("delayed");
+      t.market.setPrice("NSE:NIFTY", 25012);
+      expect((await draft({ universe: UNIVERSE }, "?spot=25126")).json.data.atmSource).toBe("supplied");
+    });
+
+    it("checks the body like a saved universe and refuses anything else in it", async () => {
+      expect((await draft({})).status).toBe(400);
+      expect((await draft([])).status).toBe(400);
+      expect((await draft({ universe: { ...UNIVERSE, underlying: "nifty 50" } })).status).toBe(400);
+      expect((await draft({ universe: { ...UNIVERSE, surprise: 1 } })).status).toBe(400);
+      expect((await draft({ kind: "static", universe: UNIVERSE })).status).toBe(400);
+      expect((await draft({ universe: UNIVERSE, name: "x" })).status).toBe(400);
+      expect((await t.request("/v1/collections/resolve", { method: "POST", key: t.keys.read, raw: "{" , contentType: "application/json" })).status).toBe(400);
+    });
+
+    it("needs a key, stays inside the key's accounts, and a read key may use it (it changes nothing)", async () => {
+      expect((await t.request("/v1/collections/resolve", { method: "POST", body: { universe: UNIVERSE } })).status).toBe(401);
+      expect((await draft({ universe: UNIVERSE }, "?account=dhan-other", t.keys.oneAccount)).status).toBe(403);
+      const before = t.market.calls.length;
+      expect((await draft({ universe: UNIVERSE }, "", t.keys.oneAccount)).status).toBe(200);
+      expect(t.market.calls.slice(before).find((c) => c[0] === "ltp")[2].allowedAccounts).toEqual(["dhan-main"]);
+    });
   });
 
   it("a static collection resolves to its list", async () => {

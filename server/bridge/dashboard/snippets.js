@@ -18,6 +18,17 @@ export const KEY_PRESETS = Object.freeze({
   rest: { label: "curl / REST", scopes: ["read"], clientKind: "script" },
 });
 
+/**
+ * The `POST /v1/keys` body for an integration preset (KEY_PRESETS): its scopes and kind, on every account unless `accounts` says
+ * otherwise, with the expiry and the "allow the key in the address" flag the preset (or the caller) asks for. Pure.
+ */
+export function presetKeyBody(preset, { label = preset.label, accounts = "*", expiresDays = preset.expiresDays, allowQuery = preset.allowQuery, now = new Date() } = {}) {
+  const body = { label, scopes: [...preset.scopes], accounts, clientKind: preset.clientKind };
+  if (allowQuery) body.allowQuery = true;
+  if (expiresDays) body.expiresAt = new Date(now.getTime() + expiresDays * 86_400_000).toISOString();
+  return body;
+}
+
 const j = (v) => JSON.stringify(v, null, 2);
 /** A folder path as a shell word: quoted only when it has a space. */
 const sh = (path) => (/\s/.test(path) ? `"${path}"` : path);

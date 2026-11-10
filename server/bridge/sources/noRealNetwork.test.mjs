@@ -6,6 +6,7 @@
  * nothing in the test noticed. The guard records every such request and fails the test that made it.
  */
 import http from "node:http";
+import net from "node:net";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,6 +50,42 @@ const send = (port, path, { method = "GET", headers = {}, body } = {}) =>
     if (payload !== undefined) req.write(payload);
     req.end();
   });
+
+describe("the socket guard (code that does not use fetch)", () => {
+  it("refuses a connection from node's own http client to a real host, records it, and lets loopback through", async () => {
+    const err = await new Promise((resolve) => http.get({ host: "api.example.invalid", port: 80, path: "/" }, () => resolve(null)).on("error", resolve));
+    expect(err).toMatchObject({ code: "ECONNREFUSED" });
+    expect(err.message).toMatch(/real network/);
+    const raw = await new Promise((resolve) => {
+      const socket = net.connect(80, "203.0.113.9");
+      socket.on("error", resolve);
+    });
+    expect(raw.message).toMatch(/real network/);
+    expect(takeViolations()).toEqual(["api.example.invalid", "203.0.113.9"]);
+    const server = http.createServer((_q, res) => res.end("ok"));
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const body = await new Promise((resolve, reject) => http.get({ host: "127.0.0.1", port: server.address().port }, (res) => { let t = ""; res.on("data", (c) => (t += c)); res.on("end", () => resolve(t)); }).on("error", reject));
+    server.close();
+    expect(body).toBe("ok");
+    expect(networkViolations).toEqual([]);
+  });
+});
+
+describe("the socket guard and a pinned address", () => {
+  const pinnedTo = (address) => (_host, options, cb) => (options?.all ? cb(null, [{ address, family: 4 }]) : cb(null, address, 4));
+
+  it("judges a caller that pins the address with its own lookup by that address, not by the name", async () => {
+    const server = http.createServer((_q, res) => res.end("pinned"));
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const body = await new Promise((resolve, reject) => http.get({ host: "receiver.example.test", port: server.address().port, lookup: pinnedTo("127.0.0.1") }, (res) => { let t = ""; res.on("data", (c) => (t += c)); res.on("end", () => resolve(t)); }).on("error", reject));
+    server.close();
+    expect(body).toBe("pinned");
+    expect(networkViolations).toEqual([]);
+    const err = await new Promise((resolve) => http.get({ host: "receiver.example.test", port: 80, lookup: pinnedTo("203.0.113.7") }, () => resolve(null)).on("error", resolve));
+    expect(err.message).toMatch(/receiver\.example\.test resolved to 203\.0\.113\.7/);
+    expect(takeViolations()).toEqual(["receiver.example.test (resolved to 203.0.113.7)"]);
+  });
+});
 
 describe("the global fetch guard", () => {
   it("refuses a request to a real host, records it, and the error says what to do", async () => {

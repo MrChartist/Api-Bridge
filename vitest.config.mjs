@@ -12,6 +12,9 @@ if (!process.env.MCB_TEST_TMPDIR) {
   process.env.TMP = dir;
   process.env.TEMP = dir;
 }
+// The instrument-master cache (server/lib/instrumentCache.mjs) would otherwise write into <repo>/.cache and make a run depend on
+// what earlier runs left there.
+if (!process.env.MCB_INSTRUMENT_CACHE_DIR) process.env.MCB_INSTRUMENT_CACHE_DIR = join(process.env.MCB_TEST_TMPDIR, "instrument-cache");
 
 export default defineConfig({
   test: {

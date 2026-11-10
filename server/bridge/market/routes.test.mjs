@@ -29,6 +29,13 @@ const KEYS = {
 };
 const fakeKeyStore = { ...notImplementedService("keyStore"), authenticate: async (raw) => KEYS[raw] ?? null };
 
+// The instrument fixtures (__fixtures__/helpers.mjs) list option expiries up to 24 November 2026. The service asks the app clock which
+// expiries are still ahead, so a real clock would make `/v1/expiries` answer 404 from 25 November. Pin the clock to the week
+// the fixtures were written for (Monday 19 October 2026, 09:30 IST) and let it run forward from there.
+const PIN_START = Date.UTC(2026, 9, 19, 4, 0, 0);
+const REAL_START = Date.now();
+const PINNED_CLOCK = { now: () => PIN_START + (Date.now() - REAL_START) };
+
 let app;
 let port;
 let zerodha;
@@ -90,7 +97,7 @@ beforeAll(async () => {
       streamHub: stubStreamHub(),
     },
     logger: createNullLogger(),
-    clock: { now: () => Date.now() },
+    clock: PINNED_CLOCK,
   });
   ({ port } = await app.listen());
 });

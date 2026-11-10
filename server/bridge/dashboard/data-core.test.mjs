@@ -284,8 +284,11 @@ describe("collections", () => {
     expect(collectionNameProblem("")).toMatch(/Give the collection/);
     expect(collectionNameProblem("x".repeat(41))).toMatch(/40/);
     expect(collectionNameProblem("bad/name")).toMatch(/letters/);
-    expect(collectionNameProblem("Nifty 50", ["nifty 50"])).toMatch(/already exists/);
-    expect(collectionNameProblem("Nifty 50", ["Bank"])).toBe("");
+    expect(collectionNameProblem("Nifty-50", ["nifty-50"])).toMatch(/already exists/);
+    expect(collectionNameProblem("Nifty-50", ["Bank"])).toBe("");
+    // The server refuses a space (library NAME_RE), so the form must too, with a way out.
+    expect(collectionNameProblem("Nifty 50")).toMatch(/No spaces.*dash/);
+    expect(collectionNameProblem("nifty_50.v2")).toBe("");
   });
 
   it("reads tags", () => {
