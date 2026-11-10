@@ -31,6 +31,7 @@ export const EVENT_TOPICS = Object.freeze(
     { topic: "download.progress", scope: "read", accounts: false, description: "A data download moved forward (at most once a second per job).", throttleMs: 1000, key: "id" },
     { topic: "download.done", scope: "read", accounts: false, description: "A data download finished." },
     { topic: "download.failed", scope: "read", accounts: false, description: "A data download stopped with an error." },
+    { topic: "collection.changed", scope: "read", accounts: false, description: "A named list of instruments or an option universe was created, changed or deleted." },
     { topic: "recording.started", scope: "read", accounts: false, description: "A recording started writing." },
     { topic: "recording.stopped", scope: "read", accounts: false, description: "A recording stopped." },
     { topic: "recording.gap", scope: "read", accounts: false, description: "A recording missed data because the feed or the login was missing." },
