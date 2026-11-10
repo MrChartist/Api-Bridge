@@ -42,6 +42,15 @@ quote carries `"stale": true`. Use the `/v1` routes when you want labelled backu
 Calls act on `compat.account` from the config, or else the first account the key may use. A Bridge extension: add
 `"account": "<id>"` to any request body to pick another (the key must be allowed to use it).
 
+## Retrying an order safely
+
+Send an `Idempotency-Key` header (8 to 255 letters, digits or `_ . : -`) with `placeorder`, `placesmartorder`, `basketorder`,
+`splitorder`, `modifyorder`, `cancelorder`, `closeposition` and `optionsorder`. If a call times out, send the same request with the
+same key: the Bridge answers with the first result (header `Idempotency-Replayed: true`) and places nothing a second time. The
+same key with a different request is a 409 `IDEMPOTENCY_KEY_REUSED`. A client that cannot set headers can put the key in the body as
+`"idempotency_key"`. Without a key every call is a new order. A basket, a split or a close-all that partly failed is not stored as
+done, so the retry can finish the rest while the orders that already went through are not placed again.
+
 ## Orders are paper until you say otherwise
 
 The Bridge starts every key in **analyzer mode**: orders are paper orders (replies carry `"mode": "analyze"`). To

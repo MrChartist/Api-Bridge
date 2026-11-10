@@ -27,7 +27,7 @@ import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
 import { errorCatalogue } from "./errorCatalogue.mjs";
 import { createEventBus } from "./eventBus.mjs";
-import { createWriteIdempotency, fingerprint as requestFingerprint, ignoresIdempotencyKey, isIdempotentRoute, readIdempotencyKey } from "./idempotency.mjs";
+import { createWriteIdempotency, fingerprint as requestFingerprint, hasIdempotencyKeyHeader, ignoresIdempotencyKey, isIdempotentRoute, pipelineChecksIdempotencyKey, readIdempotencyKey } from "./idempotency.mjs";
 import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
 import { acquireInstanceLock } from "./instanceLock.mjs";
@@ -463,10 +463,14 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
 
       // Idempotency-Key on the create routes that are not orders (core/idempotency.mjs): a repeat returns the first answer.
+      // A write route that does not use the header ignores it WITHOUT reading its value: a public webhook receiver or an alert route
+      // must never answer 400 because a sender added its own, differently shaped Idempotency-Key.
       if (method !== "GET" && method !== "HEAD") {
-        const idemKey = readIdempotencyKey(req.headers);
-        if (idemKey !== undefined) {
-          if (isIdempotentRoute(method, route.pattern)) {
+        if (ignoresIdempotencyKey(method, route.pattern)) {
+          if (hasIdempotencyKeyHeader(req.headers)) ctx.setHeader("Idempotency-Ignored", "true"); // do not believe a retry is safe
+        } else if (pipelineChecksIdempotencyKey(method, route.pattern)) {
+          const idemKey = readIdempotencyKey(req.headers);
+          if (idemKey !== undefined && isIdempotentRoute(method, route.pattern)) {
             const begun = writeIdempotency.begin(`${ctx.principal.kind}:${ctx.principal.id}`, idemKey, requestFingerprint({ method, path: url.pathname, query: url.searchParams, body: ctx.body }));
             if (begun.replay) {
               status = begun.reply.status;
@@ -474,8 +478,6 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
               return;
             }
             idem = begun;
-          } else if (ignoresIdempotencyKey(method, route.pattern)) {
-            ctx.setHeader("Idempotency-Ignored", "true"); // this route does not take the header: do not believe a retry is safe
           }
         }
       }
