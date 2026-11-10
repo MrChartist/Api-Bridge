@@ -416,6 +416,7 @@ describe("recordings and auto-record", () => {
   it("shows the recording's own problem: the real text, the code and the fix", () => {
     const problem = { code: "disk_full", message: "The disk has only 100 MB free.", fix: "Delete old recordings.", since: "2026-11-09T10:00:00+05:30" };
     const v = recordingView({ ...rec, status: "blocked", problem }, NOW);
+    expect(v).toMatchObject({ word: "Not writing", tone: "bad" });
     expect(v.why).toMatchObject({ title: "The disk is nearly full", detail: "The disk has only 100 MB free.", code: "disk_full", fix: "Delete old recordings." });
     expect(recordingView({ ...rec, problem: { code: "ODD", message: "Something odd.", fix: "Wait." } }, NOW).why).toMatchObject({ title: "The recording has a problem", detail: "Something odd." });
     expect(recordingView({ ...rec, problem: null }, NOW).why).toBeNull();

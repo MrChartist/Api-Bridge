@@ -686,6 +686,7 @@ const REC_STATUS = {
   failed: { word: "Failed", tone: "bad" },
   login_needed: { word: "Needs a login", tone: "warn" },
   disk_low: { word: "Stopped, disk low", tone: "bad" },
+  blocked: { word: "Not writing", tone: "bad" },
 };
 const REC_WHY = {
   login_needed: ["No broker login right now", "It starts by itself as soon as a price feed is available. Log in on Accounts.", "accounts"],
