@@ -23,7 +23,7 @@ import { z } from "zod";
 import { loadJsonOrQuarantine } from "../../lib/safeStore.mjs";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
-import { INTERVALS, historySpanDays, planInterval } from "../market/history.mjs";
+import { INTERVALS, barStartOf, historySpanDays, planInterval } from "../market/history.mjs";
 import { parseMarketConfig } from "../market/config.mjs";
 import { createLocalStore, subtractCoverage } from "../market/localStore.mjs";
 import { MAX_BACKGROUND_SHARE } from "../ratelimit/backgroundGate.mjs";
@@ -40,6 +40,7 @@ import { createPacer } from "./pacer.mjs";
 import { filterByTags } from "./tagsCompat.mjs";
 import { assertKnownSymbols } from "../symbols/knownSymbols.mjs";
 import { describeFailure, fixFor } from "../core/failureReason.mjs";
+import { NO_CONTROL, NO_CONTROL_MESSAGE } from "../core/plainText.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
@@ -54,7 +55,7 @@ const HOUSEKEEPING_MS = 30_000;
 
 const requestSchema = z
   .object({
-    name: z.string().trim().min(1).max(80).optional(),
+    name: z.string().trim().min(1).max(80).regex(NO_CONTROL, NO_CONTROL_MESSAGE).optional(),
     symbols: z.array(z.string().min(1).max(64)).min(1).max(500).optional(),
     collection: z.string().trim().min(1).max(64).optional(),
     intervals: z.array(z.enum(INTERVALS)).min(1).max(10),
@@ -72,7 +73,7 @@ const requestSchema = z
   })
   .strict();
 
-const patchSchema = z.object({ name: z.string().trim().min(1).max(80).optional(), tags: z.array(z.string()).max(20).optional() }).strict();
+const patchSchema = z.object({ name: z.string().trim().min(1).max(80).regex(NO_CONTROL, NO_CONTROL_MESSAGE).optional(), tags: z.array(z.string()).max(20).optional() }).strict();
 
 /** Thrown inside a run to pause the job with a reason (not a failure). */
 class PauseJob extends Error {
@@ -117,6 +118,9 @@ export function createDownloadManager(deps, opts = {}) {
   const running = new Map();
   /** id -> tail of the job.json write chain */
   const writes = new Map();
+  /** Dataset names claimed by a create() that has not added its job yet, and job ids added but not yet on disk. */
+  const creatingDatasets = new Set();
+  const creating = new Set();
   let started = false;
   let stopped = false;
   let diskBytes = 0;
@@ -622,66 +626,111 @@ export function createDownloadManager(deps, opts = {}) {
         { errors: [{ path: low ? "downloads.minFreeDiskMb" : "downloads.maxDiskMb", message: low ? "would leave too little free disk" : "would exceed the disk limit" }] },
       );
     }
-    if (req.dataset) {
-      const active = [...jobs.values()].find((j) => j.dataset === req.dataset && (j.status === "queued" || j.status === "running"));
-      if (active) {
-        if (p.fromDataset) return { job: publicJob(active), existing: true };
-        throw new BridgeError("STATE_CONFLICT", `Dataset ${req.dataset} is already being updated by job ${active.id}. Wait for it, or cancel it first.`);
+    let reserved = false;
+    let id;
+    let job;
+    try {
+      if (req.dataset) {
+        const active = [...jobs.values()].find((j) => j.dataset === req.dataset && (j.status === "queued" || j.status === "running"));
+        if (active) {
+          if (p.fromDataset) return { job: publicJob(active), existing: true };
+          throw new BridgeError("STATE_CONFLICT", `Dataset ${req.dataset} is already being updated by job ${active.id}. Wait for it, or cancel it first.`);
+        }
+        // Two requests for the same new dataset arrive before the first job exists: the second must see the first.
+        if (creatingDatasets.has(req.dataset)) throw new BridgeError("STATE_CONFLICT", `Dataset ${req.dataset} is being started by another request. Try again in a moment.`);
+        creatingDatasets.add(req.dataset);
+        reserved = true;
+        if (!p.fromDataset) refuseBackfill(req, p);
+        await datasets.ensure(req.dataset, { format: req.format, request: { symbols: req.symbols, collection: req.collection ?? null, intervals: req.intervals, from: req.from, backup: req.backup, account: req.account, afterHoursOnly: req.afterHoursOnly }, tags: p.tags, createdBy: o.actor?.id ?? null, guard: p.fromDataset ? undefined : (meta) => authorize(meta.createdBy, o.actor, "dataset") });
       }
-      await datasets.ensure(req.dataset, { format: req.format, request: { symbols: req.symbols, collection: req.collection ?? null, intervals: req.intervals, from: req.from, backup: req.backup, account: req.account, afterHoursOnly: req.afterHoursOnly }, tags: p.tags, createdBy: o.actor?.id ?? null, guard: p.fromDataset ? undefined : (meta) => authorize(meta.createdBy, o.actor, "dataset") });
-    }
-    const id = `dl_${randomBytes(6).toString("hex")}`;
-    const name = p.name ?? req.dataset ?? `download-${istDate(now())}`;
-    const taken = new Set();
-    const ext = EXTENSIONS[req.format];
-    const combined = req.layout === "combined" && !req.dataset;
-    const combinedBase = safeFileName(name);
-    const items = [];
-    for (const symbol of req.symbols) {
-      for (const interval of req.intervals) {
-        items.push({ symbol, interval, status: "pending", rows: 0, bytes: 0, error: null, file: req.dataset || combined ? null : uniqueName(`${safeFileName(symbol)}_${interval}`, ext, taken), cursor: null, fromSec: null, toSec: null, partBytes: 0, firstBar: null, lastBar: null, holes: 0, holesNote: null, sha256: null, attempts: 0 });
+      id = `dl_${randomBytes(6).toString("hex")}`;
+      const name = p.name ?? req.dataset ?? `download-${istDate(now())}`;
+      const taken = new Set();
+      const ext = EXTENSIONS[req.format];
+      const combined = req.layout === "combined" && !req.dataset;
+      const combinedBase = safeFileName(name);
+      const items = [];
+      for (const symbol of req.symbols) {
+        for (const interval of req.intervals) {
+          items.push({ symbol, interval, status: "pending", rows: 0, bytes: 0, error: null, file: req.dataset || combined ? null : uniqueName(`${safeFileName(symbol)}_${interval}`, ext, taken), cursor: null, fromSec: null, toSec: null, partBytes: 0, firstBar: null, lastBar: null, holes: 0, holesNote: null, sha256: null, attempts: 0 });
+        }
       }
+      job = {
+        id,
+        name,
+        status: "queued",
+        reason: null,
+        message: null,
+        createdAt: nowIso(),
+        startedAt: null,
+        finishedAt: null,
+        request: req,
+        tags: p.tags ?? [],
+        dataset: req.dataset,
+        collection: p.collection,
+        fromSec: p.fromSec,
+        toSec: p.toSec,
+        allowedAccounts: o.allowedAccounts ?? null,
+        createdBy: o.actor?.id ?? null,
+        estBytes: est.bytes,
+        combinedBase: combined ? combinedBase : null,
+        dataClass: "realtime",
+        sources: [],
+        official: null,
+        delaySec: null,
+        notes: [],
+        outputs: [],
+        savedCalls: 0,
+        localBars: 0,
+        items,
+      };
+      if (p.collection) job.notes.push(`Symbols come from collection "${p.collection.name}", resolved ${p.collection.resolvedAt}${p.collection.rule ? ` (${typeof p.collection.rule === "string" ? p.collection.rule : JSON.stringify(p.collection.rule)})` : ""}.`);
+      // Checked again with no wait in between: two requests that passed the first check together cannot both take the last place.
+      checkRoom(o.actor);
+      jobs.set(id, job);
+      creating.add(id); // listed, but never started until its files are on the disk
+    } finally {
+      if (reserved) creatingDatasets.delete(req.dataset);
     }
-    const job = {
-      id,
-      name,
-      status: "queued",
-      reason: null,
-      message: null,
-      createdAt: nowIso(),
-      startedAt: null,
-      finishedAt: null,
-      request: req,
-      tags: p.tags ?? [],
-      dataset: req.dataset,
-      collection: p.collection,
-      fromSec: p.fromSec,
-      toSec: p.toSec,
-      allowedAccounts: o.allowedAccounts ?? null,
-      createdBy: o.actor?.id ?? null,
-      estBytes: est.bytes,
-      combinedBase: combined ? combinedBase : null,
-      dataClass: "realtime",
-      sources: [],
-      official: null,
-      delaySec: null,
-      notes: [],
-      outputs: [],
-      savedCalls: 0,
-      localBars: 0,
-      items,
-    };
-    if (p.collection) job.notes.push(`Symbols come from collection "${p.collection.name}", resolved ${p.collection.resolvedAt}${p.collection.rule ? ` (${typeof p.collection.rule === "string" ? p.collection.rule : JSON.stringify(p.collection.rule)})` : ""}.`);
-    // Checked again with no wait in between: two requests that passed the first check together cannot both take the last place.
-    checkRoom(o.actor);
-    jobs.set(id, job);
-    await mkdir(join(jobDir(id), "parts"), { recursive: true, mode: 0o700 });
-    await persistNow(job);
-    await writeManifest(job);
+    try {
+      await mkdir(join(jobDir(id), "parts"), { recursive: true, mode: 0o700 });
+      await persistNow(job);
+      await writeManifest(job);
+    } catch (err) {
+      // The caller is told it failed, so no job may be left behind to run later (a retry would make a second one).
+      jobs.delete(id);
+      await removeQuiet(jobDir(id)).catch(() => {});
+      throw err;
+    } finally {
+      creating.delete(id);
+    }
     // job.json and the manifest are on the disk now: count them (a 5000-item job is about a megabyte).
     diskBytes += (await sizeOf(join(jobDir(id), "job.json"))) + (await sizeOf(join(jobDir(id), "manifest.json")));
     queueMicrotask(pump);
     return { job: publicJob(job), existing: false };
+  }
+
+  /**
+   * A dataset only grows forward: a job that asks for bars older than a series already holds would fetch nothing for them
+   * and still say "done". Refuse it with the way out (a new dataset name for the older range).
+   */
+  function refuseBackfill(req, p) {
+    const meta = datasets.get(req.dataset);
+    if (!meta?.series) return;
+    for (const symbol of req.symbols) {
+      for (const interval of req.intervals) {
+        const cov = meta.series[`${symbol}|${interval}`]?.coverage;
+        if (!cov) continue;
+        const wanted = Math.floor(barStartOf(interval, p.fromSec * 1000) / 1000);
+        if (wanted < Math.floor(barStartOf(interval, cov.from * 1000) / 1000)) {
+          throw new BridgeError(
+            "VALIDATION_FAILED",
+            `Dataset ${req.dataset} already starts at ${iso(cov.from)} for ${symbol} ${interval}, and a dataset can only grow forward, so bars from ${iso(wanted)} would not be added. Ask for the older range in a new dataset (a different name), or start this one from ${iso(cov.from)} or later.`,
+            { errors: [{ path: "from", message: "earlier than the start of the dataset" }] },
+          );
+        }
+      }
+    }
   }
 
   // ───────────────────────── the run loop ─────────────────────────
@@ -690,7 +739,7 @@ export function createDownloadManager(deps, opts = {}) {
     if (!started || stopped) return;
     const c = cfg();
     if (!c.enabled) return;
-    const queued = [...jobs.values()].filter((j) => j.status === "queued" && !running.has(j.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const queued = [...jobs.values()].filter((j) => j.status === "queued" && !running.has(j.id) && !creating.has(j.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     for (const job of queued) {
       if (running.size >= c.maxConcurrentJobs) break;
       if (job.dataset && [...running.keys()].some((id) => jobs.get(id)?.dataset === job.dataset)) continue;
@@ -725,7 +774,7 @@ export function createDownloadManager(deps, opts = {}) {
         await runItem(job, item, signal);
       }
       if (signal.aborted) return;
-      await finishJob(job);
+      await finishJob(job, signal);
     } catch (err) {
       // Paused, cancelled or stopped from outside: whoever aborted has already set the state.
       if (signal.aborted) return;
@@ -930,13 +979,14 @@ export function createDownloadManager(deps, opts = {}) {
     const span = await spanOf(job, item);
     // First start of this item: decide its range once, so a resume continues where it stopped.
     if (item.fromSec === null) {
-      let from = job.fromSec;
+      // A from inside a daily, weekly or monthly bar still means that bar (stored bars are stamped at IST midnight).
+      let from = Math.floor(barStartOf(item.interval, job.fromSec * 1000) / 1000);
       const to = Math.min(job.toSec, coveredUpTo(now(), item.interval, ex));
       if (job.dataset) {
         const s = datasets.get(job.dataset)?.series?.[`${item.symbol}|${item.interval}`];
         if (s?.coverage) {
           from = s.coverage.to + 1;
-          const full = planWindows(job.fromSec, to, span).length;
+          const full = planWindows(Math.floor(barStartOf(item.interval, job.fromSec * 1000) / 1000), to, span).length;
           const left = planWindows(from, to, span).length;
           if (full > left) {
             job.savedCalls += full - left;
@@ -1077,9 +1127,15 @@ export function createDownloadManager(deps, opts = {}) {
   }
 
   /** Every item has been tried: assemble combined files, list the outputs, write the manifest and say how it ended. */
-  async function finishJob(job) {
+  async function finishJob(job, signal) {
     const req = job.request;
     const outputs = [];
+    // A pause or cancel can land at any await below: whoever asked has already set the state, so stop and touch nothing.
+    const alive = () => !signal?.aborted && job.status === "running";
+    const made = [];
+    const undo = async () => {
+      for (const f of made) await removeQuiet(f);
+    };
     if (job.dataset) {
       const meta = datasets.get(job.dataset);
       for (const it of job.items.filter((i) => i.status === "done")) {
@@ -1097,11 +1153,17 @@ export function createDownloadManager(deps, opts = {}) {
         const final = join(jobDir(job.id), name);
         const tmp = `${final}.tmp`;
         const out = createWriteStream(tmp, { mode: 0o600 });
+        made.push(tmp);
         out.write(headerText({ format: req.format, layout: "combined", interval }));
         let rows = 0;
         let firstBar = null;
         let lastBar = null;
         for (const { it, i } of parts) {
+          if (!alive()) {
+            out.destroy();
+            await undo();
+            return;
+          }
           await new Promise((resolve, reject) => {
             const rs = createReadStream(partPath(job, i));
             rs.on("error", reject);
@@ -1117,7 +1179,12 @@ export function createDownloadManager(deps, opts = {}) {
           out.end(resolve);
         });
         await rename(tmp, final);
-        for (const { i } of parts) await removeQuiet(partPath(job, i));
+        made.push(final);
+        // The parts stay until the job is done: a pause here, or a failed item that is resumed, assembles the files again.
+        if (!alive()) {
+          await undo();
+          return;
+        }
         outputs.push({ name, symbol: null, interval, rows, bytes: await sizeOf(final), firstBar, lastBar, sha256: await sha256File(final) });
       }
     } else {
@@ -1125,6 +1192,7 @@ export function createDownloadManager(deps, opts = {}) {
         if (it.status === "done" && it.rows > 0 && it.file) outputs.push({ name: it.file, symbol: it.symbol, interval: it.interval, rows: it.rows, bytes: it.bytes, firstBar: it.firstBar, lastBar: it.lastBar, sha256: it.sha256 });
       }
     }
+    if (!alive()) return;
     job.outputs = outputs;
     // A dataset job that asked the broker for nothing (the dataset was already up to date) still says where its data came from.
     if (job.dataset && !job.sources.length) {
@@ -1145,13 +1213,19 @@ export function createDownloadManager(deps, opts = {}) {
     if (job.dataClass !== "realtime") pushNote(`Data class: ${job.dataClass}${job.delaySec ? ` (delayed by about ${job.delaySec} seconds)` : ""}. It must never be used for orders, risk checks, paper fills or alerts.`);
     const failed = job.items.filter((i) => i.status === "failed");
     const finalStatus = failed.length ? "failed" : "done";
+    // The manifest is on disk before anyone can see the job as finished.
+    await writeManifest(job, finalStatus);
+    if (!alive()) return; // cancel() and pause() rewrite the manifest themselves
+    diskBytes = await folderBytes(join(dataDir, "downloads"));
+    if (!alive()) return;
     job.finishedAt = nowIso();
     job.reason = failed.length ? "items_failed" : null;
     job.message = failed.length ? `${failed.length} of ${job.items.length} items failed (first: ${failed[0].symbol} ${failed[0].interval}: ${failed[0].error?.message}). Resume the job to try those again.` : null;
-    // The manifest is on disk before anyone can see the job as finished.
-    await writeManifest(job, finalStatus);
-    diskBytes = await folderBytes(join(dataDir, "downloads"));
     job.status = finalStatus;
+    if (finalStatus === "done" && job.combinedBase !== null) {
+      await removeQuiet(join(jobDir(job.id), "parts"));
+      await mkdir(join(jobDir(job.id), "parts"), { recursive: true, mode: 0o700 });
+    }
     const p = progressOf(job);
     if (finalStatus === "done") emitSafe("download.done", { id: job.id, name: job.name, files: outputs.length, rows: p.rows, bytes: p.bytes, dataClass: job.dataClass, source: job.sources.join(", ") || null, dataset: job.dataset ?? null });
     else emitSafe("download.failed", { id: job.id, name: job.name, reason: job.reason, message: job.message, failed: failed.length, dataset: job.dataset ?? null });
@@ -1191,6 +1265,9 @@ export function createDownloadManager(deps, opts = {}) {
   async function resume(id, { actor } = {}) {
     const job = need(id);
     authorize(job.createdBy, actor, "job");
+    if (job.damaged) throw new BridgeError("STATE_CONFLICT", `Job ${id} lost its settings file, so it cannot be resumed. Delete it and start the download again.`);
+    // An admin who resumes the job of a revoked key has decided it may go on: the housekeeping check must not pause it again.
+    if (job.status === "paused" && job.reason === "key_revoked") job.keyRevokedAck = true;
     if (job.status === "paused") {
       job.status = "queued";
       job.reason = null;
@@ -1217,6 +1294,11 @@ export function createDownloadManager(deps, opts = {}) {
     job.finishedAt = nowIso();
     running.get(id)?.controller.abort(new DOMException("cancelled", "AbortError"));
     await settle(id);
+    // Whatever the run did while it stopped, the answer to a cancel is "cancelled".
+    job.status = "cancelled";
+    job.reason = "user";
+    job.message = "Cancelled.";
+    job.finishedAt ??= nowIso();
     // keep whole per-symbol files; drop half-written parts
     await removeQuiet(join(jobDir(id), "parts"));
     await mkdir(join(jobDir(id), "parts"), { recursive: true });
@@ -1421,6 +1503,7 @@ export function createDownloadManager(deps, opts = {}) {
   /** Jobs paused for lack of disk continue once the disk has clearly more room than the floor (a quarter more, at least 50 MB). */
   async function resumeIfRoom() {
     if (![...jobs.values()].some((j) => j.status === "paused" && j.reason === "disk_low")) return;
+    if (diskCritical) return; // the storage module still says critical (it also goes critical on a write that failed with room left)
     const floor = cfg().minFreeDiskMb * MB;
     const free = freeBytes(dataDir);
     if (floor <= 0 || free === null || free >= floor + Math.max(50 * MB, floor / 4)) await resumeAuto("disk_low");
@@ -1429,13 +1512,13 @@ export function createDownloadManager(deps, opts = {}) {
   /** Pause the open jobs of a key that was revoked: a leaked key must not keep using the broker budget and the disk. */
   async function pauseJobsOfKey(keyId) {
     if (!cfg().pauseOnKeyRevoked) return;
-    await pauseAuto("key_revoked", "The API key that started this job was revoked, so the job is paused. An admin key can resume or cancel it.", (j) => j.createdBy === `key:${keyId}`);
+    await pauseAuto("key_revoked", "The API key that started this job was revoked, so the job is paused. An admin key can resume or cancel it.", (j) => j.createdBy === `key:${keyId}` && !j.keyRevokedAck);
   }
 
   /** A key revoked by another process (`mc-bridge keys revoke` while the Bridge runs) sends no event: look at the keys of open jobs. */
   async function checkKeysOfOpenJobs() {
     if (!cfg().pauseOnKeyRevoked || typeof deps.keyStore?.get !== "function") return;
-    const ids = new Set([...jobs.values()].filter((j) => (j.status === "running" || j.status === "queued") && typeof j.createdBy === "string" && j.createdBy.startsWith("key:")).map((j) => j.createdBy.slice(4)));
+    const ids = new Set([...jobs.values()].filter((j) => (j.status === "running" || j.status === "queued") && !j.keyRevokedAck && typeof j.createdBy === "string" && j.createdBy.startsWith("key:")).map((j) => j.createdBy.slice(4)));
     for (const id of ids) {
       let rec;
       try {
@@ -1499,7 +1582,13 @@ export function createDownloadManager(deps, opts = {}) {
 
   async function loadSettings() {
     try {
-      const raw = JSON.parse(await readFile(settingsFile, "utf8"));
+      // A file that is empty, cut off or not an object is moved aside (data.quarantined), never silently overwritten by the next change.
+      const loaded = loadJsonOrQuarantine(settingsFile, { what: "downloads settings", log: logger, now: now(), validate: (v) => (v && typeof v === "object" && !Array.isArray(v)) || "has an unknown format" });
+      if (loaded.missing || loaded.value === null) {
+        overrides = {};
+        return;
+      }
+      const raw = loaded.value;
       const r = SETTINGS_SCHEMA.safeParse(raw);
       // A hand-edited or old file never stops the Bridge: take the good fields, ignore the rest.
       overrides = r.success ? r.data : {};
