@@ -44,6 +44,20 @@ const waitJob = (id, key = keys.read) =>
 const BODY = { name: "reliance daily", symbols: ["NSE:RELIANCE", "NSE:INFY"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-16" };
 
 describe("estimate and start", () => {
+  it("refuses an unknown symbol with a 400 that names it and suggests the closest, and an expired one unless allowExpired", async () => {
+    const bad = await post("/v1/downloads", { ...BODY, symbols: ["NSE:RELIANC", "NSE:INFY"] });
+    expect(bad.status).toBe(400);
+    expect(bad.json.code).toBe("VALIDATION_FAILED");
+    expect(bad.json.detail).toContain("NSE:RELIANC");
+    expect(bad.json.unknownSymbols.map((u) => u.symbol)).toEqual(["NSE:RELIANC"]);
+    expect(bad.json.unknownSymbols[0].suggestions.length).toBeGreaterThan(0);
+    const expired = await post("/v1/downloads?dryRun=1", { ...BODY, symbols: ["NFO:NIFTY-2020-01-30-12000-CE"] });
+    expect(expired.status).toBe(400);
+    expect(expired.json.detail).toContain("allowExpired");
+    const allowed = await post("/v1/downloads?dryRun=1", { ...BODY, symbols: ["NFO:NIFTY-2020-01-30-12000-CE"], allowExpired: true });
+    expect(allowed.status).toBe(200);
+  });
+
   it("needs a key, and a dryRun starts nothing", async () => {
     expect((await bridge.http("/v1/downloads", { method: "POST", body: BODY })).status).toBe(401);
     const dry = await post("/v1/downloads?dryRun=1", BODY);

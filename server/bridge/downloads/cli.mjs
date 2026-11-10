@@ -4,7 +4,7 @@
  *
  *   mc-bridge download NSE:NIFTY NSE:RELIANCE --interval 5m --from 2024-01-01 [--to 2024-12-31] [--format csv|jsonl|amibroker]
  *                      [--layout per-symbol|combined] [--dataset nifty-5m] [--collection my-list] [--account id] [--backup]
- *                      [--name text] [--tags a,b] [--after-hours] [--dry-run] [--watch] [--json]
+ *                      [--name text] [--tags a,b] [--after-hours] [--allow-expired] [--dry-run] [--watch] [--json]
  *   mc-bridge download list [--status running] | show <id> | pause <id> | resume <id> | cancel <id> | delete <id>
  *   mc-bridge download files <id> [--out <folder>]       list the files; with --out, save them and check each hash
  *   mc-bridge download datasets                           list datasets;   download update <dataset>   fetch what is new
@@ -100,6 +100,7 @@ export function requestFromFlags(symbols, flags) {
   if (typeof flags.tags === "string") body.tags = list(flags.tags);
   if (flags.backup === true) body.backup = true;
   if (flags["after-hours"] === true) body.afterHoursOnly = true;
+  if (flags["allow-expired"] === true) body.allowExpired = true;
   return body;
 }
 

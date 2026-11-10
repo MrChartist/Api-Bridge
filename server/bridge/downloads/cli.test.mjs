@@ -41,6 +41,11 @@ describe("requestFromFlags", () => {
     });
     expect(requestFromFlags([], { collection: "mine", interval: "1d", from: "2024-01-01" })).toEqual({ collection: "mine", intervals: ["1d"], from: "2024-01-01" });
   });
+
+  it("--allow-expired lets an expired contract through for its history", () => {
+    expect(requestFromFlags(["NFO:NIFTY-2020-01-30-12000-CE"], { interval: "1d", from: "2020-01-01", "allow-expired": true }).allowExpired).toBe(true);
+    expect(requestFromFlags(["NSE:NIFTY"], { interval: "1d", from: "2020-01-01" }).allowExpired).toBeUndefined();
+  });
 });
 
 describe("formatting", () => {

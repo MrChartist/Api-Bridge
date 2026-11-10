@@ -73,7 +73,7 @@ const bar = (time, base) => ({ time, open: base, high: base + 2, low: base - 1, 
 /**
  * A manager over fakes in a fresh data folder.
  * @param {{ config?: object, clock?: { now(): number }, history?: ReturnType<typeof createFakeHistory>, dataDir?: string,
- *   library?: any, killed?: { value: boolean }, accounts?: any[], sleep?: Function, statfs?: (dir: string) => number | null }} [o]
+ *   library?: any, killed?: { value: boolean }, accounts?: any[], symbols?: any, sleep?: Function, statfs?: (dir: string) => number | null }} [o]
  */
 export function makeManager(o = {}) {
   const dataDir = o.dataDir ?? mkdtempSync(join(tmpdir(), "mcb-dl-"));
@@ -94,6 +94,7 @@ export function makeManager(o = {}) {
     accounts,
     scheduler,
     marketData: { history: history.history },
+    ...(o.symbols ? { symbols: o.symbols } : {}),
     safety: { killSwitchStatus: () => ({ engaged: killed.value }) },
   };
   const manager = createDownloadManager(deps, { sleep: o.sleep ?? (() => new Promise((r) => setImmediate(r))), getLibrary: () => o.library, ...(o.statfs ? { statfs: o.statfs } : {}) });

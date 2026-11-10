@@ -37,6 +37,7 @@ import { estimateDownload, planWindows, timeAtShare } from "./estimate.mjs";
 import { JOB_ID_RE, folderBytes, removeQuiet, safeFileName, sha256File, sizeOf, uniqueName, writeJsonAtomic } from "./files.mjs";
 import { createPacer } from "./pacer.mjs";
 import { filterByTags } from "./tagsCompat.mjs";
+import { assertKnownSymbols } from "../symbols/knownSymbols.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
@@ -63,6 +64,8 @@ const requestSchema = z
     account: z.string().regex(ACCOUNT_RE).optional(),
     backup: z.boolean().optional(),
     afterHoursOnly: z.boolean().optional(),
+    /** Accept well-formed symbols of contracts that have already expired (not in any instrument master) to download their history. */
+    allowExpired: z.boolean().optional(),
     tags: z.array(z.string()).max(20).optional(),
   })
   .strict();
@@ -422,6 +425,9 @@ export function createDownloadManager(deps, opts = {}) {
     if (symbols.length > c.maxSymbolsPerJob) {
       throw new BridgeError("VALIDATION_FAILED", `A job may have at most ${c.maxSymbolsPerJob} symbols (downloads.maxSymbolsPerJob); this one has ${symbols.length}. Split it into several jobs.`, { errors: [{ path: "symbols", message: `at most ${c.maxSymbolsPerJob} symbols` }] });
     }
+    // A typo fails here, with the closest real symbols, not hours later on the first broker call. A dataset update replays
+    // symbols that were checked when the dataset was made (some of them may have expired since), so it is not checked again.
+    if (!fromDataset) await assertKnownSymbols(deps.symbols, symbols, { allowExpired: r.allowExpired === true, nowMs: now(), what: "download" });
     const intervals = [...new Set(r.intervals)];
     const t = now();
     const fromMs = parseTimeInput(r.from, { field: "from" });
@@ -449,6 +455,7 @@ export function createDownloadManager(deps, opts = {}) {
       backup: r.backup === true,
       // null: follows the downloads setting at the time the job runs (it can be changed while the job waits).
       afterHoursOnly: r.afterHoursOnly ?? null,
+      ...(r.allowExpired === true ? { allowExpired: true } : {}),
       ...(r.collection ? { collection: r.collection } : {}),
     };
     return { request, collection, fromSec: Math.floor(fromMs / 1000), toSec: Math.floor(toMs / 1000), name: r.name, tags, fromDataset };

@@ -31,6 +31,7 @@ import { PRESETS, newRuleId, presetList, recordingIdOfRule, ruleFingerprint } fr
 import { createSampler } from "./sampler.mjs";
 import { createSessionClock, exchangeOfSymbols, exchangeOfUnderlying } from "./schedule.mjs";
 import { createUniverseResolver } from "./universe.mjs";
+import { assertKnownSymbols } from "../symbols/knownSymbols.mjs";
 
 const MB = 1024 * 1024;
 const PERSIST_EVERY_MS = 10_000;
@@ -696,6 +697,9 @@ export function createRecorderService(deps, opts = {}) {
     return schedule;
   }
 
+  /** A recording saves live data from now on: an unknown symbol or an expired contract is refused at once, with suggestions. */
+  const assertRecordable = (list) => (list ? assertKnownSymbols(deps.symbols, list, { nowMs: now(), allowFlag: null, what: "recording" }) : undefined);
+
   /** @returns {Promise<any>} the recording view */
   async function create(input, { who = "api" } = {}) {
     if (!cfg.enabled) throw new BridgeError("STATE_CONFLICT", "The recorder is switched off in the config (recorder.enabled).");
@@ -707,6 +711,7 @@ export function createRecorderService(deps, opts = {}) {
     }
     if (activeCount() >= cfg.maxRecordings) throw new BridgeError("STATE_CONFLICT", `There are already ${cfg.maxRecordings} recordings (recorder.maxRecordings). Stop or delete one first.`);
     const target = normaliseTarget(b);
+    await assertRecordable(target.symbols);
     if (target.collection) await assertCollection(target.collection);
     const schedule = scheduleFor(b.sessionOnly, "market-hours", target);
     const id = newId();
@@ -1021,7 +1026,7 @@ export function createRecorderService(deps, opts = {}) {
       if (!libraryFn()) throw new BridgeError("CAPABILITY_UNSUPPORTED", "Collections are not available in this Bridge, so a rule cannot use one. List the symbols instead.");
       await assertCollection(rule.collection);
     }
-    normaliseRuleTarget(rule); // refuses bad symbols now
+    await assertRecordable(normaliseRuleTarget(rule).symbols); // refuses bad and unknown symbols now
     if (rule.schedule === "market-hours") scheduleFor(true, "market-hours", normaliseRuleTarget(rule));
     const t = iso(now());
     const saved = { ...rule, id: rule.id ?? newRuleId(rule.name, taken), createdAt: t, updatedAt: t, ...(extra.preset ? { preset: extra.preset } : {}) };
@@ -1059,7 +1064,7 @@ export function createRecorderService(deps, opts = {}) {
     Object.assign(merged, body);
     const rule = checkRule(merged);
     if (rule.collection && !libraryFn()) throw new BridgeError("CAPABILITY_UNSUPPORTED", "Collections are not available in this Bridge.");
-    normaliseRuleTarget(rule);
+    await assertRecordable(normaliseRuleTarget(rule).symbols);
     const i = rules.findIndex((r) => r.id === id);
     rules[i] = { ...rules[i], ...rule, id, updatedAt: iso(now()) };
     saveRules();
