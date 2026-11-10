@@ -215,4 +215,4 @@ listed in `SHA256SUMS.txt`.
 | Anything else | Run `mc-bridge doctor` (or, in the download folder, the start file again) and [open an issue](https://github.com/MrChartist/api-bridge-v2/issues) with what it prints. Never paste your keys. |
 
 For developers: `git clone`, `npm ci`, `npm run dev`; see the [quickstart](quickstart.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md).
-Docker: see the [README](../../README.md#docker).
+Docker: see [docker.md](docker.md). Upgrading: see [upgrading.md](upgrading.md).

@@ -14,7 +14,7 @@ takes an account out again (not one with live trading set up, and not your last 
 `POST /v1/accounts` with `{ "broker": "dhan" }` (optional `id` and `label`) and `DELETE /v1/accounts/{id}`, both
 admin, this computer only, with an admin key that may use every account.
 
-Or edit the file yourself:
+Or edit the file yourself (a walk-through for Dhan, the broker checked with a live account, is in [dhan.md](dhan.md)):
 
 ```json
 {

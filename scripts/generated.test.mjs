@@ -219,7 +219,7 @@ describe("llms.txt and the search index", () => {
     const full = docs.get("docs/llms-full.txt");
     expect(full).toContain("## API overview");
     for (const g of guideRows(REPO_ROOT)) expect(full).toContain(`<!-- docs/guides/${g.file} -->`);
-    expect(full.length).toBeLessThan(500_000);
+    expect(full.length).toBeLessThan(700_000); // grows with the guides, and with the generated settings reference (about 70 KB)
   });
 
   it("the search index lists every page with title, path, headings and a short text", () => {

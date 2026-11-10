@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Guides: [orders](docs/guides/orders.md), [upgrading](docs/guides/upgrading.md), [docker](docs/guides/docker.md), [Dhan](docs/guides/dhan.md), [TradingView](docs/guides/tradingview.md), [saving data](docs/guides/data.md) (three recipes, run by a test) and a [configuration reference](docs/guides/config.md) written from the settings checker (a test fails when a setting has no description); the docs home is sorted by what you want to do.
 - Tests: `npm run test:future` runs the whole suite with the clock moved forward (CI at 100 days); three tests that would have failed
   on 13, 17 and 25 November are fixed; the order-safety rules, the boot-time kill switch and all 20 MCP tools have tests; dashboard
   request bodies are checked against the OpenAPI schemas; the test guard refuses real connections from node's own sockets too.
