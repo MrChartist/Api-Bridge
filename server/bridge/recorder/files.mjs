@@ -158,7 +158,19 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
       writeFileAtomic(join(dirOf(id), name), JSON.stringify(value));
     },
     /** Top-level files of the recordings folder (rules.json, settings.json). */
-    readRoot: (name, fallback) => readJson(join(root, name), fallback),
+    /**
+     * A damaged file (empty, cut off, not an object) is moved aside as `<name>.corrupt-<stamp>`, warned about and reported
+     * (data.quarantined); the fallback is used for this run. It is never silently replaced.
+     */
+    readRoot(name, fallback, { log, now = Date.now() } = {}) {
+      const r = loadJsonOrQuarantine(join(root, name), {
+        what: `recorder ${name}`,
+        log,
+        now,
+        validate: (v) => (v && typeof v === "object" && !Array.isArray(v)) || "has an unknown format",
+      });
+      return r.value ?? fallback;
+    },
     writeRoot(name, value) {
       mkdirSync(root, { recursive: true, mode: DIR_MODE });
       writeFileAtomic(join(root, name), JSON.stringify(value));

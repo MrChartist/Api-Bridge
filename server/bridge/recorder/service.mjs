@@ -115,8 +115,8 @@ export function createRecorderService(deps, opts = {}) {
   // ───────────────────────────── persistence ─────────────────────────────
 
   const loadRoot = () => {
-    rules = (store.readRoot("rules.json", { rules: [] }).rules ?? []).filter((r) => r && typeof r.id === "string");
-    settings = store.readRoot("settings.json", { autoRecord: {} });
+    rules = (store.readRoot("rules.json", { rules: [] }, { log, now: now() }).rules ?? []).filter((r) => r && typeof r.id === "string");
+    settings = store.readRoot("settings.json", { autoRecord: {} }, { log, now: now() });
     // A hand-edited file never breaks a read: a share outside the range is ignored (the config value stays).
     if (!(Number.isFinite(settings.maxBudgetShare) && settings.maxBudgetShare >= SHARE_MIN && settings.maxBudgetShare <= SHARE_MAX)) delete settings.maxBudgetShare;
   };
