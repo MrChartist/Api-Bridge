@@ -6,9 +6,14 @@
  *   GET /xl/funds[?account=]
  *   GET /xl/orders[?account=][&status=][&mode=paper|live][&limit=]
  *
- * Without `account` the table covers every account this key may use that can answer (paper accounts, and broker
- * accounts that are logged in). One account failing (not logged in, broker down) gives a row with that account's name
- * and a text in `error`; the other accounts' rows are still there. Columns and their order never change.
+ * Without `account` the table covers every enabled account this key may use. One account failing (logged out, broker
+ * down) gives a row with that account's name and a text in `error`; the other accounts' rows are still there. A
+ * logged-out broker account is never left out silently: it has its own error row, so a sheet does not show a flat book.
+ * Columns and their order never change.
+ *
+ * `limit` (positions, holdings, funds) keeps the first N rows. When rows are left out, the table ends with one visible
+ * row (account "(more rows)", error "SHOWING N OF TOTAL ROWS: ...") and the reply has X-Truncated and X-Total-Rows, so
+ * a cap is never silent. Without `limit` every row is returned.
  *
  * These handlers read through four methods only: orders.positions, orders.holdings, orders.funds and orders.list,
  * and accounts.list. portfolio.test.mjs and noOrders.test.mjs check that nothing else is touched.
@@ -18,6 +23,9 @@ import { asOfCell } from "./xl.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 import { ACCOUNT_RE, asBridgeError, boolParam, enumParam, intParam, invalid, opt } from "./params.mjs";
 import { FRESHNESS_COLUMNS, cacheParam, errorText, formatParam, tableReply } from "./table.mjs";
+
+/** Account cell of the visible "rows were left out" row that ends a table cut by ?limit=. */
+export const MORE_ROWS_ACCOUNT = "(more rows)";
 
 export const POSITION_COLUMNS = Object.freeze(["account", "mode", "symbol", "product", "qty", "avg_price", "ltp", "pnl", "realised_pnl", "unrealised_pnl", ...FRESHNESS_COLUMNS, "error"]);
 export const HOLDING_COLUMNS = Object.freeze(["account", "mode", "symbol", "isin", "qty", "avg_price", "ltp", "pnl", ...FRESHNESS_COLUMNS, "error"]);
@@ -68,29 +76,31 @@ const istText = (iso) => (iso ? asOfCell(iso) : null);
 export function createPortfolioRoutes(deps, cfg, { demo = false } = {}) {
   const now = () => (typeof deps.clock?.now === "function" ? deps.clock.now() : Date.now());
 
-  /** Accounts a read may cover: the one asked for, or every account the key may use that can answer this kind of read. */
+  /**
+   * Accounts a read may cover: the one asked for, or every enabled account the key may use that has this kind of read.
+   * A broker account that is not logged in is listed in `loggedOut` (it gets its own error row), never dropped.
+   */
   function accountsFor(ctx, capability) {
     const asked = opt(ctx.query, "account");
     if (asked !== undefined) {
       if (!ACCOUNT_RE.test(asked)) throw invalid("account", "account is not a valid account id.");
       ctx.requireAccountAccess(asked);
-      return [asked];
+      return { ids: [asked], loggedOut: [] };
     }
     const allowed = allowedAccountsFor(ctx);
     const all = deps.accounts.list();
-    return all
-      .filter((a) => a.enabled !== false && (!allowed || allowed.includes(a.id)))
-      .filter((a) => a.broker === "paper" || a.session?.state === "connected")
-      .filter((a) => !capability || (a.capabilities ?? []).includes(capability))
-      .map((a) => a.id);
+    const mine = all.filter((a) => a.enabled !== false && (!allowed || allowed.includes(a.id))).filter((a) => !capability || (a.capabilities ?? []).includes(capability));
+    const answers = (a) => a.broker === "paper" || a.session?.state === "connected";
+    return { ids: mine.filter(answers).map((a) => a.id), loggedOut: mine.filter((a) => !answers(a)).map((a) => ({ id: a.id, state: a.session?.state })) };
   }
 
   /** One read per account, in parallel; a failing account becomes an error row instead of failing the table. */
   async function perAccount(ctx, capability, read, toRows, columns) {
     const format = formatParam(ctx.query);
     const cache = cacheParam(ctx, cfg.xl.cacheSeconds);
+    const limit = intParam(ctx.query, "limit", 1, 5000);
     await startupReady(deps);
-    const ids = accountsFor(ctx, capability);
+    const { ids, loggedOut } = accountsFor(ctx, capability);
     const parts = await Promise.all(
       ids.map(async (id) => {
         try {
@@ -102,9 +112,18 @@ export function createPortfolioRoutes(deps, cfg, { demo = false } = {}) {
         }
       }),
     );
-    const records = parts.flat();
+    // A logged-out account is a row of its own, in the order of the account list (after the accounts that answered).
+    const outRows = loggedOut.map((a) => ({ account: a.id, error: errorText("SESSION_EXPIRED", `${a.id} is logged out${a.state && a.state !== "expired" ? ` (${a.state})` : ""}. Log in again on the Accounts page of the dashboard.`) }));
+    const all = [...parts.flat(), ...outRows];
+    const headers = {};
+    let records = all;
+    if (limit !== undefined && all.length > limit) {
+      records = [...all.slice(0, limit), { account: MORE_ROWS_ACCOUNT, error: `SHOWING ${limit} OF ${all.length} ROWS: the other ${all.length - limit} are not shown. Ask for one account with ?account= or a higher limit.` }];
+      headers["X-Truncated"] = "true";
+      headers["X-Total-Rows"] = String(all.length);
+    }
     if (demo) for (const r of records) r.demo = "DEMO";
-    return tableReply({ format, columns: demo ? [...columns, "demo"] : columns, records, cache });
+    return tableReply({ format, columns: demo ? [...columns, "demo"] : columns, records, cache, headers });
   }
 
   const modeOf = (f) => (f?.source === "paper" ? "paper" : "live");
