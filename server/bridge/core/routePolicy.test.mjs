@@ -15,8 +15,8 @@ import { bootSecurityApp, samplePath } from "./__fixtures__/securityApp.mjs";
 const NONE_ALLOWED = new Set(["GET /v1/health", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in"]);
 const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/, /^GET \/v1\/events\/stream$/];
 const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify/status", "GET /v1/notify/targets", "GET /v1/notify/events"]);
-// Events out: reading webhook subscriptions and removing one are admin-only but not this-computer-only; adding or changing a target is.
-const ADMIN_NOT_LOOPBACK_RE = [/^GET \/v1\/events\/status$/, /^(GET|DELETE) \/v1\/subscriptions(\/:subscriptionId(\/(deliveries|dead-letters))?)?$/];
+// Events out: reading webhook subscriptions is admin-only but not this-computer-only; adding, changing or removing one (or its dead letters) is.
+const ADMIN_NOT_LOOPBACK_RE = [/^GET \/v1\/events\/status$/, /^GET \/v1\/subscriptions(\/:subscriptionId(\/(deliveries|dead-letters))?)?$/];
 
 let b;
 let routes;
@@ -60,6 +60,14 @@ describe("T-sec-2: route policy", () => {
   it("every admin route is this-computer-only, except the read-only GET /v1/notify/* routes", () => {
     const bad = routes.filter((r) => r.options.scope === "admin" && !r.options.loopbackOnly && !ADMIN_NOT_LOOPBACK.has(`${r.method} ${r.pattern}`) && !ADMIN_NOT_LOOPBACK_RE.some((re) => re.test(`${r.method} ${r.pattern}`)));
     expect(bad.map((r) => `${r.method} ${r.pattern}`)).toEqual([]);
+  });
+
+  it("the local control token is accepted only on the kill-switch routes and the downloads routes `mc-bridge download` calls (audit S12a)", () => {
+    const local = routes.filter((r) => r.options.localControl === true).map((r) => `${r.method} ${r.pattern}`);
+    const allowed = [/^(POST|DELETE) \/v1\/safety\/kill-switch$/, /^[A-Z]+ \/v1\/(downloads|datasets)(\/|$)/, /^GET \/v1\/instruments\/export$/];
+    expect(local.filter((r) => !allowed.some((re) => re.test(r)))).toEqual([]);
+    expect(local.length).toBeGreaterThan(3);
+    for (const r of routes.filter((x) => x.options.localControl === true)) expect(r.options.auth ?? "key", `${r.method} ${r.pattern}`).toBe("key");
   });
 
   it("the readiness routes are read-scoped key routes", () => {

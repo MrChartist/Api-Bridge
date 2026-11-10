@@ -316,3 +316,25 @@ describe("S7: the labels of a dataset file are the dataset's, not the older job'
     expect((await again.manager.fileOf(first.id, again.manager.files(first.id)[0].name)).path).toContain(join("datasets", "after"));
   });
 });
+
+describe("S12d: a file that grows while it is sent does not overrun Content-Length", () => {
+  it("sends only the bytes that were counted", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { PassThrough } = await import("node:stream");
+    const { createDownloadRoutes } = await import("./routes.mjs");
+    const dir = mkdtempSync(join(tmpdir(), "mcb-dl-grow-"));
+    const path = join(dir, "x.csv");
+    writeFileSync(path, "time,close\r\n1,2\r\n3,4\r\n5,6\r\n"); // 30 bytes now, though the answer will promise only 12
+    const handlers = createDownloadRoutes({}, { downloads: { fileOf: async () => ({ path, size: 12, name: "x.csv", format: "csv", job: { dataClass: "realtime", source: null, official: null, delaySec: null } }) } });
+    const res = new PassThrough();
+    res.writeHead = (status, headers) => Object.assign(res, { status, headers });
+    const chunks = [];
+    res.on("data", (c) => chunks.push(c));
+    const done = new Promise((r) => res.on("end", r));
+    await handlers.file({ params: { downloadId: "dl_aaaaaaaaaaaa", name: "x.csv" }, req: { method: "GET" }, res, requestId: "r", responseHeaders: {} });
+    await done;
+    expect(res.headers["Content-Length"]).toBe("12");
+    expect(Buffer.concat(chunks).length).toBe(12);
+  });
+});

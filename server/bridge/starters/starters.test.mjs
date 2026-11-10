@@ -3,6 +3,7 @@
  * project is RUN against a real demo Bridge (loopback only, in this process; the starters run as child processes).
  */
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { createHmac } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -460,6 +461,69 @@ describe("the starters, run against a demo Bridge", () => {
     const noAdmin = await run(process.execPath, ["register.mjs"], { cwd: dir, env: { BRIDGE_URL: base } });
     expect(noAdmin.code).toBe(1);
     expect(noAdmin.err).toMatch(/MCB_ADMIN_KEY/);
+  });
+});
+
+describe("starter hardening (audit S13)", () => {
+  it("python: a redirect is refused, so the key never goes to another address", async (ctx) => {
+    if (!(await hasCmd("python3"))) return ctx.skip();
+    const seen = [];
+    const target = createServer((req, res) => {
+      seen.push(req.headers.authorization ?? null);
+      res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+    });
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const bounce = createServer((req, res) => res.writeHead(302, { Location: `http://127.0.0.1:${target.address().port}/elsewhere` }).end());
+    await new Promise((r) => bounce.listen(0, "127.0.0.1", r));
+    try {
+      const dir = project("python", { key: FAKE_KEY });
+      const r = await run("python3", ["-c", "from bridge import Bridge\ntry:\n    Bridge().get('/v1/health')\nexcept Exception as e:\n    print('refused:', type(e).__name__)"], { cwd: dir, env: { BRIDGE_URL: `http://127.0.0.1:${bounce.address().port}` } });
+      expect(r.out).toMatch(/refused/);
+      expect(seen).toEqual([]); // the second server was never asked, so it never saw the Authorization header
+    } finally {
+      await new Promise((r) => bounce.close(r));
+      await new Promise((r) => target.close(r));
+    }
+  });
+
+  it("node: a redirect is refused as well", async () => {
+    const seen = [];
+    const target = createServer((req, res) => (seen.push(req.headers.authorization ?? null), res.writeHead(200).end("{}")));
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const bounce = createServer((req, res) => res.writeHead(302, { Location: `http://127.0.0.1:${target.address().port}/elsewhere` }).end());
+    await new Promise((r) => bounce.listen(0, "127.0.0.1", r));
+    try {
+      const dir = project("node", { key: FAKE_KEY });
+      const { createBridge } = await import(join(dir, "bridge.mjs"));
+      await expect(createBridge({ baseUrl: `http://127.0.0.1:${bounce.address().port}`, key: FAKE_KEY, maxRetries: 0 }).get("/v1/health")).rejects.toThrow();
+      expect(seen).toEqual([]);
+    } finally {
+      await new Promise((r) => bounce.close(r));
+      await new Promise((r) => target.close(r));
+    }
+  });
+
+  it("curl: .env is read as KEY=value lines, never run as shell code, and the key is not on the curl command line", async (ctx) => {
+    if (process.platform === "win32" || !(await hasCmd("bash"))) return ctx.skip();
+    const dir = project("curl", { key: FAKE_KEY });
+    const marker = join(dir, "ran-as-code");
+    writeFileSync(join(dir, ".env"), `BRIDGE_KEY=${FAKE_KEY}\nBRIDGE_URL=${base}\nOTHER=$(touch ${marker})\nBRIDGE_NOTE=$(touch ${marker})\n`);
+    const r = await run("bash", ["-c", `. ./lib.sh; echo "key=$BRIDGE_KEY"; echo "url=$BRIDGE_URL"`], { cwd: dir });
+    expect(r.out).toContain(`key=${FAKE_KEY}`);
+    expect(r.out).toContain(`url=${base}`);
+    expect(existsSync(marker)).toBe(false);
+    const lib = readFileSync(join(dir, "lib.sh"), "utf8");
+    expect(lib).not.toMatch(/-H "Authorization: Bearer \$BRIDGE_KEY"/);
+    expect(lib).toMatch(/-H "@\$keyfile"/);
+    // and it still works against the Bridge
+    const ok = await run("bash", ["-c", `. ./lib.sh; bridge GET /v1/health && echo "status=$BRIDGE_STATUS"`], { cwd: dir });
+    expect(ok.out).toMatch(/status=200/);
+  });
+
+  it("the receiver's register.mjs says before posting that a plain http address is refused by default", async () => {
+    const dir = project("webhook-receiver");
+    const r = await run(process.execPath, ["register.mjs"], { cwd: dir, env: { BRIDGE_URL: base, MCB_ADMIN_KEY: adminKey } });
+    expect(r.out).toMatch(/is plain http\. The Bridge refuses that by default/);
   });
 });
 

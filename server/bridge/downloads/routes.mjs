@@ -13,6 +13,7 @@
  * reaches the disk. Every file answer carries its data class, source and delay in headers (X-Data-Class and friends).
  */
 import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { BridgeError } from "../core/errors.mjs";
 import { json, toCsv } from "../core/http.mjs";
@@ -138,7 +139,8 @@ export function createDownloadRoutes(deps, { downloads }) {
         res.end();
         return undefined;
       }
-      const stream = createReadStream(f.path);
+      // Only the bytes counted in Content-Length: a file that is still growing must not overrun the answer.
+      const stream = f.size > 0 ? createReadStream(f.path, { start: 0, end: f.size - 1 }) : Readable.from([]);
       try {
         await pipeline(stream, res);
       } catch {

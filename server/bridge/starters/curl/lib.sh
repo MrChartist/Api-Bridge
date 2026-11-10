@@ -5,11 +5,19 @@
 #   - a read that gets 429 or a temporary failure is repeated, waiting as long as Retry-After says (3 times at most)
 #   - returns 0 for a 2xx answer, 1 for an error answer from the Bridge, 2 when the Bridge could not be reached
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Read KEY=value lines from .env. It is never run as shell code (a command inside a value would run), and only these names are taken.
 if [ -f "$HERE/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$HERE/.env"
-  set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "" | \#*) continue ;;
+      BRIDGE_URL=* | BRIDGE_KEY=* | MCB_*=* | WEBHOOK_SECRET=* | RECEIVER_*=*)
+        name="${line%%=*}"
+        value="${line#*=}"
+        value="${value%\"}"; value="${value#\"}"; value="${value%\'}"; value="${value#\'}"
+        export "$name=$value"
+        ;;
+    esac
+  done <"$HERE/.env"
 fi
 BRIDGE_URL="${BRIDGE_URL:-http://127.0.0.1:4300}"
 BRIDGE_URL="${BRIDGE_URL%/}"
@@ -23,11 +31,15 @@ bridge() {
     echo "No API key. Put BRIDGE_KEY=mcb_... in .env (make one with: mc-bridge keys create --label my-script --scope read)." >&2
     return 2
   fi
-  local attempt=0 headers out wait
+  local attempt=0 headers out wait keyfile
   headers="$(mktemp)"
+  # The key goes to curl in a private file (-H @file), not on the command line, where other users of this machine could read it with ps.
+  keyfile="$(mktemp)"
+  chmod 600 "$keyfile"
+  printf 'Authorization: Bearer %s\n' "$BRIDGE_KEY" >"$keyfile"
   while :; do
-    if ! out="$(curl -sS --max-time 30 -X "$method" -D "$headers" -H "Authorization: Bearer $BRIDGE_KEY" -H "Accept: application/json" -w $'\n%{http_code}' "$@" "$BRIDGE_URL$path")"; then
-      rm -f "$headers"
+    if ! out="$(curl -sS --max-time 30 -X "$method" -D "$headers" -H "@$keyfile" -H "Accept: application/json" -w $'\n%{http_code}' "$@" "$BRIDGE_URL$path")"; then
+      rm -f "$headers" "$keyfile"
       echo "Could not reach the Bridge at $BRIDGE_URL. Is it running?" >&2
       return 2
     fi
@@ -35,7 +47,7 @@ bridge() {
     BRIDGE_BODY="${out%$'\n'*}"
     case "$BRIDGE_STATUS" in
       2??)
-        rm -f "$headers"
+        rm -f "$headers" "$keyfile"
         return 0
         ;;
       429 | 502 | 503 | 504)
@@ -47,7 +59,7 @@ bridge() {
         fi
         ;;
     esac
-    rm -f "$headers"
+    rm -f "$headers" "$keyfile"
     return 1
   done
 }

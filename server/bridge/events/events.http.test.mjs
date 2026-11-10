@@ -153,7 +153,12 @@ describe("access", () => {
       "/v1/subscriptions/:subscriptionId/test",
     ]);
     // writes that reach an outside URL are this-computer-only
-    for (const r of mine.filter((x) => x.method === "POST" || x.method === "PATCH")) expect(r.options.loopbackOnly, `${r.method} ${r.pattern}`).toBe(true);
+    for (const r of mine.filter((x) => x.method === "POST" || x.method === "PATCH" || x.method === "DELETE")) expect(r.options.loopbackOnly, `${r.method} ${r.pattern}`).toBe(true);
+    // a remote admin key cannot delete a subscription or clear its dead letters (audit S12c)
+    for (const path of ["/v1/subscriptions/sub_aaaaaaaa", "/v1/subscriptions/sub_aaaaaaaa/dead-letters"]) {
+      const far = await b.request({ method: "DELETE", path, key: b.keys.admin.key, headers: { "X-Forwarded-For": "192.0.2.5" } });
+      expect([path, far.status, far.json?.code]).toEqual([path, 403, "LOOPBACK_ONLY"]);
+    }
     // a stream upgrade is not a write: a client's message cannot change anything
     const ws = wsClient(`ws://127.0.0.1:${b.port}/v1/events/ws`, { headers: auth(b.keys.admin.key) });
     await ws.open;

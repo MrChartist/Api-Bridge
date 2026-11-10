@@ -2888,6 +2888,7 @@ paths:
       summary: Remove a subscription, its queue, dead letters, log and stored secret
       x-module: events
       x-scope: admin
+      x-loopback-only: true
       responses:
         "204":
           description: Removed.
@@ -2978,6 +2979,7 @@ paths:
       summary: Forget this subscription's dead letters
       x-module: events
       x-scope: admin
+      x-loopback-only: true
       responses:
         "200":
           description: How many were removed.

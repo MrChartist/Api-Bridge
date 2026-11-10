@@ -19,8 +19,13 @@ if (!env.WEBHOOK_SECRET) {
   process.exit(1);
 }
 
+if (target.startsWith("http://")) {
+  console.log(`Note: ${target} is plain http. The Bridge refuses that by default (events.webhooks.allowPrivateTargets is false), so the next step may answer blocked_scheme.`);
+  console.log("  To receive on this computer or your home network, set events.webhooks.allowPrivateTargets to true in bridge.config.json and restart the Bridge, or use an https address.");
+}
 const res = await fetch(`${base}/v1/subscriptions`, {
   method: "POST",
+  redirect: "error",
   headers: { Authorization: `Bearer ${adminKey}`, "Content-Type": "application/json" },
   body: JSON.stringify({ url: target, topics, secret: env.WEBHOOK_SECRET, active: true }),
 }).catch((err) => {

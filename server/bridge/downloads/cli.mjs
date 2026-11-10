@@ -10,7 +10,7 @@
  *   mc-bridge download datasets                           list datasets;   download update <dataset>   fetch what is new
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
 
@@ -152,10 +152,16 @@ export async function downloadCommand(args, flags, io, helpers) {
       const dir = resolve(io.cwd ?? process.cwd(), flags.out);
       mkdirSync(dir, { recursive: true });
       for (const f of [...data, { name: "manifest.json", sha256: null }]) {
+        // A name the server sent is only ever a plain file name: never a path, so it cannot write outside the folder.
+        if (typeof f.name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(f.name)) throw new BridgeError("UPSTREAM_ERROR", `The Bridge sent a file name that is not a plain file name (${JSON.stringify(String(f.name).slice(0, 60))}). Nothing more was saved.`);
+        const target = join(dir, f.name);
+        if (existsSync(target) && flags.force !== true) throw new BridgeError("STATE_CONFLICT", `${target} already exists. Choose another folder, or add --force to replace it.`);
         const bytes = await raw(`/v1/downloads/${id}/files/${encodeURIComponent(f.name)}`);
         if (f.sha256 && createHash("sha256").update(bytes).digest("hex") !== f.sha256) throw new BridgeError("UPSTREAM_ERROR", `${f.name} did not match its checksum. Download it again.`);
-        writeFileSync(join(dir, f.name), bytes);
-        io.out(`Saved ${join(dir, f.name)}${f.sha256 ? " (checksum matches)" : ""}`);
+        // written as a .part file and renamed, so an interrupted save never leaves a half file under the real name
+        writeFileSync(`${target}.part`, bytes);
+        renameSync(`${target}.part`, target);
+        io.out(`Saved ${target}${f.sha256 ? " (checksum matches)" : ""}`);
       }
       return 0;
     }
