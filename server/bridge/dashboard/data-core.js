@@ -758,14 +758,16 @@ export function ruleSentence(rule, collections = []) {
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_KEY = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 /**
- * When a rule next starts, in words: "Next start: Wed 11 Nov, 09:15 IST". It counts weekdays only (the exchange calendar
+ * When a rule next starts, in words. An own-hours rule: "Next start: Wed 11 Nov, 10:00 IST". It counts the days it lists only (the exchange calendar
  * also skips holidays, which the Bridge knows and this does not), so it says "if the market is open that day".
  * @param {{ schedule?: any }} rule  @param {number} nowMs
  */
 export function nextStartText(rule, nowMs = Date.now()) {
   const s = rule?.schedule;
-  const start = s && typeof s === "object" && /^\d{2}:\d{2}$/.test(s.start ?? "") ? s.start : "09:15";
-  const days = s && typeof s === "object" && Array.isArray(s.days) && s.days.length ? s.days.map((d) => String(d).toLowerCase()) : ["mon", "tue", "wed", "thu", "fri"];
+  // "market-hours" follows the exchange calendar, which only the Bridge knows: say so rather than guess an hour.
+  if (!s || typeof s !== "object") return "Starts at the market open on the next trading day";
+  const start = /^\d{2}:\d{2}$/.test(s.start ?? "") ? s.start : "00:00";
+  const days = Array.isArray(s.days) && s.days.length ? s.days.map((d) => String(d).toLowerCase()) : ["mon", "tue", "wed", "thu", "fri"];
   const [hh, mm] = start.split(":").map(Number);
   const ist = nowMs + IST_MS;
   for (let i = 0; i < 8; i += 1) {
