@@ -4326,7 +4326,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"maxBudgetShare\": 0.05\n}"
+              "raw": "{\n  \"maxBudgetShare\": 0.4\n}"
             },
             "description": "Change the budget share while the Bridge runs\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nApplies at the next broker read, is kept in recordings/settings.json in the data folder and survives a restart. There is\nno after-hours switch: recordings run during market hours.\n\nReference: docs/api/recordings/patchRecordingSettings.md in the repository.",
             "header": [
@@ -5350,7 +5350,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{}"
+              "raw": "{\n  \"maxBudgetShare\": 0.4\n}"
             },
             "description": "Change the budget share or the after-hours switch while the Bridge runs\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nApplies at once to running and waiting jobs (the next broker call reads it), is kept in a small file in the data folder\n(not in bridge.config.json) and survives a restart. A job that was started with its own `afterHoursOnly` keeps that value.\n\nReference: docs/api/data-downloads/patchDownloadSettings.md in the repository.",
             "header": [

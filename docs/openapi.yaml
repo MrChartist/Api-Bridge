@@ -2317,6 +2317,7 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/DownloadSettingsUpdate" }
+            example: { maxBudgetShare: 0.4 }
       responses:
         "200":
           description: Saved. The settings now in force.
@@ -5298,6 +5299,7 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/RecordingSettingsUpdate" }
+            example: { maxBudgetShare: 0.4 }
       responses:
         "200":
           description: Saved. The settings now in force.
