@@ -5,7 +5,6 @@
                                  save the URL and key (mode 600) to client.json in the Bridge folder, then ping
     price SYMBOL [SYMBOL ...]    last prices with their freshness labels
     version                      this library's version
-    strategy describe|run FILE   run a strategy file or describe its parameters (see strategy.py)
 
 The URL and key come from the usual places (see mrchartist_bridge.discovery): --url/--key, MCB_BRIDGE_URL, MCB_API_KEY, ...
 """
@@ -32,10 +31,6 @@ def _flag(args: List[str], name: str) -> Optional[str]:
 def _cli(argv: Optional[List[str]] = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     cmd = args[0] if args else ""
-    if cmd == "strategy":
-        from .strategy import main
-
-        return main(args[1:])
     if cmd in ("", "-h", "--help", "help"):
         sys.stderr.write(USAGE or "")
         return 0 if cmd else 2

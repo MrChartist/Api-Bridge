@@ -135,10 +135,7 @@ raw = BridgeClient().ltp(["NSE:NIFTY"])["data"]
 python -m mrchartist_bridge ping
 python -m mrchartist_bridge price NSE:NIFTY NSE:RELIANCE
 python -m mrchartist_bridge login
-python -m mrchartist_bridge strategy run examples/strategies/ema_crossover.py
 ```
-
-`mrchartist_bridge.strategy` (a base class for strategy scripts) is kept as it was.
 
 ## Examples and tests
 

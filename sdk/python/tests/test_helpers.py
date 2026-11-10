@@ -359,9 +359,9 @@ def test_cli_login_saves_the_key_and_it_is_then_found(fake, capsys, monkeypatch,
     assert code == 0 and "authenticated=True" in out
 
 
-def test_cli_usage_and_version_and_strategy_entry_kept(capsys, monkeypatch):
+def test_cli_usage_and_version(capsys, monkeypatch):
     code, out, err = run_cli([], capsys, monkeypatch)
-    assert code == 2 and "strategy describe|run" in err
+    assert code == 2 and "ping" in err and "strategy" not in err
     code, out, err = run_cli(["version"], capsys, monkeypatch)
     assert code == 0 and out.strip() == "0.3.0"
     code, out, err = run_cli(["bogus"], capsys, monkeypatch)

@@ -192,8 +192,9 @@ than 5 minutes off fails. Use the raw bytes as received. Delivery is at least on
 `bridge.hooks.signals(...)` use routes that newer Bridges add and raise `FeatureUnavailable` on older ones. This module follows
 [alerts](webhooks.md) and is marked provisional until the message format is final.
 
-## The original client and strategies
+## The original client
 
 `BridgeClient` (one method per route, plain dicts, the Bridge's `{data, meta, errors}` envelope) is unchanged and is
-`bridge.client`. `mrchartist_bridge.strategy` is kept as it was (`python -m mrchartist_bridge strategy run file.py`).
+`bridge.client`. The library has no strategy runner: the Bridge is the connection layer, and what you build on it (a script, a
+notebook, a scheduler) runs on your side with the public client.
 Tests: `python -m pytest sdk/python/tests -q`.
