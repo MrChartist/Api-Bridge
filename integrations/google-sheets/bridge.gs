@@ -38,7 +38,7 @@ var TABLES = {
   Positions: { route: "/xl/positions", cols: ["account", "mode", "symbol", "product", "qty", "avg_price", "ltp", "pnl", "realised_pnl", "unrealised_pnl", "as_of", "age_s", "class", "source", "stale", "error"] },
   Holdings: { route: "/xl/holdings", cols: ["account", "mode", "symbol", "isin", "qty", "avg_price", "ltp", "pnl", "as_of", "age_s", "class", "source", "stale", "error"] },
   Funds: { route: "/xl/funds", cols: ["account", "mode", "available_cash", "used_margin", "total_balance", "collateral", "withdrawable", "realised_pnl", "unrealised_pnl", "as_of", "age_s", "class", "source", "stale", "error"] },
-  Orders: { route: "/xl/orders", query: "&limit=100", cols: ["account", "mode", "order_id", "client_order_id", "symbol", "side", "product", "order_type", "qty", "filled_qty", "avg_price", "price", "trigger_price", "status", "status_message", "placed_at", "updated_at", "as_of", "age_s", "class", "source", "stale", "error"] }
+  Orders: { route: "/xl/orders", query: "&limit=100", limit: 100, cols: ["account", "mode", "order_id", "client_order_id", "symbol", "side", "product", "order_type", "qty", "filled_qty", "avg_price", "price", "trigger_price", "status", "status_message", "placed_at", "updated_at", "as_of", "age_s", "class", "source", "stale", "error"] }
 };
 var WATCH_HEAD = ["Symbol", "Last", "Change", "Change %", "Volume", "As of (IST)", "Age (s)", "Class", "Source", "Stale", "Error"];
 var SAMPLE = ["NSE:NIFTY", "BSE:SENSEX", "NSE:RELIANCE", "NSE:TCS", "NSE:INFY", "NSE:HDFCBANK", "NSE:ICICIBANK", "NSE:SBIN", "NSE:ITC", "NSE:M&M"];
@@ -53,8 +53,12 @@ function bridgeConfig_() {
   return { url: url.replace(/\/+$/, ""), key: key };
 }
 
-/** GET a Bridge path; returns { ok, status, rows (parsed CSV), wait (seconds, for 429), message }. The key goes in a header. */
-function bridgeTable_(path) {
+/**
+ * GET a Bridge path; returns { ok, status, rows (parsed CSV), wait (seconds, for 429), message }. The key goes in a header.
+ * "first" is the name of a column the answer must have ("symbol", "account" ...): a 200 answer that is anything else
+ * (a tunnel notice page, a login page) is an error, so it can never blank the prices.
+ */
+function bridgeTable_(path, first) {
   var cfg = bridgeConfig_();
   var res;
   try {
@@ -63,15 +67,23 @@ function bridgeTable_(path) {
     return { ok: false, status: 0, rows: [], message: "Could not reach the Bridge. Is it running, and is the tunnel up? (" + String(e.message).slice(0, 120) + ")" };
   }
   var status = res.getResponseCode();
+  var text = res.getContentText();
   var rows = [];
   try {
-    rows = Utilities.parseCsv(res.getContentText());
+    rows = Utilities.parseCsv(text);
   } catch (e2) {
     rows = [];
   }
-  if (status === 200) return { ok: true, status: 200, rows: rows };
-  // Errors come back as a one-row table: status, code, message, retry_after_s.
-  var err = rows.length > 1 ? rows[1] : [];
+  // Errors come back as a one-row table: status, code, message, retry_after_s (with the real HTTP status).
+  var head = rows.length ? rows[0] : [];
+  var refused = head[0] === "status" && head[1] === "code";
+  if (status === 200 && !refused) {
+    if (first && head.indexOf(first) < 0) {
+      return { ok: false, status: 200, rows: [], message: "The answer is not a Bridge table (a login page or a tunnel notice?). It starts: " + String(text).replace(/\s+/g, " ").slice(0, 120) };
+    }
+    return { ok: true, status: 200, rows: rows };
+  }
+  var err = refused && rows.length > 1 ? rows[1] : [];
   var headers = res.getHeaders();
   var wait = Number(err[3] || headers["Retry-After"] || headers["retry-after"] || 0);
   return { ok: false, status: status, rows: [], wait: wait, message: err[2] || "The Bridge answered HTTP " + status + "." };
@@ -113,7 +125,7 @@ function quotes_(symbols, fields) {
   var all = [];
   var gs = groups_(list);
   for (var i = 0; i < gs.length; i++) {
-    var r = bridgeTable_("/xl/quotes?format=csv&fields=" + (fields || QUOTE_FIELDS) + "&symbols=" + gs[i].join(","));
+    var r = bridgeTable_("/xl/quotes?format=csv&fields=" + (fields || QUOTE_FIELDS) + "&symbols=" + gs[i].join(","), "symbol");
     if (!r.ok) return r;
     all = all.concat(i === 0 ? r.rows : r.rows.slice(1));
   }
@@ -178,7 +190,7 @@ function BRIDGE_QUOTE(symbol, field) {
  */
 function BRIDGE_CHAIN(underlying, expiry, strikes) {
   var d = Object.prototype.toString.call(expiry) === "[object Date]" ? Utilities.formatDate(expiry, "Asia/Kolkata", "yyyy-MM-dd") : String(expiry).trim();
-  var r = bridgeTable_("/xl/chain?format=csv&underlying=" + encodeURIComponent(underlying) + "&expiry=" + encodeURIComponent(d) + "&strikes=" + encodeURIComponent(strikes || 10));
+  var r = bridgeTable_("/xl/chain?format=csv&underlying=" + encodeURIComponent(underlying) + "&expiry=" + encodeURIComponent(d) + "&strikes=" + encodeURIComponent(strikes || 10), "underlying");
   if (!r.ok) throw new Error(r.wait ? "Too many refreshes: wait " + r.wait + " seconds." : r.message);
   return convert_(r.rows);
 }
@@ -192,7 +204,7 @@ function BRIDGE_CHAIN(underlying, expiry, strikes) {
  * @customfunction
  */
 function BRIDGE_HISTORY(symbol, interval, countback) {
-  var r = bridgeTable_("/xl/history?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(interval) + "&countback=" + encodeURIComponent(countback || 100));
+  var r = bridgeTable_("/xl/history?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(interval) + "&countback=" + encodeURIComponent(countback || 100), "datetime");
   if (!r.ok) throw new Error(r.wait ? "Too many refreshes: wait " + r.wait + " seconds." : r.message);
   return convert_(r.rows);
 }
@@ -238,11 +250,65 @@ function stamp_() {
   return Utilities.formatDate(new Date(), "Asia/Kolkata", "yyyy-MM-dd HH:mm:ss") + " IST";
 }
 
-/** Fill one table sheet below its header row (row 4) from one request. */
-function fillTable_(sh, rows, width) {
+/**
+ * Fill one table sheet below its header row (row 4) from one request. Each value goes under the column of the same
+ * NAME, so a column the Bridge adds (for example demo) can never shift or overflow the sheet.
+ */
+function fillTable_(sh, rows, cols) {
+  var head = rows[0] || [];
+  var at = cols.map(function (c) { return head.indexOf(c); });
   var last = Math.max(sh.getLastRow(), 5);
-  if (last >= 5) sh.getRange(5, 1, last - 4, width).clearContent();
-  if (rows.length > 1) sh.getRange(5, 1, rows.length - 1, width).setValues(convert_(rows).slice(1));
+  sh.getRange(5, 1, last - 4, cols.length).clearContent();
+  if (rows.length > 1) {
+    var out = rows.slice(1).map(function (row) {
+      return at.map(function (i) { return i < 0 || row[i] === undefined ? "" : num_(row[i]); });
+    });
+    sh.getRange(5, 1, out.length, cols.length).setValues(out);
+  }
+}
+
+/** Refresh one sheet. Throws only for a mistake in this script or the sheet; the caller writes that into the sheet. */
+function refreshSheet_(name, sh) {
+  var r;
+  if (name === "Watchlist") {
+    var syms = sh.getRange(5, 1, Math.max(sh.getLastRow() - 4, 1), 1).getValues().map(function (x) { return x[0]; });
+    var picked = syms.map(function (s) { return String(s).trim(); });
+    r = quotes_(picked.filter(function (s) { return s; }), QUOTE_FIELDS);
+    if (r.ok && !r.rows.length) {
+      status_(sh, "Type some symbols in column A (one per row), then refresh. (" + stamp_() + ")");
+      return;
+    }
+    if (r.ok) {
+      // Put each answer next to the symbol typed on that row (blank rows stay blank), in the sheet's column order.
+      var byInput = {};
+      r.rows.slice(1).forEach(function (row) { if (!(row[0] in byInput)) byInput[row[0]] = row; });
+      var head = r.rows[0];
+      var want = ["ltp", "chg", "pct", "volume", "as_of", "age_s", "class", "source", "stale", "error"];
+      var out = picked.map(function (s) {
+        var row = byInput[s];
+        return want.map(function (c) { return row ? num_(row[head.indexOf(c)]) : ""; });
+      });
+      sh.getRange(5, 2, out.length, want.length).setValues(out);
+      var errors = r.rows.slice(1).filter(function (row) { return row[head.indexOf("error")]; }).length;
+      var count = r.rows.length - 1;
+      var demo = head.indexOf("demo") >= 0 && r.rows.length > 1 && r.rows[1][head.indexOf("demo")] === "DEMO";
+      status_(sh, (demo ? "DEMO DATA, not real prices. " : "") + (errors ? "CHECK: " + errors + " of " + count + " symbols could not be priced (see Error). " : "OK. ") + "Refreshed " + stamp_() + ".");
+    }
+  } else {
+    r = bridgeTable_(TABLES[name].route + "?format=csv" + (TABLES[name].query || ""), TABLES[name].cols[0]);
+    if (r.ok) {
+      fillTable_(sh, r.rows, TABLES[name].cols);
+      var head2 = r.rows[0];
+      var count2 = r.rows.length - 1;
+      var errAt = head2.indexOf("error");
+      var bad = errAt < 0 ? 0 : r.rows.slice(1).filter(function (row) { return row[errAt]; }).length;
+      var demoAt = head2.indexOf("demo");
+      var demo2 = demoAt >= 0 && count2 > 0 && r.rows[1][demoAt] === "DEMO";
+      var cap = TABLES[name].limit;
+      status_(sh, (demo2 ? "DEMO DATA, not real. " : "") + count2 + " rows. " + (bad ? "CHECK: " + bad + (bad === 1 ? " row has" : " rows have") + " an error (see the Error column). " : "") + (cap && count2 >= cap ? "Showing the latest " + cap + ": older ones are not shown. " : "") + "Refreshed " + stamp_() + ".");
+    }
+  }
+  if (!r.ok) status_(sh, r.wait ? "Too many refreshes: wait " + r.wait + " seconds. (" + stamp_() + ")" : "NO ANSWER: " + r.message + " (" + stamp_() + ")");
 }
 
 /** The refresh: one request for the watchlist (plus one for each other sheet that exists). Safe to run by hand or on a timer. */
@@ -254,35 +320,12 @@ function refreshBridge() {
     Object.keys(TABLES).forEach(function (name) {
       var sh = ss.getSheetByName(name);
       if (!sh) return;
-      var r;
-      if (name === "Watchlist") {
-        var syms = sh.getRange(5, 1, Math.max(sh.getLastRow() - 4, 1), 1).getValues().map(function (x) { return x[0]; });
-        var picked = syms.map(function (s) { return String(s).trim(); });
-        r = quotes_(picked.filter(function (s) { return s; }), QUOTE_FIELDS);
-        if (r.ok) {
-          // Put each answer next to the symbol typed on that row (blank rows stay blank), in the sheet's column order.
-          var byInput = {};
-          r.rows.slice(1).forEach(function (row) { if (!(row[0] in byInput)) byInput[row[0]] = row; });
-          var head = r.rows[0];
-          var want = ["ltp", "chg", "pct", "volume", "as_of", "age_s", "class", "source", "stale", "error"];
-          var out = picked.map(function (s) {
-            var row = byInput[s];
-            return want.map(function (c) { return row ? num_(row[head.indexOf(c)]) : ""; });
-          });
-          sh.getRange(5, 2, out.length, want.length).setValues(out);
-          var errors = r.rows.slice(1).filter(function (row) { return row[head.indexOf("error")]; }).length;
-          var count = r.rows.length - 1;
-          var demo = head.indexOf("demo") >= 0 && r.rows.length > 1 && r.rows[1][head.indexOf("demo")] === "DEMO";
-          status_(sh, (demo ? "DEMO DATA, not real prices. " : "") + (errors ? "CHECK: " + errors + " of " + count + " symbols could not be priced (see Error). " : "OK. ") + "Refreshed " + stamp_() + ".");
-        }
-      } else {
-        r = bridgeTable_(TABLES[name].route + "?format=csv" + (TABLES[name].query || ""));
-        if (r.ok) {
-          fillTable_(sh, r.rows, TABLES[name].cols.length);
-          status_(sh, (r.rows.length - 1) + " rows. Refreshed " + stamp_() + ".");
-        }
+      try {
+        refreshSheet_(name, sh);
+      } catch (e) {
+        // One sheet failing must not stop the others, and the reason belongs on the sheet, not in a log nobody reads.
+        status_(sh, "ERROR: " + String(e && e.message ? e.message : e).slice(0, 200) + " (" + stamp_() + ")");
       }
-      if (!r.ok) status_(sh, r.wait ? "Too many refreshes: wait " + r.wait + " seconds. (" + stamp_() + ")" : "NO ANSWER: " + r.message + " (" + stamp_() + ")");
     });
   } finally {
     lock.releaseLock();

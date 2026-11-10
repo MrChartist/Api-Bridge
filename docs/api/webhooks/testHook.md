@@ -66,7 +66,7 @@ Example:
 | `hookId` | string | no |  |
 | `signalId` | string or null | no |  |
 | `accepted` | boolean | yes | False when the alert was refused before it was queued (unreadable or stale). |
-| `outcome` | `HookSignalOutcome` | yes | queued/processing: received, not finished. placed: an order was placed (paper or live). awaiting_confirmation: a person must confirm it in the Bridge. duplicate: seen before, not placed twice. stale: older than maxAgeSec. rejected: the hook's rules, the safety checks or the broker said no (see reason). refused: the alert could not be read (a 400). failed / outcome_unknown / dropped: see reason. |
+| `outcome` | `HookSignalOutcome` | yes | queued/processing: received, not finished. placed: an order was placed (paper or live). awaiting_confirmation: a person must confirm it in the Bridge. duplicate: seen before, not placed twice. stale: older than maxAgeSec. rejected: the hook's rules, the safety checks or the broker said no (see reason). refused: the alert could not be read, its time is ahead of this computer's clock, or it is against the hook's rules (a 400; see `cause`). failed / outcome_unknown / dropped: see reason. |
 | `code` | string or null | no |  |
 | `reason` | string or null | no |  |
 | `orderId` | string or null | no |  |

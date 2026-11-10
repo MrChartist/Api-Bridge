@@ -69,6 +69,7 @@ Example:
 | `signalId` | string | yes |  |
 | `duplicate` | boolean | no | The same alert was already received (same id and time for TradingView); nothing new was queued. |
 | `dropped` | integer | no | Orders in the alert that were dropped before queueing (for example over the per-alert cap). |
+| `heldSeconds` | integer | no | Present when the hook is over `hooks.maxSignalsPerMinute`: the alert is held about this long and then handled (up to `hooks.rateWaitSec`; beyond that the answer is 429). |
 
 ## Errors
 

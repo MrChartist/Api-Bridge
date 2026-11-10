@@ -120,6 +120,8 @@ export function plainReason(err) {
 /**
  * Error reply for the table routes: a one-row table (status, code, message, retry_after_s) in the format the caller
  * asked for, with the real HTTP status, Retry-After and X-Error-Code. A sheet that imports it shows the reason.
+ * With `?errors=200` (for WEBSERVICE, which gives #VALUE! for any non-200 reply and so cannot show the reason) the
+ * reply status is 200 and the table's `status` column still carries the real one; X-Error-Code stays too.
  * @param {unknown} err
  * @param {URLSearchParams} [query]
  */
@@ -134,5 +136,6 @@ export function tableError(err, query) {
   const retry = e.retryAfterMs !== undefined ? Math.max(1, Math.ceil(e.retryAfterMs / 1000)) : null;
   const rec = { status: e.status, code: e.code, message: plainReason(e), retry_after_s: retry };
   const reply = tableReply({ format, columns: ["status", "code", "message", "retry_after_s"], records: [rec] });
-  return new Reply(e.status, reply.body, { ...reply.headers, "Cache-Control": "no-store", "X-Error-Code": e.code, ...errorHeaders(e) });
+  const soft = query?.get?.("errors") === "200";
+  return new Reply(soft ? 200 : e.status, reply.body, { ...reply.headers, "Cache-Control": "no-store", "X-Error-Code": e.code, ...errorHeaders(e) });
 }

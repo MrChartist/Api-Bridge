@@ -6,7 +6,7 @@ import { inflateRawSync } from "node:zlib";
 import * as zlib from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { buildXlsx, cellRef, crc32, prefixNewFunctions, zipStore } from "./xlsx-core.js";
-import { ADDRESS_LIMIT, CAPACITY, SAMPLE_SYMBOLS, SHEET_CHOICES, TABLES, bridgeWorkbook, fieldExpr, lineFormula, numberField, requestAddress, sheetNames, staticAnswer, textField, workbookSheets } from "./workbook-core.js";
+import { ADDRESS_LIMIT, CAPACITY, rowSlots, SAMPLE_SYMBOLS, SHEET_CHOICES, TABLES, bridgeWorkbook, fieldExpr, lineFormula, numberField, requestAddress, sheetNames, staticAnswer, textField, workbookSheets } from "./workbook-core.js";
 import { FUND_COLUMNS, HOLDING_COLUMNS, ORDER_COLUMNS, POSITION_COLUMNS } from "../integrations/portfolio.mjs";
 import { DEFAULT_QUOTE_FIELDS } from "../integrations/quotes.mjs";
 import { FRESHNESS_COLUMNS } from "../integrations/table.mjs";
@@ -157,13 +157,15 @@ describe("the Bridge workbook", () => {
     const { sheets, datasets } = workbookSheets({ host });
     const feed = sheets.at(-1);
     const rowOf = (id) => feed.rows[datasets[id].row - 1];
-    expect(rowOf("quotes")[1].f).toBe('=BridgeURL&"/xl/quotes?format=tsv&fields=ltp,chg,pct,volume&symbols="&$P$62&"&key="&BridgeKey&"&_="&RefreshStamp');
-    expect(rowOf("positions")[1].f).toBe('=BridgeURL&"/xl/positions?format=tsv&key="&BridgeKey&"&_="&RefreshStamp');
-    expect(rowOf("orders")[1].f).toBe(`=BridgeURL&"/xl/orders?format=tsv&limit=${CAPACITY.orders}&key="&BridgeKey&"&_="&RefreshStamp`);
-    expect(requestAddress("/xl/funds")).toBe('=BridgeURL&"/xl/funds?format=tsv&key="&BridgeKey&"&_="&RefreshStamp');
-    // the answer is one WEBSERVICE per request, with carriage returns removed and a failed call turned into a blank
-    expect(rowOf("quotes")[2].f).toBe('=IFERROR(SUBSTITUTE(WEBSERVICE(B4),CHAR(13),""),"")');
-    expect(rowOf("positions")[2].f).toBe('=IFERROR(SUBSTITUTE(WEBSERVICE(B5),CHAR(13),""),"")');
+    expect(rowOf("quotes")[1].f).toBe('=BridgeURL&"/xl/quotes?format=tsv&errors=200&fields=ltp,chg,pct,volume&symbols="&$P$62&"&key="&BridgeKey&"&_="&RefreshStamp');
+    expect(rowOf("positions")[1].f).toBe(`=BridgeURL&"/xl/positions?format=tsv&errors=200&limit=${CAPACITY.positions}&key="&BridgeKey&"&_="&RefreshStamp`);
+    expect(rowOf("orders")[1].f).toBe(`=BridgeURL&"/xl/orders?format=tsv&errors=200&limit=${CAPACITY.orders}&key="&BridgeKey&"&_="&RefreshStamp`);
+    expect(requestAddress("/xl/funds")).toBe('=BridgeURL&"/xl/funds?format=tsv&errors=200&key="&BridgeKey&"&_="&RefreshStamp');
+    // the answer is one WEBSERVICE per request, with carriage returns removed and a failed call turned into a blank;
+    // it is kept (column C) only when it starts with the table's first columns
+    expect(rowOf("quotes")[3].f).toBe('=IFERROR(SUBSTITUTE(WEBSERVICE(B4),CHAR(13),""),"")');
+    expect(rowOf("positions")[3].f).toBe('=IFERROR(SUBSTITUTE(WEBSERVICE(B5),CHAR(13),""),"")');
+    expect(rowOf("positions")[2].f).toBe('=IF(F5=1,D5,"")');
     // symbols are joined from the Watchlist, "&" and the like encoded, ":" kept readable
     const cumulative = feed.rows[12][15].f;
     expect(cumulative).toBe('=IF(LEN(TRIM(Watchlist!$A5))=0,$P12,$P12&IF(LEN($P12)=0,"",",")&SUBSTITUTE(ENCODEURL(TRIM(Watchlist!$A5)),"%3A",":"))');
@@ -218,7 +220,7 @@ describe("the Bridge workbook", () => {
       const sh = sheets.find((s) => s.name === name);
       const heads = TABLES[id].slice(0, -1).map(([h]) => h);
       expect(sh.rows[3].map((c) => c.v), name).toEqual(heads);
-      expect(sh.rows, name).toHaveLength(4 + rows);
+      expect(sh.rows, name).toHaveLength(4 + rowSlots(id));
       for (const row of sh.rows.slice(4)) {
         expect(row, name).toHaveLength(heads.length);
         for (const c of row) expect(c.f, name).toMatch(/^=IFERROR\(/);
@@ -227,7 +229,8 @@ describe("the Bridge workbook", () => {
       expect(sh.freeze).toEqual({ row: 4 });
     }
     const pos = sheets.find((s) => s.name === "Positions");
-    expect(pos.rows[2][7].f).toBe(`=SUM(H5:H${4 + CAPACITY.positions})`);
+    const last = 4 + rowSlots("positions");
+    expect(pos.rows[2][7].f).toBe(`=IF(Feed!$F$5<>1,"",IF(OR(COUNTIF(A5:A${last},"(more rows)")>0,(COUNTIF(P5:P${last},"?*")-COUNTIF(A5:A${last},"(more rows)"))>0),"PARTIAL: "&SUM(H5:H${last})&" (not every row is included)",SUM(H5:H${last})))`);
     expect(pos.rows[1][0].f).toContain('FIND(CHAR(9)&"DEMO"&CHAR(10),Feed!$C$5)');
   });
 
@@ -375,7 +378,7 @@ describe.skipIf(!HAS_SOFFICE)("calculated by LibreOffice", () => {
   }
 
   it("cuts the answers into cells, looks rows up by symbol, labels freshness and writes the status", () => {
-    const sheet = calculate({ symbols: ["NSE:RELIANCE", "NSE:NIFTY", "nse:nope", "NSE:SLOW", "NSE:MISSING"], answers: { quotes, positions, holdings: TSV([[...Array(3)]]), funds, orders: "" }, key: "mcb_abcdefghij_xxxxxxxxxxxxxxxxxxxx" });
+    const sheet = calculate({ symbols: ["NSE:RELIANCE", "NSE:NIFTY", "nse:nope", "NSE:SLOW", "NSE:MISSING"], answers: { quotes, positions, holdings: TSV([[...HOLDING_COLUMNS, "demo"]]), funds, orders: "" }, key: "mcb_abcdefghij_xxxxxxxxxxxxxxxxxxxx" });
     const wl = sheet("Watchlist");
     expect(wl[3].slice(0, 4)).toEqual(["Symbol", "Last", "Change", "Change %"]);
     // rows follow the person's order, whatever order the answer came in
@@ -403,7 +406,7 @@ describe.skipIf(!HAS_SOFFICE)("calculated by LibreOffice", () => {
     expect(setup[6][1]).toContain("A key is stored inside this file");
     // the address that went out: one request, the encoded list, the key from the name, the refresh stamp
     const feed = sheet("Feed");
-    expect(feed[3][1]).toMatch(/^http:\/\/127\.0\.0\.1:4300\/xl\/quotes\?format=tsv&fields=ltp,chg,pct,volume&symbols=NSE:RELIANCE,NSE:NIFTY,nse:nope,NSE:SLOW,NSE:MISSING&key=mcb_abcdefghij_xxxxxxxxxxxxxxxxxxxx&_=\d+/);
+    expect(feed[3][1]).toMatch(/^http:\/\/127\.0\.0\.1:4300\/xl\/quotes\?format=tsv&errors=200&fields=ltp,chg,pct,volume&symbols=NSE:RELIANCE,NSE:NIFTY,nse:nope,NSE:SLOW,NSE:MISSING&key=mcb_abcdefghij_xxxxxxxxxxxxxxxxxxxx&_=\d+/);
     // positions: numbers are numbers, the total adds the rows, the status counts them
     const pos = sheet("Positions");
     expect(pos[4].slice(0, 10)).toEqual(["dhan-main", "live", "NFO:NIFTY-2026-11-24-FUT", "MARGIN", "-75", "24900.5", "24850", "3787.5", "0", "3787.5"]);
@@ -412,7 +415,7 @@ describe.skipIf(!HAS_SOFFICE)("calculated by LibreOffice", () => {
     expect(pos[1][0]).toBe("2 rows. Times are IST.");
     // funds: a demo marker and an account that could not answer
     const funds2 = sheet("Funds");
-    expect(funds2[1][0]).toBe("2 rows. CHECK: some rows have an error (see the Error column). DEMO DATA, not real. Times are IST.");
+    expect(funds2[1][0]).toBe("2 rows. CHECK: 1 row has an error (see the Error column). DEMO DATA, not real. Times are IST.");
     expect(funds2[4].slice(0, 5)).toEqual(["dhan-main", "live", "250000.5", "48210", "298210.5"]);
     expect(funds2[5][14]).toMatch(/^SESSION_EXPIRED/);
     // an empty answer: the words, not #VALUE!
@@ -437,5 +440,49 @@ describe.skipIf(!HAS_SOFFICE)("calculated by LibreOffice", () => {
     ]);
     const sheet = calculate({ symbols: ["NSE:NIFTY"], include: { positions: false, holdings: false, funds: false, orders: false }, answers: { quotes: demoQuotes } });
     expect(sheet("Watchlist")[1][0]).toBe("DEMO DATA, not real prices. OK. 1 prices, newest 2026-11-09 11:00:27 IST, oldest 0 s old.");
+  }, 120_000);
+  // INT-02, INT-04, INT-06: a cut book says so, a total is never passed off as complete, and an answer that is not a
+  // Bridge table (a login page, a refusal) shows its reason instead of rows or blank prices.
+  const posRow = (i, pnl, account = "dhan-main") => [account, "live", `NSE:S${i}`, "CNC", "1", "100", "101", String(pnl), "0", String(pnl), "2026-11-09 11:00:27", "0", "realtime", "broker", "false", "", ""];
+  const manyPositions = (n, total) => {
+    const shown = Array.from({ length: CAPACITY.positions }, (_, i) => posRow(i, 100));
+    const notice = ["(more rows)", ...Array(14).fill(""), `SHOWING ${CAPACITY.positions} OF ${total} ROWS: the other ${total - CAPACITY.positions} are not shown. Ask for one account with ?account= or a higher limit.`, ""];
+    return TSV([[...POSITION_COLUMNS, "demo"], ...shown.slice(0, n), ...(total > CAPACITY.positions ? [notice] : [])]);
+  };
+
+  it("a book bigger than the sheet shows 'SHOWING 40 OF 60 ROWS' in its own row and the total says PARTIAL", () => {
+    const sheet = calculate({ include: { watchlist: false, holdings: false, funds: false, orders: false }, answers: { positions: manyPositions(40, 60) } });
+    const pos = sheet("Positions");
+    expect(pos[1][0]).toMatch(/^40 rows\. SHOWING 40 OF 60 ROWS: the other 20 are not shown\./);
+    expect(pos[4 + 40][0]).toBe("(more rows)"); // visible in the table itself, not only in the status
+    expect(pos[4 + 40][15]).toMatch(/^SHOWING 40 OF 60 ROWS/);
+    expect(pos[2][7]).toBe("PARTIAL: 4000 (not every row is included)");
+  }, 120_000);
+
+  it("a complete book has a plain total, and a logged-out account makes the total PARTIAL and the status say so", () => {
+    const full = calculate({ include: { watchlist: false, holdings: false, funds: false, orders: false }, answers: { positions: manyPositions(3, 3) } });
+    expect(full("Positions")[2][7]).toBe("300");
+    expect(full("Positions")[1][0]).toBe("3 rows. Times are IST.");
+    const off = TSV([[...POSITION_COLUMNS, "demo"], posRow(1, 100), ["dhan-off", ...Array(14).fill(""), "SESSION_EXPIRED: dhan-off is logged out. Log in again on the Accounts page of the dashboard.", ""]]);
+    const sheet = calculate({ include: { watchlist: false, holdings: false, funds: false, orders: false }, answers: { positions: off } });
+    expect(sheet("Positions")[1][0]).toBe("2 rows. CHECK: 1 row has an error (see the Error column). Times are IST.");
+    expect(sheet("Positions")[2][7]).toBe("PARTIAL: 100 (not every row is included)");
+    expect(sheet("Positions")[5][0]).toBe("dhan-off");
+  }, 120_000);
+
+  it("an answer that is not a Bridge table never becomes rows or blank prices; a refusal shows the Bridge's reason", () => {
+    const html = "<html><body>Tunnel notice: click to continue</body></html>\n";
+    const refusal = TSV([["status", "code", "message", "retry_after_s"], ["429", "RATE_LIMITED", "Too many refreshes: wait 3 seconds and try again.", "3"]]);
+    const sheet = calculate({ symbols: ["NSE:NIFTY"], answers: { quotes: html, positions: html, holdings: refusal, funds: "", orders: refusal } });
+    expect(sheet("Positions")[1][0]).toMatch(/^CHECK: the answer is not a Bridge table \(a login page or a tunnel notice\?\)\. It starts: <html><body>Tunnel notice/);
+    expect(sheet("Positions")[4].every((c) => c === "")).toBe(true); // no data row made out of the page
+    expect(sheet("Holdings")[1][0]).toBe("REFUSED: Too many refreshes: wait 3 seconds and try again.");
+    expect(sheet("Holdings")[4].every((c) => c === "")).toBe(true); // the refusal is not shown as a data row
+    expect(sheet("Funds")[1][0]).toContain("NO ANSWER");
+    expect(sheet("Orders")[1][0]).toMatch(/^REFUSED: /);
+    const wl = sheet("Watchlist");
+    expect(wl[1][0]).toMatch(/^CHECK: the answer is not a Bridge table/);
+    expect(wl[4][10]).toBe("no prices: read the Status line above");
+    expect(sheet("Setup")[3][1]).toBe(wl[1][0]);
   }, 120_000);
 });

@@ -80,7 +80,7 @@ export { createDedupeMap };
  * Sliding one-minute window per hook.
  * @param {{ now: () => number }} opts
  */
-function createHookRateLimiter({ now }) {
+export function createHookRateLimiter({ now }) {
   /** @type {Map<string, number[]>} */
   const hits = new Map();
   return {
@@ -89,6 +89,26 @@ function createHookRateLimiter({ now }) {
       const t = now();
       const arr = (hits.get(hookId) ?? []).filter((x) => x > t - 60_000);
       return arr.length >= perMinute ? { ok: false, retryAfterMs: Math.max(1, arr[0] + 60_000 - t) } : { ok: true, retryAfterMs: 0 };
+    },
+    /**
+     * Take the next slot, now or later: when the minute is full the slot is the moment the perMinute-th most recent hit
+     * leaves the window. Refused (not taken) when that is more than `maxWaitMs` away. `undo` gives the slot back.
+     * @returns {{ ok: boolean, waitMs: number, retryAfterMs: number, slot: number }}
+     */
+    reserve(hookId, perMinute, maxWaitMs = 0) {
+      const t = now();
+      const arr = (hits.get(hookId) ?? []).filter((x) => x > t - 60_000);
+      const at = arr.length < perMinute ? t : Math.max(t, arr[arr.length - perMinute] + 60_000);
+      hits.set(hookId, arr);
+      if (at - t > maxWaitMs) return { ok: false, waitMs: 0, retryAfterMs: Math.max(1, arr[0] + 60_000 - t), slot: 0 };
+      arr.push(at);
+      arr.sort((a, b) => a - b);
+      return { ok: true, waitMs: at - t, retryAfterMs: 0, slot: at };
+    },
+    undo(hookId, slot) {
+      const arr = hits.get(hookId) ?? [];
+      const i = arr.indexOf(slot);
+      if (i >= 0) arr.splice(i, 1);
     },
     /** @returns {{ ok: boolean, retryAfterMs: number }} */
     take(hookId, perMinute) {
@@ -159,7 +179,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
   };
 
   /** A refusal that knows what kind it is (the receiver counts it and shows it by kind). */
-  const refuse = (kind, code, detail, extra) => Object.assign(new BridgeError(code, detail, extra), { hookKind: kind });
+  const refuse = (kind, code, detail, extra, cause) => Object.assign(new BridgeError(code, detail, extra), { hookKind: kind, ...(cause ? { hookCause: cause } : {}) });
 
   const kindOf = (err) => {
     if (err?.hookKind) return err.hookKind;
@@ -180,7 +200,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
     if (!kind) return;
     err.hookObserved = true;
     const reason = typeof err.detail === "string" ? err.detail : String(err.message ?? "");
-    signals.refused(hook.id, kind, { at: info.at, code: err.code, reason, symbol: info.symbol, side: info.side, id: info.id, time: info.time, test: info.test });
+    signals.refused(hook.id, kind, { at: info.at, code: err.code, reason, symbol: info.symbol, side: info.side, id: info.id, time: info.time, test: info.test, cause: err.hookCause });
     if (kind !== "rate" && !info.test) {
       const sup = throttled(auditSeen, `${hook.id}|${kind}`, 60_000);
       if (sup !== null) {
@@ -228,7 +248,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
   /** The mode, account and symbol rules only TradingView alerts carry. */
   function assertTradingViewScope(hook, signal, { test }) {
     if (signal.account && signal.account !== hook.account) {
-      throw refuse("bad_request", "VALIDATION_FAILED", `The alert says account ${signal.account}, but this hook belongs to ${hook.account}. Remove "account" from the alert or use the hook of that account.`, { errors: [{ path: "account", message: "differs from the hook's account" }] });
+      throw refuse("bad_request", "VALIDATION_FAILED", `The alert says account ${signal.account}, but this hook belongs to ${hook.account}. Remove "account" from the alert or use the hook of that account.`, { errors: [{ path: "account", message: "differs from the hook's account" }] }, "policy");
     }
     if (test) return;
     const want = signal.mode ?? "paper";
@@ -240,6 +260,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
           ? 'This hook places LIVE orders, so the alert must say "mode": "live" on purpose (an alert without a mode means paper). Nothing was placed.'
           : `This hook places paper orders only; the alert says mode ${want}. Nothing was placed.`,
         { errors: [{ path: "mode", message: `the hook is ${hook.mode}` }] },
+        "policy",
       );
     }
   }
@@ -259,7 +280,8 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
         throw refuse("stale", "VALIDATION_FAILED", `The alert is ${Math.round(ageMs / 1000)} seconds old and this hook only accepts alerts up to ${hook.maxAgeSec} seconds old, so nothing was placed. If fresh alerts are refused too, check that this computer's clock is right.`, { errors: [{ path: "time", message: `older than maxAgeSec (${hook.maxAgeSec})` }] });
       }
       if (ageMs < -FUTURE_SKEW_MS) {
-        throw refuse("stale", "VALIDATION_FAILED", `The alert's time is ${Math.round(-ageMs / 1000)} seconds ahead of this computer's clock, so it is refused. Check this computer's clock and the alert's time.`, { errors: [{ path: "time", message: "in the future" }] });
+        // Not "stale": the alert is not old, its time is ahead of this computer's clock (or the sender's clock is wrong).
+        throw refuse("bad_request", "VALIDATION_FAILED", `The alert's time is ${Math.round(-ageMs / 1000)} seconds ahead of this computer's clock, so it is refused. Check this computer's clock and the alert's time.`, { errors: [{ path: "time", message: "in the future" }] }, "future");
       }
     }
   }
@@ -295,6 +317,15 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
       // Fail closed: a full dedupe map would have to forget an alert that could then be sent twice.
       if (dedupe.full()) throw refuse("queue_full", "RATE_LIMITED", "The Bridge is remembering too many alerts to tell new ones from repeats, so this alert was refused and nothing was placed. Try again shortly.", { retryAfterMs: 30_000 });
     }
+    // The per-minute budget is charged only here, for an alert that has passed every check above (so a flood of
+    // malformed, refused or repeated alerts cannot starve good ones). Over budget the alert is HELD and handled when a
+    // slot frees up (TradingView does not resend a refused alert); only past `rateWaitSec` is it refused.
+    let slot = null;
+    if (!test) {
+      const r = rate.reserve(hook.id, cfg.maxSignalsPerMinute, (cfg.rateWaitSec ?? 0) * 1000);
+      if (!r.ok) throw new BridgeError("RATE_LIMITED", "This hook is receiving too many alerts. Try again shortly.", { retryAfterMs: r.retryAfterMs });
+      slot = r;
+    }
     const signalId = `sig_${randomBytes(10).toString("base64url")}`;
     // Idempotency-Key per order. With a sender identity it is stable for the IST day (OrderService keeps keys that long);
     // without one it includes the first-seen time, so a repeat of the same text hours later is a new order.
@@ -312,18 +343,21 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
         ...(test ? { test: true } : {}),
       };
     });
+    const heldMs = slot?.waitMs ?? 0;
+    const heldReason = `This hook is over its limit of ${cfg.maxSignalsPerMinute} alerts a minute, so the alert is held for about ${Math.ceil(heldMs / 1000)} seconds and then handled (it is refused as too old if it is older than the hook allows by then).`;
     try {
-      worker.enqueue(jobs);
+      worker.enqueue(jobs, heldMs > 0 ? { delayMs: heldMs, reason: heldReason } : {});
     } catch (err) {
+      if (slot) rate.undo(hook.id, slot.slot);
       if (err?.code === "RATE_LIMITED") err.hookKind = "queue_full";
       throw err;
     }
-    for (const j of jobs) signals.accepted(hook.id, { signalId, index: j.index, at: receivedAt, symbol: j.signal.symbol, side: j.signal.side, id: j.signal.ref, time: j.signal.time, mode: test ? "paper" : hook.mode, test });
+    for (const j of jobs) signals.accepted(hook.id, { signalId, index: j.index, at: receivedAt, symbol: j.signal.symbol, side: j.signal.side, id: j.signal.ref, time: j.signal.time, mode: test ? "paper" : hook.mode, test, lots: j.signal.lots, quantity: j.signal.quantity, price: j.signal.price, ...(heldMs > 0 ? { code: "HOOK_RATE_HELD", reason: heldReason } : {}) });
     if (!test) {
       dedupe.set(alertKey, signalId, dedupeTtlMs(hook, parsed.basis !== null));
       store.touch(hook.id);
     }
-    return { duplicate: false, signalId, dropped: parsed.dropped };
+    return { duplicate: false, signalId, dropped: parsed.dropped, heldMs };
   }
 
   /** How long an alert identity is remembered: at least the dedupe window, and past the age limit when the identity is id + time. */
@@ -402,13 +436,11 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
         throw new BridgeError("UNAUTHENTICATED", "The alert's passphrase is missing or wrong. Add passphrase to the alert message exactly as shown when the hook was created.");
       }
     }
-    // Charged only after the credential check: junk requests cannot use up a hook's budget.
-    const r = rate.take(hook.id, cfg.maxSignalsPerMinute);
-    if (!r.ok) throw new BridgeError("RATE_LIMITED", "This hook is receiving too many alerts. Try again shortly.", { retryAfterMs: r.retryAfterMs });
-
+    // The per-minute budget is charged inside admitAlert, once the alert has passed every check.
     const out = admitAlert({ hook, body: ctx.body, raw, receivedAt, state });
     const body = { accepted: true, signalId: out.signalId };
     if (out.duplicate) body.duplicate = true;
+    if (out.heldMs) body.heldSeconds = Math.ceil(out.heldMs / 1000);
     if (out.dropped) body.dropped = out.dropped;
     return json(body, { status: 202 });
   }
@@ -541,7 +573,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
         clientIpHeader: cfg.clientIpHeader,
         publicIngress: { enabled: pi.enabled === true, port: pi.port ?? null, allowedHosts: hosts, urls: hosts.map((h) => `https://${h}`) },
         tradingview: { defaultMaxAgeSec: DEFAULT_MAX_AGE_SEC, sourceIpPreset: "tradingview" },
-        limits: { maxSignalsPerMinute: cfg.maxSignalsPerMinute, bodyLimitBytes: 16384, queueSize: cfg.queueSize, burstWaitSec: cfg.burstWaitSec },
+        limits: { maxSignalsPerMinute: cfg.maxSignalsPerMinute, rateWaitSec: cfg.rateWaitSec, bodyLimitBytes: 16384, queueSize: cfg.queueSize, burstWaitSec: cfg.burstWaitSec },
       },
       meta: { requestId: ctx.requestId },
     };
@@ -651,7 +683,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
       await audit(ctx, "hook.test", hook.account, { hookId: hook.id, outcome: kind === "stale" ? "stale" : "refused", code: err?.code });
       if (!(err instanceof BridgeError) || !kind) throw err;
       const outcome = kind === "stale" ? "stale" : kind === "queue_full" ? "rejected" : "refused";
-      const entry = { outcome, reason: err.detail, code: err.code };
+      const entry = { outcome, reason: err.detail, code: err.code, cause: err.hookCause };
       return { data: { ...base, signalId: null, accepted: false, outcome, reason: err.detail, code: err.code, orderId: null, summary: plainSummary(entry), note: TEST_NOTE }, meta: { requestId: ctx.requestId, accountId: hook.account, mode: "paper" } };
     }
     let timer;

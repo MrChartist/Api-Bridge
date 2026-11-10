@@ -9,6 +9,15 @@
   the builder's live preview called a route that did not exist (`POST /v1/collections/resolve`, now there: it resolves an option
   universe that is not saved yet); `AsyncStream` in the Python client no longer leaves an un-awaited coroutine when the loop closes.
 - Reference data ([docs/reference-data.md](docs/reference-data.md)): session hours come from dated rules, one source for the order gate, calendar, readiness, recorder and history. Derivatives trade to 15:40 from 3 Aug 2026 and 15:45 from 7 Dec 2026 (SEBI circulars; an index contract expiring that day stops at 15:30), so live NFO and BFO orders are no longer refused 15:30 to 15:40. Special sessions (Muhurat, Budget Sunday) are loaded from a data file and stay closed for live orders until their timing is verified; the 2026-01-15 holiday is added; rows without a primary source say `verified: false`. History chunks follow each broker's documented span (Upstox, Angel One, Dhan); a `1d` request whose `from` is after midnight returns that day's bar. `mc-bridge doctor` and the Safety page warn when the calendar misses next year or a table is older than six months.
+- Integrations audit fixes: `/xl/positions|holdings|funds` show a logged-out account as an error row instead of leaving it
+  out; `limit=` on them ends the table with a visible `SHOWING N OF M ROWS` row, the workbook asks for no more than its
+  capacity (no answer can pass `WEBSERVICE`'s 32,767 characters), labels the P&L total `PARTIAL` when rows are missing and
+  shows `REFUSED:` / `not a Bridge table` instead of `NO ANSWER` (`?errors=200`); the Apps Script fills sheets by column name
+  (demo mode no longer throws), refuses non-table answers and shows each sheet's own error; Power Query files read plain named
+  ranges; `expose --dry-run` writes nothing; `doctor` warns about a host name on the main listener and warns once about the master
+  key; alerts over `hooks.maxSignalsPerMinute` are held (`hooks.rateWaitSec`) instead of lost, and only good alerts count; the
+  alert history tells a clock problem and a rule of the hook from "too old" and "unreadable"; Telegram drops only the refused
+  message and `/price NIFTY1!` works; the Node webhook example de-duplicates on the signed `id`.
 
 - Operation ([docs/guides/operations.md](docs/guides/operations.md)): one Bridge per data folder (`bridge.lock`); every damaged state
   file is set aside and reported instead of stopping the start, and a damaged order record refuses live orders (`ORDER_STATE_DAMAGED`,

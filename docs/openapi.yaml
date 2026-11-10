@@ -4594,6 +4594,7 @@ paths:
         - { name: fields, in: query, description: "Value columns in the order wanted (default ltp,chg,pct,volume). Freshness columns are always added.", schema: { type: string, example: "ltp,chg,pct,volume,as_of,class" } }
         - { $ref: "#/components/parameters/XlFormat" }
         - { $ref: "#/components/parameters/XlCache" }
+        - { $ref: "#/components/parameters/XlErrors" }
       responses:
         "200":
           description: One row per requested symbol. Columns - symbol, then the requested fields (ltp open high low close chg pct volume oi bid ask), then as_of age_s class source stale, then error (and demo in demo mode).
@@ -4632,6 +4633,7 @@ paths:
         - { name: field, in: query, description: "lot, tick, freeze, name or kind; comma-separated for a table. Default all five.", schema: { type: string, example: "lot,tick,freeze" } }
         - { $ref: "#/components/parameters/XlFormat" }
         - { $ref: "#/components/parameters/XlCache" }
+        - { $ref: "#/components/parameters/XlErrors" }
       responses:
         "200":
           description: A bare number (text/plain) for one symbol and one field, otherwise a table.
@@ -4659,18 +4661,20 @@ paths:
       tags: [Spreadsheets]
       operationId: xlPositions
       summary: Positions of every account the key may use, as one table
-      description: "Columns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer gives one row with its name and an `error` text; the others are unaffected. Read-only."
+      description: "Columns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer (logged out, broker down) gives one row with its name and an `error` text; the others are unaffected, and a logged-out account is never left out. Read-only."
       x-module: integrations
       x-scope: read
       security:
         - bearerAuth: []
         - apiKeyQuery: []
       parameters:
-        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { name: account, in: query, description: "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.", schema: { type: string } }
         - { name: open, in: query, description: "1 hides closed positions (quantity 0).", schema: { type: boolean } }
         - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { name: limit, in: query, description: "Keep the first N rows. When rows are left out the table ends with one visible row (account `(more rows)`, error `SHOWING N OF TOTAL ROWS: ...`) and the reply has `X-Truncated: true` and `X-Total-Rows`. Without it every row is returned.", schema: { type: integer, minimum: 1, maximum: 5000 } }
         - { $ref: "#/components/parameters/XlFormat" }
         - { $ref: "#/components/parameters/XlCache" }
+        - { $ref: "#/components/parameters/XlErrors" }
       responses:
         "200":
           description: One row per position.
@@ -4705,9 +4709,11 @@ paths:
         - bearerAuth: []
         - apiKeyQuery: []
       parameters:
-        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { name: account, in: query, description: "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.", schema: { type: string } }
+        - { name: limit, in: query, description: "Keep the first N rows. When rows are left out the table ends with one visible row (account `(more rows)`, error `SHOWING N OF TOTAL ROWS: ...`) and the reply has `X-Truncated: true` and `X-Total-Rows`. Without it every row is returned.", schema: { type: integer, minimum: 1, maximum: 5000 } }
         - { $ref: "#/components/parameters/XlFormat" }
         - { $ref: "#/components/parameters/XlCache" }
+        - { $ref: "#/components/parameters/XlErrors" }
       responses:
         "200":
           description: One row per holding.
@@ -4742,10 +4748,12 @@ paths:
         - bearerAuth: []
         - apiKeyQuery: []
       parameters:
-        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { name: account, in: query, description: "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.", schema: { type: string } }
         - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
+        - { name: limit, in: query, description: "Keep the first N rows. When rows are left out the table ends with one visible row (account `(more rows)`, error `SHOWING N OF TOTAL ROWS: ...`) and the reply has `X-Truncated: true` and `X-Total-Rows`. Without it every row is returned.", schema: { type: integer, minimum: 1, maximum: 5000 } }
         - { $ref: "#/components/parameters/XlFormat" }
         - { $ref: "#/components/parameters/XlCache" }
+        - { $ref: "#/components/parameters/XlErrors" }
       responses:
         "200":
           description: One row per account.
@@ -4780,12 +4788,13 @@ paths:
         - bearerAuth: []
         - apiKeyQuery: []
       parameters:
-        - { name: account, in: query, description: "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).", schema: { type: string } }
+        - { name: account, in: query, description: "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.", schema: { type: string } }
         - { name: status, in: query, schema: { type: string, enum: [pending, open, trigger_pending, partially_filled, filled, cancelled, rejected, expired, outcome_unknown] } }
         - { name: mode, in: query, schema: { type: string, enum: [paper, live] } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 200 } }
         - { $ref: "#/components/parameters/XlFormat" }
         - { $ref: "#/components/parameters/XlCache" }
+        - { $ref: "#/components/parameters/XlErrors" }
       responses:
         "200":
           description: One row per order.
@@ -4864,6 +4873,7 @@ paths:
                   signalId: { type: string }
                   duplicate: { type: boolean, description: The same alert was already received (same id and time for TradingView); nothing new was queued. }
                   dropped: { type: integer, description: Orders in the alert that were dropped before queueing (for example over the per-alert cap). }
+                  heldSeconds: { type: integer, description: "Present when the hook is over `hooks.maxSignalsPerMinute`: the alert is held about this long and then handled (up to `hooks.rateWaitSec`; beyond that the answer is 429)." }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -7011,6 +7021,11 @@ components:
       in: query
       description: "1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`."
       schema: { type: boolean, default: false }
+    XlErrors:
+      name: errors
+      in: query
+      description: "`200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else."
+      schema: { type: string, enum: ["200"] }
     Backup:
       name: backup
       in: query
@@ -10101,6 +10116,7 @@ components:
           type: object
           properties:
             maxSignalsPerMinute: { type: integer }
+            rateWaitSec: { type: integer, description: "How long an alert over the per-minute limit is held before it is refused; 0 = refuse at once." }
             bodyLimitBytes: { type: integer }
             queueSize: { type: integer }
             burstWaitSec: { type: integer }
@@ -10112,7 +10128,7 @@ components:
         queued/processing: received, not finished. placed: an order was placed (paper or live). awaiting_confirmation: a
         person must confirm it in the Bridge. duplicate: seen before, not placed twice. stale: older than maxAgeSec.
         rejected: the hook's rules, the safety checks or the broker said no (see reason). refused: the alert could not be
-        read (a 400). failed / outcome_unknown / dropped: see reason.
+        read, its time is ahead of this computer's clock, or it is against the hook's rules (a 400; see `cause`). failed / outcome_unknown / dropped: see reason.
 
     HookSignal:
       type: object
@@ -10131,6 +10147,10 @@ components:
         id: { type: [string, "null"], description: "The alert's own id." }
         time: { type: [string, "null"], description: "The alert's own time." }
         mode: { type: [string, "null"] }
+        lots: { type: [number, "null"], description: "Lots the alert asked for, when it said so." }
+        quantity: { type: [number, "null"], description: "Quantity the alert asked for, when it said so." }
+        price: { type: [number, "null"], description: "Price the alert carried, when it had one." }
+        cause: { type: string, enum: [future, policy], description: "Only on a refused alert: `future` = its time is ahead of this computer's clock, `policy` = against the hook's rules (mode or account). Absent = it could not be read." }
         orderId: { type: [string, "null"] }
         ticketId: { type: [string, "null"] }
         test: { type: boolean }

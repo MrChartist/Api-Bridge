@@ -18,9 +18,11 @@ Columns are fixed - account, mode, symbol, isin, qty, avg_price, ltp, pnl, as_of
 
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
-| `account` | query | string | no | One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts). |
+| `account` | query | string | no | One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row. |
+| `limit` | query | integer, min 1, max 5000 | no | Keep the first N rows. When rows are left out the table ends with one visible row (account `(more rows)`, error `SHOWING N OF TOTAL ROWS: ...`) and the reply has `X-Truncated: true` and `X-Total-Rows`. Without it every row is returned. |
 | `format` | query | one of `csv`, `tsv`, `json` | no | csv (default, CRLF), tsv (tab separated, LF) or json (array of records). Default `"csv"`. |
 | `cache` | query | boolean | no | 1 opts in to `Cache-Control: private, max-age=N` (N from `integrations.xl.cacheSeconds`, default 5) and an `ETag`. Default is `no-store`. Default `false`. |
+| `errors` | query | one of `200` | no | `200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else. |
 
 ## Responses
 

@@ -123,6 +123,33 @@ describe("retry, backoff and retry_after", () => {
     expect(t.chats.filter((c) => c.state?.kind === "blocked")).toHaveLength(1);
   });
 
+  it("INT-12: Telegram refusing one message drops only that message: the kill-switch alert behind it is still sent", async () => {
+    const n = bootNotify({ config: { coalesceSeconds: 0 } });
+    await n.withChat();
+    n.tg.script("sendMessage", { status: 400, body: { ok: false, error_code: 400, description: "Bad Request: wrong file identifier" }, times: 1 });
+    await n.svc.publish(msg("first, refused by Telegram", "order.filled", "g1"));
+    await n.svc.publish(msg("Kill switch is ON: all new orders are blocked.", "kill_switch.engaged", "g2"));
+    await n.settle();
+    await n.advance(2000);
+    expect(n.tg.texts()).toContain("Kill switch is ON: all new orders are blocked.");
+    expect(n.svc.outbox.list()).toEqual([]);
+  });
+
+  it("INT-12: a blocked chat still drops its ordinary messages, but a critical one is tried once on its own", async () => {
+    const n = bootNotify({ config: { coalesceSeconds: 0 } });
+    await n.withChat();
+    n.tg.script("sendMessage", { status: 403, body: { ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" }, times: 2 });
+    await n.svc.publish(msg("first", "order.filled", "g1"));
+    await n.svc.publish(msg("second, ordinary", "order.rejected", "g2"));
+    await n.svc.publish(msg("Kill switch is ON", "kill_switch.engaged", "g3"));
+    await n.settle();
+    await n.advance(2000);
+    const attempts = n.tg.sent().map((x) => x.body.text);
+    expect(attempts).toContain("Kill switch is ON"); // it was tried (it failed too: two blocked answers were scripted)
+    expect(attempts).not.toContain("second, ordinary"); // dropped without a try: the chat is known to be blocked
+    expect(n.svc.outbox.list()).toEqual([]);
+  });
+
   it("a group that became a supergroup is followed to its new id and the message is delivered", async () => {
     const n = bootNotify({ config: { coalesceSeconds: 0 } });
     const { target } = await n.svc.addTarget({ token: TOKEN });

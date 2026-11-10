@@ -117,8 +117,18 @@ export const TABLES = Object.freeze({
   ],
 });
 
-/** Rows each sheet has room for (the formulas are written for this many). */
+/**
+ * Rows each sheet has room for (the formulas are written for this many). The sheet asks the Bridge for at most this
+ * many rows (`limit=`), so an answer can never grow past WEBSERVICE's 32,767 characters, however big the book is.
+ */
 export const CAPACITY = Object.freeze({ quotes: 50, positions: 40, holdings: 60, funds: 10, orders: 60 });
+
+/** Tables that end with a visible "(more rows)" row when the book is bigger than CAPACITY: they get one extra row slot. */
+const NOTICE_TABLES = new Set(["positions", "holdings", "funds"]);
+/** Formula rows of a table sheet: the capacity, plus the slot for the "showing N of M" row. */
+export const rowSlots = (id) => CAPACITY[id] + (NOTICE_TABLES.has(id) ? 1 : 0);
+/** The account cell of that row, as the Bridge writes it (portfolio.mjs MORE_ROWS_ACCOUNT). */
+export const MORE_ROWS = "(more rows)";
 
 /** The sheets a person may choose to include, with their label in the dashboard. */
 export const SHEET_CHOICES = Object.freeze([
@@ -134,6 +144,16 @@ export const SAMPLE_SYMBOLS = Object.freeze(["NSE:NIFTY", "BSE:SENSEX", "NSE:REL
 
 /** Characters WEBSERVICE refuses past: the address limit of the function. */
 export const ADDRESS_LIMIT = 2048;
+
+/** What the answer to each request starts with (its first two column names), and what a refusal starts with. */
+const FIRST_COLUMNS = Object.freeze({
+  quotes: '="symbol"&CHAR(9)&"ltp"',
+  positions: '="account"&CHAR(9)&"mode"',
+  holdings: '="account"&CHAR(9)&"mode"',
+  funds: '="account"&CHAR(9)&"mode"',
+  orders: '="account"&CHAR(9)&"mode"',
+});
+const REFUSAL_START = '"status"&CHAR(9)&"code"';
 
 const FIRST_DATA_ROW_FEED = 12; // Feed row of line 1 (the header line); line k is on row 11 + k.
 const WATCH_FIRST_ROW = 5;
@@ -162,9 +182,13 @@ export const numberField = (line, j) => {
   return `=IFERROR(IF(${f}="","",NUMBERVALUE(${f},".")),"")`;
 };
 
-/** The address of one request: the Bridge address, the route and its options, the key and the refresh stamp. */
+/**
+ * The address of one request: the Bridge address, the route and its options, the key and the refresh stamp.
+ * `errors=200` makes the Bridge answer a refusal (wrong key, too many refreshes) as a normal answer holding its reason:
+ * WEBSERVICE shows #VALUE! for every other HTTP status and so could not say what went wrong.
+ */
 export function requestAddress(route, options = "") {
-  return `=BridgeURL&${q(`${route}?format=tsv${options}&key=`)}&BridgeKey&"&_="&RefreshStamp`;
+  return `=BridgeURL&${q(`${route}?format=tsv&errors=200${options}&key=`)}&BridgeKey&"&_="&RefreshStamp`;
 }
 
 /**
@@ -195,15 +219,18 @@ export function workbookSheets({ host, include = {}, symbols = [], key = "", mad
   // Which requests exist, and which Feed row and line column each lives in.
   const order = [];
   if (want.watchlist) order.push(["quotes", "Prices", "/xl/quotes", `&fields=ltp,chg,pct,volume&symbols=`]);
-  if (want.positions) order.push(["positions", "Positions", "/xl/positions", ""]);
-  if (want.holdings) order.push(["holdings", "Holdings", "/xl/holdings", ""]);
-  if (want.funds) order.push(["funds", "Funds", "/xl/funds", ""]);
+  if (want.positions) order.push(["positions", "Positions", "/xl/positions", `&limit=${CAPACITY.positions}`]);
+  if (want.holdings) order.push(["holdings", "Holdings", "/xl/holdings", `&limit=${CAPACITY.holdings}`]);
+  if (want.funds) order.push(["funds", "Funds", "/xl/funds", `&limit=${CAPACITY.funds}`]);
   if (want.orders) order.push(["orders", "Orders", "/xl/orders", `&limit=${CAPACITY.orders}`]);
   const LINE_COLS = { quotes: 0, positions: 17, holdings: 18, funds: 19, orders: 20 }; // Feed columns A, R, S, T, U
   const datasets = {};
   order.forEach(([id, label, route, opts], i) => {
     const row = 4 + i;
-    datasets[id] = { id, label, route, opts, row, url: `Feed!$B$${row}`, raw: `Feed!$C$${row}`, lineCol: LINE_COLS[id] };
+    // Feed columns of a request: B address, C the answer once it passed the check (empty otherwise), D the answer as it
+    // arrived, E the first columns an answer must start with, F the check (0 no answer, 1 a Bridge table, 2 the Bridge
+    // refused, 3 something else), G the answer's second line, H the refusal's message.
+    datasets[id] = { id, label, route, opts, row, url: `Feed!$B$${row}`, raw: `Feed!$C$${row}`, got: `Feed!$D$${row}`, check: `Feed!$F$${row}`, msg: `Feed!$H$${row}`, lineCol: LINE_COLS[id] };
   });
   const lineRef = (id, k) => `Feed!$${cellRef(0, datasets[id].lineCol).replace(/\d+/, "")}${FIRST_DATA_ROW_FEED + k - 1}`;
 
@@ -267,7 +294,7 @@ export function workbookSheets({ host, include = {}, symbols = [], key = "", mad
         txt(8),
         txt(9),
         txt(10),
-        { f: `=IF(LEN(TRIM($A${r}))=0,"",IF(Feed!$C$${datasets.quotes.row}="","no answer from the Bridge",IF(${L}="","not in the answer: press F9",${pick(11)})))` },
+        { f: `=IF(LEN(TRIM($A${r}))=0,"",IF(${datasets.quotes.check}=0,"no answer from the Bridge",IF(${datasets.quotes.check}>1,"no prices: read the Status line above",IF(${L}="","not in the answer: press F9",${pick(11)}))))` },
         { f: `=IF(LEN(TRIM($A${r}))=0,"",IFERROR(MATCH(TRIM($A${r}),${fr("B")},0),""))`, s: "note" },
       ]);
     }
@@ -277,7 +304,7 @@ export function workbookSheets({ host, include = {}, symbols = [], key = "", mad
   // ── Positions, Holdings, Funds, Orders ──
   const tableSheet = (id, name, title, noteText, totalCol) => {
     const T = TABLES[id];
-    const n = CAPACITY[id];
+    const n = rowSlots(id);
     const head = T.slice(0, -1); // the demo column is read for the status line, not shown
     const rows = [[{ v: title, s: "title" }], [], [{ v: noteText, s: "note" }], head.map(([h]) => ({ v: h, s: "header" }))];
     const errJ = T.findIndex(([, c]) => c === "error") + 1;
@@ -288,14 +315,22 @@ export function workbookSheets({ host, include = {}, symbols = [], key = "", mad
     }
     const col = (j) => cellRef(0, j - 1).replace(/\d+/, "");
     const rng = (j) => `${col(j)}5:${col(j)}${4 + n}`;
-    const answer = datasets[id].raw;
-    const statusFormula = `=IF(${answer}="","${NO_ANSWER}",COUNTIF(${rng(1)},"?*")&" rows. "&IF(COUNTIF(${rng(errJ)},"?*")>0,"CHECK: some rows have an error (see the Error column). ","")&IF(COUNTIF(${rng(staleJ)},"true")>0,COUNTIF(${rng(staleJ)},"true")&" stale. ","")&IF(ISNUMBER(FIND(CHAR(9)&"DEMO"&CHAR(10),${answer})),"DEMO DATA, not real. ","")&"Times are IST.")`;
+    const { raw: answer, got, check, msg } = datasets[id];
+    // "(more rows)" in the Account column is the Bridge's own row saying how many rows it left out (it is not data).
+    const more = NOTICE_TABLES.has(id) ? `COUNTIF(${rng(1)},"${MORE_ROWS}")` : "0";
+    const shown = `(COUNTIF(${rng(1)},"?*")-${more})`;
+    const errors = `(COUNTIF(${rng(errJ)},"?*")-${more})`;
+    const notice = `IFERROR(INDEX(${rng(errJ)},MATCH("${MORE_ROWS}",${rng(1)},0)),"")`;
+    const note = NOTICE_TABLES.has(id) ? `IF(${more}>0,${notice}&" ","")` : `IF(${shown}>=${CAPACITY[id]},"Showing the latest ${CAPACITY[id]}: older ones are not shown. ","")`;
+    const statusFormula = `=IF(${check}=0,"${NO_ANSWER}",IF(${check}=2,"REFUSED: "&${msg},IF(${check}=3,"CHECK: the answer is not a Bridge table (a login page or a tunnel notice?). It starts: "&LEFT(${got},80),${shown}&" rows. "&${note}&IF(${errors}>0,"CHECK: "&${errors}&IF(${errors}=1," row has"," rows have")&" an error (see the Error column). ","")&IF(COUNTIF(${rng(staleJ)},"true")>0,COUNTIF(${rng(staleJ)},"true")&" stale. ","")&IF(ISNUMBER(FIND(CHAR(9)&"DEMO"&CHAR(10),${answer})),"DEMO DATA, not real. ","")&"Times are IST.")))`;
     rows[1] = [{ f: statusFormula, s: "status" }];
-    if (totalCol) rows[2] = [{ v: noteText, s: "note" }, "", "", "", "", "", "", { f: `=SUM(${rng(totalCol)})`, s: "status" }];
+    // The total adds the rows shown. When rows are left out or an account could not answer it says PARTIAL instead of
+    // passing a smaller number off as the total.
+    if (totalCol) rows[2] = [{ v: noteText, s: "note" }, "", "", "", "", "", "", { f: `=IF(${check}<>1,"",IF(OR(${more}>0,${errors}>0),"PARTIAL: "&SUM(${rng(totalCol)})&" (not every row is included)",SUM(${rng(totalCol)})))`, s: "status" }];
     const width = ([, c, kind]) => (c === "symbol" ? 32 : c === "error" || c === "status_message" ? 40 : kind === "n" ? 13 : 16);
     sheets.push({ name, widths: head.map(width), boldFirst: false, freeze: { row: 4 }, rows });
   };
-  if (want.positions) tableSheet("positions", "Positions", "Positions", "Every account this key may use. P&L total (rows shown, paper and live mixed) at the right of this line.", 8);
+  if (want.positions) tableSheet("positions", "Positions", "Positions", "Every account this key may use. P&L total (paper and live mixed; it says PARTIAL when rows are missing) at the right of this line.", 8);
   if (want.holdings) tableSheet("holdings", "Holdings", "Holdings", "Long-term holdings of every account this key may use.", 0);
   if (want.funds) tableSheet("funds", "Funds", "Funds", "One row per account.", 0);
   if (want.orders) tableSheet("orders", "Orders", "Orders", `The latest ${CAPACITY.orders} orders, newest first. This sheet only reads: orders are placed and approved elsewhere.`, 0);
@@ -309,14 +344,26 @@ export function workbookSheets({ host, include = {}, symbols = [], key = "", mad
   at(0, 0, { v: "Helper sheet. Excel fills this in: each answer below is one request to the Bridge. You do not need to edit it.", s: "note" });
   at(2, 0, { v: "Request", s: "header" });
   at(2, 1, { v: "Address", s: "header" });
-  at(2, 2, { v: "Answer", s: "header" });
+  at(2, 2, { v: "Answer (a Bridge table)", s: "header" });
+  at(2, 3, { v: "Answer as it came", s: "header" });
+  at(2, 4, { v: "Must start with", s: "header" });
+  at(2, 5, { v: "Check", s: "header" });
+  at(2, 6, { v: "Second line", s: "header" });
+  at(2, 7, { v: "Refusal message", s: "header" });
   for (const ds of Object.values(datasets)) {
     const r = ds.row - 1;
     at(r, 0, ds.label);
-    if (ds.id === "quotes") at(r, 1, { f: `=BridgeURL&${q(`${ds.route}?format=tsv${ds.opts}`)}&$P$${FIRST_DATA_ROW_FEED + CAPACITY.quotes}&"&key="&BridgeKey&"&_="&RefreshStamp` });
+    if (ds.id === "quotes") at(r, 1, { f: `=BridgeURL&${q(`${ds.route}?format=tsv&errors=200${ds.opts}`)}&$P$${FIRST_DATA_ROW_FEED + CAPACITY.quotes}&"&key="&BridgeKey&"&_="&RefreshStamp` });
     else at(r, 1, { f: requestAddress(ds.route, ds.opts) });
     const fixed = answers?.[ds.id];
-    at(r, 2, fixed !== undefined ? { f: staticAnswer(fixed) } : { f: `=IFERROR(SUBSTITUTE(WEBSERVICE(B${ds.row}),CHAR(13),""),"")` });
+    // D is what came back. C keeps it only when it is a table of the right kind, so a login page, a tunnel notice or
+    // a refusal never turns into rows; F says which of those it was and the sheets say so in words.
+    at(r, 3, fixed !== undefined ? { f: staticAnswer(fixed) } : { f: `=IFERROR(SUBSTITUTE(WEBSERVICE(B${ds.row}),CHAR(13),""),"")` });
+    at(r, 4, { f: FIRST_COLUMNS[ds.id] });
+    at(r, 5, { f: `=IF(LEN(D${ds.row})=0,0,IF(LEFT(D${ds.row},LEN(E${ds.row}))=E${ds.row},1,IF(LEFT(D${ds.row},LEN(${REFUSAL_START}))=${REFUSAL_START},2,3)))` });
+    at(r, 2, { f: `=IF(F${ds.row}=1,D${ds.row},"")` });
+    at(r, 6, { f: lineFormula(`D${ds.row}`, 2) });
+    at(r, 7, { f: `=IFERROR(${fieldExpr(`G${ds.row}`, 3)},"")` });
   }
 
   if (want.watchlist) {
@@ -326,7 +373,7 @@ export function workbookSheets({ host, include = {}, symbols = [], key = "", mad
     const rngF = (col) => `$${col}$${R1}:$${col}$${RN}`;
     // Status for the Watchlist (also on Setup).
     const asked = `SUMPRODUCT(--(LEN(TRIM(Watchlist!$A$${WATCH_FIRST_ROW}:$A$${WATCH_FIRST_ROW + CAPACITY.quotes - 1}))>0))`;
-    const status = `=IF(LEN($B$${qd.row})>${ADDRESS_LIMIT},"TOO MANY SYMBOLS: Excel cannot send an address this long. Remove some symbols (about 60 fit) or use Power Query.",IF(LEN($C$${qd.row})=0,"${NO_ANSWER}",IF(${asked}=0,"Type some symbols in column A of the Watchlist sheet.",IF(COUNTIF(${rngF("M")},"DEMO")>0,"DEMO DATA, not real prices. ","")&IF(COUNTIF(${rngF("L")},"?*")=0,"OK. ","CHECK: "&COUNTIF(${rngF("L")},"?*")&" of "&${asked}&" symbols could not be priced (see the Error column). ")&COUNTIF(${rngF("C")},"?*")&" prices, newest "&IFERROR(INDEX(${rngF("G")},MATCH(MAX(${rngF("N")}),${rngF("N")},0)),"?")&" IST, oldest "&IFERROR(MAX(${rngF("O")}),"?")&" s old"&IF(COUNTIF(${rngF("K")},"true")>0,", "&COUNTIF(${rngF("K")},"true")&" stale","")&IF(COUNTIF(${rngF("I")},"delayed")+COUNTIF(${rngF("I")},"eod")>0,", "&(COUNTIF(${rngF("I")},"delayed")+COUNTIF(${rngF("I")},"eod"))&" not realtime","")&".")))`;
+    const status = `=IF(LEN($B$${qd.row})>${ADDRESS_LIMIT},"TOO MANY SYMBOLS: Excel cannot send an address this long. Remove some symbols (about 60 fit) or use Power Query.",IF(${qd.check}=0,"${NO_ANSWER}",IF(${qd.check}=2,"REFUSED: "&${qd.msg},IF(${qd.check}=3,"CHECK: the answer is not a Bridge table (a login page or a tunnel notice?). It starts: "&LEFT(${qd.got},80),IF(${asked}=0,"Type some symbols in column A of the Watchlist sheet.",IF(COUNTIF(${rngF("M")},"DEMO")>0,"DEMO DATA, not real prices. ","")&IF(COUNTIF(${rngF("L")},"?*")=0,"OK. ","CHECK: "&COUNTIF(${rngF("L")},"?*")&" of "&${asked}&" symbols could not be priced (see the Error column). ")&COUNTIF(${rngF("C")},"?*")&" prices, newest "&IFERROR(INDEX(${rngF("G")},MATCH(MAX(${rngF("N")}),${rngF("N")},0)),"?")&" IST, oldest "&IFERROR(MAX(${rngF("O")}),"?")&" s old"&IF(COUNTIF(${rngF("K")},"true")>0,", "&COUNTIF(${rngF("K")},"true")&" stale","")&IF(COUNTIF(${rngF("I")},"delayed")+COUNTIF(${rngF("I")},"eod")>0,", "&(COUNTIF(${rngF("I")},"delayed")+COUNTIF(${rngF("I")},"eod"))&" not realtime","")&".")))))`;
     at(9, 0, { v: "Prices status", s: "status" });
     at(9, 1, { f: status, s: "status" });
     at(10, 0, { v: "Prices, cut into columns (Symbol, Last, Change, Change %, Volume, As of, Age, Class, Source, Stale, Error, Demo)", s: "note" });
@@ -349,7 +396,7 @@ export function workbookSheets({ host, include = {}, symbols = [], key = "", mad
   }
   for (const [id, ds] of Object.entries(datasets)) {
     if (id === "quotes") continue;
-    for (let k = 1; k <= CAPACITY[id] + 1; k++) at(FIRST_DATA_ROW_FEED + k - 2, ds.lineCol, { f: lineFormula(ds.raw, k) });
+    for (let k = 1; k <= rowSlots(id) + 1; k++) at(FIRST_DATA_ROW_FEED + k - 2, ds.lineCol, { f: lineFormula(ds.raw, k) });
   }
   if (!want.watchlist) at(9, 0, "");
   sheets.push(feed);

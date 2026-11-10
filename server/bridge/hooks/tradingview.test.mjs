@@ -212,13 +212,52 @@ describe("the receiver: credential, content types and size", () => {
     expect(JSON.stringify(b.audit.records)).not.toContain(h.passphrase);
   });
 
-  it("is rate limited per hook", async () => {
+  it("is rate limited per hook when holding is switched off (rateWaitSec 0)", async () => {
     await b.close();
-    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2 } } });
+    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2, rateWaitSec: 0 } } });
     const { alert, send } = await tvHook();
     const codes = [];
     for (let i = 0; i < 3; i += 1) codes.push((await send(alert({ id: `x${i}` }))).status);
     expect(codes).toEqual([202, 202, 429]);
+  });
+
+  it("INT-09: alerts over the per-minute limit are held and handled, not lost: TradingView does not resend a 429", async () => {
+    await b.close();
+    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2 } } });
+    const { h, alert, send } = await tvHook();
+    const replies = [];
+    for (let i = 0; i < 4; i += 1) replies.push(await send(alert({ id: `x${i}` })));
+    expect(replies.map((r) => r.status)).toEqual([202, 202, 202, 202]);
+    expect(replies[0].json.heldSeconds).toBeUndefined();
+    expect(replies[2].json.heldSeconds).toBeGreaterThan(50); // waits for a slot of the minute window
+    const s = await signalsOf(h);
+    const held = s.signals.filter((e) => e.code === "HOOK_RATE_HELD");
+    expect(held).toHaveLength(2);
+    expect(held[0]).toMatchObject({ outcome: "queued" });
+    expect(held[0].reason).toMatch(/over its limit of 2 alerts a minute.*held for about \d+ seconds/);
+    expect(s.counts.rateLimited).toBeUndefined();
+  });
+
+  it("INT-09: a wait longer than rateWaitSec is still refused with 429 and a Retry-After", async () => {
+    await b.close();
+    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 1, rateWaitSec: 5 } } });
+    const { alert, send } = await tvHook();
+    expect((await send(alert({ id: "a" }))).status).toBe(202);
+    const r = await send(alert({ id: "b" }));
+    expect(r.status).toBe(429);
+    expect(Number(r.headers["retry-after"])).toBeGreaterThan(5);
+  });
+
+  it("INT-09: malformed, refused and repeated alerts do not use up the minute's budget", async () => {
+    await b.close();
+    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2, rateWaitSec: 0 } } });
+    const { alert, send } = await tvHook();
+    for (let i = 0; i < 6; i += 1) expect((await send(alert({ side: "long", id: `bad${i}` }))).status).toBe(400); // unreadable side
+    for (let i = 0; i < 3; i += 1) expect((await send(alert({ time: nowIso(-600), id: `old${i}` }))).status).toBe(400); // too old
+    expect((await send(alert({ id: "good1" }))).status).toBe(202);
+    expect((await send(alert({ id: "good1" }))).json.duplicate).toBe(true); // a repeat is free too
+    expect((await send(alert({ id: "good2" }))).status).toBe(202);
+    expect((await send(alert({ id: "good3" }))).status).toBe(429); // the third GOOD one is over the limit
   });
 
   it("never logs the URL token", async () => {
@@ -248,10 +287,34 @@ describe("stale alerts, replays and duplicates", () => {
     await idle();
     expect(b.orders.all()).toHaveLength(1);
     const s = await signalsOf(h);
-    expect(s.counts.stale).toBe(2);
-    expect(s.signals.filter((x) => x.outcome === "stale")).toHaveLength(2);
+    // INT-11: only the old alert is "stale"; one from the future is a clock problem, not "too old"
+    expect(s.counts.stale).toBe(1);
+    expect(s.signals.filter((x) => x.outcome === "stale")).toHaveLength(1);
+    const futureEntry = s.signals.find((x) => x.cause === "future");
+    expect(futureEntry).toMatchObject({ outcome: "refused" });
+    expect(futureEntry.summary).toMatch(/^Its time is ahead of this computer's clock/);
+    expect(futureEntry.summary).not.toMatch(/Too old|could not be read/);
+    expect(s.signals.find((x) => x.outcome === "stale").summary).toMatch(/^Too old/);
     expect(rejected[0]).toMatchObject({ hookId: h.id, stage: "receive", outcome: "stale", source: "tradingview" });
+    expect(rejected[1]).toMatchObject({ outcome: "refused" });
     expect(JSON.stringify(rejected)).not.toContain(h.passphrase);
+  });
+
+  it("INT-11: a refusal by the hook's rules says so, and a placed alert says how much and at what price", async () => {
+    const { h, alert, send } = await tvHook();
+    const policy = await send(alert({ mode: "live", id: "p1" }));
+    expect(policy.status).toBe(400);
+    const ok = await send(alert({ lots: 2, price: 2900, id: "ok1" }));
+    expect(ok.status).toBe(202);
+    await idle();
+    const s = await signalsOf(h);
+    const refused = s.signals.find((x) => x.outcome === "refused");
+    expect(refused).toMatchObject({ cause: "policy" });
+    expect(refused.summary).toMatch(/^Against this hook's rules, so nothing was placed\. This hook places paper orders only/);
+    expect(refused.summary).not.toMatch(/could not be read/);
+    const placed = s.signals.find((x) => x.outcome === "placed");
+    expect(placed.summary).toMatch(/^Placed a paper order: buy 2 lots NSE:RELIANCE at 2900\.$/i);
+    expect(placed).toMatchObject({ lots: 2, price: 2900 });
   });
 
   it("honours a hook's own maxAgeSec", async () => {

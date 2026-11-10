@@ -296,6 +296,26 @@ describe("the client rate limit", () => {
       await t2.close();
     }
   });
+  it("INT-06: ?errors=200 answers a refusal with HTTP 200 and the same table, for WEBSERVICE which cannot read an error status", async () => {
+    const wrong = await get("/xl/positions?errors=200&format=tsv", bearer("mcb_nope0000001_zzzzzzzzzzzzzzzzzzzz"));
+    expect(wrong.status).toBe(200);
+    const [head, line] = wrong.raw.trimEnd().split("\n");
+    expect(head).toBe("status\tcode\tmessage\tretry_after_s");
+    expect(line).toMatch(/^401\tUNAUTHENTICATED\tThe key was not accepted/);
+    expect(wrong.headers["x-error-code"]).toBe("UNAUTHENTICATED");
+    const bad = await get("/xl/quotes?errors=200");
+    expect([bad.status, bad.raw.split("\r\n")[0]]).toEqual([200, "status,code,message,retry_after_s"]);
+    const plain = await get("/xl/quotes");
+    expect(plain.status).toBe(400); // without it the real status stays
+    const scheduler = { ...notImplementedService("scheduler"), checkClient: () => ({ ok: false, error: new BridgeError("RATE_LIMITED", "Too many requests", { retryAfterMs: 3000, scope: "client" }) }) };
+    const t2 = await startTestApp({ overrides: { scheduler } });
+    try {
+      const r = await t2.request("/xl/funds?errors=200", { headers: R });
+      expect([r.status, r.raw]).toEqual([200, "status,code,message,retry_after_s\r\n429,RATE_LIMITED,Too many refreshes: wait 3 seconds and try again.,3\r\n"]);
+    } finally {
+      await t2.close();
+    }
+  });
   it("a wrong key is explained in plain words", async () => {
     const r = await get("/xl/quotes?symbols=NSE:NIFTY", bearer("mcb_nope0000001_zzzzzzzzzzzzzzzzzzzz"));
     expect(r.status).toBe(401);
@@ -384,14 +404,46 @@ describe("portfolio tables", () => {
     const r = await g("/xl/positions");
     const all = rows(r);
     expect(all[0]).toEqual(["account", "mode", "symbol", "product", "qty", "avg_price", "ltp", "pnl", "realised_pnl", "unrealised_pnl", "as_of", "age_s", "class", "source", "stale", "error"]);
-    // paper-1 and dhan-main answer, dhan-off (expired) is skipped, dhan-bad fails into its own row
-    expect(all.map((x) => x[0]).sort()).toEqual(["account", "dhan-bad", "dhan-main", "dhan-main", "paper-1", "paper-1"]);
+    // paper-1 and dhan-main answer, dhan-bad fails into its own row, dhan-off (logged out) has an error row too
+    expect(all.map((x) => x[0]).sort()).toEqual(["account", "dhan-bad", "dhan-main", "dhan-main", "dhan-off", "paper-1", "paper-1"]);
     const paper = all.find((x) => x[0] === "paper-1");
     expect(paper.slice(1, 5)).toEqual(["paper", "NSE:RELIANCE", "CNC", "10"]);
     expect(paper.slice(10)).toEqual(["2026-10-16 15:00:00", "1.5", "realtime", "paper", "false", ""]);
     expect(all.find((x) => x[0] === "dhan-bad").at(-1)).toMatch(/^SESSION_EXPIRED/);
     expect(all.find((x) => x[0] === "dhan-main")[1]).toBe("live");
     expect(rows(await g("/xl/positions?open=1")).filter((x) => x[2] === "NSE:INFY")).toHaveLength(0);
+  });
+  it("INT-01: a logged-out account is a visible error row on positions, holdings and funds, not a missing account", async () => {
+    calls.length = 0;
+    for (const route of ["positions", "holdings", "funds"]) {
+      const r = rows(await g(`/xl/${route}`));
+      const off = r.filter((x) => x[0] === "dhan-off");
+      expect(off, route).toHaveLength(1);
+      expect(off[0].at(-1), route).toMatch(/^SESSION_EXPIRED: dhan-off is logged out\./);
+      const json = (await g(`/xl/${route}?format=json`)).json.find((x) => x.account === "dhan-off");
+      expect(json.error, route).toMatch(/logged out/);
+      expect(json.symbol ?? null, route).toBeNull();
+    }
+    // the read itself is not attempted for it (no broker call for a session that is known to be gone)
+    expect(calls.filter((c) => c[1] === "dhan-off")).toEqual([]);
+    // a key limited to another account never learns about it
+    expect(rows(await g("/xl/positions", bearer(KEYS.ONE_ACCOUNT))).map((x) => x[0])).not.toContain("dhan-off");
+  });
+  it("INT-02: ?limit= keeps the first rows and ends with a visible 'showing N of M' row, never silently", async () => {
+    const r = await g("/xl/positions?limit=3");
+    expect(r.headers["x-truncated"]).toBe("true");
+    expect(r.headers["x-total-rows"]).toBe("6");
+    const all = rows(r);
+    expect(all).toHaveLength(1 + 3 + 1);
+    expect(all.at(-1)[0]).toBe("(more rows)");
+    expect(all.at(-1).at(-1)).toMatch(/^SHOWING 3 OF 6 ROWS: the other 3 are not shown/);
+    const whole = await g("/xl/positions?limit=50");
+    expect(whole.headers["x-truncated"]).toBeUndefined();
+    expect(rows(whole).map((x) => x[0])).not.toContain("(more rows)");
+    expect(rows(await g("/xl/positions")).map((x) => x[0])).not.toContain("(more rows)"); // no limit: everything
+    expect((await g("/xl/holdings?limit=0")).status).toBe(400);
+    const j = (await g("/xl/funds?limit=2&format=json")).json;
+    expect(j.at(-1)).toMatchObject({ account: "(more rows)" });
   });
   it("a pinned account is read alone; a foreign one is refused", async () => {
     calls.length = 0;
@@ -432,6 +484,26 @@ describe("portfolio tables", () => {
     const r = await g("/xl/funds?format=nonsense");
     expect(r.status).toBe(400);
     expect(r.raw.split("\r\n")[0]).toBe("status,code,message,retry_after_s");
+  });
+});
+
+describe("INT-02: a capped table always fits WEBSERVICE's 32,767 characters, whatever the size of the book", () => {
+  it("5000 holdings with the workbook's limit stay far under the limit and say how many were left out", async () => {
+    const fresh = { source: "broker", asOf: "2026-10-16T15:00:00+05:30", ageMs: 1500, stale: false, accountId: "dhan-main", broker: "dhan" };
+    const items = Array.from({ length: 5000 }, (_, i) => ({ symbol: `NSE:LONGNAMEDSTOCK${i}-EQ-WITH-SUFFIX`, isin: "INE062A01020", qty: 123456, avgPrice: 12345.675, ltp: 12345.675, pnl: -1234567.89 }));
+    const accounts = [{ id: "dhan-main", broker: "dhan", enabled: true, session: { state: "connected" }, capabilities: ["holdings"] }];
+    const t3 = await startTestApp({ overrides: { orders: { ...notImplementedService("orders"), holdings: async () => ({ items, freshness: fresh }) }, accounts: { ...notImplementedService("accounts"), list: () => accounts } } });
+    try {
+      const all = await t3.request("/xl/holdings?format=tsv", { headers: R });
+      expect(all.raw.length).toBeGreaterThan(32_767); // the uncapped answer would be #VALUE! in WEBSERVICE
+      for (const limit of [60, 40, 10]) {
+        const r = await t3.request(`/xl/holdings?format=tsv&limit=${limit}`, { headers: R });
+        expect(r.raw.length, `limit ${limit}`).toBeLessThan(32_767);
+        expect(r.raw.trimEnd().split("\n").at(-1)).toContain(`SHOWING ${limit} OF 5000 ROWS`);
+      }
+    } finally {
+      await t3.close();
+    }
   });
 });
 

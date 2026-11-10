@@ -6162,6 +6162,12 @@
                   "disabled": true,
                   "key": "cache",
                   "value": "false"
+                },
+                {
+                  "description": "`200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else.",
+                  "disabled": true,
+                  "key": "errors",
+                  "value": "200"
                 }
               ],
               "raw": "{{baseUrl}}/xl/quotes?symbols=NSE:RELIANCE,NSE:NIFTY"
@@ -6206,6 +6212,12 @@
                   "disabled": true,
                   "key": "cache",
                   "value": "false"
+                },
+                {
+                  "description": "`200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else.",
+                  "disabled": true,
+                  "key": "errors",
+                  "value": "200"
                 }
               ],
               "raw": "{{baseUrl}}/xl/instrument?symbol=NSE:RELIANCE"
@@ -6216,7 +6228,7 @@
         {
           "name": "Positions of every account the key may use, as one table",
           "request": {
-            "description": "Positions of every account the key may use, as one table\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nColumns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer gives one row with its name and an `error` text; the others are unaffected. Read-only.\n\nReference: docs/api/spreadsheets/xlPositions.md in the repository.",
+            "description": "Positions of every account the key may use, as one table\n\n- An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.\n\nColumns are fixed - account, mode, symbol, product, qty, avg_price, ltp, pnl, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error. An account that cannot answer (logged out, broker down) gives one row with its name and an `error` text; the others are unaffected, and a logged-out account is never left out. Read-only.\n\nReference: docs/api/spreadsheets/xlPositions.md in the repository.",
             "header": [],
             "method": "GET",
             "url": {
@@ -6229,7 +6241,7 @@
               ],
               "query": [
                 {
-                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "description": "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.",
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
@@ -6246,6 +6258,12 @@
                   "value": "paper"
                 },
                 {
+                  "description": "Keep the first N rows. When rows are left out the table ends with one visible row (account `(more rows)`, error `SHOWING N OF TOTAL ROWS: ...`) and the reply has `X-Truncated: true` and `X-Total-Rows`. Without it every row is returned.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
+                },
+                {
                   "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
                   "disabled": true,
                   "key": "format",
@@ -6256,6 +6274,12 @@
                   "disabled": true,
                   "key": "cache",
                   "value": "false"
+                },
+                {
+                  "description": "`200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else.",
+                  "disabled": true,
+                  "key": "errors",
+                  "value": "200"
                 }
               ],
               "raw": "{{baseUrl}}/xl/positions"
@@ -6279,10 +6303,16 @@
               ],
               "query": [
                 {
-                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "description": "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.",
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
+                },
+                {
+                  "description": "Keep the first N rows. When rows are left out the table ends with one visible row (account `(more rows)`, error `SHOWING N OF TOTAL ROWS: ...`) and the reply has `X-Truncated: true` and `X-Total-Rows`. Without it every row is returned.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
                 },
                 {
                   "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
@@ -6295,6 +6325,12 @@
                   "disabled": true,
                   "key": "cache",
                   "value": "false"
+                },
+                {
+                  "description": "`200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else.",
+                  "disabled": true,
+                  "key": "errors",
+                  "value": "200"
                 }
               ],
               "raw": "{{baseUrl}}/xl/holdings"
@@ -6318,7 +6354,7 @@
               ],
               "query": [
                 {
-                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "description": "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.",
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
@@ -6327,6 +6363,12 @@
                   "disabled": true,
                   "key": "mode",
                   "value": "paper"
+                },
+                {
+                  "description": "Keep the first N rows. When rows are left out the table ends with one visible row (account `(more rows)`, error `SHOWING N OF TOTAL ROWS: ...`) and the reply has `X-Truncated: true` and `X-Total-Rows`. Without it every row is returned.",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "1"
                 },
                 {
                   "description": "csv (default, CRLF), tsv (tab separated, LF) or json (array of records).",
@@ -6339,6 +6381,12 @@
                   "disabled": true,
                   "key": "cache",
                   "value": "false"
+                },
+                {
+                  "description": "`200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else.",
+                  "disabled": true,
+                  "key": "errors",
+                  "value": "200"
                 }
               ],
               "raw": "{{baseUrl}}/xl/funds"
@@ -6362,7 +6410,7 @@
               ],
               "query": [
                 {
-                  "description": "One account id. Without it, every account this key may use that can answer (paper, and logged-in broker accounts).",
+                  "description": "One account id. Without it, every enabled account this key may use; a logged-out broker account has an error row.",
                   "disabled": true,
                   "key": "account",
                   "value": "demo-paper"
@@ -6393,6 +6441,12 @@
                   "disabled": true,
                   "key": "cache",
                   "value": "false"
+                },
+                {
+                  "description": "`200` answers a refusal (wrong key, rate limit, bad request) with HTTP 200 and the same one-row table (`status,code,message,retry_after_s`), whose `status` column still holds the real status. For WEBSERVICE in Excel, which shows #VALUE! for any other HTTP status and so cannot show the reason. Leave it out everywhere else.",
+                  "disabled": true,
+                  "key": "errors",
+                  "value": "200"
                 }
               ],
               "raw": "{{baseUrl}}/xl/orders"

@@ -13,8 +13,10 @@ get {
 params:query {
   ~account: demo-paper
   ~mode: paper
+  ~limit: 1
   ~format: csv
   ~cache: false
+  ~errors: 200
 }
 
 auth:bearer {

@@ -7,6 +7,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { workbookSheets } from "../dashboard/workbook-core.js";
 import { ROUTES } from "./module.mjs";
 import { AMIBROKER_EOD_COLUMNS, AMIBROKER_INTRADAY_COLUMNS } from "./xl.mjs";
 
@@ -55,6 +56,18 @@ describe("keys never live in shipped files", () => {
     const ex = read("integrations/amibroker/example-display.afl");
     expect(ex).toMatch(/#include_once <mrchartist-bridge\.afl>/);
     expect(ex).not.toMatch(/key=|mcb_/);
+  });
+  it("INT-05: every name a Power Query file reads is a plain cell range in the workbook, never a formula name", () => {
+    const { names } = workbookSheets({ host: "http://127.0.0.1:4300" });
+    for (const f of ["integrations/excel/history.pq", "integrations/excel/chain.pq", "integrations/excel/quotes.pq"]) {
+      const used = [...read(f).matchAll(/(?:Cell\(|Name = )"([A-Za-z]+)"/g)].map((m) => m[1]);
+      expect(used.length, f).toBeGreaterThan(0);
+      for (const name of used) {
+        // Excel.CurrentWorkbook() returns tables, named ranges and dynamic arrays; a name that holds a formula is not one.
+        expect(names[name], `${f} reads ${name}`).toMatch(/^[A-Za-z]+!\$[A-Z]+\$\d+(:\$[A-Z]+\$\d+)?$/);
+      }
+      expect(read(f), f).not.toMatch(/"BridgeKey"/);
+    }
   });
   it("Power Query and Apps Script send the key as a header", () => {
     for (const f of ["integrations/excel/history.pq", "integrations/excel/chain.pq", "integrations/excel/quotes.pq"]) {

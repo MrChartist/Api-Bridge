@@ -3338,8 +3338,9 @@ must be updated at each roll (the create response warns 7 days ahead).
 | Secret address | A 256-bit token in the URL; only its hash is stored |
 | Passphrase | In the message; 128 random bits, shown once, stored hashed, compared in constant time. A wrong one is `401`; 30 wrong ones a minute from one address answer `429` |
 | Sender addresses | `"sourceIpPreset": "tradingview"` accepts only the four TradingView addresses above, plus any in `allowSourceIps` and the global `hooks.allowSourceIps`. Behind a tunnel the Bridge sees the tunnel, not TradingView: set `hooks.clientIpHeader` (`cf-connecting-ip` for Cloudflare Tunnel; trusted only when the connection comes from this computer) or every alert is refused |
-| Age limit | `maxAgeSec` (default 120): an alert whose `time` is older is refused as stale, one more than a minute in the future too. If fresh alerts are refused, check this computer's clock |
+| Age limit | `maxAgeSec` (default 120): an alert whose `time` is older is refused as stale. One more than a minute in the future is refused too, but listed as `refused` with `cause: "future"` and the summary "Its time is ahead of this computer's clock" (not "too old"). If fresh alerts are refused, check this computer's clock |
 | No double orders | An alert is identified by `id` + `time` + `symbol` + `side`: a resend is acknowledged as a duplicate and places nothing. The memory is a small file in your data folder (`hooks-seen.json`, bounded, hashes only), so a restart does not forget. The order itself carries a derived `clientOrderId` (`mcb-<hook>-<hash>`) and a stable Idempotency-Key, so even a lost memory cannot place the same alert twice that day |
+| Alerts a minute | `hooks.maxSignalsPerMinute` (30) counts only alerts that passed every check, so unreadable, refused or repeated alerts never use it up. A good alert over the limit is held (queued, up to `hooks.rateWaitSec`, 60 by default) and handled when a slot frees up: TradingView does not resend a refused alert, so a `429` would lose it. The reply is `202` with `heldSeconds`, and the Alerts list shows it as queued with the reason. A held alert is still refused as too old if it is older than `maxAgeSec` by the time it runs. Past the wait, or with `rateWaitSec: 0`, the answer is `429` |
 | Burst of alerts | Orders are paced by the account's order-rate cap. An alert that meets it waits (queued, up to `hooks.burstWaitSec`, 30 by default) and is placed when a slot frees up, instead of being refused; past that wait, or when the queue (`hooks.queueSize`) is full, it is refused with a clear reason and nothing is placed |
 | The hook's own limits | Account, allowed symbols, lots cap, product, order type and side are fixed on the hook; everything else is refused, never trimmed |
 | Paper first | Alerts are paper unless the hook is live. A paper hook refuses an alert that says `"mode": "live"` |
@@ -3382,6 +3383,7 @@ Per hook (`POST /v1/hooks`): `source: "tradingview"`, `maxAgeSec` (5 to 3600, de
 | `clientIpHeader` | `null` | Header that carries the real sender address behind a local tunnel |
 | `presets.tradingview` | built in | `{ "ips": [...], "verifiedAt": "2026-11-09", "source": "https://..." }`: the address list, shown in the dashboard and by `GET /v1/hooks/presets`; edit it when TradingView's page changes |
 | `burstWaitSec` | `30` | How long an alert may wait for an order-rate slot; `0` turns waiting off |
+| `rateWaitSec` | `60` | How long an alert over `maxSignalsPerMinute` is held (queued) and then handled, instead of refused; `0` refuses at once |
 | `signalsKept` | `100` | Alerts remembered per hook for the Alerts list (memory only) |
 | `dedupeWindowMs`, `queueSize`, `maxSignalsPerMinute` | as in the config reference | |
 
@@ -3496,12 +3498,14 @@ messages inside `hooks.dedupeWindowMs` count as one. Words the Bridge does not u
 `queued` → `processing` → `placed` | `duplicate` | `awaiting_confirmation` | `rejected` | `failed` |
 `outcome_unknown`. Each step is in the audit log as `hook.signal` with the hook id, symbol, order id and reason. A
 full queue answers `429` with a message that says so (never unbounded); each hook is limited to
-`hooks.maxSignalsPerMinute`. The kill switch refuses every signal. An order that meets the account's order-rate cap
+`hooks.maxSignalsPerMinute`, which counts only alerts that passed every check (a malformed, refused or repeated alert
+does not use it up); an alert over it is held for up to `hooks.rateWaitSec` (60 s) and then handled, because TradingView
+does not resend a refused alert. The kill switch refuses every signal. An order that meets the account's order-rate cap
 waits for a free slot (`hooks.burstWaitSec`) instead of being refused.
 
 `GET /v1/hooks/{hookId}/signals` lists the recent alerts of a hook (newest first, at most `hooks.signalsKept`, memory
 only) with an `outcome` (`placed`, `queued`, `awaiting_confirmation`, `duplicate`, `stale`, `rejected`, `refused`,
-`failed`, `outcome_unknown`, `dropped`), a plain-words `summary`, the reason and the order id, plus counts that also
+`failed`, `outcome_unknown`, `dropped`), a plain-words `summary` (a placed alert says how much and at what price: "Placed a paper order: BUY 2 lots NSE:M&M at 2900"), the reason and the order id. A `refused` entry has `cause`: `future` (its time is ahead of this computer's clock), `policy` (against the hook's own rules, such as a live alert on a paper hook) or none (it could not be read). Counts also
 include wrong passphrases and refused addresses (counted, never listed, never with a body).
 `POST /v1/hooks/{hookId}/test` sends a realistic (or your own pasted) alert through the real pipeline as a **paper** order
 and answers with the outcome. Alerts refused at the door (unreadable, stale, queue full) and rejected orders are announced on the event bus as
@@ -5242,6 +5246,25 @@ Excel 2013 and later on Windows. Functions newer than Excel 2007 (`WEBSERVICE`, 
 with the `_xlfn.` prefix, which is what stops `#NAME?`. If you add your own formulas with these functions by typing
 them in Excel, no prefix is needed; the prefix only matters inside the file.
 
+**A big book is never cut silently.** Each book sheet has room for a fixed number of rows (40 positions, 60 holdings,
+10 funds, 60 orders) and asks the Bridge for no more, so an answer can never pass `WEBSERVICE`'s limit of 32,767
+characters (beyond it Excel shows `#VALUE!`, and the sheet would say `NO ANSWER` although the Bridge is fine). When the
+book is bigger, the Bridge ends the table with one visible row, `(more rows)` with `SHOWING 40 OF 130 ROWS: ...`, and
+the Status line repeats it. The P&L total on Positions then reads `PARTIAL: ...` (it also does when an account could not
+answer), never a smaller number passed off as the total. To see one account's rows alone, ask the Bridge for
+`?account=` or raise `limit` in a request of your own (Power Query, curl, Apps Script have no 32,767 limit).
+
+A broker account that is **logged out** is not left out: it has its own row with its name and
+`SESSION_EXPIRED: <name> is logged out. Log in again on the Accounts page of the dashboard.`, and the Status line says
+`CHECK: 1 row has an error`. A flat book with a green status therefore means a flat book.
+
+Every request the workbook makes ends in `errors=200`, which makes the Bridge answer a refusal (wrong key, key not made
+with Allow in URLs, too many refreshes) as a normal answer holding its reason. The Status line then reads
+`REFUSED: Too many refreshes: wait 3 seconds and try again.` instead of a guess. An answer that is not a Bridge table at
+all (a tunnel's notice page, a login page) reads `CHECK: the answer is not a Bridge table ... It starts: ...` and never
+turns into rows or blank prices. **Not verified in real Excel here:** how `WEBSERVICE` treats other failures (no
+reply, a network error) is Microsoft's behaviour; the workbook shows `NO ANSWER` for those.
+
 Every price row says how current it is: **As of** (IST), **Age (s)**, **Class** (`realtime`, `delayed`, `eod`),
 **Source** (`stream`, `cache`, `broker`) and **Stale**. In demo mode the Status line starts with `DEMO DATA`.
 
@@ -5334,6 +5357,12 @@ sheet needs; `mc-bridge doctor` warns about it.
    (1, 5, 10, 15 and 30 are the intervals Google allows).
 5. Or use `=BRIDGE_QUOTES(A5:A30)` in any cell: the whole range in one request, with the freshness columns.
 
+The script puts each value under the column of the same name, so a column the Bridge adds (such as `demo`) cannot shift
+anything. Each sheet is refreshed on its own: a problem on one shows as `ERROR: ...` in that sheet's cell A2 and the others
+still refresh. An answer that is not a Bridge table (a tunnel's notice page) leaves the old values in place and shows
+`NO ANSWER: The answer is not a Bridge table ...`. The script is run against a demo Bridge for every sheet in the tests;
+it has **not** been run in Google's own Apps Script, so the first run there is yours.
+
 Google's own limits (Apps Script quotas page): 20,000 URL Fetch calls a day for a consumer account (100,000 for
 Workspace), 90 minutes a day of trigger run time on a consumer account, 30 seconds for a custom function. One refresh
 is at most five requests, so every minute is about 7,200 a day. Every 5 minutes is plenty for a book, and gentler on
@@ -5347,7 +5376,7 @@ decimal point and no thousands separator; times in IST as `YYYY-MM-DD HH:MM:SS`)
 | Route | What |
 |---|---|
 | `/xl/quotes?symbols=A,B,C&fields=ltp,chg,pct,volume` | One row per symbol, in the order asked, duplicates kept. At most 100 symbols (`integrations.xl.maxSymbols`, up to 200). `fields` chooses value columns from `ltp open high low close chg pct volume oi bid ask`; `as_of age_s class source stale error` always follow (and `demo`, in demo mode only). A bad symbol gives blank values and a text in `error`: it never fails the table |
-| `/xl/positions`, `/xl/holdings`, `/xl/funds`, `/xl/orders` | Your book, fixed columns. Every account the key may use that can answer, or `?account=`. An account that cannot answer (not logged in) gives one row with its name and an `error` |
+| `/xl/positions`, `/xl/holdings`, `/xl/funds`, `/xl/orders` | Your book, fixed columns. Every enabled account the key may use, or `?account=`. An account that cannot answer (logged out, broker down) gives one row with its name and an `error`: it is never left out. `limit=` keeps the first N rows (positions, holdings, funds) and then adds a `(more rows)` row `SHOWING N OF M ROWS: ...` with `X-Truncated` and `X-Total-Rows` |
 | `/xl/instrument?symbol=NSE:RELIANCE&field=lot` | One symbol and one field: a bare number. Several symbols or fields: a table of `lot tick freeze name kind` |
 | `/xl/ltp`, `/xl/quote`, `/xl/chain`, `/xl/history` | Unchanged: one value (`#N/A` on error), the option chain, candles |
 
@@ -5363,15 +5392,19 @@ Rules these routes keep:
   Errors are never cached.
 - **Errors you can read in a cell.** A refused table request answers a one-row table
   `status,code,message,retry_after_s`, for example `429,RATE_LIMITED,Too many refreshes: wait 3 seconds and try again.,3`,
-  with the real status and a `Retry-After` header.
+  with the real status and a `Retry-After` header. With `?errors=200` the HTTP status is 200 and the table's `status`
+  column still holds the real one (for `WEBSERVICE`, which cannot read an error reply).
 
 ## When something is wrong
 
 | You see | Why | What to do |
 |---|---|---|
 | `#NAME?` in a cell | A workbook made before this version, or a formula typed from an old example, stored without the `_xlfn.` prefix | Download the workbook again. In your own formulas, type them in Excel (it adds the prefix itself) |
-| Status `NO ANSWER` | The request failed: the Bridge is not running, the address or key is wrong or expired, the symbol list made the address longer than 2,048 characters, or the Bridge answered 429 | Check Setup (address, key check line), open the address in a browser or press **Test it** in the dashboard, wait 10 seconds and press F9. `WEBSERVICE` cannot show the reason; the dashboard test and Power Query can |
-| Prices blank in the morning | Your broker session expired overnight, so the Bridge has nothing to read. The table says `SESSION_EXPIRED` in the Error column | Log in on the Accounts page; press F9 |
+| Status `NO ANSWER` | The request got no reply at all: the Bridge is not running, the address is wrong, a tunnel is down, or the symbol list made the address longer than 2,048 characters | Check Setup (address), open the address in a browser or press **Test it** in the dashboard, then press F9 |
+| Status `REFUSED: ...` | The Bridge answered and said no: the key is wrong, expired or not made with Allow in URLs, or too many refreshes | Do what the message says (make a new key; wait N seconds) |
+| Status `CHECK: the answer is not a Bridge table` | Something other than the Bridge answered (a tunnel's notice page, a login page) | Open the address in a browser and follow the tunnel's page, or point the address at the Bridge |
+| Status `SHOWING 40 OF 130 ROWS` and a `PARTIAL` total | The book is bigger than the sheet | Read one account at a time, or use Power Query or Apps Script, which have no row cap |
+| Prices blank in the morning | Your broker session expired overnight, so the Bridge has nothing to read. Quotes say `BROKER_UNAVAILABLE: No connected broker account can supply quotes right now` in the Error column; positions, holdings and funds show a row `SESSION_EXPIRED: <account> is logged out` | Log in on the Accounts page; press F9 |
 | `429` / "Too many refreshes: wait N seconds" | Too many requests from one key (about 50 a second), or your broker's limit | Refresh less often; one sheet is one request, so look for a macro or a loop |
 | `Stale` = true, or `Class` = `delayed` | The value is older than the Bridge's target, or comes from a delayed feed | Do not trade on it; the `As of` time says how old. Press F9 once the market feed is back |
 | `DEMO DATA` | The Bridge is in demo mode: sample prices | Expected until a real broker is connected |
@@ -5385,9 +5418,15 @@ Rules these routes keep:
 Power Query sends the key in an `Authorization` header, so a plain read key is enough and it never appears in an
 address. [`quotes.pq`](../../integrations/excel/quotes.pq) reads the ranges `BridgeURL`, `BridgeKeyCell` and
 `WatchlistSymbols` that the workbook defines; [`history.pq`](../../integrations/excel/history.pq) and
-[`chain.pq`](../../integrations/excel/chain.pq) read candles and the option chain. Paste one into *Data > Get Data >
-Blank Query > Advanced Editor*, choose **Anonymous** when asked how to connect, and set *Refresh every N minutes* in
-Query Properties.
+[`chain.pq`](../../integrations/excel/chain.pq) read candles and the option chain, from `BridgeURL` and `BridgeKeyCell`
+too. Paste one into *Data > Get Data > Blank Query > Advanced Editor*, choose **Anonymous** when asked how to connect,
+and set *Refresh every N minutes* in Query Properties.
+
+These files read plain named ranges, because Microsoft documents `Excel.CurrentWorkbook` as returning tables, named
+ranges and dynamic arrays; a workbook name that holds a formula (such as `BridgeKey`) is not one, which is why the
+files read `BridgeKeyCell`. A test checks this against the workbook the Bridge writes. **Not tested in real Excel here**
+(no Excel was available): if Power Query cannot find a name, open *Formulas > Name Manager* and check that
+`BridgeURL` and `BridgeKeyCell` exist.
 
 ## Sharing a template
 
@@ -5708,6 +5747,7 @@ mc-bridge expose sheets --provider cloudflare --host sheet.example.com --yes
 | `--port` | The listener's local port (default 4301 for alerts, 4302 for Sheets) |
 | `--allow-ips` | `tradingview` (default for alerts), `none`, or a comma-separated list of addresses or IPv4 ranges |
 | `--yes` | Ask nothing; fail with a clear message if something needed is missing |
+| `--dry-run` | Print what would change and stop: nothing is written and no backup copy is made, even with `--yes` (also for `expose off`). With `--json`, the plan |
 | `--check` | Run the self-check right after writing (the Bridge must already run with the new settings) |
 | `--public-url` and `--allow-outbound` | With `check`: also test the public address from this computer |
 | `--json` | One JSON object instead of text |

@@ -388,19 +388,30 @@ export function createSignalWorker({ deps, store, logger, queueSize, concurrency
     /**
      * Queue the jobs of one alert, all or none. Processing starts on the next turn of the event loop, after the
      * receiver has sent its 202.
+     * With `delayMs` the jobs are held first (the hook is over its alerts-per-minute limit) and then run; while held they
+     * show as queued with the reason, count against the queue size, and are dropped and audited if the Bridge stops.
      * @param {Job[]} jobs
+     * @param {{ delayMs?: number, reason?: string }} [hold]
      * @throws {BridgeError} RATE_LIMITED when the queue cannot take them all; BROKER_UNAVAILABLE while stopping
      */
-    enqueue(jobs) {
+    enqueue(jobs, { delayMs = 0, reason = null } = {}) {
       if (!accepting) throw new BridgeError("BROKER_UNAVAILABLE", "The Bridge is shutting down; send the alert again shortly.", { retryAfterMs: 5000 });
       if (queue.length + delayed.size + jobs.length > queueSize) {
         throw new BridgeError("RATE_LIMITED", `The alert queue is full (${queueSize} alerts are waiting to be processed), so this alert was refused and nothing was placed. Try again shortly.`, { retryAfterMs: 2000 });
       }
       for (const j of jobs) {
-        queue.push(j);
-        record({ signalId: j.signalId, hookId: j.hookId, index: j.index, status: "queued", receivedAt: j.receivedAt, finishedAt: null, symbol: j.signal.symbol, side: j.signal.side, orderId: null, ticketId: null, mode: null, code: null, reason: null });
+        record({ signalId: j.signalId, hookId: j.hookId, index: j.index, status: "queued", receivedAt: j.receivedAt, finishedAt: null, symbol: j.signal.symbol, side: j.signal.side, orderId: null, ticketId: null, mode: null, code: delayMs > 0 ? "HOOK_RATE_HELD" : null, reason: delayMs > 0 ? reason : null });
+        if (delayMs > 0) {
+          const timer = setTimeout(() => {
+            delayed.delete(j);
+            queue.push(j);
+            setImmediate(pump);
+          }, delayMs);
+          timer.unref?.();
+          delayed.set(j, timer);
+        } else queue.push(j);
       }
-      setImmediate(pump);
+      if (delayMs <= 0) setImmediate(pump);
     },
 
     /** Recent signal records, newest last (diagnostics, tests). @param {{ hookId?: string }} [f] */

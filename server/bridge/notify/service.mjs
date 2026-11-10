@@ -214,8 +214,17 @@ export function createNotifyService(deps, opts = {}) {
       // Nothing can be sent until the person enters a working token: do not keep hammering Telegram with the old one.
       outbox.removeFor(target.id);
       count("failed");
+    } else if (e.kind === "bad_request" || e.kind === "too_long") {
+      // Telegram refused THIS message: the others queued for the chat are fine and must still be sent (one of them can be
+      // the kill-switch alert).
+      outbox.remove(item.id);
+      count("failed");
+      log.warn("a notification was refused by Telegram and dropped", { kind: e.kind, targetId: target.id });
     } else {
-      outbox.removeFor(target.id, chat.key);
+      // The chat itself cannot be written to (blocked, not allowed, not found): its other messages would fail the same
+      // way, so they go too. A critical message is not dropped unseen: it stays and gets its own one try.
+      outbox.remove(item.id);
+      for (const i of outbox.list()) if (i.targetId === target.id && i.chatKey === chat.key && !i.critical) outbox.remove(i.id);
       count("failed");
     }
   }

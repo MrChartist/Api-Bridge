@@ -3,102 +3,8 @@
  * refresh however many rows, the key only in a header, long lists split by address length, the 429 message shown,
  * timer intervals Google accepts. No network.
  */
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
 import { describe, expect, it } from "vitest";
-
-const SOURCE = readFileSync(new URL("../../../integrations/google-sheets/bridge.gs", import.meta.url), "utf8");
-const KEY = "mcb_abcdefghij_SECRETSECRETSECRETSECRET";
-
-/** Small RFC 4180 parser, like Utilities.parseCsv. */
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let q = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (q) {
-      if (c === '"' && text[i + 1] === '"') (cell += '"'), i++;
-      else if (c === '"') q = false;
-      else cell += c;
-    } else if (c === '"') q = true;
-    else if (c === ",") (row.push(cell), (cell = ""));
-    else if (c === "\r") continue;
-    else if (c === "\n") (row.push(cell), rows.push(row), (row = []), (cell = ""));
-    else cell += c;
-  }
-  if (cell || row.length) (row.push(cell), rows.push(row));
-  return rows;
-}
-
-/** A sheet stand-in: a grid with getRange(...).getValues/setValues/clearContent/setValue. */
-function makeSheet(name, grid = {}) {
-  const cells = new Map(Object.entries(grid));
-  const key = (r, c) => `${r},${c}`;
-  const range = (r, c, nr = 1, nc = 1) => ({
-    getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => cells.get(key(r + i, c + j)) ?? "")),
-    setValues(v) {
-      v.forEach((row, i) => row.forEach((x, j) => cells.set(key(r + i, c + j), x)));
-      return this;
-    },
-    setValue(x) {
-      cells.set(key(r, c), x);
-      return this;
-    },
-    clearContent() {
-      for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) cells.delete(key(r + i, c + j));
-      return this;
-    },
-    setFontWeight: () => range(r, c, nr, nc),
-    setFontSize: () => range(r, c, nr, nc),
-    setFontStyle: () => range(r, c, nr, nc),
-  });
-  return {
-    name,
-    cells,
-    getRange: (a, b, c, d) => (typeof a === "string" ? range(Number(a.slice(1)), a.charCodeAt(0) - 64) : range(a, b, c, d)),
-    getLastRow: () => Math.max(0, ...[...cells.keys()].map((k) => Number(k.split(",")[0]))),
-    setFrozenRows() {},
-    at: (r, c) => cells.get(key(r, c)),
-  };
-}
-
-/** Load bridge.gs with fake Google services. `respond(url, options)` plays the Bridge. */
-function load({ respond, sheets = {}, props = { BRIDGE_URL: "https://tunnel.example.com/", BRIDGE_KEY: KEY } } = {}) {
-  const fetches = [];
-  const triggers = [];
-  const cache = new Map();
-  const ctx = {
-    UrlFetchApp: {
-      fetch(url, options) {
-        fetches.push({ url, options });
-        const r = respond(url, options);
-        return { getResponseCode: () => r.status ?? 200, getContentText: () => r.body ?? "", getHeaders: () => r.headers ?? {} };
-      },
-    },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] ?? null }) },
-    CacheService: { getScriptCache: () => ({ get: (k) => cache.get(k) ?? null, put: (k, v) => cache.set(k, v) }) },
-    Utilities: { parseCsv, formatDate: () => "2026-11-09 11:00:27" },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
-    SpreadsheetApp: { getActive: () => ({ getSheetByName: (n) => sheets[n] ?? null, toast() {} }) },
-    ScriptApp: {
-      getProjectTriggers: () => triggers.slice(),
-      deleteTrigger: (t) => triggers.splice(triggers.indexOf(t), 1),
-      newTrigger: (fn) => ({
-        timeBased: () => ({
-          everyMinutes(n) {
-            return { create: () => triggers.push({ fn, minutes: n, getHandlerFunction: () => fn }) };
-          },
-        }),
-      }),
-    },
-    console,
-  };
-  vm.createContext(ctx);
-  vm.runInContext(SOURCE, ctx);
-  return { ctx, fetches, triggers };
-}
+import { KEY, SOURCE, load, makeSheet } from "./__fixtures__/appsScriptHarness.mjs";
 
 const csv = (rows) => rows.map((r) => r.join(",")).join("\r\n") + "\r\n";
 const QUOTE_HEAD = ["symbol", "ltp", "chg", "pct", "volume", "as_of", "age_s", "class", "source", "stale", "error"];
@@ -196,6 +102,90 @@ describe("bridge.gs", () => {
     ctx.refreshBridge();
     expect(watch.at(2, 1)).toBe("Too many refreshes: wait 4 seconds. (2026-11-09 11:00:27 IST)");
     expect(watch.at(5, 2)).toBe(2899);
+  });
+
+  const POS_HEAD = ["account", "mode", "symbol", "product", "qty", "avg_price", "ltp", "pnl", "realised_pnl", "unrealised_pnl", "as_of", "age_s", "class", "source", "stale", "error"];
+
+  it("INT-03: a column the Bridge adds (demo) does not overflow the sheet; values go under the column of the same name", () => {
+    const positions = makeSheet("Positions", { "5,1": "old", "6,1": "old" });
+    const row = ["paper", "paper", "NSE:INFY", "CNC", "5", "100", "101", "5", "0", "5", "2026-11-09 11:00:27", "0.1", "realtime", "paper", "false", "", "DEMO"];
+    const { ctx } = load({ sheets: { Positions: positions }, respond: () => ({ body: csv([[...POS_HEAD, "demo"], row]) }) });
+    ctx.refreshBridge(); // before the fix: "The data has 17 but the range has 16" and the sheet stayed empty
+    expect(positions.at(5, 3)).toBe("NSE:INFY");
+    expect(positions.at(5, 16)).toBe(""); // error column, not the demo marker
+    expect(positions.at(6, 1)).toBeUndefined(); // the old rows are cleared
+    expect(positions.at(2, 1)).toMatch(/^DEMO DATA, not real\. 1 rows\. Refreshed/);
+    // columns in another order still land under their names
+    const shuffled = { ...Object.fromEntries(POS_HEAD.map((c, i) => [c, row[i]])) };
+    const reversed = [...POS_HEAD].reverse();
+    const sheet2 = makeSheet("Positions");
+    load({ sheets: { Positions: sheet2 }, respond: () => ({ body: csv([reversed, reversed.map((c) => shuffled[c])]) }) }).ctx.refreshBridge();
+    expect(sheet2.at(5, 1)).toBe("paper");
+    expect(sheet2.at(5, 3)).toBe("NSE:INFY");
+  });
+
+  it("INT-03: one sheet that cannot be filled shows the reason in A2 and the others still refresh", () => {
+    const positions = makeSheet("Positions");
+    const funds = makeSheet("Funds");
+    const { ctx } = load({
+      sheets: { Positions: positions, Funds: funds },
+      respond: (u) => (u.includes("/xl/positions") ? { body: csv([["account", "mode"], ["a", "b"]]) } : { body: csv([["account", "mode", "available_cash"], ["paper", "paper", "100"]]) }),
+    });
+    const getRange = positions.getRange;
+    positions.getRange = (...a) => {
+      const range = getRange(...a);
+      if (a.length === 4) {
+        range.clearContent = () => {
+          throw new Error("Range is locked");
+        };
+      }
+      return range;
+    };
+    ctx.refreshBridge();
+    expect(positions.at(2, 1)).toMatch(/^ERROR: Range is locked/);
+    expect(funds.at(5, 3)).toBe(100);
+    expect(funds.at(2, 1)).toMatch(/^1 rows\. Refreshed/);
+  });
+
+  it("INT-03: missing script properties show the message on every sheet instead of throwing", () => {
+    const watch = makeSheet("Watchlist", { "5,1": "NSE:INFY" });
+    const funds = makeSheet("Funds");
+    const { ctx } = load({ sheets: { Watchlist: watch, Funds: funds }, respond: () => ({}), props: {} });
+    expect(() => ctx.refreshBridge()).not.toThrow();
+    expect(watch.at(2, 1)).toMatch(/^ERROR: Set BRIDGE_URL and BRIDGE_KEY/);
+    expect(funds.at(2, 1)).toMatch(/^ERROR: Set BRIDGE_URL and BRIDGE_KEY/);
+  });
+
+  it("INT-04: a 200 answer that is not a Bridge table (a tunnel notice) leaves the prices alone and says so", () => {
+    const watch = makeSheet("Watchlist", { "5,1": "NSE:RELIANCE", "5,2": 2899, "5,3": 5 });
+    const positions = makeSheet("Positions", { "5,1": "keep-me" });
+    const page = "<html><body>Click here to visit the site</body></html>";
+    const { ctx } = load({ sheets: { Watchlist: watch, Positions: positions }, respond: () => ({ status: 200, body: page }) });
+    ctx.refreshBridge();
+    expect(watch.at(5, 2)).toBe(2899);
+    expect(watch.at(5, 3)).toBe(5);
+    expect(watch.at(2, 1)).toMatch(/^NO ANSWER: The answer is not a Bridge table \(a login page or a tunnel notice\?\)\. It starts: <html><body>Click here/);
+    expect(positions.at(5, 1)).toBe("keep-me");
+    expect(positions.at(2, 1)).toMatch(/^NO ANSWER: The answer is not a Bridge table/);
+    expect(() => ctx.BRIDGE_QUOTES([["NSE:A"]])).toThrow(/not a Bridge table/);
+    expect(() => ctx.BRIDGE_HISTORY("NSE:A", "1d", 3)).toThrow(/not a Bridge table/);
+  });
+
+  it("INT-04: the Bridge's refusal table arriving with 200 is a refusal, not a data row", () => {
+    const watch = makeSheet("Watchlist", { "5,1": "NSE:RELIANCE", "5,2": 2899 });
+    const refusal = csv([["status", "code", "message", "retry_after_s"], ["429", "RATE_LIMITED", "Too many refreshes: wait 3 seconds and try again.", "3"]]);
+    const { ctx } = load({ sheets: { Watchlist: watch }, respond: () => ({ status: 200, body: refusal }) });
+    ctx.refreshBridge();
+    expect(watch.at(5, 2)).toBe(2899);
+    expect(watch.at(2, 1)).toBe("Too many refreshes: wait 3 seconds. (2026-11-09 11:00:27 IST)");
+  });
+
+  it("an empty Watchlist asks for symbols instead of throwing", () => {
+    const watch = makeSheet("Watchlist");
+    const { ctx, fetches } = load({ sheets: { Watchlist: watch }, respond: () => ({}) });
+    ctx.refreshBridge();
+    expect(fetches).toHaveLength(0);
+    expect(watch.at(2, 1)).toMatch(/^Type some symbols in column A/);
   });
 
   it("the timer accepts only the intervals Google allows and replaces the old trigger", () => {

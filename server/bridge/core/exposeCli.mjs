@@ -4,10 +4,12 @@
  * expose.mjs; this file asks the questions and prints the result.
  *
  *   mc-bridge expose [alerts|sheets] [--provider <id>] [--host <name>] [--port <n>] [--allow-ips tradingview|none|a,b]
- *                    [--yes] [--check] [--json]
+ *                    [--yes] [--check] [--json] [--dry-run]
  *   mc-bridge expose check [alerts|sheets] [--public-url <url> --allow-outbound] [--json]
  *   mc-bridge expose status [--json]
- *   mc-bridge expose off [alerts|sheets]
+ *   mc-bridge expose off [alerts|sheets] [--dry-run]
+ *
+ * --dry-run prints what would change and writes nothing (with --json, the plan), even together with --yes.
  *
  * Nothing here calls out. The Bridge never contacts a tunnel provider or TradingView; the only outbound request is
  * the self-check's call to your own public address, and only with --allow-outbound (or a yes to its question).
@@ -93,9 +95,15 @@ async function offCommand(arg, flags, io) {
   const which = arg === "alerts" || arg === "sheets" ? arg : "all";
   const { source } = load(flags, io);
   const file = configFileForWrites(source, io.env);
-  const res = writeExposeConfig({ file, plan: planOff(which) });
+  const dryRun = flags["dry-run"] === true;
+  const res = writeExposeConfig({ file, plan: planOff(which), dryRun });
   if (flags.json) {
-    io.out(JSON.stringify({ ...res, which }, null, 2));
+    io.out(JSON.stringify({ ...res, which, dryRun }, null, 2));
+    return 0;
+  }
+  if (dryRun) {
+    io.out(res.changes.length ? `Dry run: this would turn off ${which === "all" ? "the alerts and Sheets listeners" : `the ${which} listener`} in ${res.file}. Nothing was written.` : "Dry run: already off, nothing to change.");
+    for (const c of res.changes) io.out(`  ${c}`);
     return 0;
   }
   io.out(res.changes.length ? `Turned off ${which === "all" ? "the alerts and Sheets listeners" : `the ${which} listener`} in ${res.file}:` : "Already off: nothing to change.");
@@ -195,6 +203,12 @@ async function wizard(sub, flags, io) {
   for (const c of preview.changes) say(`  ${c}`);
   if (!preview.changes.length) say("  (already set: no change)");
   say("");
+  if (flags["dry-run"] === true) {
+    // A preview only: no question, no write, no backup file, whatever else was passed (--yes included).
+    if (flags.json) io.out(JSON.stringify({ dryRun: true, plan, wouldChange: preview.changes, file, restart: RESTART_SENTENCE }, null, 2));
+    else say("Dry run: nothing was written.");
+    return 0;
+  }
   if (interactive) {
     const go = String(await ask("Write these changes? (y/n)", "y")).toLowerCase();
     if (!go.startsWith("y")) {
