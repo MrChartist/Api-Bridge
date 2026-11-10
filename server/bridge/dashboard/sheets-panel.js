@@ -123,7 +123,7 @@ export function sheetsPanel({ accounts, download, base = location.origin }) {
     if (!picked.length) return toast("Choose at least one sheet", { tone: "error" });
     download({ include: { ...state.include }, symbols: parseSymbols(state.symbols), ...(state.storeKey && state.key ? { key: state.key.value } : {}) });
   });
-  const copyScript = copyButton(() => APPS_SCRIPT, { label: "Copy the Apps Script", done: "Copied", toastLabel: "Apps Script copied", cls: "small tinted", ariaLabel: "Copy the Google Sheets Apps Script" });
+  const copyScript = copyButton(() => APPS_SCRIPT, { label: "Copy the Apps Script", done: "Copied", toastLabel: "Apps Script copied", cls: "small tinted", ariaLabel: "Copy the Apps Script for Google Sheets" });
 
   // ── 4 · Test it ──
   const result = h("div", { class: "xs-test", "aria-live": "polite" });
@@ -197,7 +197,7 @@ export function sheetsPanel({ accounts, download, base = location.origin }) {
       h("h3", { id: "xs-h3" }, "3. Excel or Google Sheets"),
       h("div", { class: "xs-two" },
         h("div", { class: "stack" }, h("h4", {}, "Excel for Windows"), h("p", { class: "xs-note" }, "Paste the key in Setup, cell B6, then press F9. Mac and Excel for the web have no WEBSERVICE: use Power Query (integrations/excel/quotes.pq) there."), h("div", { class: "xs-actions" }, dl)),
-        h("div", { class: "stack" }, h("h4", {}, "Google Sheets"), h("p", { class: "xs-note" }, "Google cannot reach this computer: the Bridge needs a public address through a tunnel you set up. Anyone who can edit the script can read its key."), h("div", { class: "xs-actions" }, copyScript, h("a", { class: "btn small quiet", href: GUIDE("expose-alerts"), target: "_blank", rel: "noopener", "aria-label": "Making the Bridge reachable (opens in a new tab)" }, "Tunnel guide", icon("external")))),
+        h("div", { class: "stack" }, h("h4", {}, "Google Sheets"), h("p", { class: "xs-note" }, "Google cannot reach this computer: the Bridge needs a public address through a tunnel you set up. Anyone who can edit the script can read its key."), h("div", { class: "xs-actions" }, copyScript, h("a", { class: "btn small quiet", href: GUIDE("expose-alerts"), target: "_blank", rel: "noopener", "aria-label": "Tunnel guide: making the Bridge reachable (opens in a new tab)" }, "Tunnel guide", icon("external")))),
       ),
       h("p", { class: "xs-note" }, "How often to refresh: prices no more than every 5 seconds, positions and orders about once a minute. Excel refreshes when you press F9 (a timer needs a macro or Power Query); the Sheets script has a timer built in."),
     ),

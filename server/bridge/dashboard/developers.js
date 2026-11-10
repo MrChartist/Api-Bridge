@@ -356,7 +356,7 @@ export async function renderDevelopers() {
     const wrap = h("div", { class: "stack dev-events" });
     const subsHost = h("div", { class: "stack" });
     const subsList = h("div", { class: "list dev-list" });
-    const recentList = h("div", { class: "list dev-recent", role: "region", "aria-label": "Recent events", tabindex: "0" });
+    const recentList = h("div", { class: "list dev-recent", role: "region", "aria-label": "Event list, newest first", tabindex: "0" });
     const recentNote = h("p", { class: "dev-small", role: "status" });
     const addBtn = h("button", { type: "button", class: "small tinted", onclick: () => openAddReceiver() }, icon("plus"), "Add a receiver");
 

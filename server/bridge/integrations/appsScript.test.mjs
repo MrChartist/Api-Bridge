@@ -124,6 +124,25 @@ describe("bridge.gs", () => {
     expect(sheet2.at(5, 3)).toBe("NSE:INFY");
   });
 
+  it("ids stay text: leading zeros and 18-digit order ids are not turned into numbers (audit F10)", () => {
+    const ORD_HEAD = ["account", "mode", "order_id", "client_order_id", "symbol", "side", "product", "order_type", "qty", "filled_qty", "avg_price", "price", "trigger_price", "status", "status_message", "placed_at", "updated_at", "as_of", "age_s", "class", "source", "stale", "error"];
+    const row = { account: "0007", mode: "live", order_id: "123456789012345678", client_order_id: "0001", symbol: "NSE:INFY", side: "BUY", product: "CNC", order_type: "LIMIT", qty: "10", filled_qty: "0", avg_price: "0", price: "1500.5", trigger_price: "", status: "open", status_message: "007", placed_at: "2026-11-09 10:00:00", updated_at: "", as_of: "2026-11-09 11:00:27", age_s: "0.1", class: "realtime", source: "broker", stale: "false", error: "" };
+    const orders = makeSheet("Orders");
+    load({ sheets: { Orders: orders }, respond: () => ({ body: csv([ORD_HEAD, ORD_HEAD.map((c) => row[c])]) }) }).ctx.refreshBridge();
+    expect(orders.at(5, 1)).toBe("0007"); // account
+    expect(orders.at(5, 3)).toBe("123456789012345678"); // order id: all 18 digits
+    expect(orders.at(5, 4)).toBe("0001"); // client order id
+    expect(orders.at(5, 9)).toBe(10); // qty is still a number
+    expect(orders.at(5, 12)).toBe(1500.5); // price too
+    // a value with a leading zero or over 15 digits is not converted even in a column the script does not know
+    const { ctx } = load({ respond: () => ({ body: "" }) });
+    expect(ctx.num_("007", "other")).toBe("007");
+    expect(ctx.num_("1234567890123456", "other")).toBe("1234567890123456");
+    expect(ctx.num_("-12.50", "other")).toBe(-12.5);
+    expect(ctx.num_("0.5", "other")).toBe(0.5);
+    expect(ctx.num_("0", "other")).toBe(0);
+  });
+
   it("INT-03: one sheet that cannot be filled shows the reason in A2 and the others still refresh", () => {
     const positions = makeSheet("Positions");
     const funds = makeSheet("Funds");

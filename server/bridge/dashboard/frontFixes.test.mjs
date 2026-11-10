@@ -88,3 +88,21 @@ describe("F7: every order the dashboard places carries an Idempotency-Key", () =
     expect(views).toMatch(/if \(button\?\.disabled\) return;\s*if \(button\) button\.disabled = true;/);
   });
 });
+
+describe("F12: a control's accessible name starts with its visible words (WCAG 2.5.3)", () => {
+  const src = (f) => sources.find(([n]) => n === f)[1];
+  it("the Sources rows carry their spoken extras as text, not as an aria-label", () => {
+    expect(src("sources-page.js")).not.toMatch(/el\.setAttribute\("aria-label", `\$\{r\.name\}/);
+    expect(src("sources-page.js")).toMatch(/setText\(p\.saidEl, `\. /);
+  });
+  it("the Sheets script button and the tunnel guide link start with the words on them", () => {
+    const panel = src("sheets-panel.js");
+    expect(panel).toContain('label: "Copy the Apps Script", done: "Copied", toastLabel: "Apps Script copied", cls: "small tinted", ariaLabel: "Copy the Apps Script for Google Sheets"');
+    expect(panel).toContain('"aria-label": "Tunnel guide: making the Bridge reachable (opens in a new tab)" }, "Tunnel guide"');
+  });
+  it("two landmarks on the Events view do not share a name", () => {
+    const dev = src("developers.js");
+    expect(dev).not.toContain('role: "region", "aria-label": "Recent events"');
+    expect(dev).toContain('h("h2", { id: "dev-ev3" }, "Recent events")');
+  });
+});

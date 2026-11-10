@@ -92,13 +92,20 @@ function bridgeTable_(path, first) {
   return { ok: false, status: status, rows: [], wait: wait, message: err[2] || "The Bridge answered HTTP " + status + "." };
 }
 
-function num_(v) {
-  return v !== "" && /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v;
+// Columns that hold text or an identifier. They are never turned into numbers: an order id such as 0001 or
+// 123456789012345678 would lose its leading zeros or its last digits, and then cannot be matched to the broker's.
+var TEXT_COLUMNS_ = { account: 1, mode: 1, symbol: 1, product: 1, isin: 1, order_id: 1, client_order_id: 1, side: 1, order_type: 1, status: 1, status_message: 1, placed_at: 1, updated_at: 1, as_of: 1, class: 1, source: 1, stale: 1, error: 1, demo: 1, tag: 1, underlying: 1, expiry: 1, datetime: 1 };
+
+/** A number for a numeric column; text stays text. A value with a leading zero or more than 15 digits is never converted. */
+function num_(v, col) {
+  if (col && TEXT_COLUMNS_[col] === 1) return v;
+  return v !== "" && /^-?(0|[1-9]\d{0,14})(\.\d+)?$/.test(v) ? Number(v) : v;
 }
 
 function convert_(rows) {
+  var head = rows.length ? rows[0] : [];
   return rows.map(function (r, i) {
-    return i === 0 ? r : r.map(num_);
+    return i === 0 ? r : r.map(function (v, j) { return num_(v, head[j]); });
   });
 }
 
@@ -264,7 +271,7 @@ function fillTable_(sh, rows, cols) {
   sh.getRange(5, 1, last - 4, cols.length).clearContent();
   if (rows.length > 1) {
     var out = rows.slice(1).map(function (row) {
-      return at.map(function (i) { return i < 0 || row[i] === undefined ? "" : num_(row[i]); });
+      return at.map(function (i, j) { return i < 0 || row[i] === undefined ? "" : num_(row[i], cols[j]); });
     });
     sh.getRange(5, 1, out.length, cols.length).setValues(out);
   }
@@ -289,7 +296,7 @@ function refreshSheet_(name, sh) {
       var want = ["ltp", "chg", "pct", "volume", "as_of", "age_s", "class", "source", "stale", "error"];
       var out = picked.map(function (s) {
         var row = byInput[s];
-        return want.map(function (c) { return row ? num_(row[head.indexOf(c)]) : ""; });
+        return want.map(function (c) { return row ? num_(row[head.indexOf(c)], c) : ""; });
       });
       sh.getRange(5, 2, out.length, want.length).setValues(out);
       var errors = r.rows.slice(1).filter(function (row) { return row[head.indexOf("error")]; }).length;
