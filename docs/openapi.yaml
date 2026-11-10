@@ -8006,6 +8006,7 @@ components:
         symbolCount: { type: [integer, "null"], description: "Static collections: how many symbols. Null for an option universe (it depends on the day)." }
         universe: { $ref: "#/components/schemas/CollectionUniverse" }
         previousNames: { type: array, items: { type: string } }
+        createdBy: { type: [string, "null"], description: "Who made it (key:<id> or local). Only that key, or an admin key, may change or delete it. Null for one made before owners were recorded (admin only)." }
         viaOldName: { type: boolean, description: "Only when the request used a name the collection had before a rename." }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

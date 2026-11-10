@@ -79,6 +79,7 @@ function resolveOptions(ctx) {
 /** @param {{ library: any }} deps  (read lazily) */
 export function createLibraryRoutes(deps) {
   const lib = () => deps.library;
+  const actorOf = (ctx) => ({ id: ctx.principal?.kind === "key" ? `key:${ctx.principal.id}` : "local", admin: ctx.scopes?.has("admin") === true });
   const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
   const reply = (ctx, data, status = 200, extra = {}) => json({ data, meta: meta(ctx, extra) }, { status, headers: { "Cache-Control": "no-store" } });
   /** Writes are audited (names only, never a symbol list). A failed audit write does not undo the change. */
@@ -103,7 +104,7 @@ export function createLibraryRoutes(deps) {
     },
 
     async create(ctx) {
-      const out = lib().create(ctx.body ?? {});
+      const out = lib().create(ctx.body ?? {}, { actor: actorOf(ctx) });
       await audit(ctx, "collection.created", { id: out.id, name: out.name });
       return reply(ctx, out, 201);
     },
@@ -128,7 +129,7 @@ export function createLibraryRoutes(deps) {
       const replace = boolQ(q, "replace");
       if (replace && ctx.scopes?.has("admin") !== true) throw new BridgeError("SCOPE_REQUIRED", "Replacing existing collections needs an admin key. Import without replace=true to add new ones.");
       if (replace && !ctx.loopback) throw new BridgeError("LOOPBACK_ONLY", "Replacing existing collections works only from this computer. Import without replace=true to add new ones.");
-      const result = lib().importData({ data, format, name, description, tags, replace, skipInvalid: boolQ(q, "skipInvalid") });
+      const result = lib().importData({ data, format, name, description, tags, replace, skipInvalid: boolQ(q, "skipInvalid"), actor: actorOf(ctx) });
       await audit(ctx, "collection.imported", { replace, created: result.created.map((c) => c.name), replaced: result.replaced.map((c) => c.name) });
       return reply(ctx, result, 201);
     },
@@ -139,14 +140,14 @@ export function createLibraryRoutes(deps) {
 
     async update(ctx) {
       const before = nameOf(ctx);
-      const out = lib().update(before, ctx.body ?? {});
+      const out = lib().update(before, ctx.body ?? {}, { actor: actorOf(ctx) });
       await audit(ctx, "collection.updated", { id: out.id, name: out.name, ...(out.name !== before ? { from: before } : {}) });
       return reply(ctx, out);
     },
 
     async remove(ctx) {
       const force = boolQ(ctx.query, "force");
-      const gone = await lib().remove(nameOf(ctx), { force });
+      const gone = await lib().remove(nameOf(ctx), { force, actor: actorOf(ctx) });
       await audit(ctx, "collection.deleted", { id: gone?.id, name: gone?.name ?? ctx.params.name, force });
       return noContent({ "Cache-Control": "no-store" });
     },
@@ -169,7 +170,7 @@ export function createLibraryRoutes(deps) {
     async duplicate(ctx) {
       const body = ctx.body ?? {};
       if (typeof body !== "object" || Array.isArray(body)) throw invalid("body", "Send { name } or nothing.");
-      const copy = lib().duplicate(nameOf(ctx), body.name);
+      const copy = lib().duplicate(nameOf(ctx), body.name, { actor: actorOf(ctx) });
       await audit(ctx, "collection.created", { id: copy.id, name: copy.name, from: ctx.params.name });
       return reply(ctx, copy, 201);
     },

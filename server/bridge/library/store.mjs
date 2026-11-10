@@ -4,7 +4,9 @@
  * convention. A file that cannot be read is moved aside as collections.json.corrupt-<time> and the store starts empty, so
  * a damaged file never stops the Bridge.
  *
- * Record: { id, name, description, tags, kind, symbols | universe, createdAt, updatedAt, previousNames }
+ * Record: { id, name, description, tags, kind, symbols | universe, createdAt, updatedAt, previousNames, createdBy }
+ *   createdBy      who made it ("key:<id>", "local", or null for one made before owners were recorded). Only that key, or an
+ *                  admin, may rewrite it.
  *   id             stable: "col_" and 10 letters/digits. Survives a rename. get() accepts a name, an id or a previous name.
  *   previousNames  names this collection had before a rename (newest first, at most 5), so a download or recording rule that
  *                  still says the old name keeps working. A new collection that takes such a name wins it.
@@ -42,6 +44,7 @@ function sanitise(r) {
       kind: r.kind === "option-universe" ? "option-universe" : "static",
       createdAt: typeof r.createdAt === "string" ? r.createdAt : new Date(0).toISOString(),
       updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : new Date(0).toISOString(),
+      createdBy: typeof r.createdBy === "string" && r.createdBy ? r.createdBy.slice(0, 80) : null,
       previousNames: Array.isArray(r.previousNames) ? r.previousNames.filter((n) => typeof n === "string").slice(0, MAX_PREVIOUS) : [],
     };
     if (rec.kind === "static") rec.symbols = canonicalSymbols(Array.isArray(r.symbols) ? r.symbols : [], "symbols");
@@ -102,6 +105,23 @@ export function createCollectionStore({ dataDir, logger, now = () => Date.now() 
 
   const lower = (s) => String(s).toLowerCase();
 
+  /**
+   * Change the map and save it as one step: if the save fails the map goes back to what it was, so memory never runs ahead
+   * of the disk (a retry would otherwise be refused as "already exists", and a restart would lose the collection).
+   */
+  function saved(change) {
+    const before = [...byId.values()].map((r) => ({ ...r, previousNames: [...r.previousNames] }));
+    try {
+      const out = change();
+      persist();
+      return out;
+    } catch (err) {
+      byId.clear();
+      for (const r of before) byId.set(r.id, r);
+      throw err;
+    }
+  }
+
   return {
     file,
     get loadedFrom() {
@@ -129,11 +149,12 @@ export function createCollectionStore({ dataDir, logger, now = () => Date.now() 
     add(fields) {
       const t = new Date(now()).toISOString();
       const rec = { id: newId(), createdAt: t, updatedAt: t, previousNames: [], ...fields };
-      // A new collection takes a name that an old one used to have.
-      for (const r of byId.values()) r.previousNames = r.previousNames.filter((n) => lower(n) !== lower(rec.name));
-      byId.set(rec.id, rec);
-      persist();
-      return rec;
+      return saved(() => {
+        // A new collection takes a name that an old one used to have.
+        for (const r of byId.values()) r.previousNames = r.previousNames.filter((n) => lower(n) !== lower(rec.name));
+        byId.set(rec.id, rec);
+        return rec;
+      });
     },
     /** Change a record. A new name moves the old one to previousNames. Returns { record, renamedFrom }. */
     update(id, fields) {
@@ -141,21 +162,23 @@ export function createCollectionStore({ dataDir, logger, now = () => Date.now() 
       if (!cur) throw new BridgeError("NOT_FOUND", "No such collection.");
       const next = { ...cur, ...fields, id: cur.id, createdAt: cur.createdAt, updatedAt: new Date(now()).toISOString() };
       let renamedFrom = null;
-      if (fields.name !== undefined && fields.name !== cur.name) {
-        renamedFrom = cur.name;
-        next.previousNames = [cur.name, ...cur.previousNames.filter((n) => lower(n) !== lower(cur.name) && lower(n) !== lower(fields.name))].slice(0, MAX_PREVIOUS);
-        for (const r of byId.values()) if (r.id !== id) r.previousNames = r.previousNames.filter((n) => lower(n) !== lower(fields.name));
-      }
-      byId.set(id, next);
-      persist();
-      return { record: next, renamedFrom };
+      return saved(() => {
+        if (fields.name !== undefined && fields.name !== cur.name) {
+          renamedFrom = cur.name;
+          next.previousNames = [cur.name, ...cur.previousNames.filter((n) => lower(n) !== lower(cur.name) && lower(n) !== lower(fields.name))].slice(0, MAX_PREVIOUS);
+          for (const r of byId.values()) if (r.id !== id) r.previousNames = r.previousNames.filter((n) => lower(n) !== lower(fields.name));
+        }
+        byId.set(id, next);
+        return { record: next, renamedFrom };
+      });
     },
     remove(id) {
       const cur = byId.get(id);
       if (!cur) return null;
-      byId.delete(id);
-      persist();
-      return cur;
+      return saved(() => {
+        byId.delete(id);
+        return cur;
+      });
     },
   };
 }

@@ -60,7 +60,9 @@ export function paginate(rows, { limit, cursor, keyOf }) {
   if (cursor) {
     const c = decode(cursor);
     const at = c.key === null ? -1 : rows.findIndex((r) => String(keyOf(r)) === c.key);
-    start = at >= 0 ? at + 1 : Math.min(c.pos, rows.length);
+    // The last row sent is gone (deleted or renamed): one row before it may have gone too, so step back one. A repeat is
+    // safer than a skipped row.
+    start = at >= 0 ? at + 1 : Math.min(Math.max(c.pos - 1, 0), rows.length);
   }
   const end = limit === null ? rows.length : Math.min(rows.length, start + limit);
   const items = rows.slice(start, end);

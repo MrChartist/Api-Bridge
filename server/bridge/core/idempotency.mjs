@@ -87,7 +87,13 @@ export function createWriteIdempotency({ now = () => Date.now() } = {}) {
   const prune = () => {
     const t = now();
     for (const [k, r] of records) if (r.expiresAt <= t) records.delete(k);
-    while (records.size > MAX_RECORDS) records.delete(records.keys().next().value);
+    // Over the cap, the oldest FINISHED records go first: dropping one that is still running would let a second copy of the request run.
+    if (records.size > MAX_RECORDS) {
+      for (const [k, r] of records) {
+        if (records.size <= MAX_RECORDS) break;
+        if (r.state !== "in_progress") records.delete(k);
+      }
+    }
   };
   return {
     /**
