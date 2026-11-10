@@ -507,7 +507,7 @@ function moreSheet(active) {
           ),
         ),
         h("section", { class: "group" }, h("div", { class: "list" }, helpRow(() => { close(undefined); setTimeout(() => openHelp(null), 260); }))),
-        h("section", { class: "group" }, h("h3", { class: "group-title", id: "more-view" }, "View"), viewControl("more-view")),
+        h("section", { class: "group" }, h("h3", { class: "group-title", id: "more-view" }, "View"), viewControl("more-view"), h("p", { class: "group-foot" }, "Advanced adds Developers (events, apps, errors), API keys, the test console, Activity and Quotas.")),
         h(
           "section",
           { class: "group" },
@@ -547,7 +547,7 @@ function accountPopover(trigger) {
     "div",
     { class: "acct-pop" },
     h("div", { class: "acct-pop-head" }, iconTile("user", "indigo", "lg"), h("div", { class: "names" }, h("strong", {}, "Signed in"), h("span", { class: "sub" }, app.state.who ?? ""))),
-    h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-view" }, "View"), viewControl("acct-view"), h("p", { class: "group-foot" }, "Simple shows the essentials. Advanced adds keys, the test console, activity and quotas.")),
+    h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-view" }, "View"), viewControl("acct-view"), h("p", { class: "group-foot" }, "Simple shows the essentials. Advanced adds Developers (events, apps, errors), API keys, the test console, Activity and Quotas.")),
     h("section", { class: "group" }, h("h3", { class: "group-title", id: "acct-appearance" }, "Appearance"), appearanceControl("acct-appearance")),
     h("section", { class: "group density-ctl" }, h("h3", { class: "group-title", id: "acct-density" }, "Density"), densityControl("acct-density")),
     h(

@@ -26,6 +26,7 @@ import {
   filterItems,
   formatBytes,
   folderPath,
+  hasRoute,
   formatCount,
   formatDuration,
   isUnavailable,
@@ -650,5 +651,16 @@ describe("where the files are", () => {
     expect(folderPath(undefined, "downloads", "x")).toBe("");
     expect(zipName("Nifty 50 / 5-minute bars", "dl_1")).toBe("Nifty-50-5-minute-bars.zip");
     expect(zipName("", "dl_1")).toBe("dl_1.zip");
+  });
+});
+
+describe("routes this Bridge may not have", () => {
+  const routes = [{ method: "GET", path: "/v1/downloads" }, { method: "GET", path: "/v1/collections/:name/resolve" }];
+  it("asks only for routes the Bridge lists, and tries when it lists none", () => {
+    expect(hasRoute(routes, "GET", "/v1/downloads")).toBe(true);
+    expect(hasRoute(routes, "GET", "/v1/downloads/settings")).toBe(false);
+    expect(hasRoute(routes, "POST", "/v1/collections/resolve")).toBe(false);
+    expect(hasRoute(undefined, "GET", "/v1/downloads/settings")).toBe(true);
+    expect(hasRoute([], "GET", "/v1/anything")).toBe(true);
   });
 });

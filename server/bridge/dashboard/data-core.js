@@ -1002,6 +1002,17 @@ export function createDataClient(call) {
   };
 }
 
+/**
+ * Does this Bridge have a route? `routes` is the list /v1/meta gives ({ method, path } with :params). An unknown list means
+ * "try it", so an older or locked-down answer never hides a control by mistake.
+ */
+export function hasRoute(routes, method, path) {
+  if (!Array.isArray(routes) || !routes.length) return true;
+  return routes.some((r) => r?.method === method && r?.path === path);
+}
+/** The answer a missing route gives, without asking (so the console stays free of 404s). */
+export const NO_ROUTE = Object.freeze({ error: Object.freeze({ status: 404, code: "NOT_FOUND", message: "This Bridge does not have that yet." }) });
+
 /** True when no account can read prices (none has a connected session). Demo and paper accounts count as connected. */
 export function noLogin(accounts, demo = false) {
   if (demo) return false;

@@ -43,6 +43,8 @@ import {
   filterItems,
   formatBytes,
   folderPath,
+  hasRoute,
+  NO_ROUTE,
   formatCount,
   isUnavailable,
   jobView,
@@ -326,7 +328,8 @@ function savingCard() {
   return {
     el,
     async refresh() {
-      const [usage, dl, rc] = await Promise.all([optional(client.usage()), optional(client.downloads.settings()), optional(client.recordings.settings())]);
+      const routes = app.state.meta?.routes;
+      const [usage, dl, rc] = await Promise.all([optional(client.usage()), hasRoute(routes, "GET", "/v1/downloads/settings") ? optional(client.downloads.settings()) : NO_ROUTE, hasRoute(routes, "GET", "/v1/recordings/settings") ? optional(client.recordings.settings()) : NO_ROUTE]);
       if (!usage.error) {
         const s = savedSummary(usage.data?.savings);
         countTo(num, s.total, { format: formatInt, animate: true });
@@ -1460,7 +1463,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
       async function paintPreview() {
         if (f.kind !== "option-universe" || universeProblem(f.u)) return;
         const mine = ++seq;
-        const r = await optional(client.collections.resolveDraft(f.u));
+        const r = hasRoute(app.state.meta?.routes, "POST", "/v1/collections/resolve") ? await optional(client.collections.resolveDraft(f.u)) : NO_ROUTE;
         if (mine !== seq) return;
         const keep = preview.querySelector(".dt-preview-sentence")?.cloneNode(true);
         if (r.error) {
