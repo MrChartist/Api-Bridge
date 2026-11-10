@@ -17,6 +17,9 @@
  *  order.updated       { orderId, clientOrderId?, accountId, mode, status, brokerStatus?, filledQuantity, avgPrice?, source,
  *                        realisedPnl? }   realisedPnl: P&L realised by this fill (paper), for daily-loss tracking
  *  order.outcome_unknown { orderId, accountId, clientOrderId?, since }
+ *  orders.drift        { accountId, state: "drift"|"ok", previous, count, kinds: { kind: n }, differences: [{ kind, orderId, brokerOrderId, symbol, side, message }], checkedAt }
+ *                      the read-only order-book check (orders/drift.mjs) found a different set of differences between the Bridge's live orders
+ *                      and the broker's order book for an account (state "ok": the last differences are gone). Only compares; changes nothing.
  *  safety.kill_switch  { engaged, reason, by, at, cancelOpenOrders }   OrderService listens and runs cancelAll when asked
  *  safety.limit        { accountId, limit, value, threshold }
  *  limits.throttled    { accountId, endpointClass, retryAfterMs, upstream: boolean }
@@ -62,6 +65,7 @@ export const TOPICS = Object.freeze([
   "account.login_needed",
   "order.updated",
   "order.outcome_unknown",
+  "orders.drift",
   "safety.kill_switch",
   "safety.limit",
   "limits.throttled",

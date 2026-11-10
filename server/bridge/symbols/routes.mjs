@@ -14,9 +14,13 @@
  */
 import { z } from "zod";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
+import { parseFields, pickAll } from "../core/fields.mjs";
 import { FROM_FORMATS, SEARCH_LIMIT_MAX } from "./symbolService.mjs";
 
 export const CONVERT_BATCH_MAX = 200;
+
+/** The fields `fields=` may name on instrument search (the OpenAPI `Instrument`, without `refs`; a test keeps them equal). `symbol` is always kept. */
+export const INSTRUMENT_FIELDS = Object.freeze(["symbol", "exchange", "kind", "underlying", "name", "expiry", "strike", "right", "lotSize", "tickSize", "freezeQty", "freezeQtySource", "isin"]);
 
 const convertItemSchema = z
   .object({
@@ -56,7 +60,7 @@ export function toPublicInstrument(r, { withRefs = false } = {}) {
 }
 
 /** One candidate on the wire: the instrument's key fields plus why it matched. */
-const publicCandidate = (c) => {
+export const publicCandidate = (c) => {
   const i = c.instrument;
   return { symbol: i.canonical, exchange: i.exchange, kind: i.kind, name: i.name ?? null, expiry: i.expiry, strike: i.strike, right: i.right, lotSize: i.lotSize, tickSize: i.tickSize, reason: c.reason };
 };
@@ -133,8 +137,10 @@ export function createSymbolRoutes(deps) {
         if (v !== undefined) params[name] = name === "exchange" || name === "kind" ? v.toUpperCase() : v;
       }
       if (limit !== undefined) params.limit = limit;
+      // fields=symbol,lotSize: only these columns per instrument (symbol is always kept).
+      const fields = parseFields(q, { allowed: INSTRUMENT_FIELDS, always: ["symbol"] });
       const page = await symbols.search(params);
-      return { data: page.items.map((r) => toPublicInstrument(r)), meta: meta(ctx, { nextCursor: page.nextCursor }) };
+      return { data: pickAll(page.items.map((r) => toPublicInstrument(r)), fields), meta: meta(ctx, { nextCursor: page.nextCursor, ...(fields ? { fields: fields.names } : {}) }) };
     },
 
     async instrument(ctx) {

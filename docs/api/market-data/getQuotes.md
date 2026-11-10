@@ -17,6 +17,7 @@
 | Name | In | Type | Required | Notes |
 |---|---|---|---|---|
 | `symbols` | query | string, up to 8000 characters | yes | Comma-separated symbols (up to 200). |
+| `fields` | query | string | no | Comma-separated columns to keep in each quote, for example `ltp,bid`. `symbol` and `freshness` (the data-class label) are always kept. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list. |
 | `backup` | query | boolean | no | Unpinned reads only. true lets a read that no broker account can answer fall back to the free backup sources (Yahoo Finance, NSE website; freshness.source "backup", delayed); false never does. Default from config (`sources.autoFallback`). Never available for order, risk, paper or alert purposes, and not accepted on `/xl/*` (a bare value cannot say how current it is) or the compat API (it never uses backup sources). |
 | `purpose` | query | `Purpose` | no | What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a delayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled source. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer. |
 | `account` | query | `AccountId` | no | Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling. |

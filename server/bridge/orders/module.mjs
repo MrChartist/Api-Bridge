@@ -10,6 +10,8 @@ import { defineModule } from "../core/modules.mjs";
 import { ORDERS_CONFIG_SCHEMA } from "./config.mjs";
 import { createOrderExtras } from "./extras.mjs";
 import { createOrderExtraRoutes } from "./extraRoutes.mjs";
+import { createOrderDriftService } from "./drift.mjs";
+import { createDriftRoutes } from "./driftRoutes.mjs";
 import { createOrderService } from "./orderService.mjs";
 import { createOrderRoutes } from "./routes.mjs";
 
@@ -22,6 +24,7 @@ export const ROUTES = Object.freeze([
   ["POST", "/v1/orders/batch", { scope: "paper" }, "batch"],
   ["POST", "/v1/orders/cancel-all", { scope: "paper" }, "cancelAll"],
   ["POST", "/v1/orders/state/acknowledge", { scope: "admin", loopbackOnly: true, localControl: true, body: "none" }, "acknowledgeOrderState"],
+  ["GET", "/v1/orders/drift", { scope: "read" }, "getDrift"],
   ["GET", "/v1/orders/by-client-id/:clientOrderId", { scope: "read" }, "getByClientId"],
   ["GET", "/v1/orders/:orderId", { scope: "read" }, "getOrder"],
   ["PATCH", "/v1/orders/:orderId", { scope: "paper" }, "modifyOrder"],
@@ -47,13 +50,21 @@ export default defineModule({
       // placeToTarget, placeBatch and basketMargin sit on the public methods of the service (extras.mjs).
       return Object.assign(svc, createOrderExtras({ deps, svc }));
     },
+    // The read-only order-book check (drift.mjs): compares, reports, never acts.
+    orderDrift: (deps) => createOrderDriftService(deps),
+  },
+  async start(deps) {
+    const d = deps.orderDrift;
+    if (d && !isStub(d) && typeof d.start === "function") d.start();
   },
   register(app, deps) {
-    const handlers = { ...createOrderRoutes(deps), ...createOrderExtraRoutes(deps) };
+    const handlers = { ...createOrderRoutes(deps), ...createOrderExtraRoutes(deps), ...createDriftRoutes(deps) };
     for (const [method, path, options, name] of ROUTES) app.route(method, path, handlers[name], options);
   },
   async stop(deps) {
     const svc = deps.orders;
     if (svc && !isStub(svc) && typeof svc.close === "function") svc.close();
+    const d = deps.orderDrift;
+    if (d && !isStub(d) && typeof d.close === "function") d.close();
   },
 });

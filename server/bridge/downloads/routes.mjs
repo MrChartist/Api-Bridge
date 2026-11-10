@@ -15,9 +15,11 @@
  */
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
+import { createGzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import { BridgeError } from "../core/errors.mjs";
 import { json, toCsv } from "../core/http.mjs";
+import { negotiateEncoding } from "../core/staticCompress.mjs";
 import { pageParams, paginate } from "../core/paginate.mjs";
 import { BASE_HEADERS } from "../core/security.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
@@ -196,12 +198,16 @@ export function createDownloadRoutes(deps, { downloads }) {
       let page = await search();
       const { req, res } = ctx;
       const day = istDate(deps.clock.now());
+      // The master is large text: gzip it while it streams when the client accepts it (the length is not known up front, so no ETag).
+      const gz = negotiateEncoding(req.headers["accept-encoding"], ["gzip"]) ? createGzip({ level: 6 }) : null;
       res.writeHead(
         200,
         streamHeaders(ctx, {
           "Content-Type": format === "csv" ? "text/csv; charset=utf-8" : "application/x-ndjson; charset=utf-8",
           "Content-Disposition": `attachment; filename="instruments-${day}.${format}"`,
           "X-Data-Source": "broker instrument master",
+          Vary: "Accept-Encoding",
+          ...(gz ? { "Content-Encoding": "gzip" } : {}),
         }),
       );
       if (req.method === "HEAD") {
@@ -211,9 +217,12 @@ export function createDownloadRoutes(deps, { downloads }) {
       let closed = false;
       res.on("close", () => {
         closed = true;
+        gz?.destroy();
       });
+      gz?.pipe(res);
+      const sink = gz ?? res;
       const write = async (text) => {
-        if (!res.write(text)) await new Promise((resolve) => res.once("drain", resolve).once("close", resolve));
+        if (!sink.write(text)) await new Promise((resolve) => sink.once("drain", resolve).once("close", resolve));
       };
       if (format === "csv") await write(toCsv([INSTRUMENT_COLUMNS]));
       for (;;) {
@@ -222,7 +231,7 @@ export function createDownloadRoutes(deps, { downloads }) {
         if (!page.nextCursor || closed) break;
         page = await search(page.nextCursor);
       }
-      res.end();
+      sink.end();
       return undefined;
     },
   };

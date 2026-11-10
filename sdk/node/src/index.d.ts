@@ -286,6 +286,8 @@ export interface ClientOptions {
 export interface ReadOpts {
   account?: string;
   maxAgeMs?: number;
+  /** What the data is for. The Bridge refuses data that is not good enough for it (delayed or end-of-day data never feeds an order, a risk check or an alert). */
+  purpose?: "display" | "analysis" | "alert" | "paper" | "risk" | "order";
 }
 export interface WriteOpts {
   idempotencyKey?: string;
@@ -897,9 +899,9 @@ export declare class BridgeClient {
   convertSymbols(items: Array<string | { input: string; from?: string; exchange?: string; broker?: string }>): Promise<Envelope<Array<ConvertResult | ItemError>>>;
 
   ltp(symbols: string | string[], o?: ReadOpts): Promise<Envelope<LtpItem[]>>;
-  quotes(symbols: string | string[], o?: ReadOpts): Promise<Envelope<QuoteItem[]>>;
+  quotes(symbols: string | string[], o?: ReadOpts & { fields?: string | string[] }): Promise<Envelope<Partial<QuoteItem>[]>>;
   depth(symbol: string, o?: ReadOpts): Promise<Envelope<DepthItem>>;
-  history(p: { symbol: string; interval: Interval; from?: string | number; to?: string | number; countback?: number; account?: string; localFirst?: boolean; dataset?: string; backup?: boolean }): Promise<Envelope<HistoryResult>>;
+  history(p: { symbol: string; interval: Interval; from?: string | number; to?: string | number; countback?: number; account?: string; localFirst?: boolean; dataset?: string; backup?: boolean; purpose?: ReadOpts["purpose"]; timeIso?: boolean; tz?: "IST" | "UTC"; fields?: string | string[] }): Promise<Envelope<HistoryResult>>;
   history(p: { symbol: string; interval: Interval; from?: string | number; to?: string | number; countback?: number; account?: string; format: "csv" }): Promise<string>;
   /** Candles over any length of time: `for await (const c of bridge.historyAll({ symbol, interval, from, to }))`. */
   historyAll(p: HistoryAllParams): HistoryAll;

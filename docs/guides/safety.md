@@ -78,7 +78,7 @@ Send an `Idempotency-Key` header on every write (the SDKs do it for you); live o
 `clientOrderId`) are refused. The same key, from the same key holder,
 never reaches a broker twice; a repeat returns the first result with `Idempotency-Replayed: true`. A live call that
 times out becomes `outcome_unknown`; the Bridge then checks the broker's order book and updates the order. It never
-retries an order write blindly.
+retries an order write blindly. A separate, read-only [order-book check](orders-drift.md) compares the Bridge's live orders with the broker's order book every few minutes and tells you about differences; it never changes or cancels anything.
 
 ## Keys
 

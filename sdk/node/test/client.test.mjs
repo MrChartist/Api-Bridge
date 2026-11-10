@@ -44,6 +44,22 @@ describe("reads", () => {
     assert.match(req.userAgent, /^mrchartist-bridge-node\//);
   });
 
+  it("sends purpose, fields and the time options when given, and nothing when not", async () => {
+    const c = client();
+    await c.ltp(["NSE:NIFTY"], { purpose: "order" });
+    assert.equal(fake.requests().at(-1).query.purpose, "order");
+    await c.quotes("NSE:RELIANCE", { purpose: "alert", fields: ["ltp", "bid"] });
+    assert.equal(fake.requests().at(-1).query.purpose, "alert");
+    assert.equal(fake.requests().at(-1).query.fields, "ltp,bid");
+    await c.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", purpose: "analysis" });
+    assert.equal(fake.requests().at(-1).query.purpose, "analysis");
+    await c.history({ symbol: "NSE:NIFTY", interval: "1d", countback: 2, purpose: "paper", timeIso: true, tz: "UTC", fields: "close" });
+    const q = fake.requests().at(-1).query;
+    assert.deepEqual([q.purpose, q.timeIso, q.tz, q.fields], ["paper", "true", "UTC", "close"]);
+    await c.ltp(["NSE:NIFTY"]);
+    assert.equal("purpose" in fake.requests().at(-1).query, false);
+  });
+
   it("history as JSON or CSV text; option chain; quotes", async () => {
     const c = client();
     assert.equal((await c.history({ symbol: "NSE:NIFTY", interval: "5m", countback: 2 })).data.candles.length, 2);

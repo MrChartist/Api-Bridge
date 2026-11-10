@@ -95,6 +95,59 @@ Bodies are strict (an unknown field is a 400). On the price and history reads (`
 ignored: the answer still comes, with `X-MCB-Ignored-Params: maxAge` and `X-MCB-Param-Hint: maxAge: did you mean maxAgeMs`.
 Add `strict=true` to get a 400 `VALIDATION_FAILED` for it instead. Other routes ignore what they do not read.
 
+## Times and time zones
+
+Every time the API returns is an ISO-8601 string, and its offset says the zone. There is one rule with two parts:
+
+- **Market and trading data is IST, written with `+05:30`** (India has no daylight saving): `freshness.asOf`, orders, trades,
+  positions, the audit log, readiness, the order-book check, the market calendar. For example `2026-11-10T09:30:00.000+05:30`.
+- **Records about the Bridge itself are UTC, written with `Z`**: keys (`createdAt`, `lastUsedAt`, `revokedAt`), the request log
+  (`at`), events (`time`), subscriptions, deliveries, backups, `health.startedAt`, and the `expiresAt` of a stream token. They
+  describe the computer, not the exchange.
+
+A string with `+05:30` and one with `Z` that mean the same moment are the same instant: parse them with a normal date parser
+and compare instants, never the text. Inputs without an offset (`from=2026-10-12`) are read as IST.
+
+**Candles** are the one place that uses epoch seconds. `time` is the bar's open, in epoch seconds. A daily bar opens at IST
+midnight, which is 18:30 UTC the day before, so the UTC date of `time` is the wrong day. Use the extra fields:
+
+- `date`: the IST trading date (`"2026-11-10"`), on daily (`1d`), weekly (`1w`) and monthly (`1M`) candles.
+- `timeIso`: the same instant as an ISO string, on any candle, when you ask with `timeIso=true` or `tz=IST|UTC`
+  (`"2026-11-10T00:00:00+05:30"`, or `"2026-11-09T18:30:00Z"` with `tz=UTC`).
+
+```bash
+curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/history?symbol=NSE:NIFTY&interval=1d&countback=2&timeIso=true"
+```
+
+Both are additions: `time` did not change, and a client that ignores them works as before. The CSV `time` column is already IST
+(a date for daily bars). Where the API gives an epoch number next to a time, the ISO twin is named `<name>Iso`.
+
+## Big answers: fields, ETag and gzip
+
+Three things keep a large read small. None of them changes an answer you already read.
+
+**`fields=`** keeps only the columns you name. It works on `GET /v1/quotes`, on the candles of `GET /v1/history` (JSON only) and on
+`GET /v1/instruments/search`:
+
+```bash
+curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/history?symbol=NSE:NIFTY&interval=5m&countback=5000&fields=close"
+```
+
+`symbol` (quotes, search), `time` (candles) and `freshness` (quotes) are always kept: an item is no use without its key, and a
+price must always say how fresh it is and which data class it is. An unknown name is a 400 that lists the allowed ones, so a typo
+never quietly returns less than you meant. `meta.fields` echoes what was applied.
+
+**gzip.** Send `Accept-Encoding: gzip` (Python `requests` and Node `fetch` already do) and `history`, `optionchain`,
+`instruments/search`, `instruments/export`, `errors`, `brokers`, `calendar/holidays` and `/openapi.yaml` come back compressed (the
+OpenAPI file also as `br`). Your library decodes it. Without the header you get the same bytes as before.
+
+**ETag.** The same routes (except the streamed `instruments/export`) carry a strong `ETag`, a hash of the exact bytes. Send it back
+as `If-None-Match` and an unchanged answer is `304` with no body. The ETag covers the whole answer, `freshness` included, so it
+only matches when nothing changed at all, which suits files such as the OpenAPI spec and the instrument list more than a live
+price. The ETag differs per coding (a gzip body has its own). Answers stay `Cache-Control: no-store`, so a browser does not keep
+them; a script or SDK that wants to use the ETag keeps the last body itself. `/openapi.yaml` is `no-cache`: tools such as
+Swagger UI and Postman may keep it and revalidate.
+
 ## Idempotency
 
 Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write and every create listed below. A repeat with the same key and

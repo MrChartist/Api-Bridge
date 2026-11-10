@@ -14,6 +14,7 @@
 export const EVENT_CATALOG = Object.freeze([
   { key: "order.rejected", label: "An order is rejected", help: "Your broker or the Bridge's safety checks refused an order.", default: true, critical: false, topics: ["order.updated"] },
   { key: "order.outcome_unknown", label: "An order's result is not known", help: "The broker did not confirm an order. Check your broker; do not send it again.", default: true, critical: true, topics: ["order.outcome_unknown"] },
+  { key: "orders.drift", label: "The Bridge and your broker disagree about an order", help: "A read-only check found an order whose state differs between the Bridge and the broker's order book. Nothing is changed: check your broker app.", default: true, critical: false, topics: ["orders.drift"] },
   { key: "order.filled", label: "An order is filled", help: "An order was fully executed.", default: true, critical: false, topics: ["order.updated"] },
   { key: "order.placed", label: "An order is placed", help: "An order was accepted and is waiting at the exchange. Chatty if you trade a lot.", default: false, critical: false, topics: ["order.updated"] },
   { key: "ticket.prepared", label: "An order needs your approval", help: "An order is waiting for you to approve it on this computer.", default: true, critical: false, topics: ["ticket.prepared"] },

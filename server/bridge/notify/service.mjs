@@ -454,6 +454,10 @@ export function createNotifyService(deps, opts = {}) {
     };
     on("order.updated", onOrder);
     on("order.outcome_unknown", onUnknown);
+    on("orders.drift", (p) => {
+      const m = msg.driftMessage(p, helpers);
+      return m ? publish(m) : undefined;
+    });
     on("ticket.prepared", (p) => publish(msg.ticketMessage(p, helpers)));
     on("safety.kill_switch", (p) => publish(msg.killSwitchMessage(p)));
     on("account.status", onAccount);

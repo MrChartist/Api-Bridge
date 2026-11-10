@@ -26,6 +26,7 @@ On Windows, run the commands in PowerShell, and read [windows.md](windows.md) fo
 | [connect.md](connect.md) | The dashboard's Connect a tool page: pick Excel, an AI assistant, a script or AmiBroker, get a key with only the access it needs and the setup to paste |
 | [operations.md](operations.md) | Running the Bridge day to day: one Bridge per data folder, stopping, damaged files, disk space, health and readiness, metrics, logs, webhooks that do not answer, sleep and wake |
 | [config.md](config.md) | Every `bridge.config.json` setting with its type, default and what it does (generated from the code) |
+| [orders-drift.md](orders-drift.md) | The read-only order-book check: when it runs, what differences it reports, where you see them, and what it never does |
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [dhan.md](dhan.md) | Connect Dhan, the broker checked with a live account: what you need from Dhan, add, log in, test, a first real price, what the adapter does and its limits, the daily routine and going live |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |

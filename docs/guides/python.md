@@ -52,6 +52,11 @@ Real-time data comes from your own broker accounts. Free sources and plugins ans
 fine for charts and analysis, never for orders, risk checks, paper fills or alerts (see [sources](sources.md)).
 `history.freshness`, `depth.freshness` and every `Ltp` carry the same label.
 
+Say what the data is for with `purpose=` on `ltp`, `quotes`, `depth`, `history` and `option_chain`
+(`"display"`, `"analysis"`, `"alert"`, `"paper"`, `"risk"` or `"order"`): `bridge.ltp(["NSE:NIFTY"], purpose="order")`. The Bridge
+refuses data that is not good enough for that purpose. On the low-level `client`, `history(..., time_iso=True, tz="UTC", fields=["close"])`
+and `quotes(..., fields=["ltp"])` use the Bridge's `timeIso`, `tz` and `fields` options (see [developers](developers.md)).
+
 ## Orders
 
 Say which account the order is for. In demo mode the paper account is `demo-paper`; with your own config use your account id.

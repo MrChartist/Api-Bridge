@@ -4,6 +4,8 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import http from "node:http";
+import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runCli } from "../core/cli.mjs";
@@ -236,6 +238,25 @@ describe("datasets", () => {
 });
 
 describe("instrument export", () => {
+  it("is gzipped while it streams when the client accepts gzip, and plain otherwise; the bytes decode to the same file", async () => {
+    const url = `${bridge.base}/v1/instruments/export?exchange=NSE&kind=EQ`;
+    const raw = (acceptEncoding) =>
+      new Promise((resolve, reject) => {
+        const req = http.get(url, { headers: { authorization: `Bearer ${keys.read}`, "accept-encoding": acceptEncoding } }, (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => resolve({ headers: res.headers, body: Buffer.concat(chunks) }));
+        });
+        req.on("error", reject);
+      });
+    const plain = await raw("identity");
+    expect(plain.headers["content-encoding"]).toBeUndefined();
+    const gz = await raw("gzip");
+    expect(gz.headers["content-encoding"]).toBe("gzip");
+    expect(gz.headers.vary).toMatch(/Accept-Encoding/);
+    expect(gunzipSync(gz.body).equals(plain.body)).toBe(true);
+  });
+
   it("streams the master as CSV or JSONL, filtered", async () => {
     const csv = await fetch(`${bridge.base}/v1/instruments/export?exchange=NSE&kind=EQ`, { headers: { authorization: `Bearer ${keys.read}` } });
     expect(csv.status).toBe(200);

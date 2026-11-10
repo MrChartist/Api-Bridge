@@ -212,16 +212,21 @@ export class BridgeClient {
   }
 
   // ── Market data ──
-  ltp(symbols, { account, maxAgeMs } = {}) { return this._get("/v1/ltp", { symbols: [].concat(symbols), account, maxAgeMs }); }
-  quotes(symbols, { account, maxAgeMs } = {}) { return this._get("/v1/quotes", { symbols: [].concat(symbols), account, maxAgeMs }); }
-  depth(symbol, { account, maxAgeMs } = {}) { return this._get("/v1/depth", { symbol, account, maxAgeMs }); }
+  // Every market read takes `purpose` ("display", "analysis", "alert", "paper", "risk" or "order"): what the data is for. The Bridge refuses
+  // data that is not good enough for it (delayed or end-of-day data never feeds an order, a risk check or an alert).
+  ltp(symbols, { account, maxAgeMs, purpose } = {}) { return this._get("/v1/ltp", { symbols: [].concat(symbols), account, maxAgeMs, purpose }); }
+  /** `fields: ["ltp", "bid"]` keeps only those columns (symbol and freshness are always kept). */
+  quotes(symbols, { account, maxAgeMs, purpose, fields } = {}) { return this._get("/v1/quotes", { symbols: [].concat(symbols), account, maxAgeMs, purpose, fields: fields === undefined ? undefined : [].concat(fields).join(",") }); }
+  depth(symbol, { account, maxAgeMs, purpose } = {}) { return this._get("/v1/depth", { symbol, account, maxAgeMs, purpose }); }
   /**
    * @param {{ symbol: string, interval: string, from?: string|number, to?: string|number, countback?: number, account?: string, format?: "json"|"csv",
-   *   localFirst?: boolean, dataset?: string, backup?: boolean }} p  localFirst serves bars the Bridge already stored (dataset picks one) and fetches only the rest.
+   *   localFirst?: boolean, dataset?: string, backup?: boolean, purpose?: string, timeIso?: boolean, tz?: "IST"|"UTC", fields?: string[]|string }} p
+   *   localFirst serves bars the Bridge already stored (dataset picks one) and fetches only the rest. Daily and longer candles carry `date` (the IST
+   *   trading date); timeIso or tz adds `timeIso`; fields keeps only those columns (`time` is always kept).
    */
-  history({ symbol, interval, from, to, countback, account, format, localFirst, dataset, backup } = {}) { return this._get("/v1/history", { symbol, interval, from, to, countback, account, format, localFirst, dataset, backup }); }
+  history({ symbol, interval, from, to, countback, account, format, localFirst, dataset, backup, purpose, timeIso, tz, fields } = {}) { return this._get("/v1/history", { symbol, interval, from, to, countback, account, format, localFirst, dataset, backup, purpose, timeIso, tz, fields: fields === undefined ? undefined : [].concat(fields).join(",") }); }
   expiries(underlying, { exchange, account } = {}) { return this._get("/v1/expiries", { underlying, exchange, account }); }
-  optionChain({ underlying, expiry, strikes, greeks, account, maxAgeMs } = {}) { return this._get("/v1/optionchain", { underlying, expiry, strikes, greeks, account, maxAgeMs }); }
+  optionChain({ underlying, expiry, strikes, greeks, account, maxAgeMs, purpose } = {}) { return this._get("/v1/optionchain", { underlying, expiry, strikes, greeks, account, maxAgeMs, purpose }); }
   streamStats() { return this._get("/v1/stream/stats"); }
 
   // ── Portfolio ──

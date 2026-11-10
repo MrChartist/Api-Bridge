@@ -112,6 +112,7 @@ receives events about those accounts; events that name no account (the kill swit
 |---|---|---|
 | `order.updated` | read | An order (paper or live) changed state: `orderId`, `accountId`, `mode`, `status`, `filledQuantity`, `avgPrice`, `source`; a paper fill also carries `realisedPnl`. One event per change of state: a market order that fills is one `filled` event |
 | `order.outcome_unknown` | read | The broker did not confirm an order. Check the broker before sending it again |
+| `orders.drift` | read | The Bridge's live orders and the broker's order book disagree (or agree again): `accountId`, `state` (`drift` or `ok`), `count`, `kinds`, and up to 10 `differences`. A read-only check; nothing is changed. See [Order-book check](orders-drift.md) |
 | `position.converted` | read | A position was moved between products |
 | `account.status` | read | A broker login changed: `connected`, `expired`, `missing`, `error` |
 | `account.login_needed` | read | Morning reminder: an account needs a login before the open |

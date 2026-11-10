@@ -23,6 +23,8 @@ import { csv } from "../core/http.mjs";
 import { READ_OPTION_PARAMS, checkQuery } from "../core/query.mjs";
 import { IV_MODELS } from "./chain.mjs";
 import { parseMarketConfig } from "./config.mjs";
+import { withCandleTimes } from "./candleTime.mjs";
+import { parseFields, pickAll, pickFields } from "../core/fields.mjs";
 import { historyCsvRows } from "./history.mjs";
 import { readHistoryLocalFirst } from "./historyLocal.mjs";
 import { createLocalStore } from "./localStore.mjs";
@@ -31,6 +33,10 @@ import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
 import { noteRoute } from "./routeInfo.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
+
+/** The fields `fields=` may name (docs/openapi.yaml QuoteItem and Candle; a test keeps them equal). `symbol`, `freshness` and `time` are always kept. */
+export const QUOTE_FIELDS = Object.freeze(["symbol", "ltp", "open", "high", "low", "close", "change", "changePct", "volume", "oi", "bid", "ask", "bidQty", "askQty", "freshness"]);
+export const CANDLE_FIELDS = Object.freeze(["time", "open", "high", "low", "close", "volume", "oi", "date", "timeIso"]);
 
 /** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward. */
 export const LEGACY_IV_DEPRECATION = Date.UTC(2027, 3, 30, 18, 30) / 1000;
@@ -193,12 +199,14 @@ export function createMarketRoutes(deps) {
     },
 
     async quotes(ctx) {
-      checkQuery(ctx, ["symbols", "maxAgeMs", ...READ_OPTION_PARAMS]);
+      checkQuery(ctx, ["symbols", "maxAgeMs", "fields", ...READ_OPTION_PARAMS]);
       const symbols = parseSymbolList(ctx.query.get("symbols"));
+      // fields=ltp,bid: only these columns per quote. symbol and freshness (the data-class label) are always kept.
+      const fields = parseFields(ctx.query, { allowed: QUOTE_FIELDS, always: ["symbol", "freshness"] });
       const opts = readOptions(ctx);
       const r = await md().quotes(symbols, opts);
       route(ctx, r.items.map((i) => i.freshness));
-      return { data: r.items, errors: r.errors, meta: meta(ctx, opts) };
+      return { data: pickAll(r.items, fields), errors: r.errors, meta: { ...meta(ctx, opts), ...(fields ? { fields: fields.names } : {}) } };
     },
 
     async depth(ctx) {
@@ -213,7 +221,7 @@ export function createMarketRoutes(deps) {
 
     async history(ctx) {
       // No maxAgeMs here: a history range has no freshness target, so a caller who sends one is told it was ignored.
-      checkQuery(ctx, ["symbol", "interval", "format", "from", "to", "countback", "dataset", "localFirst", ...READ_OPTION_PARAMS]);
+      checkQuery(ctx, ["symbol", "interval", "format", "from", "to", "countback", "dataset", "localFirst", "timeIso", "tz", "fields", ...READ_OPTION_PARAMS]);
       const q = ctx.query;
       const symbol = opt(q, "symbol");
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:NIFTY.");
@@ -221,6 +229,14 @@ export function createMarketRoutes(deps) {
       if (!interval) throw invalid("interval", "interval is required: 1m, 3m, 5m, 10m, 15m, 30m, 60m, 1d, 1w or 1M.");
       const format = opt(q, "format") ?? "json";
       if (format !== "json" && format !== "csv") throw invalid("format", "format must be json or csv.");
+      // timeIso / tz: an ISO twin of each candle's epoch `time` (IST by default). JSON only: the CSV time column is IST already.
+      const tzRaw = opt(q, "tz");
+      if (tzRaw !== undefined && !["IST", "UTC"].includes(tzRaw.toUpperCase())) throw invalid("tz", "tz must be IST or UTC.");
+      const tz = tzRaw === undefined ? undefined : tzRaw.toUpperCase();
+      // fields=time,close: only these columns per candle (`time` is always kept). Naming timeIso here also turns it on.
+      const fields = parseFields(q, { allowed: CANDLE_FIELDS, always: ["time"] });
+      const timeIso = boolParam(q, "timeIso", tz !== undefined) || Boolean(fields?.names.includes("timeIso"));
+      if (format === "csv" && (timeIso || tz !== undefined || fields)) throw invalid(fields ? "fields" : tz !== undefined ? "tz" : "timeIso", "fields, timeIso and tz apply to format=json. The CSV has fixed columns and its time column is already IST.");
       const params = { symbol, interval };
       for (const name of ["from", "to"]) {
         const v = opt(q, name);
@@ -239,7 +255,9 @@ export function createMarketRoutes(deps) {
         const headers = { "X-MCB-Partial": String(Boolean(data.partial)), "X-MCB-Freshness-Source": data.freshness.source };
         return csv(historyCsvRows(data), { filename: name, headers });
       }
-      return { data, meta: { ...meta(ctx, opts), freshness: data.freshness, ...(local ? local.meta : {}) } };
+      const shaped = withCandleTimes(data, { iso: timeIso, tz });
+      const out = fields ? { ...shaped, candles: shaped.candles.map((c) => pickFields(c, fields.keep)) } : shaped;
+      return { data: out, meta: { ...meta(ctx, opts), freshness: data.freshness, ...(local ? local.meta : {}), ...(fields ? { fields: fields.names } : {}) } };
     },
 
     async expiries(ctx) {

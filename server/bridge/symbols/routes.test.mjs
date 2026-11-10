@@ -160,6 +160,19 @@ describe("GET /v1/instruments/search", () => {
     expect(second.json.data[0].symbol).not.toBe(first.json.data[0].symbol);
   });
 
+  it("fields= keeps only the named columns (symbol always) and says so in meta.fields", async () => {
+    const r = await call("GET", "/v1/instruments/search?q=nifty&limit=2&fields=lotSize,tickSize");
+    expect(r.status).toBe(200);
+    expect(r.json.data.map((i) => Object.keys(i))).toEqual([["symbol", "lotSize", "tickSize"], ["symbol", "lotSize", "tickSize"]]);
+    expect(r.json.meta.fields).toEqual(["lotSize", "tickSize"]);
+    const full = await call("GET", "/v1/instruments/search?q=nifty&limit=2");
+    expect(r.json.data[0].lotSize).toBe(full.json.data[0].lotSize);
+    expect(full.json.meta).not.toHaveProperty("fields");
+    const bad = await call("GET", "/v1/instruments/search?q=nifty&fields=lotsize");
+    expect(bad.status).toBe(400);
+    expect(bad.json.detail).toMatch(/lotsize.*Allowed: symbol, exchange/);
+  });
+
   it("filters by exchange, kind and expiry (case-insensitive enums)", async () => {
     const r = await call("GET", "/v1/instruments/search?q=nifty&kind=fut&exchange=nfo");
     expect(r.json.data.map((i) => i.symbol)).toEqual(["NFO:NIFTY-2026-10-27-FUT", "NFO:BANKNIFTY-2026-10-27-FUT"]);

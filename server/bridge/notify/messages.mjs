@@ -110,6 +110,24 @@ export function unknownOutcomeMessage(p, order, h = {}) {
   return { key: "order.outcome_unknown", group: "order.outcome_unknown", accountId: p.accountId, text: `Order result unknown${line ? `: ${line}` : ""} on ${acct(h, p.accountId)}. The broker did not confirm it: check your broker. Do not send it again; the Bridge is checking the order book.` };
 }
 
+/** orders.drift -> one line (the full list is on GET /v1/orders/drift and the Safety page). Null when the drift is gone: no "all clear" noise. */
+export function driftMessage(p, h = {}) {
+  if (p?.state !== "drift") return null;
+  const n = Number(p.count) || 0;
+  const first = Array.isArray(p.differences) ? p.differences[0] : null;
+  const unknown = Number(p.kinds?.outcome_unknown) || 0;
+  const external = Number(p.kinds?.unknown_at_broker) || 0;
+  const bits = [];
+  if (unknown) bits.push(`${unknown} with an unknown outcome`);
+  if (external) bits.push(`${external} placed outside the Bridge`);
+  return {
+    key: "orders.drift",
+    group: `drift:${p.accountId}`,
+    accountId: p.accountId,
+    text: `The Bridge and the broker disagree about ${n} order${n === 1 ? "" : "s"} on ${acct(h, p.accountId)}${bits.length ? ` (${bits.join(", ")})` : ""}.${first?.message ? ` ${clip(first.message, 220)}` : ""} The Bridge changed nothing: check your broker app.`,
+  };
+}
+
 export function ticketMessage(p, h = {}) {
   const line = orderLine({ side: p.side, quantity: p.quantity, symbol: p.symbol });
   const value = Number.isFinite(Number(p.estimatedValue)) ? ` (about ${money(p.estimatedValue, { whole: true })})` : "";

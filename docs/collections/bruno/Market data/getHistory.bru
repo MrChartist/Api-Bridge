@@ -22,6 +22,9 @@ params:query {
   ~purpose: display
   ~account: demo-paper
   ~strict: false
+  ~fields: close,date
+  ~timeIso: false
+  ~tz: IST
   ~localFirst: false
 }
 
@@ -34,7 +37,7 @@ docs {
 
   - An API key with the `read` scope (any key).
 
-  Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.
+  Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps. Each candle's `time` is epoch seconds; daily, weekly and monthly candles also carry `date`, the IST trading date (a daily bar opens at IST midnight, so the UTC date of `time` is the day before). `timeIso=true` or `tz` adds `timeIso`, the same instant as an ISO string. For times in this API, see "Times and time zones" in the Developers guide.
 
   Reference: docs/api/market-data/getHistory.md in the repository.
 }

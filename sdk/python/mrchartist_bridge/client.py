@@ -250,28 +250,35 @@ class BridgeClient:
         return self._post("/v1/symbols/convert", {"items": [{"input": i} if isinstance(i, str) else dict(i) for i in items]})
 
     # ── market data ──
-    def ltp(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Dict[str, Any]:
-        return self._get("/v1/ltp", {"symbols": _list(symbols), "account": account, "maxAgeMs": max_age_ms})
+    # Every market read takes ``purpose`` ("display", "analysis", "alert", "paper", "risk" or "order"): what the data is for. The Bridge
+    # refuses data that is not good enough for the purpose (delayed or end-of-day prices never feed an order, a risk check or an alert).
+    def ltp(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None, purpose: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/ltp", {"symbols": _list(symbols), "account": account, "maxAgeMs": max_age_ms, "purpose": purpose})
 
-    def quotes(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Dict[str, Any]:
-        return self._get("/v1/quotes", {"symbols": _list(symbols), "account": account, "maxAgeMs": max_age_ms})
+    def quotes(self, symbols: Union[str, Sequence[str]], *, account: Optional[str] = None, max_age_ms: Optional[int] = None, purpose: Optional[str] = None,
+               fields: Optional[Union[str, Sequence[str]]] = None) -> Dict[str, Any]:
+        """``fields=["ltp", "bid"]`` keeps only those columns (``symbol`` and ``freshness`` are always kept)."""
+        return self._get("/v1/quotes", {"symbols": _list(symbols), "account": account, "maxAgeMs": max_age_ms, "purpose": purpose, "fields": fields})
 
-    def depth(self, symbol: str, *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Dict[str, Any]:
-        return self._get("/v1/depth", {"symbol": symbol, "account": account, "maxAgeMs": max_age_ms})
+    def depth(self, symbol: str, *, account: Optional[str] = None, max_age_ms: Optional[int] = None, purpose: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/depth", {"symbol": symbol, "account": account, "maxAgeMs": max_age_ms, "purpose": purpose})
 
     def history(self, symbol: str, interval: str, *, from_: Optional[Union[str, int]] = None, to: Optional[Union[str, int]] = None, countback: Optional[int] = None, account: Optional[str] = None, format: Optional[str] = None,  # noqa: A002
-                local_first: Optional[bool] = None, dataset: Optional[str] = None, backup: Optional[bool] = None) -> Any:
+                local_first: Optional[bool] = None, dataset: Optional[str] = None, backup: Optional[bool] = None, purpose: Optional[str] = None,
+                time_iso: Optional[bool] = None, tz: Optional[str] = None, fields: Optional[Union[str, Sequence[str]]] = None) -> Any:
         """Candles. ``format="csv"`` returns the CSV text instead of the envelope. ``local_first=True`` lets the Bridge
         serve bars it already stored (``dataset="name"`` picks a dataset) and fetch only what is missing from the broker;
-        ``meta.source`` says ``local`` for bars read from disk."""
+        ``meta.source`` says ``local`` for bars read from disk. Daily and longer candles carry ``date`` (the IST trading date);
+        ``time_iso=True`` or ``tz="IST"|"UTC"`` adds ``timeIso``; ``fields=["close"]`` keeps only those columns (``time`` is always kept)."""
         return self._get("/v1/history", {"symbol": symbol, "interval": interval, "from": from_, "to": to, "countback": countback, "account": account, "format": format,
-                                         "localFirst": local_first, "dataset": dataset, "backup": backup})
+                                         "localFirst": local_first, "dataset": dataset, "backup": backup, "purpose": purpose, "timeIso": time_iso, "tz": tz, "fields": fields})
 
     def expiries(self, underlying: str, *, exchange: Optional[str] = None, account: Optional[str] = None) -> Dict[str, Any]:
         return self._get("/v1/expiries", {"underlying": underlying, "exchange": exchange, "account": account})
 
-    def option_chain(self, underlying: str, expiry: str, *, strikes: Optional[int] = None, greeks: Optional[bool] = None, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Dict[str, Any]:
-        return self._get("/v1/optionchain", {"underlying": underlying, "expiry": expiry, "strikes": strikes, "greeks": greeks, "account": account, "maxAgeMs": max_age_ms})
+    def option_chain(self, underlying: str, expiry: str, *, strikes: Optional[int] = None, greeks: Optional[bool] = None, account: Optional[str] = None, max_age_ms: Optional[int] = None,
+                     purpose: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/optionchain", {"underlying": underlying, "expiry": expiry, "strikes": strikes, "greeks": greeks, "account": account, "maxAgeMs": max_age_ms, "purpose": purpose})
 
     def stream_stats(self) -> Dict[str, Any]:
         return self._get("/v1/stream/stats")

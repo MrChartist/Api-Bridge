@@ -12,7 +12,7 @@
 
 - An API key with the `read` scope (any key).
 
-Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.
+Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps. Each candle's `time` is epoch seconds; daily, weekly and monthly candles also carry `date`, the IST trading date (a daily bar opens at IST midnight, so the UTC date of `time` is the day before). `timeIso=true` or `tz` adds `timeIso`, the same instant as an ISO string. For times in this API, see "Times and time zones" in the Developers guide.
 
 ## Parameters
 
@@ -29,6 +29,9 @@ Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in o
 | `purpose` | query | `Purpose` | no | What the read is for. `alert`, `paper`, `risk` and `order` accept only real-time data from your own broker; a delayed or end-of-day source is never used for them. `display` (default) and `analysis` accept any labelled source. A caller's `maxAgeMs` also filters: a source whose delay exceeds it cannot answer. |
 | `account` | query | `AccountId` | no | Pin the request to this account. Without it, market data may be served from any of your accounts that allow pooling. |
 | `strict` | query | boolean | no | `true` refuses a query parameter this route does not know (400 VALIDATION_FAILED, with a "did you mean" hint) instead of ignoring it. Without it the read goes ahead and the answer has `X-MCB-Ignored-Params` (and `X-MCB-Param-Hint`) naming what was ignored. Default `false`. |
+| `fields` | query | string | no | Comma-separated columns to keep in each candle, for example `close` or `close,date`. `time` is always kept. Naming `timeIso` turns it on. JSON only. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list. The history answer's own `freshness` and `partial` do not change. |
+| `timeIso` | query | boolean | no | `true` adds `timeIso` to each candle: the epoch `time` as an ISO-8601 string (IST `+05:30` unless `tz=UTC`). JSON only. Default `false`. |
+| `tz` | query | one of `IST`, `UTC` | no | Zone of `timeIso`: `IST` (default, `+05:30`) or `UTC` (`Z`). Sending it turns `timeIso` on. JSON only. The epoch `time` and the IST `date` do not change. Default `"IST"`. |
 | `localFirst` | query | boolean | no | `true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`. Default `false`. |
 
 ## Responses
@@ -70,7 +73,8 @@ Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in o
         "high": 1468.7,
         "low": 1450.2,
         "close": 1460.4,
-        "volume": 215004
+        "volume": 215004,
+        "date": "2026-11-09"
       },
       {
         "time": 1794249000,
@@ -78,7 +82,8 @@ Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in o
         "high": 1463.9,
         "low": 1455.9,
         "close": 1460.8,
-        "volume": 38459
+        "volume": 38459,
+        "date": "2026-11-10"
       }
     ],
     "partial": false,

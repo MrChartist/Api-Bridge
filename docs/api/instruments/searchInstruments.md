@@ -21,6 +21,7 @@
 | `kind` | query | `InstrumentKind` | no |  |
 | `underlying` | query | string, up to 30 characters | no |  |
 | `expiry` | query | string (date) | no |  |
+| `fields` | query | string | no | Comma-separated columns to keep in each instrument, for example `lotSize,tickSize`. `symbol` is always kept. An unknown name is a 400 that lists the allowed ones. `meta.fields` echoes the list. |
 | `limit` | query | integer, min 1, max 500 | no | Default `100`. |
 | `cursor` | query | string, up to 512 characters | no | Opaque cursor from `meta.nextCursor`. |
 

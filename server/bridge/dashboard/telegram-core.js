@@ -2,7 +2,7 @@
 
 /** The events, grouped the way a person thinks about them. Keys are the Bridge's; labels come from GET /v1/notify/events. */
 export const EVENT_GROUPS = Object.freeze([
-  ["Orders", ["order.rejected", "order.outcome_unknown", "order.filled", "order.placed", "ticket.prepared"]],
+  ["Orders", ["order.rejected", "order.outcome_unknown", "orders.drift", "order.filled", "order.placed", "ticket.prepared"]],
   ["Safety and logins", ["session.expired", "kill_switch.engaged", "kill_switch.released", "limit.reached", "readiness.changed"]],
   ["Webhook alerts", ["hook.rejected", "hook.stale", "hook.failed"]],
   ["Data and limits", ["source.ejected", "ratelimit.refused", "backup.failed"]],

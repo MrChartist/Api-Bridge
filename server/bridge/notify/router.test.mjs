@@ -62,6 +62,18 @@ describe("events become short plain messages", () => {
     expect(t.toLowerCase()).not.toMatch(/failed|fail/);
   });
 
+  it("order-book drift is one plain line that says nothing was changed; the all-clear is not sent", async () => {
+    const n = await ready();
+    n.bus.emit("orders.drift", { accountId: "dhan-main", state: "drift", previous: "ok", count: 2, kinds: { closed_at_broker: 1, unknown_at_broker: 1 }, differences: [{ kind: "closed_at_broker", message: "The Bridge still has BUY NSE:RELIANCE (ord_1) as open, but the broker shows it as filled." }] });
+    n.bus.emit("orders.drift", { accountId: "dhan-main", state: "ok", previous: "drift", count: 0, kinds: {}, differences: [] });
+    await n.settle();
+    const texts = n.tg.texts();
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toMatch(/disagree about 2 orders/);
+    expect(texts[0]).toMatch(/1 placed outside the Bridge/);
+    expect(texts[0]).toMatch(/changed nothing: check your broker app/);
+  });
+
   it("each order transition is announced once, even if the bus repeats it; placed is off by default", async () => {
     const n = await ready();
     n.bus.emit("order.updated", order({ status: "open" }));
