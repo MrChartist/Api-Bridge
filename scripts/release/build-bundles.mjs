@@ -14,7 +14,7 @@
 // Needs `zip` and `tar` on the build machine (GitHub's ubuntu runners have both).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, closeSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,30 @@ export function shipped(path) {
   if (/^(\.github|test|deploy|docker|scripts\/release)\//.test(path) || path.startsWith("docs/screenshots/")) return false;
   if (/^(\.gitattributes|\.gitignore|\.dockerignore|Dockerfile|docker-compose\.yml|vitest\.config\.mjs|tsconfig\.json)$/.test(path)) return false;
   return true;
+}
+
+/** A file people run directly (a launcher, the CLI, an installer) starts with a "#!" line; it must keep its execute bit. */
+export function startsWithShebang(file) {
+  const fd = openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(2);
+    return readSync(fd, buf, 0, 2, 0) === 2 && buf.toString("latin1") === "#!";
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Copies the listed repository files into `dest` and makes every "#!" script executable there, whatever mode the
+ * checkout gave it (git on Windows, a ZIP of the repository, a filesystem without modes). The ZIP step then keeps
+ * these modes, so double-clicking start-mac.command and running ./start-linux.sh work after unzipping.
+ */
+export function stageFiles(files, fromRoot, dest) {
+  for (const f of files) {
+    mkdirSync(dirname(join(dest, f)), { recursive: true });
+    cpSync(join(fromRoot, f), join(dest, f));
+    if (startsWithShebang(join(dest, f))) chmodSync(join(dest, f), 0o755);
+  }
 }
 
 /** The names of the source archives the installers download: install.sh looks for the .tar.gz, install.ps1 for the .zip. */
@@ -87,10 +111,7 @@ async function main() {
     // 1. The app: tracked files only (never a developer's local config, keys or data).
     const files = run("git", ["ls-files", "-z"], { cwd: ROOT }).toString().split("\0").filter(Boolean).filter(shipped);
     const app = join(work, "app");
-    for (const f of files) {
-      mkdirSync(dirname(join(app, f)), { recursive: true });
-      cpSync(join(ROOT, f), join(app, f));
-    }
+    stageFiles(files, ROOT, app);
     // 1b. The source archives the one-line installers download (made before node_modules exists), and the installer scripts.
     const names = sourceArchiveNames(version);
     const srcStage = join(work, "source");
