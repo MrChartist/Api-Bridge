@@ -32,7 +32,7 @@ Rules from this computer's data folder and from recorder.autoRecord.rules in the
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `id` | string | no |  |
+| `id` | string | yes |  |
 | `name` | string, up to 60 characters | yes |  |
 | `enabled` | boolean | no | Default `true`. |
 | `kind` | one of `quotes`, `chain` | yes |  |

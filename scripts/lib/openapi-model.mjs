@@ -145,7 +145,7 @@ export const HINTS = Object.freeze({
   source: "generic",
   token: "<hook token>",
   field: "ltp",
-  capability: "ltp",
+  capability: "quotes",
 });
 
 const fmtSamples = { "date-time": "2026-10-19T10:00:00+05:30", date: "2026-10-27", uri: "https://example.com/", email: "me@example.com" };

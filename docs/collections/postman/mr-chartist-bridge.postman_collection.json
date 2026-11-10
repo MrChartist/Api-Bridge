@@ -3306,6 +3306,7 @@
               ],
               "query": [
                 {
+                  "description": "What to explain. The four capabilities a source can have, plus `depth` (market depth is served by your own brokers only).",
                   "key": "capability",
                   "value": "quotes"
                 },
@@ -3344,7 +3345,7 @@
               },
               "raw": "{\n  \"autoFallback\": false\n}"
             },
-            "description": "Use free sources automatically when your brokers cannot answer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`autoFallback: true` lets a read that no broker account can answer go to a source you turned on, without the\nread asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills\nand alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the\nBridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited\n(`sources.setting_changed`). Only from this computer.\n\nReference: docs/api/sources/updateSourcesSettings.md in the repository.",
+            "description": "Use free sources automatically when your brokers cannot answer\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`autoFallback: true` lets a read that no broker account can answer go to a source you turned on, without the\nread asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills\nand alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the\nBridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited\n(`sources.setting_changed`). Only from this computer. The answer also repeats the setting's fields at the top level of\nthe body, as older clients read them there; read `data`, which is the documented place.\n\nReference: docs/api/sources/updateSourcesSettings.md in the repository.",
             "header": [
               {
                 "key": "Content-Type",
@@ -3379,7 +3380,7 @@
               },
               "raw": "{\n  \"enabled\": false\n}"
             },
-            "description": "Turn a source on or off\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`\nequal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored\nfirst (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`\nturns it off at once. Your broker accounts (`builtin`) cannot be switched off here.\n\nReference: docs/api/sources/updateSource.md in the repository.",
+            "description": "Turn a source on or off\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\n`enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`\nequal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored\nfirst (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`\nturns it off at once. Your broker accounts (`builtin`) cannot be switched off here. The answer also repeats the\nsource's fields at the top level of the body, as older clients read them there; read `data`.\n\nReference: docs/api/sources/updateSource.md in the repository.",
             "header": [
               {
                 "key": "Content-Type",

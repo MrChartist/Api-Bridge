@@ -58,7 +58,7 @@ Example:
 |---|---|---|---|
 | `preset` | string | no |  |
 | `created` | boolean | no |  |
-| `rule` | `RecordingRule` | no |  |
+| `rule` | `RecordingRule` | no | A rule as stored: everything RecordingRuleCreate takes, plus what the Bridge adds. (Written out in full, not as allOf over the create schema, because that one refuses unknown fields.) |
 | `auto` | `RecordingAuto` | no |  |
 
 ## Errors

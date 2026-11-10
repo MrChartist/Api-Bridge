@@ -43,7 +43,7 @@ info:
     `/v1/symbols/convert`.
 
     ## Responses, freshness and errors
-    JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`. Every market-data item carries
+    JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`, except `GET /v1/meta` and `GET /v1/health`, which are plain objects. Every market-data item carries
     `freshness` (`source`: stream, cache, broker, paper, backup or plugin; `asOf`; `ageMs`; `stale`; which account served
     it; and how current the data is: `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`), so you
     always know how old a number is and where it came from. Errors are RFC 9457 `application/problem+json` with a stable `code` and a
@@ -309,7 +309,7 @@ paths:
                     type: object
                     required: [state, exposed, headline, tone, alerts, sheets, checks]
                     properties:
-                      state: { type: string, enum: [off, on] }
+                      state: { type: string, enum: ["off", "on"] }
                       exposed: { type: array, items: { type: string, enum: [alerts, sheets] } }
                       headline: { type: string }
                       tone: { type: string, enum: [ok, warn, bad] }
@@ -888,7 +888,8 @@ paths:
         - name: capability
           in: query
           required: true
-          schema: { $ref: "#/components/schemas/SourceCapability" }
+          description: What to explain. The four capabilities a source can have, plus `depth` (market depth is served by your own brokers only).
+          schema: { type: string, enum: [quotes, history, expiries, optionChain, depth] }
         - name: symbols
           in: query
           required: true
@@ -923,7 +924,8 @@ paths:
         read asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills
         and alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the
         Bridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited
-        (`sources.setting_changed`). Only from this computer.
+        (`sources.setting_changed`). Only from this computer. The answer also repeats the setting's fields at the top level of
+        the body, as older clients read them there; read `data`, which is the documented place.
       x-module: sources
       x-scope: admin
       x-loopback-only: true
@@ -955,7 +957,8 @@ paths:
         `enabled: true` turns a source on. An `opt-in` source (unofficial or terms-sensitive) also needs `acknowledge`
         equal to its `noticeVersion`, which records that you read the notice; a `byok` source needs its key stored
         first (`PUT /v1/sources/{id}/config`). A stale or missing acknowledgement is refused. `enabled: false`
-        turns it off at once. Your broker accounts (`builtin`) cannot be switched off here.
+        turns it off at once. Your broker accounts (`builtin`) cannot be switched off here. The answer also repeats the
+        source's fields at the top level of the body, as older clients read them there; read `data`.
       x-module: sources
       x-scope: admin
       x-loopback-only: true
@@ -6825,7 +6828,7 @@ components:
           description: "Throttling refusals only: the limit that tripped."
           required: [name, remaining, resetMs]
           properties:
-            name: { type: string, description: "For example `key-per-second`, `dhan-quote-per-second`, `queue-depth`." }
+            name: { type: string, description: "The budget that tripped. For a refusal of your own key (`scope: client`): `perSecond`, `perDay` or `concurrency`. Other scopes name their own budget; switch on `scope` and `retryAfterMs`, not on this text." }
             remaining: { type: number, description: "What is left of it now (0 when it tripped)." }
             resetMs: { type: integer, minimum: 0, description: "Time until it has room again." }
         broker:
@@ -7279,7 +7282,7 @@ components:
               perMinute: { type: number }
               perDay: { type: number }
               verified: { type: boolean }
-              source: { type: string, format: uri }
+              source: { type: string, description: "Where the figure comes from: the broker documentation address, or a short note for the demo broker." }
         maxQuoteBatch: { type: integer }
         feed:
           type: object
@@ -8676,8 +8679,8 @@ components:
             today: { type: integer, minimum: 0 }
         health: { $ref: "#/components/schemas/SourceHealth" }
         terms:
-          type: object
-          description: The vendor's terms. Not present for your own broker accounts.
+          type: [object, "null"]
+          description: The vendor's terms. Null for your own broker accounts.
           properties:
             url: { type: string, format: uri }
             note: { type: string, description: "One plain sentence about what you accept by turning it on." }
@@ -8971,7 +8974,7 @@ components:
           type: object
           description: ip and seenBy only for callers on this computer or with the admin scope.
           properties:
-            mode: { type: string, enum: [off, lookup, manual] }
+            mode: { type: string, enum: ["off", lookup, manual] }
             checkedAt: { type: [string, "null"], format: date-time }
             family: { type: [string, "null"], enum: [ipv4, ipv6, null] }
             seenBy: { type: [string, "null"] }
@@ -9351,19 +9354,35 @@ components:
         compress: { type: boolean }
         format: { type: string, enum: [csv, jsonl] }
     RecordingRule:
-      allOf:
-        - { $ref: "#/components/schemas/RecordingRuleCreate" }
-        - type: object
-          properties:
-            id: { type: string }
-            source: { type: string, enum: [user, config] }
-            preset: { type: string }
-            recordingId: { type: [string, "null"], description: The recording that carries this rule's files. }
-            state: { type: string, enum: [recording, waiting, paused, stopped, blocked, off] }
-            statusText: { type: string }
-            blockedBy: { type: [string, "null"] }
-            createdAt: { type: [string, "null"] }
-            updatedAt: { type: [string, "null"] }
+      type: object
+      description: "A rule as stored: everything RecordingRuleCreate takes, plus what the Bridge adds. (Written out in full, not as allOf over the create schema, because that one refuses unknown fields.)"
+      required: [id, name, kind, everySec]
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 60 }
+        enabled: { type: boolean, default: true }
+        kind: { type: string, enum: [quotes, chain] }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        collection: { type: string }
+        underlying:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        universe: { $ref: "#/components/schemas/RecordingUniverse" }
+        everySec: { type: integer, minimum: 1 }
+        schedule: { $ref: "#/components/schemas/RecordingSchedule" }
+        keepDays: { type: [integer, "null"] }
+        maxDiskMb: { type: [integer, "null"] }
+        compress: { type: boolean }
+        format: { type: string, enum: [csv, jsonl], default: csv }
+        source: { type: string, enum: [user, config] }
+        preset: { type: string }
+        recordingId: { type: [string, "null"], description: The recording that carries this rule's files. }
+        state: { type: string, enum: [recording, waiting, paused, stopped, blocked, "off"] }
+        statusText: { type: string }
+        blockedBy: { type: [string, "null"] }
+        createdAt: { type: [string, "null"] }
+        updatedAt: { type: [string, "null"] }
     RecordingPreset:
       type: object
       properties:

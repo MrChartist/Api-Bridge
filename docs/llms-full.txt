@@ -47,7 +47,7 @@ lookup is needed to read it. Inputs are lenient (case, `NSE:` for derivatives, c
 `/v1/symbols/convert`.
 
 ### Responses, freshness and errors
-JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`. Every market-data item carries
+JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`, except `GET /v1/meta` and `GET /v1/health`, which are plain objects. Every market-data item carries
 `freshness` (`source`: stream, cache, broker, paper, backup or plugin; `asOf`; `ageMs`; `stale`; which account served
 it; and how current the data is: `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`), so you
 always know how old a number is and where it came from. Errors are RFC 9457 `application/problem+json` with a stable `code` and a

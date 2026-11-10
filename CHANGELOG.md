@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- OpenAPI now matches the real answers: recording rules, `terms: null` on sources, source limit notes, `capability=depth` on source trace; positions, holdings and funds carry the full freshness label (`class`, `delaySec`, `official`, `confidence`, `flags`); enums `off`/`on` are quoted. A new test (`scripts/openapiConformance.test.mjs`, with a small dependency-free JSON Schema reader in `scripts/lib/`) calls every GET route on a demo Bridge and validates the answer against its documented schema.
 - Python SDK: recordings and datasets now read the shapes the Bridge really sends (`Recording.symbols/underlying/expiry/collection` from `target`, status `recording|waiting|paused|stopped|blocked`, `Dataset.title` and first/last bar from the files); `NotFound` only says "older Bridge" when the route is missing; `hooks.signals` returns the signal list. The integration tests now cover downloads, datasets, recordings, collections and hooks against a demo Bridge.
 - `Idempotency-Key` now works on the create routes that are not orders (keys, accounts, hooks, notify targets, collections, downloads, dataset updates, subscriptions, recordings, rules, presets): a repeat returns the first answer with `Idempotency-Replayed: true`. Other write routes answer `Idempotency-Ignored: true` when the header is sent.
 - Library of collections ([docs/guides/collections.md](docs/guides/collections.md)): named, tagged lists of instruments and option

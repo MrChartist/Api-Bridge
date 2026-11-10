@@ -60,7 +60,7 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
     }
   };
   const emit = (o) => bus?.emit("order.updated", { orderId: o.orderId, accountId: o.accountId, mode: o.mode, status: o.status, filledQuantity: o.filledQuantity, avgPrice: o.avgPrice ?? undefined, source: o.source });
-  const freshness = (accountId) => ({ source: "paper", asOf: istIso(now()), ageMs: 0, stale: false, accountId, broker: "paper" });
+  const freshness = (accountId) => ({ source: "paper", asOf: istIso(now()), ageMs: 0, stale: false, accountId, broker: "paper", class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] });
   const canonical = (s) => {
     try {
       return parseSymbol(s).canonical;

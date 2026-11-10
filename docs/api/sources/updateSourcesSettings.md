@@ -17,7 +17,8 @@
 read asking for `backup=true`. It applies to display and analysis reads only; orders, risk checks, paper fills
 and alerts never use it, and every answer is labelled with its data class and delay. The choice is saved in the
 Bridge's data folder and wins over `sources.autoFallback` in the configuration file. Changes are audited
-(`sources.setting_changed`). Only from this computer.
+(`sources.setting_changed`). Only from this computer. The answer also repeats the setting's fields at the top level of
+the body, as older clients read them there; read `data`, which is the documented place.
 
 ## Request body
 

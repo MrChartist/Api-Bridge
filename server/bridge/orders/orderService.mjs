@@ -410,7 +410,9 @@ export function createOrderService(deps) {
     if (!slot.ok) throw new BridgeError("ORDER_RATE_LIMITED", `The order-rate cap for ${accountId} was reached. Try again in a moment.`, { retryAfterMs: slot.retryAfterMs });
   }
 
-  const freshness = (source, at, accountId, broker) => ({ source, asOf: istIso(at), ageMs: 0, stale: false, accountId, broker });
+  // Positions, holdings and funds are read from the account's own broker (or the paper book) at this moment: real-time class,
+  // official, no delay. The label has every field the Freshness schema requires, so one reader handles prices and portfolio.
+  const freshness = (source, at, accountId, broker) => ({ source, asOf: istIso(at), ageMs: 0, stale: false, accountId, broker, class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] });
 
   // ───────────────────────────── order records ─────────────────────────────
 
