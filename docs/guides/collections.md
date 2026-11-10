@@ -1,5 +1,7 @@
 # Collections: lists of instruments and option universes
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 A **collection** is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python
 library can then say `collection: "nifty-weekly"` instead of pasting the same symbols again.
 

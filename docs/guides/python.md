@@ -1,20 +1,25 @@
 # Python
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Python library uses the standard library only (Python 3.9+): HTTP, a small WebSocket client and an asyncio client are
 built in. It is typed (`py.typed`), pleasant in notebooks, and safe by default: orders are paper unless you say
 `live=True`, and delayed data cannot feed an order. Full reference: [sdk/python/README.md](../../sdk/python/README.md).
 
 ```bash
 pip install ./sdk/python                      # add the pandas extra for DataFrames: pip install "./sdk/python[pandas]"
-mc-bridge keys create --label py --scope read,paper    # shown once; copy it
+mc-bridge keys create --label py --scope read,paper    # shown once; copy it (in a checkout: npm run bridge -- keys create ...)
 python -m mrchartist_bridge login             # saves the URL and key for this user (owner-only file), then pings
 ```
 
-Or set `MCB_API_KEY` (and `MCB_BRIDGE_URL` when the Bridge is not at `http://127.0.0.1:4300`). Use a read or paper key for
-scripts; a key that can trade live or administer the Bridge does not belong in a notebook or a spreadsheet.
+Or set `MCB_API_KEY` (and `MCB_BRIDGE_URL` when the Bridge is not at `http://127.0.0.1:4300`; in PowerShell
+`$env:MCB_API_KEY = "mcb_..."`). Use a read or paper key for scripts; a key that can trade live or administer the Bridge does not
+belong in a notebook or a spreadsheet. A few calls below say they need an **admin key from the Bridge's computer** (recording rules,
+subscriptions, changing settings): make that key for a one-off setup script, not for a scheduled one.
 
 ## Connect
 
+<!-- runs against a demo Bridge in scripts/guide-examples.test.mjs -->
 ```python
 from mrchartist_bridge import Bridge
 
@@ -29,7 +34,11 @@ raise a typed error with a one-line fix.
 
 ## Market data and freshness
 
+<!-- runs against a demo Bridge in scripts/guide-examples.test.mjs -->
 ```python
+from mrchartist_bridge import Bridge
+
+bridge = Bridge()
 quotes = bridge.quotes(["NSE:NIFTY", "NSE:RELIANCE"])         # a list of Quote; quotes.errors holds symbols that failed
 for q in quotes:
     f = q.freshness
@@ -45,19 +54,33 @@ fine for charts and analysis, never for orders, risk checks, paper fills or aler
 
 ## Orders
 
+Say which account the order is for. In demo mode the paper account is `demo-paper`; with your own config use your account id.
+Either pass it to `Bridge(account=...)`, or set `MCB_ACCOUNT`. Without it the library stops with `ConfigurationError: Say which
+account to use`, unless there is exactly one paper account. The example below is one share of RELIANCE, far inside the default
+limit of Rs 2,00,000 per order (`safety.maxOrderValue`); a larger order is refused with `InvalidOrder` and the limit it hit.
+
+<!-- runs against a demo Bridge in scripts/guide-examples.test.mjs -->
 ```python
-from mrchartist_bridge import NotRealtime, OrderRefused, OutcomeUnknown
+from mrchartist_bridge import Bridge, NotRealtime, OrderRefused, OutcomeUnknown
+
+bridge = Bridge(account="demo-paper")     # your paper account id; or set MCB_ACCOUNT
 
 try:
-    order = bridge.orders.place("NFO:NIFTY-2026-12-29-FUT", "BUY", lots=1, product="MARGIN", price=bridge.quote("NFO:NIFTY-2026-12-29-FUT"))
+    quote = bridge.quote("NSE:RELIANCE")
+    order = bridge.orders.place("NSE:RELIANCE", "BUY", quantity=1, product="CNC", price=quote)
     done = bridge.orders.wait_for_fill(order, timeout=30)
+    print(done.status, done.filled_quantity, done.avg_price)
 except NotRealtime as e:        # the quote was delayed or stale: nothing was sent
-    ...
+    print("not sent:", e)
 except OrderRefused as e:       # kill switch, market closed, paper only, invalid order ...: e.code says which
-    ...
+    print("refused:", e.code, e)
 except OutcomeUnknown as e:     # the Bridge cannot tell if the broker took it: use e.idempotency_key and e.client_order_id
-    ...
+    print("unknown outcome", e.idempotency_key, e.client_order_id)
 ```
+
+A futures or options order is the same call with `lots=1` and the contract's symbol, for example
+`NFO:NIFTY-<expiry>-FUT` with a live expiry (`bridge.expiries("NIFTY")` lists them); a contract's value is often above the
+default per-order limit, so check `safety.maxOrderValue` first.
 
 - `place` sends `mode="paper"`; live needs `live=True` and everything the Bridge requires for live trading (see [safety](safety.md)).
 - Every write has an `Idempotency-Key` and a generated client order id. Calling again with the same two ids returns the first
@@ -87,10 +110,18 @@ For asyncio: `async with AsyncBridge().stream([...]) as s: async for event in s.
 
 ## asyncio
 
+<!-- runs against a demo Bridge in scripts/guide-examples.test.mjs -->
 ```python
-async with AsyncBridge() as bridge:
-    nifty, bank = await asyncio.gather(bridge.price("NSE:NIFTY"), bridge.price("NSE:BANKNIFTY"))
-    order = await bridge.orders.place("NSE:RELIANCE", "BUY", quantity=1, product="CNC", price=nifty)
+import asyncio
+from mrchartist_bridge import AsyncBridge
+
+async def main():
+    async with AsyncBridge(account="demo-paper") as bridge:
+        nifty, reliance = await asyncio.gather(bridge.price("NSE:NIFTY"), bridge.price("NSE:RELIANCE"))
+        order = await bridge.orders.place("NSE:RELIANCE", "BUY", quantity=1, product="CNC", price=reliance)
+        print(nifty, reliance, order.status)
+
+asyncio.run(main())
 ```
 
 `AsyncBridge` runs the blocking calls in worker threads (up to `max_concurrency`, default 8). For many symbols use
@@ -125,10 +156,13 @@ bridge.datasets.update("large-caps-5m", wait=True)      # later: only the bars a
 - Every job, dataset and recording says its data class, source and delay (`job.data_class`, `job.label`) and `save()` keeps
   that in `manifest.json`. `backup=True` lets a free source serve a job; its files are then `delayed` or `eod`, for analysis
   only, never for orders, risk checks, paper fills or alerts.
-- `bridge.recordings.create("chain", underlying="NIFTY", expiry="2026-11-12", every_sec=30)` records chains (at least 15 s
-  apart) and `create("quotes", symbols, every_sec=1)` quotes. The Bridge records real-time data only. For recording without
-  pressing start, `bridge.recordings.rules.create("Index chains", "chain", every_sec=30, collection="index-options")`: the Bridge
-  starts and stops it at each trading session, resumes after a restart and notes a gap when the feed was missing.
+- Creating a recording or a rule needs an **admin key from this computer** (a read or paper key is refused with
+  `ScopeRequired`). `bridge.recordings.create("chain", underlying="NIFTY", expiry="<a live expiry>", every_sec=30)` records chains
+  (at least 15 s apart) and `create("quotes", symbols, every_sec=1)` quotes. The Bridge records real-time data only. For recording
+  without pressing start, make the collection first, then the rule: `bridge.collections.create("index-options",
+  universe=option_universe("NIFTY", "current-weekly", count=10))`, then `bridge.recordings.rules.create("Index chains", "chain",
+  every_sec=30, collection="index-options")`. The Bridge starts and stops it at each trading session, resumes after a restart and
+  notes a gap when the feed was missing.
 - Look before you start: `bridge.downloads.estimate(symbols, "5m", from_=...)` takes the same arguments as `create`, starts
   nothing and returns a `DownloadEstimate` (`broker_calls`, `calls_saved` by data already stored, `rows`, `bytes`, `eta_sec` at
   your budget share, `fits_disk`). `bridge.saved_calls()` says how many broker calls the Bridge did not make today

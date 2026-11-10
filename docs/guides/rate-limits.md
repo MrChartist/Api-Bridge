@@ -1,5 +1,7 @@
 # How the Bridge handles broker rate limits
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Every broker API has request limits, and most are tight: often one quote request a second, sometimes one instrument
 per call. Ten tools each polling on their own break those limits within seconds. The Bridge sits between your tools
 and your brokers and makes the broker see one careful client. It also shares what it has fairly between your tools, and

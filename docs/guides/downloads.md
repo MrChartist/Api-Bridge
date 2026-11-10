@@ -1,5 +1,7 @@
 # Data downloads
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge can save history to files on this computer: candles for many symbols and intervals, as CSV, JSONL or an
 AmiBroker import file. A download is a background job. It runs through the same rate-limit scheduler as everything else, at
 the lowest priority, so it never slows a live read, an order check or another key.

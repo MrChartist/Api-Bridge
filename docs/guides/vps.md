@@ -1,5 +1,7 @@
 # Running the Bridge on a VPS
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 For live trading, SEBI's retail algo framework needs orders to come from a **static IP registered with your broker**
 (**needs verification** against the circular and your broker's rules; [compliance.md](compliance.md),
 [deployment.md](deployment.md)). A small Linux server with a fixed IPv4 address is the most common answer. It also gives

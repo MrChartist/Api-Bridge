@@ -73,7 +73,7 @@ checks up to 200 in one call. An index shows `"tradable": false`.
 
 ```bash
 curl -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/symbols/resolve?q=RELIANCE&kind=FUT&limit=3"
-# 409  {"code":"AMBIGUOUS_SYMBOL","candidates":[{"symbol":"NFO:RELIANCE-2026-11-23-FUT","lotSize":525,"reason":"exact name match, future on NFO"}, ...],
+# 409  {"code":"AMBIGUOUS_SYMBOL","candidates":[{"symbol":"NFO:RELIANCE-<expiry>-FUT","lotSize":525,"reason":"exact name match, future on NFO"}, ...],
 #       "rule":"3 contracts carry this name; send the full contract symbol"}
 ```
 
@@ -163,9 +163,12 @@ curl -X POST http://127.0.0.1:4300/v1/orders/batch -H "Authorization: Bearer $KE
 
 ## What will it cost: `POST /v1/margin/basket`
 
+Replace `<expiry>` with a live expiry date (`GET /v1/expiries?underlying=NIFTY` lists them); a contract that has expired is
+refused with `SYMBOL_NOT_FOUND`.
+
 ```bash
 curl -X POST http://127.0.0.1:4300/v1/margin/basket -H "Authorization: Bearer $KEY" -H "content-type: application/json" \
-  -d '{"positions":[{"symbol":"NFO:NIFTY-2026-11-23-FUT","side":"BUY","lots":1,"product":"NRML"}]}'
+  -d '{"positions":[{"symbol":"NFO:NIFTY-<expiry>-FUT","side":"BUY","lots":1,"product":"NRML"}]}'
 ```
 ```json
 {"data":{"total":177192.01,"span":144975.28,"exposure":32216.73,"hedgeBenefit":0,"source":"paper-model","account":"demo-paper","legs":1,

@@ -157,6 +157,12 @@ describe("Connect a tool: the key each tool gets", () => {
     expect(connectCapabilities("python", { orders: true }).cannot).toMatch(/real-money/);
     expect(connectCapabilities("ai", { orders: true }).can).toMatch(/approve/);
     expect(connectCapabilities("ai", { orders: true }).cannot).toMatch(/on its own/);
+    // The assistant's order tools also need the Bridge's own settings: the page says so and shows the two lines.
+    expect(connectCapabilities("ai", { orders: true }).needs).toMatch(/bridge\.config\.json/);
+    expect(connectCapabilities("ai", { orders: true }).needs).toMatch(/restart/);
+    expect(connectCapabilities("ai", { orders: true }).needsCode).toMatch(/toolsets.*orders.*orderAccounts/);
+    expect(connectCapabilities("ai").needs).toBeUndefined();
+    expect(connectCapabilities("python", { orders: true }).needs).toBeUndefined();
     // The switch means nothing for a tool that cannot place orders.
     expect(connectCapabilities("excel", { orders: true }).cannot).toMatch(/cannot place any order/);
   });
@@ -315,11 +321,34 @@ it("heads a Connect page with the tool's own name, lower-casing only an article"
   expect(connectHeading(connectTool("ai"))).toBe("Connect an AI assistant");
 });
 
+it("never tells a Google Sheets user to put the key in a web address, and says Google cannot reach this computer", () => {
+  const steps = connectTool("excel").steps.join(" ");
+  expect(steps).toMatch(/Google Sheets runs on Google's servers/);
+  expect(steps).toMatch(/tunnel/);
+  expect(steps).toMatch(/never in an IMPORTDATA link/);
+  expect(steps).not.toMatch(/In Sheets use =IMPORTDATA/);
+  const blocks = connectSetup("excel", { base: "http://h:1", key: "mcb_abcdefghij_SECRET" }).flatMap((g) => g.blocks);
+  const linkBlock = blocks.find((b) => /xl\/quotes/.test(b.code));
+  expect(linkBlock.title).not.toMatch(/Sheets: =IMPORTDATA|and Google Sheets/);
+  expect(linkBlock.title).toMatch(/Not for Google Sheets/);
+  // the one block that mentions Sheets carries no key at all
+  const sheets = blocks.find((b) => /^Google Sheets/.test(b.title));
+  expect(sheets.code).not.toContain("mcb_abcdefghij_SECRET");
+  expect(sheets.title).toMatch(/Never put the key in an IMPORTDATA link/);
+});
+
+it("says where the key sits in the downloaded workbook: a stored name, not cell B6", () => {
+  const steps = connectTool("excel").steps.join(" ");
+  expect(steps).toMatch(/Name Manager/);
+  expect(steps).not.toMatch(/cell B6/);
+});
+
 it("tells an Excel user where the workbook is and how to name the key cell", () => {
   const steps = connectTool("excel").steps.join(" ");
   expect(steps).toMatch(/Download a ready workbook/);
   expect(steps).toMatch(/Name Box/);
-  expect(steps).toMatch(/Mac Excel and Google Sheets/);
+  expect(steps).toMatch(/Excel for Mac/);
+  expect(steps).toMatch(/Power Query/);
   const csv = connectSetup("excel", { base: "http://h:1", key: "mcb_abcdefghij_SECRET" }).flatMap((g) => g.blocks).find((b) => /xl\/quotes/.test(b.code));
   expect(csv.code).toContain("&key=mcb_abcdefghij_SECRET");
   expect(connectSetup("excel", { base: "http://h:1", key: "k" }).flatMap((g) => g.blocks).map((b) => b.title).join(" ")).not.toMatch(/workbook above/);

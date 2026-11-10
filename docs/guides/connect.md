@@ -11,15 +11,16 @@ search palette) gives Excel, an AI assistant or a script its own key and the set
    worked.
 
 The key is shown once. The Bridge keeps only a short code that recognises it, so copy it before you leave the page. If you
-lose it, revoke it under **API > Keys** and make another.
+lose it, revoke it under **API > Keys** and make another. In the Simple view the API page is hidden: press Ctrl K and type
+*Keys*, or switch to Advanced (see below).
 
 ## What each tool gets
 
 | Tool | Key | May it place orders? |
 |---|---|---|
-| Excel or Google Sheets | Read only, may be sent in the address (`?key=`), expires in 90 days | No |
+| Excel or Google Sheets | Read only, may be sent in the address (`?key=`, the `--allow-query` flag), expires in 90 days | No. The key in an address suits Excel on this computer; Google Sheets cannot reach this computer without a tunnel and must use the Apps Script with the key in a script property, never an `IMPORTDATA` link ([excel-sheets.md](excel-sheets.md#google-sheets)) |
 | AmiBroker | Read only, may be sent in the address, expires in 90 days | No |
-| An AI assistant | Read only | Your choice: "Look and prepare orders for me to approve" adds the paper scope. The assistant still cannot send an order: you approve each one under Orders. |
+| An AI assistant | Read only | Your choice: "Look and prepare orders for me to approve" adds the paper scope. That is not enough on its own: the order tools also need `"mcp": { "toolsets": ["market", "analytics", "account", "orders"], "orderAccounts": ["<your paper account id>"] }` in `bridge.config.json` and a restart (the page shows these lines; [mcp.md](mcp.md#letting-an-assistant-prepare-orders)). The assistant still cannot send an order: you approve each one under Orders. |
 | A Python or Node script | Read only | Your choice: "Yes, practice orders" adds the paper scope |
 | My own app | Read only | Your choice, as for a script |
 
@@ -35,6 +36,11 @@ Integrations, Test console, Activity) and the Sources Overview and Quotas tabs.
 Change it from the account menu (bottom of the sidebar, or More on a phone) or from the search palette (Ctrl K, then
 type "advanced"). The choice stays in this browser. Nothing is removed in Simple: every page is still in the palette, and
 a link to an advanced page opens it.
+
+**Looking for the API page?** Other guides say "API > Integrations" or "API > Keys". In the Simple view there is no API entry
+in the menu. Do one of these: press Ctrl K and type the page you want (*Keys*, *Integrations*, *Telegram*, *Webhooks*), or
+switch to Advanced. The Connect a tool page also has a **More integrations** link at the bottom, and the pages open
+directly at `#/api/keys` and `#/api/integrations` in the address bar.
 
 ## Something wrong?
 

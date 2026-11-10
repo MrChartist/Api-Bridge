@@ -4,7 +4,7 @@ Ready-made ways to use the Mr. Chartist API Bridge from other tools. Each folder
 
 | Folder | For | Uses |
 |---|---|---|
-| [`excel/`](excel) | Excel `WEBSERVICE` cells and Power Query tables | `/xl/ltp`, `/xl/quote`, `/xl/chain`, `/xl/history` |
+| [`excel/`](excel) | Excel `WEBSERVICE` cells and Power Query tables | `/xl/quotes` (a table), `/xl/positions`, `/xl/holdings`, `/xl/funds`, `/xl/orders`, `/xl/ltp`, `/xl/quote`, `/xl/chain`, `/xl/history` |
 | [`google-sheets/`](google-sheets) | Google Sheets via Apps Script (needs your own tunnel) | `/xl/*` |
 | [`amibroker/`](amibroker) | AmiBroker ASCII import and AFL formulas | `/xl/history?layout=amibroker`, `/xl/ltp`, `/xl/quote` |
 | [`../sdk/python`](../sdk/python), [`../sdk/node`](../sdk/node) | Your own scripts and strategies | the whole `/v1` API |

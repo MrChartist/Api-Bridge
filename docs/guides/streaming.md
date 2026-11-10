@@ -19,7 +19,7 @@ its open connections at once.
 ```js
 const ws = new WebSocket(`ws://127.0.0.1:4300/v1/stream?token=${encodeURIComponent(token)}`);
 ws.onopen = () => {
-  ws.send(JSON.stringify({ op: "subscribe", symbols: ["NSE:NIFTY", "NFO:NIFTY-2026-10-27-25000-CE"], mode: "quote", id: "s1" }));
+  ws.send(JSON.stringify({ op: "subscribe", symbols: ["NSE:NIFTY", "NSE:RELIANCE"], mode: "quote", id: "s1" }));
   ws.send(JSON.stringify({ op: "subscribe_orders", accounts: ["paper"] }));
 };
 ws.onmessage = (e) => {

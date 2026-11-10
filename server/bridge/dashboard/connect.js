@@ -52,7 +52,7 @@ export async function renderConnect() {
     const caps = h("div", { class: "cn-caps", "aria-live": "polite" });
     const drawCaps = () => {
       const c = connectCapabilities(toolId, { orders: seg?.value === "yes" });
-      caps.replaceChildren(h("p", { class: "cn-can" }, icon("check"), h("span", {}, c.can)), h("p", { class: "cn-cannot" }, icon("close"), h("span", {}, c.cannot)));
+      caps.replaceChildren(h("p", { class: "cn-can" }, icon("check"), h("span", {}, c.can)), h("p", { class: "cn-cannot" }, icon("close"), h("span", {}, c.cannot)), ...(c.needs ? [h("p", { class: "cn-small cn-needs" }, c.needs), h("code", { class: "cn-small cn-needs-code", tabindex: "0" }, c.needsCode)] : []));
     };
     drawCaps();
     seg?.addEventListener("change", drawCaps);
@@ -142,8 +142,9 @@ export async function renderConnect() {
         h("div", { class: "cn-setup" }, h("h3", { class: "cn-h3" }, "Set it up"), h("p", { class: "cn-small" }, tool.paste), workbook, tool.steps ? h("ol", { class: "cn-steps" }, tool.steps.map((t) => h("li", {}, t))) : null, seg, blocks),
         h("div", { class: "cn-test" }, h("div", { class: "cn-go" }, test, h("span", { class: "cn-small" }, "Asks the Bridge for a price with this key, the way your tool will.")), result),
         h("p", { class: "cn-small cn-cannot-line" }, caps.cannot),
+        caps.needs ? h("div", { class: "alert info cn-needs" }, icon("info"), h("div", {}, h("span", { class: "detail" }, caps.needs), h("code", { class: "cn-needs-code", tabindex: "0" }, caps.needsCode))) : null,
         developer ? h("p", { class: "cn-small cn-next" }, "Next: have the Bridge tell your program when an order changes or a download finishes, instead of asking again and again.") : null,
-        h("div", { class: "cn-foot" }, again, developer ? h("a", { class: "btn tinted small", href: "#/developers?view=events" }, "Receive order events") : null, h("a", { class: "btn plain small", href: "#/developers" }, "Developers"), h("a", { class: "btn plain small", href: "#/api/keys" }, "Manage keys")),
+        h("div", { class: "cn-foot" }, again, developer ? h("a", { class: "btn tinted small", href: "#/developers?view=events" }, "Receive order events") : null, h("a", { class: "btn plain small", href: "#/developers" }, "Developers"), h("a", { class: "btn plain small", href: "#/api/keys" }, "Manage keys"), h("a", { class: "btn plain small", href: "#/api/integrations" }, "More integrations")),
       ),
     );
   }

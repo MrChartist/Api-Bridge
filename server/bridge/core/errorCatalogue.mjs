@@ -53,7 +53,7 @@ export const ERROR_GUIDE = Object.freeze({
   },
   SYMBOL_NOT_FOUND: {
     means: "The symbol could not be matched to an instrument.",
-    fix: "Use the canonical form EXCHANGE:SYMBOL (for example NSE:RELIANCE). Search with GET /v1/instruments/search, or convert with POST /v1/symbols/resolve.",
+    fix: "Use the canonical form EXCHANGE:SYMBOL (for example NSE:RELIANCE). Search with GET /v1/instruments/search, or convert a name with GET /v1/symbols/resolve?q=... (or GET /v1/symbols/convert?input=...).",
   },
   AMBIGUOUS_SYMBOL: {
     means: "The text matches more than one instrument, so the Bridge will not guess.",
@@ -137,7 +137,7 @@ export const ERROR_GUIDE = Object.freeze({
   },
   RATE_LIMITED: {
     means: "This key sent too many requests: its own rate, daily cap or number of requests waiting. Other keys are not affected.",
-    fix: "Wait `retryAfterMs` (the `Retry-After` header has the same wait in seconds), then retry. Send fewer requests, batch symbols into one call, or raise this key's quota under Sources > Quotas (on this computer).",
+    fix: "Wait `retryAfterMs` (the `Retry-After` header is that wait rounded up to whole seconds, with up to a quarter more so clients do not all return together), then retry. Send fewer requests, batch symbols into one call, or raise this key's quota under Sources > Quotas (on this computer).",
   },
   ORDER_RATE_LIMITED: {
     means: "The account reached its order-rate cap. The cap protects you from a runaway program and the broker from too many orders.",

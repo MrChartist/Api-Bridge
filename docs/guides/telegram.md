@@ -1,12 +1,14 @@
 # Telegram: alerts on your phone, and prices when you ask
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge can send you a short Telegram message when something needs you (an order was rejected, a broker is logged
 out, the kill switch went on) and can answer a few **read-only** questions: prices, positions, orders, funds, status.
 
 It needs a Telegram account and a bot you make yourself (two minutes, free). The Bridge talks to Telegram only from this
 computer, outward: no port is opened, no tunnel, no webhook.
 
-Set it up in the dashboard: **API, Integrations, Telegram**. Or in a terminal: `mc-bridge notify telegram setup`.
+Set it up in the dashboard: **API, Integrations, Telegram** (in the Simple view the API page is not in the menu: press Ctrl K and type its name, or choose Advanced in the account menu ([details](connect.md#simple-and-advanced-view)).). Or in a terminal: `mc-bridge notify telegram setup`.
 
 ## What it does, and what it never does
 

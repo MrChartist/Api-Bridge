@@ -1,5 +1,7 @@
 # Deployment: static IP, daily login and the readiness check
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Paper trading works from any computer and any connection. **Live API orders do not.** This guide explains why, the
 ways to give the Bridge a fixed internet address, and how the Bridge's trading-readiness check tells you, before an
 order fails, that something is wrong.

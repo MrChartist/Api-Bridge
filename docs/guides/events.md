@@ -1,5 +1,7 @@
 # Events out: react to the Bridge without polling
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge can tell your own programs when something happens: an order was filled, a broker login ended, a data download
 finished, the kill switch was turned on. You can listen live (a stream), ask for what you missed (replay), or have the Bridge
 call your program (a signed webhook).

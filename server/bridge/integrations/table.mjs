@@ -112,6 +112,7 @@ export function plainReason(err) {
   if (e.code === "RATE_LIMITED" || e.code === "UPSTREAM_RATE_LIMITED") {
     return wait ? `Too many refreshes: wait ${wait} ${wait === 1 ? "second" : "seconds"} and try again.` : "Too many refreshes: wait a few seconds and try again.";
   }
+  if (e.code === "UNAUTHENTICATED" && /web address/.test(e.detail ?? "")) return e.detail;
   if (e.code === "UNAUTHENTICATED") return "The key was not accepted: it may be wrong, expired or revoked. Make a new one in the dashboard (Integrations > Excel and Sheets).";
   return e.detail ?? e.message ?? e.code;
 }

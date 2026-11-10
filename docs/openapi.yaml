@@ -40,7 +40,8 @@ info:
     symbols (weekly codes, DDMMMYY vs YYMDD), the suffix is parsed from the right so hyphens in names are safe, and no
     lookup is needed to read it. Inputs are lenient (case, `NSE:` for derivatives, chart tickers such as
     `NSE:NIFTY1!`, compact symbols with an exchange); responses always use the canonical form. Convert with
-    `/v1/symbols/convert`.
+    `/v1/symbols/convert`. The dates in the table are examples of the format: a contract that has expired is
+    `SYMBOL_NOT_FOUND`, so use a live expiry from `GET /v1/expiries` in anything you run.
 
     ## Responses, freshness and errors
     JSON responses under `/v1` are `{ "data": ..., "meta": { "requestId": ..., ... } }`, except `GET /v1/meta` and `GET /v1/health`, which are plain objects. Every market-data item carries
@@ -2087,7 +2088,7 @@ paths:
       tags: [Market data]
       operationId: getOptionChain
       summary: Option chain with IV and Greeks
-      description: Works for every F&O stock; see /v1/options/underlyings.
+      description: Works for every F&O stock and index the broker lists; `GET /v1/expiries?underlying=` lists the expiries it can answer for.
       x-module: market
       x-scope: read
       parameters:

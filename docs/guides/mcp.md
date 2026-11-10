@@ -1,5 +1,7 @@
 # AI assistants over MCP (Claude Desktop, Claude Code, Cursor)
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge is an MCP server. AI assistants use the same broker connections, rate limits, safety checks and audit log
 as every other tool, and they are **read-only by default**.
 

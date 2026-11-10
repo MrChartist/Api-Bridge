@@ -1,5 +1,7 @@
 # Running the Bridge day to day
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 What the Bridge does to stay up, what it tells you when something is wrong, and what to do about it. Everything here is for
 a Bridge on your own computer or server. Run `mc-bridge doctor` any time: it reads the data folder (the Bridge does not need
 to be running) and says what needs attention. `mc-bridge doctor --strict` also exits with 1 for the serious ones, so a

@@ -1,5 +1,7 @@
 # Recording: save prices and option chains as they happen
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Brokers give you old candles, but they do not give you old option chains, old open-interest snapshots or old tick-by-tick prices. If you want those later, someone has to write them down while the market is open. The recorder does that for you, from the Bridge's own live data, into plain files on this computer.
 
 - It saves **real-time data only**. If the only answer available is delayed or end-of-day, the recorder does not write it. It counts it, says why on the recording, and logs a gap. A file never mixes data of different quality.

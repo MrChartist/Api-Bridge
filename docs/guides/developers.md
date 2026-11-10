@@ -1,5 +1,7 @@
 # Building on the Bridge: the developer guide
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 This is the short path for someone who writes code against the Bridge: a working call in five minutes, which key to
 use, what to do when something fails, and what will not change under you. Everything here also lives in the dashboard
 on the **Developers** page (`#/developers`): apps, a scope finder, your requests live and every error explained.

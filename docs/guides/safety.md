@@ -1,5 +1,7 @@
 # Safety model
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge is built so that a mistake (a buggy script, a runaway alert, a confused AI assistant, a leaked key) costs
 as little as possible. Everything below is on by default.
 

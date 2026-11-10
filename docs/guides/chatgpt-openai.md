@@ -1,5 +1,7 @@
 # ChatGPT and OpenAI
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 ## ChatGPT connectors
 
 ChatGPT's connectors (custom connectors and apps) call MCP servers over the public internet, over HTTPS and usually

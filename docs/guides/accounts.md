@@ -1,5 +1,7 @@
 # Brokers and multiple accounts
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its
 own rate-limit budget and its own credentials; one account's credentials are never used for another account's calls.
 

@@ -2,7 +2,11 @@
 
 Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker needed) or the [docs home](../README.md), which sorts the guides by what you want to do. These guides go deeper, one topic each.
 
-**Running `mc-bridge`.** Commands in these guides start with `mc-bridge`. That command is on your PATH after you use one of the installers in [install.md](install.md). From a git checkout, use `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`) in the repository folder instead. Do not run it through npx: this project is not published to npm, and the name `mc-bridge` there belongs to an unrelated package.
+## Running mc-bridge
+
+Commands in these guides start with `mc-bridge`. That command is on your PATH after you use one of the installers in [install.md](install.md). From a git checkout it is not on your PATH, so use `npm run bridge -- <command>` in the repository folder instead (for example `npm run bridge -- keys create --label me --scope read`). `node bin/mc-bridge.mjs <command>` does the same. Do not run it through npx: this project is not published to npm, and the name `mc-bridge` there belongs to an unrelated package. The Bridge's own hints (the dashboard and the command line) show the form that fits your setup.
+
+On Windows, run the commands in PowerShell, and read [windows.md](windows.md) for the few places where the shell matters.
 
 | Guide | For |
 |---|---|

@@ -9,7 +9,12 @@ so everywhere: `GET /v1/health` has `"demo": true`, every answer's `meta` carrie
 a Demo badge. Orders go to a paper account. Because the demo "broker" is built in, an answer labelled
 `"source": "broker"` here is still sample data; check `demo` before you trust a number.
 
-You need Node.js 22.12 or newer (`node -v`) and git. The examples use the default address `http://127.0.0.1:4300`.
+You need Node.js 22.12 or newer (`node -v`) and git. The examples use the default address `http://127.0.0.1:4300`, kept in
+the variable `MCB_BRIDGE_URL` so that you change it in one place if you use another port. They are shown for a Mac or
+Linux shell (bash or zsh). **On Windows use PowerShell**: each step has a PowerShell version right after the bash one. In
+Windows PowerShell 5.1 `curl` is not curl (it is an alias of `Invoke-WebRequest`), so the PowerShell versions use
+`Invoke-RestMethod`. If you prefer curl there, type `curl.exe`. More Windows notes are in [windows.md](windows.md). The
+PowerShell lines follow Microsoft's documented behaviour; the outputs shown below were captured from the bash versions.
 
 ## 1. Get the code and start the Bridge
 
@@ -65,16 +70,29 @@ stores only a fingerprint, so a lost key cannot be shown again: revoke it and ma
 
 ```bash
 export MCB_API_KEY=mcb_bizshnjiv3_...      # paste your own key
+export MCB_BRIDGE_URL=http://127.0.0.1:4300
 ```
 
-On Windows PowerShell: `$env:MCB_API_KEY = "mcb_..."`.
+PowerShell (these last for this window only):
+
+```powershell
+$env:MCB_API_KEY = "mcb_bizshnjiv3_..."    # paste your own key
+$env:MCB_BRIDGE_URL = "http://127.0.0.1:4300"
+```
+
+`MCB_BRIDGE_URL` is the name every tool in this project reads (the SDKs, the MCP command, the starters), so it keeps working
+when you move on to them.
 
 ## 3. Ask for health and a price
 
 The health check needs no key:
 
 ```bash
-curl -s http://127.0.0.1:4300/v1/health
+curl -s "$MCB_BRIDGE_URL/v1/health"
+```
+
+```powershell
+Invoke-RestMethod "$env:MCB_BRIDGE_URL/v1/health"
 ```
 
 ```json
@@ -89,7 +107,12 @@ curl -s http://127.0.0.1:4300/v1/health
 (The real answer also lists each internal service as `ready`; trimmed here.) Now a price, with your key:
 
 ```bash
-curl -s "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE,NSE:NIFTY" -H "Authorization: Bearer $MCB_API_KEY"
+curl -s "$MCB_BRIDGE_URL/v1/ltp?symbols=NSE:RELIANCE,NSE:NIFTY" -H "Authorization: Bearer $MCB_API_KEY"
+```
+
+```powershell
+$auth = @{ Authorization = "Bearer $env:MCB_API_KEY" }
+Invoke-RestMethod "$env:MCB_BRIDGE_URL/v1/ltp?symbols=NSE:RELIANCE,NSE:NIFTY" -Headers $auth
 ```
 
 ```json
@@ -109,11 +132,18 @@ Every order carries an `Idempotency-Key` (8 to 255 letters, digits or `_ . : -`)
 `demo-paper` is the paper account that demo mode creates.
 
 ```bash
-curl -s -X POST http://127.0.0.1:4300/v1/orders \
+curl -s -X POST "$MCB_BRIDGE_URL/v1/orders" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: quickstart-1" \
   -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"}'
+```
+
+```powershell
+$order = @{ account = "demo-paper"; symbol = "NSE:RELIANCE"; side = "BUY"; quantity = 1; product = "CNC"; orderType = "MARKET" }
+Invoke-RestMethod -Method Post "$env:MCB_BRIDGE_URL/v1/orders" `
+  -Headers ($auth + @{ "Idempotency-Key" = "quickstart-1" }) `
+  -ContentType "application/json" -Body ($order | ConvertTo-Json)
 ```
 
 ```json
@@ -134,9 +164,17 @@ now shows on the dashboard's Orders page too.
 Live trading is off, and the Bridge shows what that means. The same call with `"mode": "live"` is refused:
 
 ```bash
-curl -s -X POST http://127.0.0.1:4300/v1/orders \
+curl -s -X POST "$MCB_BRIDGE_URL/v1/orders" \
   -H "Authorization: Bearer $MCB_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: quickstart-live-1" \
   -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET","mode":"live"}'
+```
+
+```powershell
+$live = $order + @{ mode = "live" }
+try {
+  Invoke-RestMethod -Method Post "$env:MCB_BRIDGE_URL/v1/orders" -Headers ($auth + @{ "Idempotency-Key" = "quickstart-live-1" }) `
+    -ContentType "application/json" -Body ($live | ConvertTo-Json)
+} catch { $_.ErrorDetails.Message }   # Invoke-RestMethod throws on a 403; the Bridge's answer is in ErrorDetails
 ```
 
 ```json
@@ -149,7 +187,11 @@ this guide can turn it on.
 ## 5. See where data comes from
 
 ```bash
-curl -s http://127.0.0.1:4300/v1/sources -H "Authorization: Bearer $MCB_API_KEY"
+curl -s "$MCB_BRIDGE_URL/v1/sources" -H "Authorization: Bearer $MCB_API_KEY"
+```
+
+```powershell
+Invoke-RestMethod "$env:MCB_BRIDGE_URL/v1/sources" -Headers $auth
 ```
 
 Trimmed to one line per source:
@@ -173,7 +215,7 @@ repository folder (the `ws` package is already installed there by `npm ci`):
 ```js
 import WebSocket from "ws";
 
-const BASE = process.env.MCB_URL ?? "http://127.0.0.1:4300";
+const BASE = process.env.MCB_BRIDGE_URL ?? "http://127.0.0.1:4300";
 const KEY = process.env.MCB_API_KEY;
 
 // A stream token is single use and lasts 60 seconds, so the key never appears in a URL.
@@ -237,9 +279,16 @@ Close the other program, or use another port for this run with an environment va
 
 ```bash
 MCB_PORT=4301 npm run dev
+export MCB_BRIDGE_URL=http://127.0.0.1:4301      # in the second terminal
 ```
 
-Every later command that talks to the Bridge (`npm run bridge -- open`, `doctor`, `curl`) must use the same port. If you
+```powershell
+$env:MCB_PORT = "4301"; npm run dev
+$env:MCB_BRIDGE_URL = "http://127.0.0.1:4301"    # in the second window
+```
+
+Every later command that talks to the Bridge (`npm run bridge -- open`, `doctor`, the examples above) must use the same
+port: the examples and the `npm run bridge` commands all read `MCB_BRIDGE_URL`. If you
 forget, `npm run bridge -- open` answers `The Bridge is not running at http://127.0.0.1:4300`. To keep the port, put
 `"server": { "port": 4301 }` in `bridge.config.json`.
 
@@ -264,7 +313,7 @@ A 401 has a `detail` that tells you which of three things is wrong:
 
 | `detail` | Cause and fix |
 |---|---|
-| `Send your Bridge API key as 'Authorization: Bearer <key>'.` | No key, or the header is not in the `Authorization: Bearer <key>` form (a bare key, or `X-API-Key`, is not accepted). The shell variable may also be empty: run `echo $MCB_API_KEY`. |
+| `Send your Bridge API key as 'Authorization: Bearer <key>'.` | No key, or the header is not in the `Authorization: Bearer <key>` form (a bare key is not accepted; `X-API-Key: <key>` is). The shell variable may also be empty: run `echo $MCB_API_KEY` (PowerShell: `echo $env:MCB_API_KEY`). |
 | `This API key is not valid, has expired or was revoked.` | The key is mistyped or cut off (a key looks like `mcb_<id>_<secret>` and is shown only once), was revoked, or has expired. Make a new one. |
 | the same text, but the key is fresh | The key was made for a *different data folder* than the running Bridge uses (for example the CLI ran with another `MCB_HOME` or config file). The CLI prints "keys live in `<folder>`" when it creates a key; compare that with the "Data folder" line the Bridge printed at start. Run `keys create` from the same folder, with the same `MCB_HOME` or `--config`. |
 
@@ -296,7 +345,7 @@ second (`PUT /v1/quotas/<keyId>` with `{"perSecond":1,"burst":2}`; the third req
 
 ```text
 HTTP/1.1 429 Too Many Requests
-Retry-After: 1
+Retry-After: 2
 Content-Type: application/problem+json
 ```
 
@@ -309,7 +358,7 @@ Read these fields, not the text:
 | Field | Meaning |
 |---|---|
 | `scope` | Whose limit: `client` (this API key's own rate, daily cap or requests in flight), `consumer-cap` (this key already has too many requests waiting), `queue` (the shared queue for that account is full) or `upstream` (the broker's own budget cannot serve you in time) |
-| `retryAfterMs` | How long to wait before trying again; `Retry-After` is the same in whole seconds |
+| `retryAfterMs` | How long to wait before trying again, exactly. `Retry-After` is that wait rounded up to whole seconds with up to a quarter more added, so clients refused together do not all return in the same second (944 ms above gave `Retry-After: 2`). Either is safe to wait for |
 | `limit` | The budget that refused: its `name`, what `remaining` and when it resets (`resetMs`) |
 
 For `client` and `consumer-cap`, slow the tool down or raise that key's quota (dashboard: Sources, Quotas). For

@@ -1105,7 +1105,7 @@
       ],
       "kind": "endpoint",
       "path": "docs/api/market-data/getOptionChain.md",
-      "text": "GET /v1/optionchain. Works for every F&O stock; see /v1/options/underlyings.",
+      "text": "GET /v1/optionchain. Works for every F&O stock and index the broker lists; GET /v1/expiries?underlying= lists the expiries it can answer for.",
       "title": "Option chain with IV and Greeks"
     },
     {
@@ -2169,10 +2169,12 @@
       "title": "API collections"
     },
     {
-      "headings": [],
+      "headings": [
+        "Running mc-bridge"
+      ],
       "kind": "guide",
       "path": "docs/guides/README.md",
-      "text": "Start with the quickstart (five minutes, demo mode, no broker needed) or the docs home, which sorts the guides by what you want to do. These guides go deeper, one topic each. Running mc-bridge. Commands in these guides start with mc-bridge. That command is on your PATH after you...",
+      "text": "Start with the quickstart (five minutes, demo mode, no broker needed) or the docs home, which sorts the guides by what you want to do. These guides go deeper, one topic each. Commands in these guides start with mc-bridge. That command is on your PATH after you use one of the...",
       "title": "Mr. Chartist API Bridge: guides"
     },
     {
@@ -2187,7 +2189,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/accounts.md",
-      "text": "The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its own rate-limit budget and its own credentials; one account's credentials are never used for another account's calls. The easiest way: on the dashboard, open...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its own rate-limit budget and its own credentials; one account's...",
       "title": "Brokers and multiple accounts"
     },
     {
@@ -2212,7 +2214,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/amibroker.md",
-      "text": "Everything AmiBroker can reach is read-only: /xl/* cannot place orders. Full instructions and the files: integrations/amibroker. Copy integrations/amibroker/mrchartist-bridge.afl into AmiBroker's Formulas\\Include folder. Create a read-only URL key (AmiBroker cannot send...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Everything AmiBroker can reach is read-only: /xl/* cannot place orders. Full instructions and the files: integrations/amibroker. Copy...",
       "title": "AmiBroker"
     },
     {
@@ -2231,7 +2233,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/backup.md",
-      "text": "The Bridge keeps everything you cannot make again in one data folder: your API key records, accounts, safety and quota state, paper books, order records, audit log and source settings. This guide shows how to copy that folder safely, how to put a copy back, and what to do when a...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge keeps everything you cannot make again in one data folder: your API key records, accounts, safety and quota state, paper books, order records, audit log and source...",
       "title": "Backup and restore"
     },
     {
@@ -2241,7 +2243,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/chatgpt-openai.md",
-      "text": "ChatGPT's connectors (custom connectors and apps) call MCP servers over the public internet, over HTTPS and usually with OAuth. The Bridge keeps /mcp on this computer on purpose and has no OAuth server, so ChatGPT cannot connect to it out of the box. Whether ChatGPT can reach a...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). ChatGPT's connectors (custom connectors and apps) call MCP servers over the public internet, over HTTPS and usually with OAuth. The Bridge keeps /mcp on this computer on purpose...",
       "title": "ChatGPT and OpenAI"
     },
     {
@@ -2261,7 +2263,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/collections.md",
-      "text": "A collection is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python library can then say collection: \"nifty-weekly\" instead of pasting the same symbols again. There are two kinds: Collections live in collections.json in your data...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). A collection is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python library can then say collection: \"nifty-weekly\" instead of...",
       "title": "Collections: lists of instruments and option universes"
     },
     {
@@ -2319,7 +2321,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/deployment.md",
-      "text": "Paper trading works from any computer and any connection. Live API orders do not. This guide explains why, the ways to give the Bridge a fixed internet address, and how the Bridge's trading-readiness check tells you, before an order fails, that something is wrong. Every rule...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Paper trading works from any computer and any connection. Live API orders do not. This guide explains why, the ways to give the Bridge a fixed internet address, and how the...",
       "title": "Deployment: static IP, daily login and the readiness check"
     },
     {
@@ -2338,7 +2340,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/developers.md",
-      "text": "This is the short path for someone who writes code against the Bridge: a working call in five minutes, which key to use, what to do when something fails, and what will not change under you. Everything here also lives in the dashboard on the Developers page (#/developers): apps,...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). This is the short path for someone who writes code against the Bridge: a working call in five minutes, which key to use, what to do when something fails, and what will not...",
       "title": "Building on the Bridge: the developer guide"
     },
     {
@@ -2357,7 +2359,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/downloads.md",
-      "text": "The Bridge can save history to files on this computer: candles for many symbols and intervals, as CSV, JSONL or an AmiBroker import file. A download is a background job. It runs through the same rate-limit scheduler as everything else, at the lowest priority, so it never slows a...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can save history to files on this computer: candles for many symbols and intervals, as CSV, JSONL or an AmiBroker import file. A download is a background job. It runs...",
       "title": "Data downloads"
     },
     {
@@ -2376,7 +2378,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/events.md",
-      "text": "The Bridge can tell your own programs when something happens: an order was filled, a broker login ended, a data download finished, the kill switch was turned on. You can listen live (a stream), ask for what you missed (replay), or have the Bridge call your program (a signed...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can tell your own programs when something happens: an order was filled, a broker login ended, a data download finished, the kill switch was turned on. You can listen...",
       "title": "Events out: react to the Bridge without polling"
     },
     {
@@ -2395,7 +2397,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/excel-sheets.md",
-      "text": "Prices and your own book in a spreadsheet, with one request per refresh instead of one per cell. Nothing a spreadsheet can call is able to place, change or cancel an order: every /xl route is a read-only GET. Fastest way: open the dashboard, API > Integrations > Excel and...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Prices and your own book in a spreadsheet, with one request per refresh instead of one per cell. Nothing a spreadsheet can call is able to place, change or cancel an order:...",
       "title": "Excel and Google Sheets"
     },
     {
@@ -2419,7 +2421,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/expose-alerts.md",
-      "text": "TradingView sends an alert from its own servers, and Google Sheets fetches prices from Google's servers. Neither can reach a Bridge that listens on 127.0.0.1. This guide shows how to open one narrow door for them without opening the dashboard, and without breaking the static-IP...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). TradingView sends an alert from its own servers, and Google Sheets fetches prices from Google's servers. Neither can reach a Bridge that listens on 127.0.0.1. This guide shows...",
       "title": "Letting TradingView (and a Google Sheet) reach the Bridge safely"
     },
     {
@@ -2466,7 +2468,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/mcp.md",
-      "text": "The Bridge is an MCP server. AI assistants use the same broker connections, rate limits, safety checks and audit log as every other tool, and they are read-only by default. Two transports: Streamable HTTP at POST /mcp on the Bridge (this computer only; Host and Origin checked;...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge is an MCP server. AI assistants use the same broker connections, rate limits, safety checks and audit log as every other tool, and they are read-only by default. Two...",
       "title": "AI assistants over MCP (Claude Desktop, Claude Code, Cursor)"
     },
     {
@@ -2479,7 +2481,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/notifications.md",
-      "text": "The Bridge listens to its own events (orders, tickets, the kill switch, broker sessions, webhook alerts, safety limits, data sources) and turns the ones you chose into short plain messages. Today the way to receive them is Telegram: see the step-by-step Telegram guide. This page...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge listens to its own events (orders, tickets, the kill switch, broker sessions, webhook alerts, safety limits, data sources) and turns the ones you chose into short...",
       "title": "Notifications: how the Bridge tells you things"
     },
     {
@@ -2496,7 +2498,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/operations.md",
-      "text": "What the Bridge does to stay up, what it tells you when something is wrong, and what to do about it. Everything here is for a Bridge on your own computer or server. Run mc-bridge doctor any time: it reads the data folder (the Bridge does not need to be running) and says what...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). What the Bridge does to stay up, what it tells you when something is wrong, and what to do about it. Everything here is for a Bridge on your own computer or server. Run...",
       "title": "Running the Bridge day to day"
     },
     {
@@ -2529,7 +2531,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/python.md",
-      "text": "The Python library uses the standard library only (Python 3.9+): HTTP, a small WebSocket client and an asyncio client are built in. It is typed (py.typed), pleasant in notebooks, and safe by default: orders are paper unless you say live=True, and delayed data cannot feed an...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Python library uses the standard library only (Python 3.9+): HTTP, a small WebSocket client and an asyncio client are built in. It is typed (py.typed), pleasant in...",
       "title": "Python"
     },
     {
@@ -2569,7 +2571,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/rate-limits.md",
-      "text": "Every broker API has request limits, and most are tight: often one quote request a second, sometimes one instrument per call. Ten tools each polling on their own break those limits within seconds. The Bridge sits between your tools and your brokers and makes the broker see one...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Every broker API has request limits, and most are tight: often one quote request a second, sometimes one instrument per call. Ten tools each polling on their own break those...",
       "title": "How the Bridge handles broker rate limits"
     },
     {
@@ -2591,7 +2593,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/recording.md",
-      "text": "Brokers give you old candles, but they do not give you old option chains, old open-interest snapshots or old tick-by-tick prices. If you want those later, someone has to write them down while the market is open. The recorder does that for you, from the Bridge's own live data,...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Brokers give you old candles, but they do not give you old option chains, old open-interest snapshots or old tick-by-tick prices. If you want those later, someone has to write...",
       "title": "Recording: save prices and option chains as they happen"
     },
     {
@@ -2610,7 +2612,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/safety.md",
-      "text": "The Bridge is built so that a mistake (a buggy script, a runaway alert, a confused AI assistant, a leaked key) costs as little as possible. Everything below is on by default. Every order, webhook and AI tool is paper unless it explicitly asks for live. Each order result says...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge is built so that a mistake (a buggy script, a runaway alert, a confused AI assistant, a leaked key) costs as little as possible. Everything below is on by default....",
       "title": "Safety model"
     },
     {
@@ -2628,7 +2630,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/sources.md",
-      "text": "Your broker accounts are the Bridge's main source of market data. They give real-time prices and option chains, and they are the only sources that orders, risk checks, paper fills and alerts use. The Bridge can also read from optional free sources and from plugins you add. Those...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Your broker accounts are the Bridge's main source of market data. They give real-time prices and option chains, and they are the only sources that orders, risk checks, paper...",
       "title": "Data sources: where prices come from, and how the Bridge labels them"
     },
     {
@@ -2662,7 +2664,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/telegram.md",
-      "text": "The Bridge can send you a short Telegram message when something needs you (an order was rejected, a broker is logged out, the kill switch went on) and can answer a few read-only questions: prices, positions, orders, funds, status. It needs a Telegram account and a bot you make...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can send you a short Telegram message when something needs you (an order was rejected, a broker is logged out, the kill switch went on) and can answer a few read-only...",
       "title": "Telegram: alerts on your phone, and prices when you ask"
     },
     {
@@ -2672,7 +2674,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/typescript.md",
-      "text": "A small client with no runtime dependencies (Node 20+), with TypeScript types in src/index.d.ts. Streaming uses Node 22's built-in WebSocket or the ws package. Full method list: sdk/node/README.md. Same guarantees as the Python client: an Idempotency-Key on every order write,...",
+      "text": "A small client with no runtime dependencies (Node 20+), with TypeScript types in src/index.d.ts. Streaming uses Node 22's built-in WebSocket or the ws package. Full method list: sdk/node/README.md. The client reads MCBBRIDGEURL (when the Bridge is not at http://127.0.0.1:4300)...",
       "title": "TypeScript and Node"
     },
     {
@@ -2691,7 +2693,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/vps.md",
-      "text": "For live trading, SEBI's retail algo framework needs orders to come from a static IP registered with your broker (needs verification against the circular and your broker's rules; compliance.md, deployment.md). A small Linux server with a fixed IPv4 address is the most common...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). For live trading, SEBI's retail algo framework needs orders to come from a static IP registered with your broker (needs verification against the circular and your broker's...",
       "title": "Running the Bridge on a VPS"
     },
     {
@@ -2714,7 +2716,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/webhooks.md",
-      "text": "An alert from your own code or a charting site becomes an order through a hook: a URL with a secret token, tied to one account and a set of limits. Every signal goes through the same safety checks, rate limits, idempotency and audit log as an order sent from a script. Hooks are...",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). An alert from your own code or a charting site becomes an order through a hook: a URL with a secret token, tied to one account and a set of limits. Every signal goes through the...",
       "title": "Alerts: TradingView, signed generic hooks, ChartInk and GoCharting"
     },
     {

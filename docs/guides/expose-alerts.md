@@ -1,5 +1,7 @@
 # Letting TradingView (and a Google Sheet) reach the Bridge safely
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 TradingView sends an alert from its own servers, and Google Sheets fetches prices from Google's servers. Neither can
 reach a Bridge that listens on `127.0.0.1`. This guide shows how to open **one narrow door** for them without opening
 the dashboard, and without breaking the static-IP rule for live orders.
@@ -285,7 +287,7 @@ foreign web-page origin get 403; an oversized alert gets 413. The second also lo
 address from this computer: it must reach the Bridge (not just the tunnel), the host must be on the list, the port must be
 80 or 443, and the dashboard must not answer through it. Each failure comes with the fix. The verdict is **good**, **safe
 with notes**, **not working yet** (the rules hold but the address does not reach the Bridge) or **unsafe** (turn the tunnel
-off). The dashboard's Expose card (API, Integrations, Webhooks) runs the local part with one button.
+off). The dashboard's Expose card (API, Integrations, Webhooks; in the Simple view the API page is not in the menu: press Ctrl K and type its name, or choose Advanced in the account menu ([details](connect.md#simple-and-advanced-view)).) runs the local part with one button.
 
 Then send a real test: create a **paper** webhook (Dashboard, API, Integrations, Webhooks), paste its address into a
 TradingView alert, and trigger it. In the Bridge's log, "hook refused: source address not allowed" means the sender list or

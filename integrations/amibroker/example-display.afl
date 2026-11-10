@@ -1,10 +1,10 @@
 // Mr. Chartist API Bridge — example: show live NIFTY and an option premium in a chart title.
-// Read-only. The key is read by the include from MCB_AMIBROKER_KEY or %USERPROFILE%\.mc-bridge\amibroker.key;
-// never paste it here.
+// Read-only. The key is read by the include from MCB_AMIBROKER_KEY or %APPDATA%\MrChartist\Bridge\amibroker.key;
+// never paste it here. Replace the option symbol's date with a live expiry (a contract that has expired shows n/a).
 #include_once <mrchartist-bridge.afl>
 
 spot = McbLtp("NSE:NIFTY");
-ce = McbLtp("NFO:NIFTY-2026-10-27-25000-CE");
+ce = McbLtp("NFO:NIFTY-<expiry>-25000-CE");
 chg = McbQuote("NSE:NIFTY", "changePct");
 
 Plot(C, "Close", colorDefault, styleCandle);

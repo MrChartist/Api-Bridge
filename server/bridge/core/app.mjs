@@ -435,7 +435,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
           const record = await deps.keyStore.authenticate(found.key, { ip: ctx.clientIp });
           if (!record) throw new BridgeError("UNAUTHENTICATED", "This API key is not valid, has expired or was revoked.");
           if (found.viaQuery && (!record.allowQuery || record.scopes.some((s) => s !== "read"))) {
-            throw new BridgeError("UNAUTHENTICATED", "Only read-only keys created for URL use may be sent as ?key=.");
+            throw new BridgeError("UNAUTHENTICATED", "This key may not be sent in a web address (?key=). Only a read-only key made with Allow in URLs can: in the dashboard use Connect a tool, or run `keys create --label excel --scope read --allow-query --expires 90d`. Or send the key in an Authorization header.");
           }
           if (listener.sheets && record.scopes.some((sc) => sc !== "read")) throw new BridgeError("UNAUTHENTICATED", "Only read-only keys are accepted on the Sheets address. Create a read-only key for the sheet.");
           ctx.key = record;

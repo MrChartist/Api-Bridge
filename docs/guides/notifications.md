@@ -1,5 +1,7 @@
 # Notifications: how the Bridge tells you things
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge listens to its own events (orders, tickets, the kill switch, broker sessions, webhook alerts, safety limits,
 data sources) and turns the ones you chose into short plain messages. Today the way to receive them is
 **Telegram**: see the step-by-step [Telegram guide](telegram.md). This page is the reference: how a message travels, the
