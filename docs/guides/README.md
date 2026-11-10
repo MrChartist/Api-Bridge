@@ -29,6 +29,7 @@ On Windows, run the commands in PowerShell, and read [windows.md](windows.md) fo
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [events.md](events.md) | Bridge events out without polling: SSE and WebSocket with cursor replay, signed webhooks with retries and dead letters, receiver code for Node, Python and the shell |
 | [webhooks.md](webhooks.md) | TradingView, signed generic, ChartInk and GoCharting alerts |
+| [symbols.md](symbols.md) | How an instrument is written (shares, indices, futures, options), finding and converting a symbol, expiries and strikes, why an expired contract is not found |
 | [alert-orders.md](alert-orders.md) | Target-size and basket orders, MIS/NRML words, symbol check, basket margin, market calendar |
 | [telegram.md](telegram.md) | Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting |
 | [notifications.md](notifications.md) | How a message travels (outbox, retries, pacing, quiet hours), the `notify` settings and routes |

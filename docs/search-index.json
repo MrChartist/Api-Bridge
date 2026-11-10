@@ -2681,6 +2681,18 @@
     },
     {
       "headings": [
+        "The format",
+        "Find or convert a symbol",
+        "Expiries and strikes",
+        "When a symbol is refused"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/symbols.md",
+      "text": "Every instrument has one name in the Bridge, whichever broker is behind it. This page says how it is written, how to find a symbol you only half know, and why a derivative stops working on its expiry day. EXCHANGE:UNDERLYING, and for a derivative EXCHANGE:UNDERLYING-YYYY-MM-DD...",
+      "title": "Symbols"
+    },
+    {
+      "headings": [
         "What it does, and what it never does",
         "Set it up",
         "1. Make a bot with BotFather",
