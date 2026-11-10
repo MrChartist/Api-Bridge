@@ -7,9 +7,10 @@
 | Area | [Events](../README.md#events) |
 | Operation | `clearSubscriptionDeadLetters` |
 | Scope | `admin` |
-| This computer only | no |
+| This computer only | yes |
 
 - An API key with the `admin` scope.
+- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
 
 ## Parameters
 
@@ -46,6 +47,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 |---|---|---|
 | `VALIDATION_FAILED` | 400 | no |
 | `UNAUTHENTICATED` | 401 | no |
+| `LOOPBACK_ONLY` | 403 | no |
 | `SCOPE_REQUIRED` | 403 | no |
 | `RATE_LIMITED` | 429 | yes |
 

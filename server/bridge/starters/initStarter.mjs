@@ -12,7 +12,7 @@
  */
 import { resolve } from "node:path";
 import { BridgeError } from "../core/errors.mjs";
-import { STARTERS, STARTER_IDS, STARTER_SCOPES, planStarter, starterById, writeStarter } from "./starters.mjs";
+import { STARTERS, STARTER_IDS, STARTER_SCOPES, checkStarter, planStarter, secretIsThere, starterById, writeStarter } from "./starters.mjs";
 
 /** The `--expires` words the keys command takes: 30d, 12h, 90m. Returns an ISO time. */
 function expiry(value, days, now) {
@@ -56,10 +56,10 @@ export async function runInitStarter({ id, folder }, flags, io, deps) {
   const name = folder ?? `bridge-${starter.id}`;
   const dir = resolve(io.cwd, name);
 
-  // Check the folder before making a key, so a refusal leaves no key behind.
+  // Check the folder and every file before making a key, so a refusal leaves no key behind.
   const files = planStarter(starter.id, { baseUrl, folder: name, cli, now: new Date(now) });
   try {
-    writeStarter(dir, [], { force: flags.force === true });
+    checkStarter(dir, files, { force: flags.force === true });
   } catch (err) {
     io.err(`Error: ${err.message}`);
     return 1;
@@ -67,20 +67,33 @@ export async function runInitStarter({ id, folder }, flags, io, deps) {
 
   let key = null;
   let record = null;
+  let keySkipped = false;
   if (wantsKey && !starter.needsKey) io.err(`Note: the ${starter.id} starter does not call the Bridge with a key, so none was made.`);
   if (wantsKey && starter.needsKey) {
-    ({ key, record } = await deps.createKey({ label: `starter-${starter.id}`, scopes: [scope], accounts: "*", clientKind: starter.clientKind, expiresAt: expiry(flags.expires, starter.expiresDays, now) }));
+    // A `.env` that is already there is never replaced, so a key made now would be shown nowhere and could not be recovered.
+    if (secretIsThere(dir, files)) keySkipped = true;
+    else ({ key, record } = await deps.createKey({ label: `starter-${starter.id}`, scopes: [scope], accounts: "*", clientKind: starter.clientKind, expiresAt: expiry(flags.expires, starter.expiresDays, now) }));
   }
   // Plan again with the key so README and .env say what is true; the first plan only checked the folder.
   const final = key ? planStarter(starter.id, { baseUrl, folder: name, key, keyRecord: record, cli, now: new Date(now), webhookSecret: undefined }) : files;
-  const { written, kept } = writeStarter(dir, final, { force: flags.force === true });
+  let result;
+  try {
+    result = writeStarter(dir, final, { force: flags.force === true });
+  } catch (err) {
+    // A key made for this project that could not be written would be lost (it is shown once): name it, so it can be revoked.
+    io.err(`Error: ${err.message}${record ? ` The key ${record.id} that was made for this project was not saved anywhere. Revoke it with: ${cli} keys revoke ${record.id}` : ""}`);
+    return 1;
+  }
+  const { written, kept, backedUp } = result;
 
   io.out(`Made ${starter.title} starter in ${name}/ (${written.length} files)`);
   for (const p of written) io.out(`  ${p}`);
   for (const p of kept) io.out(`  ${p} (kept: it already existed)`);
+  for (const b of backedUp) io.out(`  ${b.path} replaced; the old file is saved as ${b.backup}`);
   io.out("");
   io.out(`Bridge address: ${baseUrl}`);
   if (record) io.out(`Key ${record.id}: scope ${record.scopes.join(", ")}${record.expiresAt ? `, expires ${record.expiresAt.slice(0, 10)}` : ""}. It is in ${name}/.env only (listed in .gitignore). Revoke it with: ${cli} keys revoke ${record.id}`);
+  else if (keySkipped) io.out(`No key was made: ${name}/.env already exists and is never replaced, so a new key would have been shown nowhere. Put a key in it yourself, or remove it and run again with --with-key.`);
   else if (starter.needsKey) io.out(`No key was made. Add one to ${name}/.env, or run again with --with-key (a read-only key made for this project).`);
   const running = deps.probe ? await deps.probe(baseUrl).catch(() => null) : null;
   io.out(running ? `The Bridge is running${running.demo ? " in demo mode" : ""}.` : `The Bridge is not answering at ${baseUrl}. Start it with: ${cli} start${flags.demo ? " --demo" : ""}   (or ${cli} start --demo to try with sample data)`);

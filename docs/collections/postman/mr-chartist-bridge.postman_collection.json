@@ -2102,7 +2102,7 @@
         {
           "name": "Remove a subscription, its queue, dead letters, log and stored secret",
           "request": {
-            "description": "Remove a subscription, its queue, dead letters, log and stored secret\n\n- An API key with the `admin` scope.\n\nReference: docs/api/events/deleteSubscription.md in the repository.",
+            "description": "Remove a subscription, its queue, dead letters, log and stored secret\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/events/deleteSubscription.md in the repository.",
             "header": [],
             "method": "DELETE",
             "url": {
@@ -2221,7 +2221,7 @@
         {
           "name": "Forget this subscription's dead letters",
           "request": {
-            "description": "Forget this subscription's dead letters\n\n- An API key with the `admin` scope.\n\nReference: docs/api/events/clearSubscriptionDeadLetters.md in the repository.",
+            "description": "Forget this subscription's dead letters\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/events/clearSubscriptionDeadLetters.md in the repository.",
             "header": [],
             "method": "DELETE",
             "url": {

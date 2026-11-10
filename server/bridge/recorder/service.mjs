@@ -877,7 +877,7 @@ export function createRecorderService(deps, opts = {}) {
     const rec = get(id);
     const f = store.open(rec.def.id, name);
     if (!f) throw new BridgeError("NOT_FOUND", "No such file in this recording.");
-    return { ...f, name, stream: () => store.stream(f.path) };
+    return { ...f, name, stream: () => store.stream(f.path, f.size) };
   }
 
   // ───────────────────────────── rules ─────────────────────────────

@@ -30,6 +30,22 @@ describe("sanitizePayload", () => {
     expect(out.message).toContain("[removed]");
   });
 
+  it("masks the control token, signing secrets, hook paths, chat URLs and key=value pairs in text (audit S10)", () => {
+    const out = sanitizePayload({
+      ctl: "mcbctl_ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+      hook: "ingest at /hooks/tradingview/abcdefghijklmnopqrstuvwx failed",
+      slack: "post to https://hooks.slack.com/services/T000/B000/XXXXXXXX failed",
+      message: "GET /v1/x?access_token=abcdefghijklmnop12345 failed. X-Api-Key: zzzzzzzzzzzzzzzz was sent",
+      note: "token myapikey:myaccesstokenvalue123456 expired; whsec_abcdefghijklmnopqrstuvwxyz0123456789 is wrong",
+      error: "upstream said password=hunter2hunter2 and api_key=AKIA0123456789ABCDEF",
+    });
+    const text = JSON.stringify(out);
+    for (const leak of ["mcbctl_ZZZ", "abcdefghijklmnopqrstuvwx", "XXXXXXXX", "abcdefghijklmnop12345", "zzzzzzzzzzzzzzzz", "myaccesstokenvalue123456", "whsec_abcdef", "hunter2hunter2", "AKIA0123456789ABCDEF"]) expect(text, leak).not.toContain(leak);
+    expect(out.message).toMatch(/^GET \/v1\/x\?.*\[removed\].* failed\./);
+    // ordinary text survives
+    expect(sanitizePayload({ message: "The broker answered 429 for NSE:RELIANCE after 3 tries", reason: "items_failed" })).toEqual({ message: "The broker answered 429 for NSE:RELIANCE after 3 tries", reason: "items_failed" });
+  });
+
   it("caps depth, array length, string length and total size", () => {
     const deep = { a: { b: { c: { d: { e: { f: { g: 1 } } } } } } };
     expect(JSON.stringify(sanitizePayload(deep))).not.toContain('"g"');

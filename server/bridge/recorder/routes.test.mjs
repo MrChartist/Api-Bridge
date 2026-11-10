@@ -223,3 +223,23 @@ describe("rules, presets and the auto-record switch", () => {
     expect(s.json.data).toMatchObject({ dataClass: "realtime", budgetShare: 0.3, disk: { limitMb: 5000 } });
   });
 });
+
+describe("a day file that is still being written (audit S12d)", () => {
+  it("streams only the bytes that Content-Length promised", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createFileStore } = await import("./files.mjs");
+    const store = createFileStore({ root: mkdtempSync(join(tmpdir(), "mcb-rec-grow-")) });
+    const path = join(mkdtempSync(join(tmpdir(), "mcb-rec-grow2-")), "x.csv");
+    writeFileSync(path, "0123456789ABCDEF");
+    const read = async (s) => {
+      let n = 0;
+      for await (const c of s) n += c.length;
+      return n;
+    };
+    expect(await read(store.stream(path, 10))).toBe(10); // the file grew after its size was read
+    expect(await read(store.stream(path, 0))).toBe(0);
+    expect(await read(store.stream(path))).toBe(16);
+  });
+});

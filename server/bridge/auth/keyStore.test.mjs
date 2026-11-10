@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,8 @@ let logger;
 let clock;
 const FAST = { N: 2 ** 14, r: 8, p: 1 };
 const T0 = Date.parse("2026-10-18T09:15:00+05:30");
+/** Not scrypt: a stand-in that makes a throttle test with hundreds of attempts fast (same length, wrong secrets never match). */
+const quickHash = async (secret) => createHash("sha256").update(String(secret)).digest();
 const mk = (opts = {}) => createKeyStore({ logger, clock, paths: { dataDir: dir } }, { scryptParams: FAST, ...opts });
 
 beforeEach(() => {
@@ -163,17 +166,66 @@ describe("KeyStore", () => {
     expect(peak).toBe(2);
   }, 20_000);
 
-  it("refuses an IP after too many failed keys in a minute, before any hashing", async () => {
+  it("refuses an address after too many failed attempts at one key id in a minute, before any hashing", async () => {
     let n = 0;
     const ks = mk({ hasher: (s, salt, p) => (n++, scryptHash(s, salt, p)) });
     const { key } = await ks.create({ label: "a", scopes: ["read"] });
+    const { keyId } = parseApiKey(key);
     n = 0;
-    for (let i = 0; i < 30; i += 1) expect(await ks.authenticate("junk", { ip: "192.0.2.9" })).toBeNull();
+    for (let i = 0; i < 30; i += 1) expect(await ks.authenticate(`mcb_${keyId}_${String(i).padStart(43, "B")}`, { ip: "192.0.2.9" })).toBeNull();
+    expect(n).toBe(30);
     await expect(ks.authenticate(key, { ip: "192.0.2.9" })).rejects.toMatchObject({ code: "RATE_LIMITED" });
-    expect(n).toBe(0);
+    expect(n).toBe(30); // refused without hashing
     // Another address is not affected.
     expect(await ks.authenticate(key, { ip: "192.0.2.10" })).not.toBeNull();
+    // and the block ends with the minute
+    clock.advance(60_001);
+    expect(await ks.authenticate(key, { ip: "192.0.2.9" })).not.toBeNull();
   });
+
+  it("one stale key on a shared address does not lock out the other keys (audit S8)", async () => {
+    const ks = mk();
+    const a = await ks.create({ label: "dashboard", scopes: ["read"] });
+    const b = await ks.create({ label: "cli", scopes: ["read"] });
+    const stale = `mcb_${generateKeyId()}_${"S".repeat(43)}`;
+    for (let i = 0; i < 70; i += 1) expect(await ks.authenticate(i % 2 ? stale : "junk", { ip: "127.0.0.1" }).catch((e) => e)).toSatisfy((r) => r === null || r?.code === "RATE_LIMITED");
+    // the stale key and the junk are refused by now ...
+    await expect(ks.authenticate(stale, { ip: "127.0.0.1" })).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    // ... but every real key on the same address still works, even one never used before
+    expect(await ks.authenticate(a.key, { ip: "127.0.0.1" })).not.toBeNull();
+    expect(await ks.authenticate(b.key, { ip: "127.0.0.1" })).not.toBeNull();
+  });
+
+  it("does not lock out a key that authenticated a moment ago, however many wrong secrets are tried for it", async () => {
+    const ks = mk({ hasher: quickHash });
+    const { key } = await ks.create({ label: "a", scopes: ["read"] });
+    const { keyId } = parseApiKey(key);
+    expect(await ks.authenticate(key, { ip: "127.0.0.1" })).not.toBeNull();
+    for (let i = 0; i < 40; i += 1) expect(await ks.authenticate(`mcb_${keyId}_${String(i).padStart(43, "D")}`, { ip: "127.0.0.1" })).toBeNull();
+    clock.advance(61_000); // the verification cache has expired: the key is checked again
+    expect(await ks.authenticate(key, { ip: "127.0.0.1" })).not.toBeNull();
+    // but not for ever: ten times the failures lock even a key that worked
+    for (let i = 0; i < 300; i += 1) await ks.authenticate(`mcb_${keyId}_${String(i).padStart(43, "E")}`, { ip: "127.0.0.1" }).catch(() => null);
+    await expect(ks.authenticate(`mcb_${keyId}_${"F".repeat(43)}`, { ip: "127.0.0.1" })).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+
+  it("caps the scrypt work one address can cause across key ids", async () => {
+    let n = 0;
+    const ks = mk({ hasher: async (s) => (n++, quickHash(s)) });
+    const keys = [];
+    for (let i = 0; i < 12; i += 1) keys.push(await ks.create({ label: `k${i}`, scopes: ["read"] }));
+    n = 0;
+    let tried = 0;
+    // 29 wrong secrets for each of 12 real key ids stays under the per-key limit, but not under the per-address one
+    for (let round = 0; round < 29; round += 1) {
+      for (const k of keys) {
+        const r = await ks.authenticate(`mcb_${parseApiKey(k.key).keyId}_${String(round).padStart(43, "G")}`, { ip: "192.0.2.50" }).catch((e) => e);
+        if (r === null) tried += 1;
+      }
+    }
+    expect(n).toBe(300);
+    expect(tried).toBe(300);
+  }, 30_000);
 
   it("caches a verified key for 60 seconds, then verifies again", async () => {
     let n = 0;

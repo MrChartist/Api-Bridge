@@ -10,10 +10,12 @@
  * Rules
  *  - A key is never written to a file that could be committed: only to `.env` (mode 0600), which `.gitignore` lists.
  *  - A starter key is least privilege: `read` unless the person asks for `paper`; never `live` or `admin`.
- *  - The folder must be new or empty; `--force` writes into a folder that already has files (it never deletes any).
+ *  - The folder must be new or empty; `--force` writes into a folder that already has files. It never deletes any, never
+ *    follows a link (a symlink or dangling link in the folder is refused), never replaces an existing `.env`, and keeps a
+ *    `.bak` copy of any other file it replaces.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -120,30 +122,92 @@ export function planStarter(id, { baseUrl, folder = `bridge-${id}`, key = null, 
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/** lstat that says "not there" as null (a dangling link IS there: lstat sees the link, existsSync does not). */
+function lstatOrNull(p) {
+  try {
+    return lstatSync(p);
+  } catch (err) {
+    if (err?.code === "ENOENT" || err?.code === "ENOTDIR") return null;
+    throw err;
+  }
+}
+
+/** Refuse a path that goes through a link, or ends in something that is not a plain file. */
+function assertPlainTarget(dir, target) {
+  let cur = dir;
+  for (const part of relative(dir, target).split(sep)) {
+    cur = join(cur, part);
+    const st = lstatOrNull(cur);
+    if (st === null) return; // nothing below can exist either
+    if (st.isSymbolicLink()) throw new Error(`${cur} is a link. A link in the folder could send the write somewhere else, so nothing was written. Remove the link or choose a new folder name.`);
+    if (cur === target && !st.isFile()) throw new Error(`${cur} is not a plain file, so nothing was written. Choose a new folder name.`);
+  }
+}
+
+/** Is the file a starter keeps (the `.env`) already there? A link counts: it is refused by checkStarter first. */
+export const secretIsThere = (dir, files) => files.some((f) => f.secret && lstatOrNull(resolve(dir, f.path)) !== null);
+
 /**
- * Write a starter into `dir` (new or empty unless `force`). Returns { written, kept }: with `force`, a `.env` that is
- * already there is kept as it is (it may hold a key that is in use).
+ * Check a folder and every file about to be written, without writing: the folder is new or empty (or `force`), nothing
+ * goes outside it, and no path in it is a link. Throws an Error with a plain message.
  * @param {string} dir absolute
- * @param {ReturnType<typeof planStarter>} files
+ * @param {Array<{ path: string }>} files
  */
-export function writeStarter(dir, files, { force = false } = {}) {
+export function checkStarter(dir, files, { force = false } = {}) {
   if (existsSync(dir)) {
     if (!statSync(dir).isDirectory()) throw new Error(`${dir} is a file. Choose a new folder name.`);
-    if (readdirSync(dir).length > 0 && !force) throw new Error(`${dir} is not empty. Choose a new folder name, or add --force to write into it (nothing is deleted).`);
+    if (readdirSync(dir).length > 0 && !force) throw new Error(`${dir} is not empty. Choose a new folder name, or add --force to write into it (nothing is deleted; a file that is replaced is kept as .bak).`);
   }
-  const written = [];
-  const kept = [];
   for (const f of files) {
     const target = resolve(dir, f.path);
     // Starter paths are fixed by this repository; this guards the writer anyway.
     if (target !== dir && !target.startsWith(dir + sep)) throw new Error(`Refusing to write outside ${dir}: ${f.path}`);
-    if (f.secret && existsSync(target)) {
+    assertPlainTarget(dir, target);
+  }
+}
+
+/** A free `<path>.bak`, `<path>.bak2`, ... */
+function backupName(path) {
+  let name = `${path}.bak`;
+  for (let i = 2; lstatOrNull(name) !== null; i += 1) name = `${path}.bak${i}`;
+  return name;
+}
+
+/**
+ * Write a starter into `dir` (new or empty unless `force`). Returns { written, kept, backedUp }: with `force`, a `.env`
+ * that is already there is kept as it is (it may hold a key that is in use), and any other file that would be replaced
+ * with different content is first renamed to `<name>.bak`. A link anywhere in the folder is refused before anything is written.
+ * @param {string} dir absolute
+ * @param {ReturnType<typeof planStarter>} files
+ */
+export function writeStarter(dir, files, { force = false } = {}) {
+  checkStarter(dir, files, { force });
+  const written = [];
+  const kept = [];
+  const backedUp = [];
+  for (const f of files) {
+    const target = resolve(dir, f.path);
+    const there = lstatOrNull(target);
+    if (f.secret && there !== null) {
       kept.push(f.path);
       continue;
     }
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, f.content, { mode: f.secret ? 0o600 : f.executable ? 0o755 : 0o644 });
+    assertPlainTarget(dir, target); // again, after the folders above exist
+    if (there !== null && readFileSync(target, "utf8") !== f.content) {
+      const bak = backupName(target);
+      renameSync(target, bak);
+      backedUp.push({ path: f.path, backup: relative(dir, bak).split(sep).join("/") });
+    }
+    // `wx` and no-follow: if something appeared at the path since the check, this fails instead of writing through it
+    const flags = constants.O_WRONLY | constants.O_CREAT | (there !== null && !backedUp.some((b) => b.path === f.path) ? constants.O_TRUNC : constants.O_EXCL) | (constants.O_NOFOLLOW ?? 0);
+    const fd = openSync(target, flags, f.secret ? 0o600 : f.executable ? 0o755 : 0o644);
+    try {
+      writeSync(fd, f.content);
+    } finally {
+      closeSync(fd);
+    }
     written.push(f.path);
   }
-  return { written, kept };
+  return { written, kept, backedUp };
 }

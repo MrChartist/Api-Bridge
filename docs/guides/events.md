@@ -145,6 +145,11 @@ curl -X POST http://127.0.0.1:4300/v1/subscriptions -H "Authorization: Bearer $A
   -d '{"url":"https://example.com/bridge/events","topics":["order.*","download.*"],"secret":"'"$(openssl rand -hex 32)"'"}'
 ```
 
+A webhook target is an outside service, so `"*"` and a prefix such as `"order.*"` mean the **read** topics only. An admin topic (order
+tickets with symbol, side and size, webhook alert problems, backups, config warnings) is sent only when you list it by its exact name,
+for example `"ticket.prepared"`; the CLI prints a warning when you do. A prefix that matches only admin topics (`"ticket.*"`) is refused.
+The stream (`/v1/events/stream`) is different: it sends what the key behind it may see.
+
 Other commands: `subscriptions list | show | pause | resume | remove | rotate-secret | deliveries | dead-letters | tail`
 (`mc-bridge --help`), and `PATCH`, `DELETE /v1/subscriptions/{id}` over HTTP.
 
@@ -156,7 +161,7 @@ A `POST` with a JSON body (the same envelope as the stream) and these headers:
 |---|---|
 | `X-Bridge-Signature` | `v1=<hex>`: HMAC-SHA256 of `<timestamp>.<raw body>` with your secret |
 | `X-Bridge-Timestamp` | Whole seconds since 1970 when this attempt was signed |
-| `X-Bridge-Event-Id` | The event's cursor. **De-duplicate on it**: delivery is at least once |
+| `X-Bridge-Event-Id` | The event's cursor (the same value as `id` in the body). **Not signed**: do not de-duplicate on it. Use the `id` in the body, which the signature covers |
 | `X-Bridge-Event-Topic` | The topic |
 | `X-Bridge-Delivery` | This delivery's id (the same on every retry) |
 | `X-Bridge-Attempt` | 1 for the first try, 2 for the next, ... |
@@ -166,7 +171,9 @@ Answer with any `2xx` quickly. The answer's body is ignored. Anything else is a 
 ### Check the signature
 
 Always check it, on the **raw** body (before JSON parsing), and refuse a timestamp more than 5 minutes (300 seconds, set by
-`events.webhooks.replayWindowSec`) from your own clock, so a captured request cannot be sent again later. These three
+`events.webhooks.replayWindowSec`) from your own clock. Inside that window a captured copy is still valid, so also
+de-duplicate on the event `id` **from the verified body**: only the timestamp and the body are signed, never the headers.
+Delivery is at least once, so you need this for retries anyway. These three
 snippets are run by the Bridge's tests against the real signer, so they are checked, not just shown.
 
 Node (no packages):
@@ -199,7 +206,22 @@ A complete receiver with the same check (plain `node:http`; give it the secret i
 const http = require("node:http");
 const { verify } = require("./verify");
 
-const seen = new Set(); // event ids already handled: delivery is at least once
+const seen = new Map(); // event id -> time handled. Delivery is at least once, and a captured copy stays valid for 5 minutes
+const SEEN_MS = 10 * 60_000; // longer than the 5-minute signature window
+const MAX_SEEN = 10_000; // a bound, so a flood of events cannot grow it
+
+function seenBefore(id) {
+  const now = Date.now();
+  for (const [k, at] of seen) {
+    if (now - at > SEEN_MS) seen.delete(k);
+    else break; // oldest first: the rest are newer
+  }
+  if (typeof id !== "string") return false; // no id to match: handle it
+  if (seen.has(id)) return true;
+  seen.set(id, now);
+  while (seen.size > MAX_SEEN) seen.delete(seen.keys().next().value);
+  return false;
+}
 
 http
   .createServer((req, res) => {
@@ -209,12 +231,9 @@ http
       const rawBody = Buffer.concat(chunks);
       const ok = verify({ secret: process.env.SECRET, timestamp: req.headers["x-bridge-timestamp"], signature: req.headers["x-bridge-signature"], rawBody });
       if (!ok) return res.writeHead(401).end();
-      const eventId = req.headers["x-bridge-event-id"];
-      if (!seen.has(eventId)) {
-        seen.add(eventId);
-        const event = JSON.parse(rawBody.toString("utf8"));
-        console.log(event.topic, event.data);
-      }
+      const event = JSON.parse(rawBody.toString("utf8"));
+      // the id from the signed body, never the X-Bridge-Event-Id header (it is not signed: anyone can change it)
+      if (!seenBefore(event.id === undefined ? undefined : String(event.id))) console.log(event.topic, event.data);
       res.writeHead(204).end();
     });
   })

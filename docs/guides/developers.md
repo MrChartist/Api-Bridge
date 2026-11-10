@@ -93,7 +93,8 @@ X-Bridge-Signature: v1=<hex HMAC-SHA256(secret, "<timestamp>." + the exact raw b
 ```
 
 Verify it before you trust the body: sign the raw bytes (never re-serialised JSON), compare in constant time, reject a timestamp
-more than 300 seconds off, and remember `X-Bridge-Event-Id` so a retry is handled once (delivery is at least once). In Node:
+more than 300 seconds off, and remember the event `id` **from the verified body** so a retry or a captured copy is handled once (delivery is
+at least once). Do not use the `X-Bridge-Event-Id` header for that: it is not signed, so anyone holding a copy can change it. In Node:
 
 ```js
 import { createHmac, timingSafeEqual } from "node:crypto";

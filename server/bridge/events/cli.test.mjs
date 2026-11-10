@@ -69,6 +69,15 @@ describe("mc-bridge subscriptions", () => {
     expect(b.out.join("\n")).toContain("order.*,download.*");
   });
 
+  it("warns when a webhook names an admin topic, and says nothing for read topics (audit S11)", async () => {
+    const b = await bridge();
+    expect(await b.run(["add", URL_OK], { topics: "order.*,ticket.prepared" }, { randomSecret: () => "cd".repeat(32) })).toBe(0);
+    expect(b.out.join("\n")).toMatch(/Warning: ticket\.prepared is an admin topic .*sent to https:\/\/hooks\.example\.test/);
+    b.out.length = 0;
+    expect(await b.run(["add", URL_OK], { topics: "*" }, { randomSecret: () => "ef".repeat(32) })).toBe(0);
+    expect(b.out.join("\n")).not.toMatch(/Warning/);
+  });
+
   it("refuses a secret on the command line, a missing URL or topics, and a bad target", async () => {
     const b = await bridge();
     expect(await b.run(["add", URL_OK], { topics: "order.*", secret: "hunter2hunter2hunter2" })).toBe(1);

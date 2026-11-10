@@ -19,6 +19,16 @@ import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: urllib would send the Authorization header to wherever it points."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 # Routes a newer Bridge has and an older one answers with these codes.
 MISSING = {"NOT_FOUND", "NOT_IMPLEMENTED", "METHOD_NOT_ALLOWED"}
 
@@ -87,7 +97,7 @@ class Bridge:
         while True:
             req = urllib.request.Request(url, data=data, headers=headers, method=method)
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as res:
+                with _OPENER.open(req, timeout=timeout) as res:
                     text = res.read().decode()
                     answer = json.loads(text) if text else {}
                     answer["_http_status"] = res.status
@@ -137,7 +147,7 @@ class Bridge:
         req = urllib.request.Request(url, headers=self._headers({"Accept": "text/event-stream"}))
         deadline = time.time() + seconds
         try:
-            res = urllib.request.urlopen(req, timeout=5)
+            res = _OPENER.open(req, timeout=5)
         except urllib.error.HTTPError as e:
             try:
                 problem = json.loads(e.read().decode())

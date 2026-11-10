@@ -71,7 +71,7 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
   return async function sseHandler(ctx) {
     const token = ctx.query.get("token");
     let reused = await fromGrant(token, ctx.query);
-    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers });
+    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers, ip: ctx.clientIp });
     ctx.key = key;
     const symbols = (ctx.query.get("symbols") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const mode = ctx.query.get("mode") ?? "ltp";

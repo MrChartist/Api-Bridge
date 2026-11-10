@@ -10,7 +10,7 @@ import { createNullLogger } from "../../core/logger.mjs";
 import { createLibraryModule } from "../module.mjs";
 import { NOW, calendarWith, fakeSymbols, standardMarket } from "./fakes.mjs";
 
-/** @param {{ library?: object, now?: number, market?: any, holidays?: string[] }} [o] */
+/** @param {{ library?: object, now?: number, market?: any, holidays?: string[], overrides?: object }} [o] */
 export async function startLibraryApp(o = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-libapp-"));
   const clock = { t: o.now ?? NOW, now() { return this.t; } };
@@ -21,7 +21,7 @@ export async function startLibraryApp(o = {}) {
   const app = await createApp({
     config,
     modules: [createLibraryModule({ calendar: calendarWith(o.holidays ?? []) })],
-    overrides: { keyStore, marketData: market, symbols: fakeSymbols() },
+    overrides: { keyStore, marketData: market, symbols: fakeSymbols(), ...(o.overrides ?? {}) },
     logger: createNullLogger(),
     clock,
   });

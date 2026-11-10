@@ -67,15 +67,17 @@ export function patternMatches(pattern, topic) {
 /**
  * Check a list of topic filters. Each must be "*", a topic, or a prefix with ".*" that matches at least one topic.
  * @param {unknown} patterns
+ * @param {{ webhook?: boolean }} [o] webhook: a filter must match at least one topic a webhook can receive (see webhookMatches)
  * @returns {{ ok: true, patterns: string[] } | { ok: false, message: string }}
  */
-export function checkTopicPatterns(patterns) {
+export function checkTopicPatterns(patterns, { webhook = false } = {}) {
   if (!Array.isArray(patterns) || patterns.length === 0) return { ok: false, message: "Give at least one topic, for example [\"order.*\"] or [\"*\"]." };
   if (patterns.length > 50) return { ok: false, message: "At most 50 topics." };
   const out = [];
   for (const p of patterns) {
     if (typeof p !== "string" || p.length > 64 || !PATTERN_RE.test(p)) return { ok: false, message: `"${String(p).slice(0, 40)}" is not a topic. Use a name from GET /v1/events/topics, "order.*" or "*".` };
     if (!EVENT_TOPICS.some((t) => patternMatches(p, t.topic))) return { ok: false, message: `No topic matches "${p}". See GET /v1/events/topics.` };
+    if (webhook && !EVENT_TOPICS.some((t) => webhookMatches([p], t.topic))) return { ok: false, message: `"${p}" only matches admin topics. A webhook sends an admin topic (order tickets, webhook alert problems, backups, config warnings) only when you list it by its exact name, for example "ticket.prepared".` };
     if (!out.includes(p)) out.push(p);
   }
   return { ok: true, patterns: out };
@@ -83,6 +85,19 @@ export function checkTopicPatterns(patterns) {
 
 /** Whether any of the patterns matches the topic. */
 export const matchesAny = (patterns, topic) => patterns.some((p) => patternMatches(p, topic));
+
+/**
+ * Whether a webhook subscription receives a topic. Its target is an outside service, so "*" and "order.*" mean the READ
+ * topics only: an admin topic (order tickets with symbol, side and size, webhook alerts, backups, config warnings) is sent
+ * only when the subscription lists it by its exact name.
+ */
+export function webhookMatches(patterns, topic) {
+  if (topicInfo(topic)?.scope === "admin") return patterns.includes(topic);
+  return matchesAny(patterns, topic);
+}
+
+/** The admin topics a list of webhook patterns names exactly (for a plain warning when the webhook is made). */
+export const adminTopicsNamed = (patterns) => patterns.filter((p) => topicInfo(p)?.scope === "admin");
 
 /** Topic filters from a query string value: "order.*,download.*". */
 export function parsePatternList(value) {

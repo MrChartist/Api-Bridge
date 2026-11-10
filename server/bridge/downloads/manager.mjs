@@ -25,6 +25,8 @@ import { parseSymbol } from "../core/symbolFormat.mjs";
 import { INTERVALS, planInterval } from "../market/history.mjs";
 import { parseMarketConfig } from "../market/config.mjs";
 import { createLocalStore, subtractCoverage } from "../market/localStore.mjs";
+import { MAX_BACKGROUND_SHARE } from "../ratelimit/backgroundGate.mjs";
+import { freeBytesOf } from "../recorder/files.mjs";
 import { record as recordSaved } from "../market/savedCalls.mjs";
 import { DAY_MS, istDate, parseTimeInput, toIstIso } from "../market/time.mjs";
 import { EXTENSIONS, FORMATS, LAYOUTS, coveredUpTo, decodeLine, encodeBars, exchangeOf, findHoles, headerText, isClosedBar, lastBarOf, normaliseBar, readBars, trimPartialTail } from "./bars.mjs";
@@ -40,7 +42,7 @@ const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
 const FINISHED = new Set(["done", "failed", "cancelled"]);
 /** Pause reasons that clear by themselves: the job continues when the cause is gone. */
-const AUTO_REASONS = new Set(["kill_switch", "session_lost", "market_hours"]);
+const AUTO_REASONS = new Set(["kill_switch", "session_lost", "market_hours", "disk_low"]);
 const CLASS_RANK = Object.freeze({ realtime: 0, delayed: 1, eod: 2 });
 const TRANSIENT = new Set(["UPSTREAM_RATE_LIMITED", "UPSTREAM_TIMEOUT", "BROKER_UNAVAILABLE"]);
 /** Longest single wait inside a job before it looks at pause, cancel and the kill switch again. */
@@ -80,7 +82,8 @@ class DiskLimit extends Error {}
 
 /**
  * @param {object} deps core deps plus accounts, scheduler, marketData, safety (a stub or missing one is tolerated)
- * @param {{ sleep?: (ms: number, signal?: AbortSignal) => Promise<void>, calendar?: any, random?: () => number, getLibrary?: () => any }} [opts]
+ * @param {{ sleep?: (ms: number, signal?: AbortSignal) => Promise<void>, calendar?: any, random?: () => number, getLibrary?: () => any,
+ *   statfs?: (dir: string) => number | null }} [opts] statfs: free bytes of the disk that holds a folder (tests; the real one is used otherwise)
  */
 export function createDownloadManager(deps, opts = {}) {
   const { bus, logger } = deps;
@@ -96,6 +99,7 @@ export function createDownloadManager(deps, opts = {}) {
   const calendar = opts.calendar ?? sharedCalendar();
   const random = opts.random ?? Math.random;
   const sleep = opts.sleep ?? defaultSleep;
+  const freeBytes = opts.statfs ?? freeBytesOf;
   let getLibrary = opts.getLibrary ?? (() => undefined);
 
   const datasets = createDatasets({ dataDir, now });
@@ -119,6 +123,46 @@ export function createDownloadManager(deps, opts = {}) {
   const iso = (sec) => (Number.isFinite(sec) ? toIstIso(sec * 1000) : null);
   const isTradingDay = (date, exchange) => (CALENDAR_EXCHANGES.includes(exchange) ? calendar.isTradingDay(date, exchange) : [1, 2, 3, 4, 5].includes(new Date(`${date}T00:00:00Z`).getUTCDay()));
 
+  // ───────────────────────── who may change what ─────────────────────────
+
+  const isOpen = (j) => j.status === "queued" || j.status === "running" || j.status === "paused";
+  const writtenBytes = (j) => j.items.reduce((a, it) => a + (it.bytes ?? 0), 0);
+  /** Bytes that open jobs are still expected to write (their estimate minus what they have written), so queued jobs count against the disk limit. */
+  const pendingBytes = () => {
+    let total = 0;
+    for (const j of jobs.values()) if (isOpen(j)) total += Math.max(0, (j.estBytes ?? 0) - writtenBytes(j));
+    return total;
+  };
+
+  /**
+   * Only the key that started a job or dataset, or an admin, may change it. `actor` ({ id, admin }) comes from the route;
+   * calls from inside the Bridge (pause on kill switch, retention) pass none. A job or dataset made before owners were
+   * recorded has no owner, so only an admin may change it.
+   */
+  function authorize(owner, actor, what) {
+    if (!actor || actor.admin === true) return;
+    if (owner && owner === actor.id) return;
+    throw new BridgeError("SCOPE_REQUIRED", `Only the key that started this ${what}, or an admin key, may change it.`);
+  }
+
+  /** Refuse a new job when too many are open or stored. Run twice in create(): before the slow work and again right before the job is added. */
+  function checkRoom(actor) {
+    const c = cfg();
+    const open = [...jobs.values()].filter(isOpen);
+    if (open.length >= c.maxQueuedJobs) {
+      throw new BridgeError("RATE_LIMITED", `${open.length} download jobs are already waiting, running or paused (downloads.maxQueuedJobs is ${c.maxQueuedJobs}). Wait for some to finish, or cancel and delete the ones you do not need.`, { retryAfterMs: 60_000 });
+    }
+    if (actor?.id && actor.id !== "local") {
+      const mine = open.filter((j) => j.createdBy === actor.id).length;
+      if (mine >= c.maxQueuedJobsPerKey) {
+        throw new BridgeError("RATE_LIMITED", `This key already has ${mine} open download jobs (downloads.maxQueuedJobsPerKey is ${c.maxQueuedJobsPerKey}). Wait for some to finish, or cancel the ones you do not need.`, { retryAfterMs: 60_000 });
+      }
+    }
+    if (jobs.size >= c.maxStoredJobs) {
+      throw new BridgeError("RATE_LIMITED", `${jobs.size} download jobs are stored (downloads.maxStoredJobs is ${c.maxStoredJobs}). Delete old jobs, or set downloads.retentionDays so finished ones are removed by themselves.`, { retryAfterMs: 60_000 });
+    }
+  }
+
   // ───────────────────────── persistence ─────────────────────────
 
   function persistNow(job) {
@@ -129,7 +173,7 @@ export function createDownloadManager(deps, opts = {}) {
     }
     const prev = writes.get(job.id) ?? Promise.resolve();
     const snapshot = JSON.parse(JSON.stringify(job));
-    const next = prev.catch(() => {}).then(() => writeJsonAtomic(join(jobDir(job.id), "job.json"), snapshot));
+    const next = prev.catch(() => {}).then(() => writeJsonAtomic(join(jobDir(job.id), "job.json"), snapshot, { compact: true }));
     writes.set(job.id, next);
     next.then(
       () => writes.get(job.id) === next && writes.delete(job.id),
@@ -232,6 +276,7 @@ export function createDownloadManager(deps, opts = {}) {
       delaySec: job.delaySec ?? null,
       callsSaved: job.savedCalls ?? 0,
       notes: job.notes ?? [],
+      createdBy: job.createdBy ?? null,
       createdAt: job.createdAt,
       startedAt: job.startedAt ?? null,
       finishedAt: job.finishedAt ?? null,
@@ -457,7 +502,10 @@ export function createDownloadManager(deps, opts = {}) {
     }
     const time = timeAtShare(est.calls, windows, c.maxBudgetShare);
     const used = diskBytes;
+    const queued = pendingBytes();
     const max = c.maxDiskMb * MB;
+    const free = freeBytes(dataDir);
+    const minFree = c.minFreeDiskMb * MB;
     const notes = ["Rows assume every trading minute has a bar; a thin stock has fewer. The time assumes the broker's published limit is the only limit."];
     if (!accountId) notes.push(req.backup ? "No broker account was found; the time depends on the data source." : "No connected broker account can serve history right now, so the job would wait for a login.");
     if (est.callsSaved > 0) notes.push(`${est.callsSaved} broker calls are saved because that part is already stored on this computer.`);
@@ -479,7 +527,14 @@ export function createDownloadManager(deps, opts = {}) {
       account: accountId ?? null,
       broker,
       alreadyStored: est.upToDate,
-      disk: { usedBytes: used, maxBytes: max, wouldExceed: used + est.bytes > max },
+      disk: {
+        usedBytes: used,
+        queuedBytes: queued,
+        maxBytes: max,
+        freeBytes: free,
+        minFreeBytes: minFree,
+        wouldExceed: used + queued + est.bytes > max || (free !== null && minFree > 0 && free - queued - est.bytes < minFree),
+      },
       notes,
     };
   }
@@ -495,18 +550,33 @@ export function createDownloadManager(deps, opts = {}) {
   async function create(body, o = {}) {
     const c = cfg();
     const p = await plan(body, o);
+    const req = p.request;
+    // A dataset someone else made is not written to by a key that does not own it (an admin may).
+    if (req.dataset && !p.fromDataset) {
+      const meta = datasets.get(req.dataset);
+      if (meta) authorize(meta.createdBy, o.actor, "dataset");
+    }
+    const updating = req.dataset && p.fromDataset && [...jobs.values()].some((j) => j.dataset === req.dataset && (j.status === "queued" || j.status === "running"));
+    if (!updating) checkRoom(o.actor);
     const est = await estimateOf(p, o);
     if (est.disk.wouldExceed) {
-      throw new BridgeError("VALIDATION_FAILED", `This download is about ${Math.ceil(est.bytes / MB)} MB and the downloads folder is at ${Math.ceil(est.disk.usedBytes / MB)} of ${c.maxDiskMb} MB (downloads.maxDiskMb). Delete old downloads, ask for less, or raise the limit.`, { errors: [{ path: "downloads.maxDiskMb", message: "would exceed the disk limit" }] });
+      const d = est.disk;
+      const low = d.freeBytes !== null && d.minFreeBytes > 0 && d.freeBytes - d.queuedBytes - est.bytes < d.minFreeBytes;
+      throw new BridgeError(
+        "VALIDATION_FAILED",
+        low && d.usedBytes + d.queuedBytes + est.bytes <= d.maxBytes
+          ? `This download is about ${Math.ceil(est.bytes / MB)} MB but the disk has only ${Math.floor(d.freeBytes / MB)} MB free, and downloads stop at ${c.minFreeDiskMb} MB free (downloads.minFreeDiskMb). Free some disk space or ask for less.`
+          : `This download is about ${Math.ceil(est.bytes / MB)} MB and the downloads folder is at ${Math.ceil(d.usedBytes / MB)} MB${d.queuedBytes ? ` plus ${Math.ceil(d.queuedBytes / MB)} MB still expected from queued jobs` : ""} of ${c.maxDiskMb} MB (downloads.maxDiskMb). Delete old downloads, ask for less, or raise the limit.`,
+        { errors: [{ path: low ? "downloads.minFreeDiskMb" : "downloads.maxDiskMb", message: low ? "would leave too little free disk" : "would exceed the disk limit" }] },
+      );
     }
-    const req = p.request;
     if (req.dataset) {
       const active = [...jobs.values()].find((j) => j.dataset === req.dataset && (j.status === "queued" || j.status === "running"));
       if (active) {
         if (p.fromDataset) return { job: publicJob(active), existing: true };
         throw new BridgeError("STATE_CONFLICT", `Dataset ${req.dataset} is already being updated by job ${active.id}. Wait for it, or cancel it first.`);
       }
-      await datasets.ensure(req.dataset, { format: req.format, request: { symbols: req.symbols, collection: req.collection ?? null, intervals: req.intervals, from: req.from, backup: req.backup, account: req.account, afterHoursOnly: req.afterHoursOnly }, tags: p.tags });
+      await datasets.ensure(req.dataset, { format: req.format, request: { symbols: req.symbols, collection: req.collection ?? null, intervals: req.intervals, from: req.from, backup: req.backup, account: req.account, afterHoursOnly: req.afterHoursOnly }, tags: p.tags, createdBy: o.actor?.id ?? null, guard: p.fromDataset ? undefined : (meta) => authorize(meta.createdBy, o.actor, "dataset") });
     }
     const id = `dl_${randomBytes(6).toString("hex")}`;
     const name = p.name ?? req.dataset ?? `download-${istDate(now())}`;
@@ -536,6 +606,8 @@ export function createDownloadManager(deps, opts = {}) {
       fromSec: p.fromSec,
       toSec: p.toSec,
       allowedAccounts: o.allowedAccounts ?? null,
+      createdBy: o.actor?.id ?? null,
+      estBytes: est.bytes,
       combinedBase: combined ? combinedBase : null,
       dataClass: "realtime",
       sources: [],
@@ -548,10 +620,14 @@ export function createDownloadManager(deps, opts = {}) {
       items,
     };
     if (p.collection) job.notes.push(`Symbols come from collection "${p.collection.name}", resolved ${p.collection.resolvedAt}${p.collection.rule ? ` (${typeof p.collection.rule === "string" ? p.collection.rule : JSON.stringify(p.collection.rule)})` : ""}.`);
+    // Checked again with no wait in between: two requests that passed the first check together cannot both take the last place.
+    checkRoom(o.actor);
     jobs.set(id, job);
     await mkdir(join(jobDir(id), "parts"), { recursive: true, mode: 0o700 });
     await persistNow(job);
     await writeManifest(job);
+    // job.json and the manifest are on the disk now: count them (a 5000-item job is about a megabyte).
+    diskBytes += (await sizeOf(join(jobDir(id), "job.json"))) + (await sizeOf(join(jobDir(id), "manifest.json")));
     queueMicrotask(pump);
     return { job: publicJob(job), existing: false };
   }
@@ -659,11 +735,39 @@ export function createDownloadManager(deps, opts = {}) {
       if (killEngaged()) throw new PauseJob("kill_switch", "The kill switch is on, so downloads are paused. They continue when it is released.");
     }
     if (rt) rt.waiting = null;
+    checkFree(0); // no point asking the broker for bars there is no room to write
+  }
+
+  /** Pause (reason disk_low) while the disk that holds the data folder would be left with less than downloads.minFreeDiskMb free. */
+  function checkFree(extra) {
+    const c = cfg();
+    if (c.minFreeDiskMb <= 0) return;
+    const free = freeBytes(dataDir);
+    if (free !== null && free - extra < c.minFreeDiskMb * MB) {
+      throw new PauseJob("disk_low", `The disk has only ${Math.floor(free / MB)} MB free (downloads.minFreeDiskMb is ${c.minFreeDiskMb}), so downloads are paused so nothing else on this computer is starved. They continue when there is room.`);
+    }
   }
 
   async function ensureDisk(extra) {
     const max = cfg().maxDiskMb * MB;
     if (diskBytes + extra > max) throw new DiskLimit(`The downloads folder reached its limit of ${cfg().maxDiskMb} MB (downloads.maxDiskMb), so writing stopped. Free some space (delete old downloads) and resume the job.`);
+    checkFree(extra);
+  }
+
+  /**
+   * The share passed to the scheduler as a hard floor: the product's own limit (never below half of any window). The
+   * pacer keeps the stricter configured share on top. A window of ONE call a second can never keep a floor (half of one
+   * call leaves nothing), so for such a broker the pacer alone spaces the calls.
+   */
+  function floorShareFor(accountId) {
+    if (!accountId) return undefined;
+    try {
+      const v = deps.scheduler?.headroomWindows?.(accountId, "history");
+      if (v?.windows?.some((w) => Number.isFinite(w.limit) && w.limit <= 1)) return undefined;
+    } catch {
+      /* a scheduler that cannot list its windows: keep the floor */
+    }
+    return MAX_BACKGROUND_SHARE;
   }
 
   /** One window = one broker call, with the budget share, retries and the pause conditions. */
@@ -688,6 +792,10 @@ export function createDownloadManager(deps, opts = {}) {
       if (job.request.backup) callOpts.allowBackup = true;
       if (job.request.account) callOpts.accountId = job.request.account;
       else if (!job.request.backup && accountId) callOpts.accountId = accountId;
+      // The pacer above only waits. The scheduler must also re-check the floor when it takes the budget, or live traffic
+      // that spends the budget between that check and the call pushes the account below half (ratelimit/backgroundGate.mjs).
+      const floor = floorShareFor(callOpts.accountId);
+      if (floor !== undefined) callOpts.backgroundShare = floor;
       try {
         const res = await deps.marketData.history({ symbol: item.symbol, interval: item.interval, from: win.from, to: win.to }, callOpts);
         if (res.partial) throw new BridgeError("UPSTREAM_ERROR", "The broker answered only part of this window.", { retryable: true });
@@ -874,6 +982,8 @@ export function createDownloadManager(deps, opts = {}) {
       const s = datasets.seriesOf(meta, item.symbol, item.interval);
       const file = datasets.filePath(meta, s);
       await mkdir(datasets.dirOf(job.dataset), { recursive: true });
+      // The part file and the dataset file both exist for a moment: count the second copy.
+      if (item.rows > 0) await ensureDisk(item.partBytes);
       if (item.rows > 0) await appendNewBars(part, file, { format: meta.format, interval: item.interval, headerFirst: headerText({ format: meta.format, layout: "per-symbol", interval: item.interval }) });
       await removeQuiet(part);
       const size = await sizeOf(file);
@@ -930,6 +1040,7 @@ export function createDownloadManager(deps, opts = {}) {
       for (const interval of req.intervals) {
         const parts = job.items.map((it, i) => ({ it, i })).filter(({ it }) => it.interval === interval && it.status === "done" && it.rows > 0);
         if (!parts.length) continue;
+        await ensureDisk(parts.reduce((a, { it }) => a + (it.partBytes ?? 0), 0)); // the combined file is a second copy of the parts
         const name = uniqueName(`${job.combinedBase}_${interval}`, ext, taken);
         const final = join(jobDir(job.id), name);
         const tmp = `${final}.tmp`;
@@ -1009,8 +1120,9 @@ export function createDownloadManager(deps, opts = {}) {
     if (rt) await rt.promise.catch(() => {});
   }
 
-  async function pause(id, { reason = "user", message } = {}) {
+  async function pause(id, { reason = "user", message, actor } = {}) {
     const job = need(id);
+    authorize(job.createdBy, actor, "job");
     if (job.status !== "running" && job.status !== "queued") throw new BridgeError("STATE_CONFLICT", `Job ${id} is ${job.status}; only a queued or running job can be paused.`);
     job.status = "paused";
     job.reason = reason;
@@ -1024,8 +1136,9 @@ export function createDownloadManager(deps, opts = {}) {
     return publicJob(job);
   }
 
-  async function resume(id) {
+  async function resume(id, { actor } = {}) {
     const job = need(id);
+    authorize(job.createdBy, actor, "job");
     if (job.status === "paused") {
       job.status = "queued";
       job.reason = null;
@@ -1042,8 +1155,9 @@ export function createDownloadManager(deps, opts = {}) {
     return publicJob(job);
   }
 
-  async function cancel(id) {
+  async function cancel(id, { actor } = {}) {
     const job = need(id);
+    authorize(job.createdBy, actor, "job");
     if (FINISHED.has(job.status)) throw new BridgeError("STATE_CONFLICT", `Job ${id} is already ${job.status}.`);
     job.status = "cancelled";
     job.reason = "user";
@@ -1075,8 +1189,9 @@ export function createDownloadManager(deps, opts = {}) {
     diskBytes = await folderBytes(join(dataDir, "downloads"));
   }
 
-  function patchJob(id, body) {
+  async function patchJob(id, body, { actor } = {}) {
     const job = need(id);
+    authorize(job.createdBy, actor, "job");
     const parsed = patchSchema.safeParse(body ?? {});
     if (!parsed.success) throw fromValidation(parsed.error);
     if (parsed.data.name !== undefined) job.name = parsed.data.name;
@@ -1115,7 +1230,11 @@ export function createDownloadManager(deps, opts = {}) {
       throw new BridgeError("NOT_FOUND", `The file "${String(name).slice(0, 80)}" is no longer on disk.`);
     }
     const format = name === "manifest.json" ? "json" : job.request.format;
-    return { path, size, name, format, job: { dataClass: job.dataClass, source: job.sources.join(", ") || null, official: job.official, delaySec: job.delaySec } };
+    // A dataset file keeps growing after the job that wrote it: a later backup or end-of-day update may have added bars of
+    // a worse class. The labels are the dataset's own (its least current class), never the job's older ones.
+    const ds = job.dataset && name !== "manifest.json" ? datasets.get(job.dataset) : null;
+    const labels = ds ? { dataClass: ds.dataClass, source: ds.source ?? null, official: ds.official ?? null, delaySec: ds.delaySec ?? null } : { dataClass: job.dataClass, source: job.sources.join(", ") || null, official: job.official, delaySec: job.delaySec };
+    return { path, size, name, format, job: labels };
   }
 
   // ───────────────────────── datasets ─────────────────────────
@@ -1143,18 +1262,28 @@ export function createDownloadManager(deps, opts = {}) {
     return create(body, { ...o, fromDataset: true });
   }
 
-  async function patchDataset(name, body) {
+  async function patchDataset(name, body, { actor } = {}) {
     checkDatasetName(name);
     const schema = z.object({ name: z.string().optional(), title: z.string().max(120).nullable().optional(), tags: z.array(z.string()).max(20).optional() }).strict();
     const parsed = schema.safeParse(body ?? {});
     if (!parsed.success) throw fromValidation(parsed.error);
-    if (!datasets.get(name)) throw new BridgeError("NOT_FOUND", `There is no dataset "${name}".`);
+    const existing = datasets.get(name);
+    if (!existing) throw new BridgeError("NOT_FOUND", `There is no dataset "${name}".`);
+    authorize(existing.createdBy, actor, "dataset");
     let current = name;
     if (parsed.data.name !== undefined && parsed.data.name !== name) {
       if (activeJobOf(name)) throw new BridgeError("STATE_CONFLICT", `Dataset ${name} has a job that is not finished. Wait for it or cancel it, then rename.`);
       await datasets.rename(name, parsed.data.name);
       current = parsed.data.name;
-      for (const j of jobs.values()) if (j.dataset === name) j.dataset = current;
+      // Every job that wrote into it follows the new name, on disk too (after a restart it must not point at the old name,
+      // which a new dataset may use again).
+      for (const j of jobs.values()) {
+        if (j.dataset !== name) continue;
+        j.dataset = current;
+        if (j.request) j.request = { ...j.request, dataset: current };
+        await persistNow(j).catch(() => {});
+        if (!isOpen(j)) await writeManifest(j).catch(() => {});
+      }
     }
     const tags = cleanTags(parsed.data.tags);
     if (tags !== undefined || parsed.data.title !== undefined) await datasets.patch(current, { tags, title: parsed.data.title });
@@ -1220,10 +1349,41 @@ export function createDownloadManager(deps, opts = {}) {
     }
   }
 
+  /** Jobs paused for lack of disk continue once the disk has clearly more room than the floor (a quarter more, at least 50 MB). */
+  async function resumeIfRoom() {
+    if (![...jobs.values()].some((j) => j.status === "paused" && j.reason === "disk_low")) return;
+    const floor = cfg().minFreeDiskMb * MB;
+    const free = freeBytes(dataDir);
+    if (floor <= 0 || free === null || free >= floor + Math.max(50 * MB, floor / 4)) await resumeAuto("disk_low");
+  }
+
+  /** Pause the open jobs of a key that was revoked: a leaked key must not keep using the broker budget and the disk. */
+  async function pauseJobsOfKey(keyId) {
+    if (!cfg().pauseOnKeyRevoked) return;
+    await pauseAuto("key_revoked", "The API key that started this job was revoked, so the job is paused. An admin key can resume or cancel it.", (j) => j.createdBy === `key:${keyId}`);
+  }
+
+  /** A key revoked by another process (`mc-bridge keys revoke` while the Bridge runs) sends no event: look at the keys of open jobs. */
+  async function checkKeysOfOpenJobs() {
+    if (!cfg().pauseOnKeyRevoked || typeof deps.keyStore?.get !== "function") return;
+    const ids = new Set([...jobs.values()].filter((j) => (j.status === "running" || j.status === "queued") && typeof j.createdBy === "string" && j.createdBy.startsWith("key:")).map((j) => j.createdBy.slice(4)));
+    for (const id of ids) {
+      let rec;
+      try {
+        rec = await deps.keyStore.get(id);
+      } catch {
+        continue;
+      }
+      if (!rec || rec.revokedAt) await pauseJobsOfKey(id);
+    }
+  }
+
   /** Periodic checks: automatic resume and pause, retention. Exposed so tests can run it. */
   async function tick() {
     if (killEngaged()) await pauseAuto("kill_switch", "The kill switch is on, so downloads are paused. They continue when it is released.");
     else await resumeAuto("kill_switch");
+    await resumeIfRoom();
+    await checkKeysOfOpenJobs();
     await onAccountChange();
     await sweepRetention();
   }
@@ -1312,6 +1472,7 @@ export function createDownloadManager(deps, opts = {}) {
         if (e?.engaged) pauseAuto("kill_switch", "The kill switch is on, so downloads are paused. They continue when it is released.").catch(() => {});
         else resumeAuto("kill_switch").catch(() => {});
       }),
+      bus.on("key.revoked", (e) => (e?.keyId ? pauseJobsOfKey(e.keyId).catch(() => {}) : undefined)),
       bus.on("account.status", () => onAccountChange().catch(() => {})),
       bus.on("account.session_rejected", () => onAccountChange().catch(() => {})),
     );

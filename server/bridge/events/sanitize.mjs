@@ -21,8 +21,16 @@ const VALUE_RE = [
   /mct_[A-Za-z0-9_-]{8,}/g, // order-approval tokens
   /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi,
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}/g,
+  /mcbctl_[A-Za-z0-9_-]{8,}/g, // the control token of this computer
+  /whsec_[A-Za-z0-9_-]{8,}/g, // a webhook signing secret
+  /https?:\/\/hooks\.slack\.com\/services\/\S+/gi, // a chat webhook URL is a credential
+  /\/hooks\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]{16,}/g, // the ingest path of a Bridge hook: its last part is the secret
+  /\b(?:x-api-key|x-auth-token|authorization)\s*[:=]\s*\S{8,}/gi, // a header copied into an error text
+  /\b(?:access[_-]?token|refresh[_-]?token|api[_-]?key|apikey|client[_-]?secret|secret|token|password|passwd|signature|sig)=[^\s&"',;]{6,}/gi, // key=value pairs in a URL or a message
+  /\b(?:token|key|secret)\s+[A-Za-z0-9_-]{4,}:[A-Za-z0-9._~+/=-]{8,}/gi, // "token <id>:<secret>"
 ];
 const MASK = "[removed]";
+const TEXT_FIELD_RE = /^(message|error|reason|detail|note|description)$/i;
 
 /** True when a field must never appear in an event. */
 export const isForbiddenField = (name) => FORBIDDEN_NAME_RE.test(String(name));
@@ -46,7 +54,9 @@ function walk(v, depth, seen) {
   const out = {};
   for (const [k, x] of Object.entries(v)) {
     if (isForbiddenField(k)) continue;
-    const w = walk(x, depth + 1, seen);
+    // Free text that carries an upstream error body (download.failed.message comes from a broker): the logger's own value
+    // patterns run on top of this module's, so a pattern added there protects events too.
+    const w = TEXT_FIELD_RE.test(k) && typeof x === "string" ? scrub(String(redact(x))) : walk(x, depth + 1, seen);
     if (w !== undefined) out[k] = w;
   }
   return out;

@@ -153,7 +153,12 @@ describe("access", () => {
       "/v1/subscriptions/:subscriptionId/test",
     ]);
     // writes that reach an outside URL are this-computer-only
-    for (const r of mine.filter((x) => x.method === "POST" || x.method === "PATCH")) expect(r.options.loopbackOnly, `${r.method} ${r.pattern}`).toBe(true);
+    for (const r of mine.filter((x) => x.method === "POST" || x.method === "PATCH" || x.method === "DELETE")) expect(r.options.loopbackOnly, `${r.method} ${r.pattern}`).toBe(true);
+    // a remote admin key cannot delete a subscription or clear its dead letters (audit S12c)
+    for (const path of ["/v1/subscriptions/sub_aaaaaaaa", "/v1/subscriptions/sub_aaaaaaaa/dead-letters"]) {
+      const far = await b.request({ method: "DELETE", path, key: b.keys.admin.key, headers: { "X-Forwarded-For": "192.0.2.5" } });
+      expect([path, far.status, far.json?.code]).toEqual([path, 403, "LOOPBACK_ONLY"]);
+    }
     // a stream upgrade is not a write: a client's message cannot change anything
     const ws = wsClient(`ws://127.0.0.1:${b.port}/v1/events/ws`, { headers: auth(b.keys.admin.key) });
     await ws.open;
@@ -543,7 +548,7 @@ describe("webhook subscription routes", () => {
 describe("events can never approve an order or carry a secret", () => {
   it("no response, frame or webhook body from the module has a confirm token, a key, a token or a secret", async () => {
     const b = await boot();
-    const sub = await b.request({ method: "POST", path: "/v1/subscriptions", key: b.keys.admin.key, body: { url: URL_OK, topics: ["*"], secret: SECRET } });
+    const sub = await b.request({ method: "POST", path: "/v1/subscriptions", key: b.keys.admin.key, body: { url: URL_OK, topics: ["*", "ticket.prepared", "ticket.confirmed", "hook.rejected", "config.warning"], secret: SECRET } });
     const id = sub.json.data.id;
     const stream = sse(b.port, "/v1/events/stream", auth(b.keys.admin.key));
     const ws = wsClient(`ws://127.0.0.1:${b.port}/v1/events/ws`, { headers: auth(b.keys.admin.key) });
@@ -584,9 +589,24 @@ describe("events can never approve an order or carry a secret", () => {
     ws.ws.close();
   });
 
+  it("a \"*\" webhook gets read topics only; admin topics need their exact name, and a prefix that matches only admin topics is refused", async () => {
+    const b = await boot();
+    const star = await b.request({ method: "POST", path: "/v1/subscriptions", key: b.keys.admin.key, body: { url: URL_OK, topics: ["*"], secret: SECRET } });
+    expect(star.status).toBe(201);
+    const prefix = await b.request({ method: "POST", path: "/v1/subscriptions", key: b.keys.admin.key, body: { url: URL_OK, topics: ["ticket.*"], secret: SECRET } });
+    expect(prefix.status).toBe(400);
+    expect(prefix.json.detail).toMatch(/only matches admin topics/);
+    b.emit("ticket.prepared", { ticketId: "tkt_1", accountId: "dhan-main", symbol: "NSE:RELIANCE", side: "BUY", quantity: 10 });
+    b.emit("backup.completed", { path: "x" });
+    b.emit("account.status", { accountId: "dhan-main", broker: "dhan", session: "expired" });
+    await waitFor(() => b.receiver.calls.length >= 1);
+    await settle(50);
+    expect(b.receiver.calls.map((c) => JSON.parse(c.body).topic)).toEqual(["account.status"]);
+  });
+
   it("ignores everything a receiver answers: no reply is read or acted on", async () => {
     const b = await boot();
-    await b.request({ method: "POST", path: "/v1/subscriptions", key: b.keys.admin.key, body: { url: URL_OK, topics: ["ticket.*"], secret: SECRET } });
+    await b.request({ method: "POST", path: "/v1/subscriptions", key: b.keys.admin.key, body: { url: URL_OK, topics: ["ticket.prepared"], secret: SECRET } });
     let confirmed = 0;
     b.app.deps.bus.on("ticket.confirmed", () => (confirmed += 1));
     b.emit("ticket.prepared", { ticketId: "tkt_1", accountId: "dhan-main", confirmToken: "mct_abcdefabcdefabcdef" });

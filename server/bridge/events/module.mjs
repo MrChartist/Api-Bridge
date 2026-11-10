@@ -35,11 +35,11 @@ export const ROUTES = Object.freeze([
   ["POST", "/v1/subscriptions", ADMIN_LOCAL_JSON, "createSubscription"],
   ["GET", "/v1/subscriptions/:subscriptionId", ADMIN, "getSubscription"],
   ["PATCH", "/v1/subscriptions/:subscriptionId", ADMIN_LOCAL_JSON, "patchSubscription"],
-  ["DELETE", "/v1/subscriptions/:subscriptionId", ADMIN, "deleteSubscription"],
+  ["DELETE", "/v1/subscriptions/:subscriptionId", ADMIN_LOCAL_NO_BODY, "deleteSubscription"],
   ["POST", "/v1/subscriptions/:subscriptionId/test", ADMIN_LOCAL_NO_BODY, "testSubscription"],
   ["GET", "/v1/subscriptions/:subscriptionId/deliveries", ADMIN, "listDeliveries"],
   ["GET", "/v1/subscriptions/:subscriptionId/dead-letters", ADMIN, "listDeadLetters"],
-  ["DELETE", "/v1/subscriptions/:subscriptionId/dead-letters", ADMIN, "clearDeadLetters"],
+  ["DELETE", "/v1/subscriptions/:subscriptionId/dead-letters", ADMIN_LOCAL_NO_BODY, "clearDeadLetters"],
   ["POST", "/v1/subscriptions/:subscriptionId/dead-letters/:deliveryId/retry", ADMIN_LOCAL_NO_BODY, "retryDeadLetter"],
 ]);
 

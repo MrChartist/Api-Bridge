@@ -3,8 +3,9 @@
  * project is RUN against a real demo Bridge (loopback only, in this process; the starters run as child processes).
  */
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { createHmac } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -203,6 +204,66 @@ describe("mc-bridge init <starter>", () => {
     expect(list.lines.join("\n")).toMatch(/mcp-client/);
   });
 
+  describe("--force is careful (audit S9)", () => {
+    const posix = process.platform !== "win32";
+
+    it("--with-key --force does not make a key that no file would hold when .env already exists", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      mkdirSync(join(cwd, "a1"));
+      writeFileSync(join(cwd, "a1", ".env"), "BRIDGE_KEY=oldvalue\n");
+      const t = io(cwd);
+      const created = [];
+      expect(await runInitStarter({ id: "node", folder: "a1" }, { "with-key": true, force: true }, t, deps(created))).toBe(0);
+      expect(created).toEqual([]); // before the fix a live key was made and shown nowhere
+      expect(readFileSync(join(cwd, "a1", ".env"), "utf8")).toBe("BRIDGE_KEY=oldvalue\n");
+      expect(t.lines.join("\n")).toMatch(/No key was made: a1\/\.env already exists/);
+      expect(t.lines.join("\n")).not.toMatch(/It is in a1\/\.env only/);
+    });
+
+    it.skipIf(!posix)("refuses a dangling .env link and a linked README without writing through them, and makes no key", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      mkdirSync(join(cwd, "a2"));
+      symlinkSync(join(cwd, "victim.txt"), join(cwd, "a2", ".env")); // dangling
+      writeFileSync(join(cwd, "precious.txt"), "precious");
+      symlinkSync(join(cwd, "precious.txt"), join(cwd, "a2", "README.md"));
+      const t = io(cwd);
+      const created = [];
+      expect(await runInitStarter({ id: "node", folder: "a2" }, { "with-key": true, force: true }, t, deps(created))).toBe(1);
+      expect(created).toEqual([]);
+      expect(t.errs.join("\n")).toMatch(/is a link/);
+      expect(existsSync(join(cwd, "victim.txt"))).toBe(false);
+      expect(readFileSync(join(cwd, "precious.txt"), "utf8")).toBe("precious");
+    });
+
+    it.skipIf(!posix)("refuses a linked sub-folder too", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      mkdirSync(join(cwd, "a3"));
+      mkdirSync(join(cwd, "elsewhere"));
+      symlinkSync(join(cwd, "elsewhere"), join(cwd, "a3", "examples"));
+      const t = io(cwd);
+      expect(await runInitStarter({ id: "node", folder: "a3" }, { force: true }, t, deps())).toBe(1);
+      expect(readdirSync(join(cwd, "elsewhere"))).toEqual([]);
+    });
+
+    it("keeps a .bak of a file it replaces, and does not touch one that is already the same", async () => {
+      const cwd = mkdtempSync(join(work, "cwd-"));
+      expect(await runInitStarter({ id: "node", folder: "a4" }, {}, io(cwd), deps())).toBe(0);
+      const edited = "// my own work\nconsole.log('mine');\n";
+      writeFileSync(join(cwd, "a4", "index.mjs"), edited);
+      const t = io(cwd);
+      expect(await runInitStarter({ id: "node", folder: "a4" }, { force: true }, t, deps())).toBe(0);
+      expect(readFileSync(join(cwd, "a4", "index.mjs.bak"), "utf8")).toBe(edited);
+      expect(readFileSync(join(cwd, "a4", "index.mjs"), "utf8")).not.toBe(edited);
+      expect(t.lines.join("\n")).toMatch(/index\.mjs replaced; the old file is saved as index\.mjs\.bak/);
+      expect(readdirSync(join(cwd, "a4")).filter((f) => f.endsWith(".bak"))).toEqual(["index.mjs.bak"]); // the unchanged files got no copy
+      // a second round keeps the first copy
+      writeFileSync(join(cwd, "a4", "index.mjs"), "second edit\n");
+      await runInitStarter({ id: "node", folder: "a4" }, { force: true }, io(cwd), deps());
+      expect(readFileSync(join(cwd, "a4", "index.mjs.bak"), "utf8")).toBe(edited);
+      expect(readFileSync(join(cwd, "a4", "index.mjs.bak2"), "utf8")).toBe("second edit\n");
+    });
+  });
+
   it("a starter that needs no key says so when --with-key is given", async () => {
     const cwd = mkdtempSync(join(work, "cwd-"));
     const t = io(cwd);
@@ -372,12 +433,25 @@ describe("the starters, run against a demo Bridge", () => {
       const h = { ...signatureHeaders(secret, t, body), "X-Bridge-Event-Id": "evt_once" };
       expect(((await (await post(body, h)).json()).duplicate)).toBe(false);
       expect(((await (await post(body, h)).json()).duplicate)).toBe(true);
+      // a captured request sent again with another, unsigned X-Bridge-Event-Id header is still the same event (audit S3)
+      for (const fake of ["evt_x1", "evt_x2", ""]) {
+        const replay = await post(body, { ...signatureHeaders(secret, t, body), ...(fake ? { "X-Bridge-Event-Id": fake } : {}) });
+        expect((await replay.json()).duplicate, `header ${fake || "(none)"}`).toBe(true);
+      }
       // a body changed after signing, and a stale timestamp
       expect((await post(body.replace("evt_once", "evt_twice"), h)).status).toBe(401);
       const old = t - 3600;
       expect((await post(body, { ...signatureHeaders(secret, old, body), "X-Bridge-Event-Id": "evt_old" })).status).toBe(401);
       await new Promise((r) => setTimeout(r, 50));
       expect(got.map((e) => e.id).filter((i) => i === "evt_once")).toHaveLength(1);
+      expect(got.some((e) => e.id === "evt_x1" || e.id === "evt_x2")).toBe(false);
+      // the memory of handled ids is bounded and forgets old ids, never the recent ones
+      const { seenBefore } = await import(join(dir, "receiver.mjs"));
+      const t0 = 1_000_000_000;
+      for (let i = 0; i < 12_000; i += 1) seenBefore(`bulk_${i}`, t0 + i);
+      expect(seenBefore("bulk_11999", t0 + 12_000)).toBe(true); // recent: remembered
+      expect(seenBefore("bulk_0", t0 + 12_001)).toBe(false); // oldest: dropped to stay inside the bound
+      expect(seenBefore("bulk_11999", t0 + 12_000 + 11 * 60_000)).toBe(false); // older than 10 minutes: forgotten
     } finally {
       await new Promise((r) => server.close(r));
     }
@@ -387,6 +461,69 @@ describe("the starters, run against a demo Bridge", () => {
     const noAdmin = await run(process.execPath, ["register.mjs"], { cwd: dir, env: { BRIDGE_URL: base } });
     expect(noAdmin.code).toBe(1);
     expect(noAdmin.err).toMatch(/MCB_ADMIN_KEY/);
+  });
+});
+
+describe("starter hardening (audit S13)", () => {
+  it("python: a redirect is refused, so the key never goes to another address", async (ctx) => {
+    if (!(await hasCmd("python3"))) return ctx.skip();
+    const seen = [];
+    const target = createServer((req, res) => {
+      seen.push(req.headers.authorization ?? null);
+      res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+    });
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const bounce = createServer((req, res) => res.writeHead(302, { Location: `http://127.0.0.1:${target.address().port}/elsewhere` }).end());
+    await new Promise((r) => bounce.listen(0, "127.0.0.1", r));
+    try {
+      const dir = project("python", { key: FAKE_KEY });
+      const r = await run("python3", ["-c", "from bridge import Bridge\ntry:\n    Bridge().get('/v1/health')\nexcept Exception as e:\n    print('refused:', type(e).__name__)"], { cwd: dir, env: { BRIDGE_URL: `http://127.0.0.1:${bounce.address().port}` } });
+      expect(r.out).toMatch(/refused/);
+      expect(seen).toEqual([]); // the second server was never asked, so it never saw the Authorization header
+    } finally {
+      await new Promise((r) => bounce.close(r));
+      await new Promise((r) => target.close(r));
+    }
+  });
+
+  it("node: a redirect is refused as well", async () => {
+    const seen = [];
+    const target = createServer((req, res) => (seen.push(req.headers.authorization ?? null), res.writeHead(200).end("{}")));
+    await new Promise((r) => target.listen(0, "127.0.0.1", r));
+    const bounce = createServer((req, res) => res.writeHead(302, { Location: `http://127.0.0.1:${target.address().port}/elsewhere` }).end());
+    await new Promise((r) => bounce.listen(0, "127.0.0.1", r));
+    try {
+      const dir = project("node", { key: FAKE_KEY });
+      const { createBridge } = await import(join(dir, "bridge.mjs"));
+      await expect(createBridge({ baseUrl: `http://127.0.0.1:${bounce.address().port}`, key: FAKE_KEY, maxRetries: 0 }).get("/v1/health")).rejects.toThrow();
+      expect(seen).toEqual([]);
+    } finally {
+      await new Promise((r) => bounce.close(r));
+      await new Promise((r) => target.close(r));
+    }
+  });
+
+  it("curl: .env is read as KEY=value lines, never run as shell code, and the key is not on the curl command line", async (ctx) => {
+    if (process.platform === "win32" || !(await hasCmd("bash"))) return ctx.skip();
+    const dir = project("curl", { key: FAKE_KEY });
+    const marker = join(dir, "ran-as-code");
+    writeFileSync(join(dir, ".env"), `BRIDGE_KEY=${FAKE_KEY}\nBRIDGE_URL=${base}\nOTHER=$(touch ${marker})\nBRIDGE_NOTE=$(touch ${marker})\n`);
+    const r = await run("bash", ["-c", `. ./lib.sh; echo "key=$BRIDGE_KEY"; echo "url=$BRIDGE_URL"`], { cwd: dir });
+    expect(r.out).toContain(`key=${FAKE_KEY}`);
+    expect(r.out).toContain(`url=${base}`);
+    expect(existsSync(marker)).toBe(false);
+    const lib = readFileSync(join(dir, "lib.sh"), "utf8");
+    expect(lib).not.toMatch(/-H "Authorization: Bearer \$BRIDGE_KEY"/);
+    expect(lib).toMatch(/-H "@\$keyfile"/);
+    // and it still works against the Bridge
+    const ok = await run("bash", ["-c", `. ./lib.sh; bridge GET /v1/health && echo "status=$BRIDGE_STATUS"`], { cwd: dir });
+    expect(ok.out).toMatch(/status=200/);
+  });
+
+  it("the receiver's register.mjs says before posting that a plain http address is refused by default", async () => {
+    const dir = project("webhook-receiver");
+    const r = await run(process.execPath, ["register.mjs"], { cwd: dir, env: { BRIDGE_URL: base, MCB_ADMIN_KEY: adminKey } });
+    expect(r.out).toMatch(/is plain http\. The Bridge refuses that by default/);
   });
 });
 

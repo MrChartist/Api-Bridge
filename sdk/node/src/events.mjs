@@ -19,7 +19,8 @@
  *   const ok = verifySignature(SECRET, rawBodyBuffer, req.headers);      // or { timestamp, signature } explicitly
  *
  * Use the raw bytes as received: re-serialising parsed JSON changes them. A timestamp more than 5 minutes from your clock
- * fails (replay protection; this helper keeps no memory: de-duplicate on `X-Bridge-Event-Id`, delivery is at least once). A
+ * fails (replay protection; this helper keeps no memory: de-duplicate on the `id` of the verified body, delivery is at least once. The
+ * `X-Bridge-Event-Id` header is not signed, so never de-duplicate on it: a captured copy could carry another one). A
  * secret being replaced makes the Bridge send several `v1=` values: any one may match, and you may pass an array of secrets.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";

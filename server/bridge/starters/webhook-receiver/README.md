@@ -42,12 +42,12 @@ written to a file here. By default the Bridge calls only `https` addresses; a re
 | Rule | Why |
 |---|---|
 | Verify the signature on the raw body before reading it (`verify.mjs`) | Anyone who finds the address can send a request |
-| Refuse a timestamp more than 5 minutes off | A copy of a real request cannot be replayed later |
+| Refuse a timestamp more than 5 minutes off | A copy of a real request stops working after 5 minutes (inside the 5 minutes the event id stops it) |
 | Answer 2xx first, work afterwards | The Bridge retries anything slower or not 2xx, with growing waits |
-| Remember event ids | The same event can arrive twice; handle it once |
+| Remember event ids, taken from the signed body | The same event can arrive twice (a retry, or a copy someone captured); handle it once. The header is not signed |
 
 The headers are `X-Bridge-Timestamp: <seconds>` and `X-Bridge-Signature: v1=<hex>`, the HMAC-SHA256 of `<timestamp>.` plus the
-raw body. `X-Bridge-Event-Id` names the event (use it to handle each event once). The same check in Python is in
+raw body. The event's `id` is in the body, so it is signed: use that to handle each event once. `X-Bridge-Event-Id` repeats it but is NOT signed, so do not rely on it. The same check in Python is in
 `docs/guides/developers.md`.
 
 Edit `handleEvent` in `receiver.mjs` to do your own work.

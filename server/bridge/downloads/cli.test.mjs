@@ -2,7 +2,7 @@
  * `mc-bridge download ...` against a fake client: the request it builds, the plain words it prints, --watch and --out.
  */
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -137,7 +137,21 @@ describe("mc-bridge download", () => {
     expect(readFileSync(join(dir, "a.csv"))).toEqual(bytes);
     expect(h.out.join("\n")).toMatch(/checksum matches/);
     const bad = harness(() => ({ data: [{ name: "a.csv", rows: 1, bytes: 1, firstBar: null, lastBar: null, sha256: "0".repeat(64) }] }));
-    await expect(downloadCommand(["files", "dl_aaaaaaaaaaaa"], { out: dir }, bad.io, bad.helpers)).rejects.toThrow(/did not match its checksum/);
+    await expect(downloadCommand(["files", "dl_aaaaaaaaaaaa"], { out: mkdtempSync(join(tmpdir(), "mcb-cli-")) }, bad.io, bad.helpers)).rejects.toThrow(/did not match its checksum/);
+    // saving again into the same folder does not silently replace the files; --force does
+    await expect(downloadCommand(["files", "dl_aaaaaaaaaaaa"], { out: dir }, h.io, h.helpers)).rejects.toThrow(/already exists.*--force/);
+    await downloadCommand(["files", "dl_aaaaaaaaaaaa"], { out: dir, force: true }, h.io, h.helpers);
+    expect(readdirSync(dir).filter((f) => f.endsWith(".part"))).toEqual([]);
+  });
+
+  it("refuses a file name from the server that is a path, and saves nothing (audit S13)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mcb-cli-"));
+    for (const name of ["../escape.csv", "/etc/x", "a/b.csv", "..", "a\\b.csv", ""]) {
+      const h = harness(() => ({ data: [{ name, rows: 1, bytes: 1, firstBar: null, lastBar: null, sha256: null }] }));
+      await expect(downloadCommand(["files", "dl_aaaaaaaaaaaa"], { out: join(dir, "sub") }, h.io, h.helpers), JSON.stringify(name)).rejects.toThrow(/not a plain file name/);
+    }
+    expect(existsSync(join(dir, "escape.csv"))).toBe(false);
+    expect(existsSync(join(dir, "sub", "escape.csv"))).toBe(false);
   });
 
   it("datasets and update", async () => {

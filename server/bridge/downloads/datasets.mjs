@@ -67,6 +67,7 @@ export function toPublicDataset(meta, { detail = false, activeJobId = null } = {
     bytes,
     gaps,
     lastJobId: meta.lastJobId ?? null,
+    createdBy: meta.createdBy ?? null,
     activeJobId,
   };
   if (detail) {
@@ -133,18 +134,20 @@ export function createDatasets({ dataDir, now }) {
      * Create the dataset when it does not exist, else merge the request into it (more symbols or intervals may be added;
      * the format cannot change). Returns the metadata.
      */
-    ensure(name, { format, request, tags, title }) {
+    ensure(name, { format, request, tags, title, createdBy = null, guard }) {
       checkDatasetName(name);
       return serial(name, async () => {
         let meta = readDatasetMeta(dataDir, name);
         if (meta) {
+          guard?.(meta); // the manager's owner check, made where the dataset is read so two creators cannot both pass it
           if (meta.format !== format) {
             throw new BridgeError("VALIDATION_FAILED", `Dataset ${name} is stored as ${meta.format}. A dataset keeps one format; start a new dataset to use ${format}.`, { errors: [{ path: "format", message: `dataset is ${meta.format}` }] });
           }
+          // Another job never rewrites what the dataset updates from (its account, backup switch, start date or collection):
+          // it may only add symbols and intervals. Who may write at all is decided by the manager (the dataset's owner or an admin).
           const union = (a, b) => [...new Set([...(a ?? []), ...(b ?? [])])];
           meta.request = {
             ...meta.request,
-            ...request,
             symbols: request.symbols ? union(meta.request?.symbols, request.symbols) : meta.request?.symbols,
             intervals: union(meta.request?.intervals, request.intervals),
           };
@@ -159,6 +162,7 @@ export function createDatasets({ dataDir, now }) {
             createdAt: new Date(now()).toISOString(),
             updatedAt: null,
             lastJobId: null,
+            createdBy,
             request,
             dataClass: "realtime",
             source: null,

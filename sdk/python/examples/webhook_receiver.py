@@ -9,12 +9,29 @@ Register it (from the Bridge's computer, with an admin key; the URL must be http
 import json
 import os
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from mrchartist_bridge import verify_request
 
 SECRET = os.environ["MCB_WEBHOOK_SECRET"]
-seen = set()  # event ids already handled: delivery is at least once
+seen = {}  # event id -> when handled. Delivery is at least once, and a captured copy stays valid for 5 minutes
+SEEN_SECONDS = 600  # longer than the 5-minute signature window
+MAX_SEEN = 10_000  # a bound, so a flood of events cannot grow it
+
+
+def seen_before(event_id):
+    now = time.time()
+    for key in [k for k, at in seen.items() if now - at > SEEN_SECONDS]:
+        del seen[key]
+    if not isinstance(event_id, str):
+        return False  # no id to match: handle it
+    if event_id in seen:
+        return True
+    seen[event_id] = now
+    while len(seen) > MAX_SEEN:
+        del seen[next(iter(seen))]  # the oldest goes first
+    return False
 
 
 class Hook(BaseHTTPRequestHandler):
@@ -24,10 +41,10 @@ class Hook(BaseHTTPRequestHandler):
             self.send_response(401)
             self.end_headers()
             return
-        event_id = self.headers.get("X-Bridge-Event-Id")
-        if event_id not in seen:
-            seen.add(event_id)
-            event = json.loads(raw)
+        event = json.loads(raw)
+        # the id inside the signed body: the X-Bridge-Event-Id header is NOT signed, so anyone holding a copy can change it
+        event_id = event.get("id")
+        if not seen_before(str(event_id) if event_id is not None else None):
             print("verified:", event.get("topic"), event.get("data"))
         self.send_response(204)
         self.end_headers()

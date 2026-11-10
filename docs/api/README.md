@@ -123,11 +123,11 @@ Bridge events out, without polling. An SSE or WebSocket stream with cursor repla
 | [POST /v1/subscriptions](events/createSubscription.md) | Send events to a URL, signed (this computer only) | `admin`, this computer only |
 | [GET /v1/subscriptions/{subscriptionId}](events/getSubscription.md) | One webhook subscription with its health | `admin` |
 | [PATCH /v1/subscriptions/{subscriptionId}](events/updateSubscription.md) | Change a subscription (this computer only) | `admin`, this computer only |
-| [DELETE /v1/subscriptions/{subscriptionId}](events/deleteSubscription.md) | Remove a subscription, its queue, dead letters, log and stored secret | `admin` |
+| [DELETE /v1/subscriptions/{subscriptionId}](events/deleteSubscription.md) | Remove a subscription, its queue, dead letters, log and stored secret | `admin`, this computer only |
 | [POST /v1/subscriptions/{subscriptionId}/test](events/testSubscription.md) | Send one signed test event now (this computer only) | `admin`, this computer only |
 | [GET /v1/subscriptions/{subscriptionId}/deliveries](events/listSubscriptionDeliveries.md) | The delivery log, newest first | `admin` |
 | [GET /v1/subscriptions/{subscriptionId}/dead-letters](events/listSubscriptionDeadLetters.md) | Events that could not be delivered, newest first | `admin` |
-| [DELETE /v1/subscriptions/{subscriptionId}/dead-letters](events/clearSubscriptionDeadLetters.md) | Forget this subscription's dead letters | `admin` |
+| [DELETE /v1/subscriptions/{subscriptionId}/dead-letters](events/clearSubscriptionDeadLetters.md) | Forget this subscription's dead letters | `admin`, this computer only |
 | [POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry](events/retrySubscriptionDeadLetter.md) | Put a dead letter back in the queue (this computer only) | `admin`, this computer only |
 
 ## Portfolio

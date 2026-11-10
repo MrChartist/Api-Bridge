@@ -68,6 +68,7 @@ Example:
 | `bytes` | integer | yes |  |
 | `gaps` | integer | no | Stretches with missing bars, over all files. |
 | `lastJobId` | string or null | no |  |
+| `createdBy` | string or null | no | The key that created the dataset. Only that key, or an admin, may write into it with a new job, rename it or tag it; any read key may ask for its update. |
 | `activeJobId` | string or null | no | A job that is queued, running or paused for this dataset. |
 | `files` | array of object | no | Only on GET /v1/datasets/{name}. |
 | `notes` | array of string | no |  |

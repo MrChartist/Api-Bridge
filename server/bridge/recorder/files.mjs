@@ -12,6 +12,7 @@
  */
 import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { csvHeader, countRows, fileNameFor, parseFileName } from "./format.mjs";
@@ -203,7 +204,8 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
         return null;
       }
     },
-    stream: (path) => createReadStream(path),
+    /** `size`: stop after that many bytes (what Content-Length promised), so a day file that is still being written cannot overrun the answer. */
+    stream: (path, size) => (size === undefined ? createReadStream(path) : size <= 0 ? Readable.from([]) : createReadStream(path, { start: 0, end: size - 1 })),
 
     /**
      * Retention for one recording: delete day files older than keepDays (IST dates, `today` is not counted) and gzip the

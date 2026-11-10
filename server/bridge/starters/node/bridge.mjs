@@ -55,7 +55,8 @@ export function createBridge({ baseUrl, key, maxRetries = 3, fetchImpl = globalT
   async function request(method, path, { query, body, idempotencyKey, headers = {}, raw = false, signal } = {}) {
     const url = new URL(baseUrl + path);
     for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-    const init = { method, signal, headers: { Accept: "application/json", ...authHeaders(), ...headers } };
+    // redirect: "error": a redirect could carry the Authorization header to another address
+    const init = { method, signal, redirect: "error", headers: { Accept: "application/json", ...authHeaders(), ...headers } };
     if (body !== undefined) {
       init.headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(body);

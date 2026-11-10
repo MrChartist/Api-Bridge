@@ -20,6 +20,16 @@ export const DOWNLOADS_CONFIG_SCHEMA = z
     retentionDays: z.number().int().min(1).max(3650).nullable().default(null),
     /** Stop writing when the downloads folder reaches this size (MB). */
     maxDiskMb: z.number().int().min(1).max(10_000_000).default(5000),
+    /** Pause (reason disk_low) while the disk that holds the data folder has less than this much free (MB). 0 switches the check off. */
+    minFreeDiskMb: z.number().int().min(0).max(10_000_000).default(500),
+    /** Jobs that may be waiting, running or paused at the same time (all keys together). A new job over this is refused. */
+    maxQueuedJobs: z.number().int().min(1).max(500).default(20),
+    /** The same limit for the jobs started by one API key, so one key cannot use up every place. */
+    maxQueuedJobsPerKey: z.number().int().min(1).max(500).default(8),
+    /** Jobs kept in all (finished ones too). Delete old jobs, or set retentionDays, when this is reached. */
+    maxStoredJobs: z.number().int().min(1).max(10_000).default(500),
+    /** Pause the open jobs of an API key when that key is revoked (a job of a leaked key must not keep using the broker budget). */
+    pauseOnKeyRevoked: z.boolean().default(true),
     /**
      * The share of an account's spare budget (per-second and per-day windows) that downloads may use. Never more than
      * 0.8 and never more than the scheduler says is spare; a live read, an order check or another key always goes first.

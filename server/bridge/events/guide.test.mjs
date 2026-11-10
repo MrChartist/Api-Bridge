@@ -103,6 +103,9 @@ describe("Node snippet", () => {
       const signed = { ...signatureHeaders(SECRET, t, BODY), "X-Bridge-Event-Id": "7", "Content-Type": "application/json" };
       expect(await post(BODY, signed)).toBe(204);
       expect(await post(BODY, signed)).toBe(204); // a retry of the same event: acknowledged, handled once
+      // a captured copy with another, unsigned header is the same event: still handled once (audit S3)
+      expect(await post(BODY, { ...signed, "X-Bridge-Event-Id": "evt-changed-1" })).toBe(204);
+      expect(await post(BODY, { ...signatureHeaders(SECRET, t, BODY), "Content-Type": "application/json" })).toBe(204);
       expect(await post(`${BODY} `, signed)).toBe(401);
       expect(await post(BODY, { ...signed, "X-Bridge-Signature": `v1=${"0".repeat(64)}` })).toBe(401);
       expect(await post(BODY, { "X-Bridge-Event-Id": "7" })).toBe(401);
