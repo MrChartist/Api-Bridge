@@ -50,14 +50,14 @@ export function createSampler({ marketData, streamHub, scheduler, accounts, now,
       const capability = cls === "chain" ? "optionChain" : "quotes";
       const account = accounts?.marketDataCandidates?.({ capability })?.[0];
       if (!account) return { ok: true, waitMs: 0 };
-      const d = gate.check(account, cls, { share: Math.min(0.5, share()) });
+      const d = gate.check(account, cls, { share: Math.min(0.8, share()) });
       return { ok: d.ok, waitMs: d.waitMs };
     } catch {
       return { ok: true, waitMs: 0 };
     }
   }
 
-  const readOpts = (everySec, extra = {}) => ({ priority: "background", backgroundShare: Math.min(0.5, share()), maxWaitMs: Math.min(20_000, Math.max(1000, Math.floor(everySec * 500))), allowBackup: false, ...extra });
+  const readOpts = (everySec, extra = {}) => ({ priority: "background", backgroundShare: Math.min(0.8, share()), maxWaitMs: Math.min(20_000, Math.max(1000, Math.floor(everySec * 500))), allowBackup: false, ...extra });
 
   const errorInfo = (err, what) => {
     const code = err instanceof BridgeError || err?.code ? err.code : "INTERNAL";

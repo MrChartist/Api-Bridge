@@ -39,7 +39,7 @@ For example: Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02.
 | `recordings` | object | yes |  |
 | `disk` | object | yes |  |
 | `apiCalls` | object | no |  |
-| `budgetShare` | number | no | The share of an account's spare API budget recordings may use (recorder.maxBudgetShare). |
+| `budgetShare` | number | no | The share of an account's spare API budget recordings may use now (recorder.maxBudgetShare |
 | `dataClass` | one of `realtime` | no |  |
 
 ## Errors

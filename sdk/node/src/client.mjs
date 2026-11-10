@@ -186,7 +186,19 @@ export class BridgeClient {
   accounts() { return this._get("/v1/accounts"); }
   account(accountId) { return this._get(`/v1/accounts/${encodeURIComponent(accountId)}`); }
   async testAccount(accountId) { return (await this.request("POST", `/v1/accounts/${encodeURIComponent(accountId)}/test`)).body; }
-  limits({ account } = {}) { return this._get("/v1/limits", { account }); }
+  /** `explain: true` adds the budget pools, the competing clients and `savedCalls`. */
+  limits({ account, explain } = {}) { return this._get("/v1/limits", { account, explain: explain ? "true" : undefined }); }
+  /**
+   * Broker calls the Bridge did not make today because the data was already stored, streamed, cached or shared
+   * (`GET /v1/limits?explain=1`, `savedCalls`): `{ day, total, byReason, scheduler, totalToday }`. `total` counts reads served from
+   * datasets and recordings; `totalToday` adds the scheduler's own savings. Zeros on a Bridge that does not count them.
+   */
+  async savedCalls() {
+    const saved = (await this.limits({ explain: true }))?.data?.savedCalls ?? {};
+    const scheduler = saved.scheduler ?? {};
+    const total = Number(saved.total ?? 0);
+    return { day: saved.day ?? null, total, byReason: saved.byReason ?? {}, scheduler, totalToday: Number(saved.totalToday ?? total + Object.values(scheduler).reduce((a, n) => a + Number(n || 0), 0)) };
+  }
   usage() { return this._get("/v1/usage"); }
 
   // ── Instruments ──
@@ -249,7 +261,13 @@ export class BridgeClient {
   // ── Data you keep: downloads, datasets, recordings, collections, subscriptions (envelopes, like every call above) ──
   // The friendlier groups are bridge.downloads, bridge.datasets, bridge.recordings, bridge.collections,
   // bridge.subscriptions and bridge.events; these are the plain one-route-one-method calls they use.
-  createDownload(request) { return this._send("POST", "/v1/downloads", request); }
+  /** `dryRun: true` starts nothing and answers with the estimate (broker calls, rows, bytes, time at your share, disk). */
+  async createDownload(request, { dryRun = false } = {}) {
+    return (await this.request("POST", "/v1/downloads", { body: request, query: dryRun ? { dryRun: "true" } : undefined })).body;
+  }
+  downloadSettings() { return this._get("/v1/downloads/settings"); }
+  /** Needs an admin key from this computer. `{ maxBudgetShare?: 0.05 to 0.8, afterHoursOnly?: boolean }`. */
+  setDownloadSettings(changes) { return this._send("PATCH", "/v1/downloads/settings", changes); }
   listDownloads({ status, limit, cursor } = {}) { return this._get("/v1/downloads", { status, limit, cursor }); }
   download(id) { return this._get(`/v1/downloads/${seg(id)}`); }
   pauseDownload(id) { return this._send("POST", `/v1/downloads/${seg(id)}/pause`); }
@@ -263,6 +281,12 @@ export class BridgeClient {
   updateDataset(name, body = {}) { return this._send("POST", `/v1/datasets/${seg(name)}/update`, body); }
   editDataset(name, changes) { return this._send("PATCH", `/v1/datasets/${seg(name)}`, changes); }
   listRecordings({ status } = {}) { return this._get("/v1/recordings", { status }); }
+  recordingStatus() { return this._get("/v1/recordings/status"); }
+  recordingSettings() { return this._get("/v1/recordings/settings"); }
+  /** Needs an admin key from this computer. `{ maxBudgetShare: 0.05 to 0.8 }`. */
+  setRecordingSettings(changes) { return this._send("PATCH", "/v1/recordings/settings", changes); }
+  recordingPresets() { return this._get("/v1/recordings/presets"); }
+  applyRecordingPreset(id, body = {}) { return this._send("POST", `/v1/recordings/presets/${seg(id)}/apply`, body); }
   createRecording(request) { return this._send("POST", "/v1/recordings", request); }
   recording(id) { return this._get(`/v1/recordings/${seg(id)}`); }
   pauseRecording(id) { return this._send("POST", `/v1/recordings/${seg(id)}/pause`); }

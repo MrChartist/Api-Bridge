@@ -34,10 +34,24 @@ so a thin stock has fewer.
 
 ## Your API budget
 
-- Downloads use at most `downloads.maxBudgetShare` of an account's budget (default 0.3, never more than 0.5). The
+- Downloads use at most `downloads.maxBudgetShare` of an account's budget (default 0.3, from 0.05 to 0.8). The
   per-second window is paced; every longer window (minute, day) keeps the rest free for live use and other keys.
 - A live read, an order check or another key always goes first. While the broker is throttling, downloads wait.
 - `downloads.afterHoursOnly` (or `afterHoursOnly` on one job) makes a job wait until the market is closed.
+- Both can be changed while the Bridge runs, from the Data page ("Saving API calls") or the API. The config values are
+  only the defaults:
+
+  ```sh
+  curl -s 127.0.0.1:4300/v1/downloads/settings -H "Authorization: Bearer $KEY"
+  curl -s -X PATCH 127.0.0.1:4300/v1/downloads/settings -H "Authorization: Bearer $ADMIN_KEY" \
+       -H "Content-Type: application/json" -d '{"maxBudgetShare": 0.5, "afterHoursOnly": true}'
+  ```
+
+  Reading needs a `read` key. Changing needs an admin key from this computer. The change applies to running and waiting
+  jobs at their next broker call (no restart) and is kept in `downloads/settings.json` in the data folder; the
+  config file is never rewritten. A job started with its own `afterHoursOnly` keeps it; one started without follows
+  the setting. A share outside 0.05 to 0.8 is refused. Recordings have their own share
+  (`/v1/recordings/settings`, see [recording.md](recording.md)); they have no after-hours switch.
 - Data already on this computer is not fetched again. See "Stored ranges" below. `GET /v1/limits?explain=1` shows
   `savedCalls`: calls not made today.
 

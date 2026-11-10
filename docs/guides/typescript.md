@@ -61,6 +61,15 @@ for await (const c of bridge.historyAll({ symbol: "NSE:RELIANCE", interval: "5m"
 for await (const ev of bridge.events.subscribe({ topics: ["download.*"], since: savedCursor })) console.log(ev.cursor, ev.topic, ev.data);
 ```
 
+- Look before you start: `bridge.downloads.estimate({ symbols, intervals, from })` takes the same fields as `create`, starts
+  nothing and returns `{ brokerCalls, callsSaved, rows, bytes, etaSec, budgetShare, disk }`. `await bridge.savedCalls()` says how
+  many broker calls the Bridge did not make today (`total`, `byReason`, and `totalToday` with the stream, cache and shared calls).
+- The share of the broker's budget background work may use: `bridge.downloads.settings()` and `bridge.recordings.settings()`
+  (`maxBudgetShare`, 0.05 to 0.8). `setSettings({ maxBudgetShare: 0.5 })` changes it while the Bridge runs and needs an admin
+  key from the Bridge's computer; downloads also take `afterHoursOnly`, recordings do not (they record in market hours).
+- `(await bridge.recordings.status()).line` is the plain sentence ("Recording today: 3 rules, 41 symbols, 18 MB, last write
+  09:31:02"). `bridge.recordings.presets()` lists the one-click rules; `applyPreset("index-option-chains")` makes the rule once and
+  turns auto-record on (admin key from this computer; `applyPreset("my-watchlist", { collection: "mine" })` picks the list).
 - Jobs run at the lowest priority on the Bridge (they never slow live reads or orders), survive a restart and stop with a stated
   reason. Every job, dataset and recording says its data class, source and delay; delayed and end-of-day files are for analysis
   only, never for orders, risk checks, paper fills or alerts.

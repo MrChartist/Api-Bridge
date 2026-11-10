@@ -1,6 +1,6 @@
 /**
  * The bulk budget share. Downloads are background work: they may use at most `share` of what an account's broker
- * allows (default 0.3, never more than 0.5), they never take what a live read, an order check or another key needs, and
+ * allows (default 0.3, never more than 0.8), they never take what a live read, an order check or another key needs, and
  * they stop while the account is backing off after a broker throttle.
  *
  * How the share is kept (scheduler.headroomWindows() lists every window of the account's history budget):
@@ -20,8 +20,8 @@ const SHORT_WINDOWS = new Set(["1s", "second"]);
 /** Never wait in one slice longer than this, so a cancel or a pause is noticed quickly. */
 const SLICE_MS = 5000;
 
-/** Hard ceiling of the share: background work never gets more than half. */
-export const MAX_SHARE = 0.5;
+/** Hard ceiling of the share: background work never gets more than 80 % of the spare room (the settings range ends there). */
+export const MAX_SHARE = 0.8;
 
 /** Pure decision. @returns {{ ok: boolean, waitMs: number, window: string | null, paceMs: number }} */
 export function decide(view, share, cost = 1) {

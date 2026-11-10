@@ -101,7 +101,7 @@ export function fromLibraryAnswer(res) {
  *   library: a function so a module that starts later can be found when needed.
  */
 export function createUniverseResolver({ marketData, symbols, library = () => null, now, share, maxWaitMs = 20_000 }) {
-  const readOpts = () => ({ priority: "background", backgroundShare: Math.min(0.5, share()), maxWaitMs, allowBackup: false });
+  const readOpts = () => ({ priority: "background", backgroundShare: Math.min(0.8, share()), maxWaitMs, allowBackup: false });
 
   /** One underlying's window. @returns {Promise<{ symbols: string[], notes: string[], rule: string, failed?: string }>} */
   async function oneUnderlying(underlyingIn, u, ms) {

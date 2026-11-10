@@ -267,7 +267,7 @@ describe("rules and presets", () => {
 
   it("a stale ATM from the library (an error) or a delayed one is a logged gap, not a silent guess; usage is registered with the library", async () => {
     const providers = [];
-    const lib = { mode: "stale", registerUsageProvider: (fn) => providers.push(fn), async resolve() { if (this.mode === "stale") throw new Error("The ATM price is stale; pass allowStale to use it."); return { symbols: [NIFTY], atmSource: { class: "delayed" } }; } };
+    const lib = { mode: "stale", registerUsageProvider: (kind, fn) => providers.push([kind, fn]), async resolve() { if (this.mode === "stale") throw new Error("The ATM price is stale; pass allowStale to use it."); return { symbols: [NIFTY], atmSource: { class: "delayed" } }; } };
     w = bootRecorder({ start: at("2026-11-09T09:15:00"), library: lib });
     await w.svc.start();
     await w.svc.applyPreset("my-watchlist");
@@ -281,9 +281,14 @@ describe("rules and presets", () => {
     v = w.svc.get("rule-my-watchlist");
     expect(v.symbols.problem).toMatch(/not real-time/);
     expect(dataFiles("rule-my-watchlist")).toEqual([]);
-    expect(providers).toHaveLength(1);
-    expect(providers[0]("watchlist")).toMatchObject([{ type: "recording-rule", id: "my-watchlist", collection: "watchlist", enabled: true }]);
-    expect(providers[0]("other")).toEqual([]);
+    // the library calls a provider as registerUsageProvider(kind, ({ id, name, names }) => rows)
+    expect(providers.map(([kind]) => kind)).toEqual(["recordings", "rules"]);
+    const rules = providers[1][1];
+    expect(rules({ id: "c1", name: "watchlist", names: ["watchlist"] })).toEqual([{ id: "my-watchlist", label: "My watchlist", status: expect.any(String), active: true }]);
+    expect(rules({ id: "c1", name: "other", names: ["other"] })).toEqual([]);
+    expect(rules({ id: "c1", name: "renamed", names: ["renamed", "watchlist"] })).toHaveLength(1);
+    expect(providers[0][1]({ name: "watchlist" })).toEqual([]);
+    expect(w.svc.usageOf("watchlist")).toMatchObject([{ type: "recording-rule", id: "my-watchlist", collection: "watchlist", enabled: true }]);
   });
 
   it("the status line counts rules, symbols, size and the last write", async () => {

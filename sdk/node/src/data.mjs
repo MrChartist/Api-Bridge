@@ -186,6 +186,32 @@ export class Downloads extends FileOwner {
    *   layout?: string, dataset?: string, account?: string, backup?: boolean, tags?: string[] }} p
    */
   async create(p = {}) {
+    return dataOf(await this.client.createDownload(this._body(p)));
+  }
+
+  /**
+   * What a download would cost, without starting it (POST /v1/downloads?dryRun=1): `{ symbols, intervals, items, brokerCalls,
+   * callsSaved, rows, rowsToFetch, bytes, etaSec, budgetShare, account, alreadyStored, disk: { wouldExceed }, notes }`.
+   * Takes the same fields as `create`. Parts already stored on this computer cost no broker call (`callsSaved`).
+   */
+  async estimate(p = {}) {
+    return dataOf(await this.client.createDownload(this._body(p), { dryRun: true }));
+  }
+
+  /** The budget share and the after-hours switch downloads use now: `{ maxBudgetShare, afterHoursOnly, defaults, limits, changed }`. */
+  async settings() { return dataOf(await this.client.downloadSettings()); }
+  /**
+   * Change them while the Bridge runs (an admin key from this computer). The share is 0.05 to 0.8; it applies at once to
+   * running jobs and is kept across restarts.
+   * @param {{ maxBudgetShare?: number, afterHoursOnly?: boolean }} changes
+   */
+  async setSettings(changes = {}) {
+    need(changes.maxBudgetShare !== undefined || changes.afterHoursOnly !== undefined, "give maxBudgetShare and/or afterHoursOnly");
+    return dataOf(await this.client.setDownloadSettings(clean({ maxBudgetShare: changes.maxBudgetShare, afterHoursOnly: changes.afterHoursOnly })));
+  }
+
+  /** The request body for a download (shared by create and estimate), checked before anything is sent. */
+  _body(p = {}) {
     const symbols = list(p.symbols);
     const intervals = list(p.intervals);
     need(Boolean(symbols.length) !== Boolean(p.collection), "give either symbols or collection: <name>, not both and not neither");
@@ -195,7 +221,7 @@ export class Downloads extends FileOwner {
     need(p.layout === undefined || DOWNLOAD_LAYOUTS.includes(p.layout), `layout must be one of ${DOWNLOAD_LAYOUTS.join(", ")}`);
     const body = clean({ name: p.name, symbols: symbols.length ? symbols : undefined, collection: p.collection, intervals, from: iso(p.from), to: iso(p.to), format: p.format, layout: p.layout,
       dataset: p.dataset, account: p.account, backup: p.backup, tags: p.tags?.length ? p.tags : undefined });
-    return dataOf(await this.client.createDownload(body));
+    return body;
   }
 
   async get(job) { return dataOf(await this.client.download(idOf(job))); }
@@ -398,6 +424,21 @@ export class Recordings extends FileOwner {
   }
 
   async get(rec) { return dataOf(await this.client.recording(idOf(rec))); }
+  /** One plain line about today's recording and the numbers behind it: `{ line, enabled, auto, today, disk, apiCalls, budgetShare }`. */
+  async status() { return dataOf(await this.client.recordingStatus()); }
+  /** The budget share recordings may use now: `{ maxBudgetShare, defaults, limits, changed }`. Recordings have no after-hours switch. */
+  async settings() { return dataOf(await this.client.recordingSettings()); }
+  /** Change the share while the Bridge runs (an admin key from this computer; 0.05 to 0.8). */
+  async setSettings({ maxBudgetShare } = {}) {
+    need(maxBudgetShare !== undefined, "give maxBudgetShare");
+    return dataOf(await this.client.setRecordingSettings({ maxBudgetShare }));
+  }
+  /** The one-click rules: `index-option-chains` and `my-watchlist`: `[{ id, title, about, needs, rule }]`. */
+  async presets() { return rowsOf(await this.client.recordingPresets(), "data"); }
+  /** Make the preset's rule (once) and turn auto-record on (an admin key from this computer): `{ preset, created, rule, auto }`. */
+  async applyPreset(preset, { collection } = {}) {
+    return dataOf(await this.client.applyRecordingPreset(idOf(preset), collection ? { collection } : {}));
+  }
   async list({ status } = {}) { return dataOf(await this.client.listRecordings({ status })) ?? []; }
   async pause(rec) { return dataOf(await this.client.pauseRecording(idOf(rec))); }
   async resume(rec) { return dataOf(await this.client.resumeRecording(idOf(rec))); }

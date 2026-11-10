@@ -18,12 +18,16 @@ import { createDownloadRoutes } from "./routes.mjs";
 
 const READ = Object.freeze({ scope: "read", localControl: true });
 const READ_JSON = Object.freeze({ scope: "read", localControl: true, body: "json", bodyLimitBytes: 262_144 });
+const ADMIN_LOCAL_JSON = Object.freeze({ scope: "admin", loopbackOnly: true, localControl: true, body: "json", bodyLimitBytes: 4096 });
 const ADMIN_LOCAL = Object.freeze({ scope: "admin", loopbackOnly: true, localControl: true, body: "none" });
 
 /** [method, path, route options, handler name] */
 export const ROUTES = Object.freeze([
   ["POST", "/v1/downloads", READ_JSON, "create"],
   ["GET", "/v1/downloads", READ, "list"],
+  // Static paths first: "settings" must not be read as a download id.
+  ["GET", "/v1/downloads/settings", READ, "getSettings"],
+  ["PATCH", "/v1/downloads/settings", ADMIN_LOCAL_JSON, "patchSettings"],
   ["GET", "/v1/downloads/:downloadId", READ, "get"],
   ["PATCH", "/v1/downloads/:downloadId", READ_JSON, "patch"],
   ["DELETE", "/v1/downloads/:downloadId", ADMIN_LOCAL, "remove"],

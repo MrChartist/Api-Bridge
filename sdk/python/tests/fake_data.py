@@ -71,6 +71,12 @@ class DataRoutes:
         self.local_range: Optional[Tuple[int, int]] = None
         self.history_log: List[Dict[str, Any]] = []
         self.atm_delayed = False
+        self.dl_settings: Dict[str, Any] = {"maxBudgetShare": 0.3, "afterHoursOnly": False}
+        self.rec_settings: Dict[str, Any] = {"maxBudgetShare": 0.3}
+        self.auto_on = False
+        self.saved_calls: Dict[str, Any] = {"day": "2026-11-09", "total": 120, "byReason": {"dataset-incremental": 100, "local-history": 20}}
+        self.saved_scheduler: Dict[str, int] = {"servedFromStream": 5, "servedFromCache": 3, "coalesced": 2, "batched": 0}
+        self.requests: List[Tuple[str, str]] = []
 
     # ── helpers ──
 
@@ -109,6 +115,13 @@ class DataRoutes:
         if not path.startswith("/v1/") or not parts:
             return None
         head = parts[0]
+        self.requests.append((method, path + ("?" + urllib.parse.urlencode(q) if q else "")))
+        if path == "/v1/limits" and method == "GET":
+            data: Dict[str, Any] = {"safety": {}, "brokers": {}, "client": {"perSecond": 10, "burst": 20, "remaining": 20}, "accounts": []}
+            if q.get("explain") in ("1", "true"):
+                data["pools"], data["consumers"] = [], []
+                data["savedCalls"] = dict(self.saved_calls, scheduler=dict(self.saved_scheduler), totalToday=self.saved_calls["total"] + sum(self.saved_scheduler.values()))
+            return self.ok(data)
         if head == "downloads":
             return self.downloads(method, parts[1:], q, body)
         if head == "datasets":
@@ -196,7 +209,34 @@ class DataRoutes:
             d["firstBar"], d["lastBar"], d["updatedAt"] = "2025-10-09T14:23:20+05:30", "2025-10-09T14:33:20+05:30", "2026-11-09T10:05:00+05:30"
         self.emit("download.done", {"id": jid})
 
+    def settings_view(self, current: Dict[str, Any], default_share: float = 0.3) -> Dict[str, Any]:
+        return dict(current, defaults={"maxBudgetShare": default_share}, limits={"minBudgetShare": 0.05, "maxBudgetShare": 0.8}, changed=[])
+
+    def settings_route(self, method: str, current: Dict[str, Any], body: Any, allowed: Tuple[str, ...]) -> Tuple[int, Any]:
+        if method == "GET":
+            return self.ok(self.settings_view(current))
+        b = dict(body or {})
+        bad = [k for k in b if k not in allowed]
+        if bad or not b:
+            return self.fake.problem(400, "VALIDATION_FAILED", "Send %s." % " and/or ".join(allowed))
+        share = b.get("maxBudgetShare")
+        if share is not None and not (isinstance(share, (int, float)) and 0.05 <= share <= 0.8):
+            return self.fake.problem(400, "VALIDATION_FAILED", "maxBudgetShare must be from 0.05 to 0.8.")
+        current.update(b)
+        return self.ok(self.settings_view(current))
+
+    def estimate(self, req: Dict[str, Any], syms: List[str]) -> Tuple[int, Any]:
+        days = 3
+        rows = len(syms) * len(req["intervals"]) * days * 75
+        stored = int(req.get("dataset") in self.datasets) * 40
+        calls = max(0, len(syms) * len(req["intervals"]) - stored)
+        return self.ok({"symbols": len(syms), "intervals": len(req["intervals"]), "items": len(syms) * len(req["intervals"]), "brokerCalls": calls, "callsSaved": stored, "rows": rows, "rowsToFetch": rows,
+                        "bytes": rows * 62, "bytesPerRow": 62, "etaSec": calls * 4, "budgetShare": self.dl_settings["maxBudgetShare"], "account": "paper", "alreadyStored": False,
+                        "disk": {"usedBytes": 0, "maxBytes": 5000 * 1024 * 1024, "wouldExceed": False}, "notes": ["Rows assume every trading minute has a bar."]}, dryRun=True)
+
     def downloads(self, method: str, parts: List[str], q: Dict[str, str], body: Any) -> Tuple[int, Any]:
+        if parts == ["settings"]:
+            return self.settings_route(method, self.dl_settings, body, ("maxBudgetShare", "afterHoursOnly"))
         if not parts:
             if method == "POST":
                 req = dict(body or {})
@@ -205,6 +245,8 @@ class DataRoutes:
                     return self.fake.problem(400, "VALIDATION_FAILED", "symbols (or collection) and intervals are required")
                 if len(syms) > 500:
                     return self.fake.problem(400, "VALIDATION_FAILED", "at most 500 symbols")
+                if q.get("dryRun") in ("1", "true"):
+                    return self.estimate(req, syms)
                 jid = self._id("dl")
                 delayed = bool(req.get("backup"))
                 job = {"id": jid, "name": req.get("name") or jid, "status": "queued", "request": req, "tags": req.get("tags") or [], "dataClass": "delayed" if delayed else "realtime",
@@ -281,6 +323,30 @@ class DataRoutes:
     def recordings_route(self, method: str, parts: List[str], q: Dict[str, str], body: Any) -> Tuple[int, Any]:
         if parts[:1] == ["rules"]:
             return self.rules_route(method, parts[1:], body)
+        if parts == ["settings"]:
+            return self.settings_route(method, self.rec_settings, body, ("maxBudgetShare",))
+        if parts == ["status"] and method == "GET":
+            running = [r for r in self.recordings.values() if r["status"] == "running"]
+            rows = sum(r["rows"] for r in self.recordings.values())
+            return self.ok({"line": "Recording today: %d recordings, %d rows." % (len(running), rows) if running else "Recording is off. Nothing is being saved.", "enabled": True,
+                            "auto": {"enabled": self.auto_on, "rules": len(self.rules), "activeRules": len(self.rules) if self.auto_on else 0},
+                            "today": {"date": "2026-11-09", "recordings": len(running), "rules": 0, "manual": len(running), "symbols": 0, "rows": rows, "bytes": rows * 40, "lastWriteAt": None, "gaps": 0, "openGaps": 0},
+                            "recordings": {"total": len(self.recordings), "running": len(running)}, "disk": {"usedBytes": rows * 40, "limitMb": 5000}, "apiCalls": {"made": 0, "saved": 7},
+                            "budgetShare": self.rec_settings["maxBudgetShare"], "dataClass": "realtime"})
+        if parts == ["presets"] and method == "GET":
+            return self.ok([{"id": "index-option-chains", "title": "Record index option chains", "about": "NIFTY and BANKNIFTY option chains.", "needs": "a connected broker login",
+                             "rule": {"name": "Index option chains", "kind": "chain", "underlying": ["NIFTY", "BANKNIFTY"], "everySec": 30, "schedule": "market-hours", "format": "csv"}},
+                            {"id": "my-watchlist", "title": "Record my watchlist", "about": "Every symbol of your watchlist.", "needs": "a collection called watchlist",
+                             "rule": {"name": "My watchlist", "kind": "quotes", "collection": "watchlist", "everySec": 1, "schedule": "market-hours", "format": "csv"}}])
+        if len(parts) == 3 and parts[0] == "presets" and parts[2] == "apply" and method == "POST":
+            if parts[1] not in ("index-option-chains", "my-watchlist"):
+                return self.nf("preset")
+            existing = next((r for r in self.rules.values() if r.get("preset") == parts[1]), None)
+            rule = existing or dict({"name": parts[1], "kind": "chain" if parts[1].startswith("index") else "quotes", "everySec": 30, "schedule": "market-hours", "preset": parts[1],
+                                     "collection": (body or {}).get("collection", "watchlist") if parts[1] == "my-watchlist" else None}, id=self._id("rule"), enabled=True)
+            self.rules[rule["id"]] = rule
+            self.auto_on = True
+            return self.ok({"preset": parts[1], "created": existing is None, "rule": rule, "auto": {"enabled": True, "rules": len(self.rules), "activeRules": len(self.rules)}}, 200 if existing else 201)
         if not parts:
             if method == "POST":
                 b = dict(body or {})

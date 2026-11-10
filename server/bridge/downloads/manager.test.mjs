@@ -268,8 +268,11 @@ describe("datasets", () => {
     await waitStatus(m.manager, first.id);
     const calls = m.history.calls.length;
     const upd = await m.manager.updateDataset("one");
-    await waitStatus(m.manager, upd.job.id);
+    const done = await waitStatus(m.manager, upd.job.id);
     expect(m.history.calls.length).toBe(calls);
+    // an update that fetched nothing still says where the data in its files came from
+    expect(done).toMatchObject({ dataClass: "realtime", source: "fake", official: true });
+    expect(done.callsSaved).toBeGreaterThanOrEqual(1);
   });
 
   it("answers an update that is already running with that job", async () => {

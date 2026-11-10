@@ -6,6 +6,7 @@
  *   GET    /v1/recordings                              the recordings, with a plain status line
  *   POST   /v1/recordings                              start a manual recording
  *   GET    /v1/recordings/status                       the plain line: "Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02"
+ *   GET|PATCH /v1/recordings/settings              the budget share (read: read key; change: admin key from this computer)
  *   GET    /v1/recordings/auto, PUT /v1/recordings/auto   the auto-record switch (off until a person turns it on)
  *   GET    /v1/recordings/presets, POST /v1/recordings/presets/{preset}/apply
  *   GET/POST /v1/recordings/rules, GET/PATCH/DELETE /v1/recordings/rules/{ruleId}
@@ -112,6 +113,14 @@ export function createRecorderRoutes(deps) {
       const body = parse(autoBody, ctx.body, 'Send { "enabled": true } or { "enabled": false }.');
       const data = await svc().setAuto(body.enabled);
       await audit(ctx, "recording.auto_changed", { enabled: body.enabled });
+      return { data, meta: meta(ctx) };
+    },
+    async getSettings(ctx) {
+      return { data: svc().settings(), meta: meta(ctx) };
+    },
+    async patchSettings(ctx) {
+      const data = await svc().setSettings(ctx.body ?? {});
+      await audit(ctx, "recording.settings_changed", { maxBudgetShare: data.maxBudgetShare });
       return { data, meta: meta(ctx) };
     },
     async listPresets(ctx) {

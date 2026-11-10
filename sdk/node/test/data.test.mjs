@@ -404,6 +404,100 @@ describe("subscriptions", () => {
   });
 });
 
+describe("estimate, settings, status, presets and saved calls", () => {
+  const reqs = (method, p) => fake.requests().filter((r) => r.method === method && r.path === p);
+
+  it("estimate sends a dry run and starts nothing", async () => {
+    const est = await bridge.downloads.estimate({ symbols: ["NSE:RELIANCE", "NSE:TCS"], intervals: "5m", from: "2026-11-04", to: "2026-11-06", dataset: "lc-5m" });
+    const sent = reqs("POST", "/v1/downloads").at(-1);
+    assert.deepEqual(sent.query, { dryRun: "true" });
+    assert.deepEqual(sent.body, { symbols: ["NSE:RELIANCE", "NSE:TCS"], intervals: ["5m"], from: "2026-11-04", to: "2026-11-06", dataset: "lc-5m" });
+    assert.equal(fake.data.jobs.size, 0);
+    assert.equal(est.brokerCalls, 2);
+    assert.equal(est.rows, 2 * 3 * 75);
+    assert.equal(est.bytes, est.rows * 62);
+    assert.equal(est.etaSec, 8);
+    assert.equal(est.budgetShare, 0.3);
+    assert.equal(est.disk.wouldExceed, false);
+  });
+
+  it("estimate checks its arguments like create", async () => {
+    await assert.rejects(() => bridge.downloads.estimate({ symbols: ["NSE:A"], from: "2024-01-01" }), /intervals/);
+    await assert.rejects(() => bridge.downloads.estimate({ intervals: "5m", from: "2024-01-01" }), /symbols or collection/);
+    assert.equal(reqs("POST", "/v1/downloads").length, 0);
+  });
+
+  it("downloads.settings reads and changes the share and the after-hours switch", async () => {
+    const s = await bridge.downloads.settings();
+    assert.equal(s.maxBudgetShare, 0.3);
+    assert.equal(s.afterHoursOnly, false);
+    assert.deepEqual(s.limits, { minBudgetShare: 0.05, maxBudgetShare: 0.8 });
+    const after = await bridge.downloads.setSettings({ maxBudgetShare: 0.6, afterHoursOnly: true });
+    assert.deepEqual(lastBody("PATCH", "/v1/downloads/settings"), { maxBudgetShare: 0.6, afterHoursOnly: true });
+    assert.equal(after.maxBudgetShare, 0.6);
+    assert.equal((await bridge.downloads.settings()).afterHoursOnly, true);
+    await assert.rejects(() => bridge.downloads.setSettings({}), /maxBudgetShare/);
+    await assert.rejects(() => bridge.downloads.setSettings({ maxBudgetShare: 0.95 }), (e) => e.status === 400 && e.code === "VALIDATION_FAILED");
+  });
+
+  it("recordings.settings has only the share", async () => {
+    const s = await bridge.recordings.settings();
+    assert.equal(s.maxBudgetShare, 0.3);
+    assert.equal("afterHoursOnly" in s, false);
+    assert.equal((await bridge.recordings.setSettings({ maxBudgetShare: 0.5 })).maxBudgetShare, 0.5);
+    assert.deepEqual(lastBody("PATCH", "/v1/recordings/settings"), { maxBudgetShare: 0.5 });
+    await assert.rejects(() => bridge.recordings.setSettings({}), /maxBudgetShare/);
+    await assert.rejects(() => bridge.recordings.setSettings({ maxBudgetShare: 0.01 }), (e) => e.status === 400);
+  });
+
+  it("recordings.status reads the plain line", async () => {
+    const off = await bridge.recordings.status();
+    assert.equal(off.line, "Recording is off. Nothing is being saved.");
+    assert.equal(off.auto.enabled, false);
+    await bridge.recordings.create({ kind: "quotes", symbols: ["NSE:A"], everySec: 1 });
+    const on = await bridge.recordings.status();
+    assert.match(on.line, /^Recording today: 1 recordings/);
+    assert.equal(on.apiCalls.saved, 7);
+    assert.equal(on.dataClass, "realtime");
+  });
+
+  it("recordings.presets lists and applies once", async () => {
+    const presets = await bridge.recordings.presets();
+    assert.deepEqual(presets.map((p) => p.id), ["index-option-chains", "my-watchlist"]);
+    const first = await bridge.recordings.applyPreset("index-option-chains");
+    assert.equal(first.created, true);
+    assert.equal(first.auto.enabled, true);
+    assert.equal(first.rule.kind, "chain");
+    const again = await bridge.recordings.applyPreset(presets[0]);
+    assert.equal(again.created, false);
+    assert.equal(again.rule.id, first.rule.id);
+    assert.equal((await bridge.recordings.rules.list()).length, 1);
+    const w = await bridge.recordings.applyPreset("my-watchlist", { collection: "mine" });
+    assert.deepEqual(lastBody("POST", "/v1/recordings/presets/my-watchlist/apply"), { collection: "mine" });
+    assert.equal(w.rule.collection, "mine");
+    await assert.rejects(() => bridge.recordings.applyPreset("nope"), (e) => e.status === 404);
+  });
+
+  it("savedCalls reads GET /v1/limits?explain=1", async () => {
+    const c = await bridge.savedCalls();
+    assert.deepEqual(fake.requests().filter((r) => r.path === "/v1/limits").at(-1).query, { explain: "true" });
+    assert.equal(c.day, "2026-11-09");
+    assert.equal(c.total, 120);
+    assert.deepEqual(c.byReason, { "dataset-incremental": 100, "local-history": 20 });
+    assert.equal(c.scheduler.servedFromStream, 5);
+    assert.equal(c.totalToday, 130);
+    fake.data.savedCalls = { day: "2026-11-09", total: 0, byReason: {} };
+    fake.data.savedScheduler = {};
+    assert.equal((await bridge.savedCalls()).totalToday, 0);
+  });
+
+  it("limits() without explain stays the plain answer", async () => {
+    const r = await bridge.limits();
+    assert.equal(r.data.savedCalls, undefined);
+    assert.deepEqual(fake.requests().filter((x) => x.path === "/v1/limits").at(-1).query, {});
+  });
+});
+
 describe("table helpers", () => {
   it("parseTable types cells and handles quotes and a BOM", () => {
     assert.deepEqual(parseTable("﻿time,open,volume,note\n2026-11-09T09:15:00+05:30,1.5,10,\n2026-11-09T09:20:00+05:30,2,,\"a,b\"\n"), [

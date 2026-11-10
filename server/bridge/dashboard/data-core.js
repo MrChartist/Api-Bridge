@@ -847,10 +847,13 @@ export function savedSummary(savings) {
   const total = parts.reduce((a, [, n]) => a + n, 0);
   return { total, parts, local: Math.max(0, Number(s.servedFromLocal) || 0) };
 }
-/** A share (0 to 1) as the slider's whole percent, kept to 5 to 100 in steps of 5. */
+/** The range the Bridge accepts for the share (PATCH /v1/downloads/settings): 5 to 80 percent. */
+export const SHARE_MIN_PERCENT = 5;
+export const SHARE_MAX_PERCENT = 80;
+/** A share (0 to 1) as the slider's whole percent, kept to 5 to 80 in steps of 5. */
 export const sharePercent = (share) => {
   const v = Number(share);
-  return Number.isFinite(v) ? Math.min(100, Math.max(5, Math.round((v * 100) / 5) * 5)) : Math.round(DEFAULT_SHARE * 100);
+  return Number.isFinite(v) ? Math.min(SHARE_MAX_PERCENT, Math.max(SHARE_MIN_PERCENT, Math.round((v * 100) / 5) * 5)) : Math.round(DEFAULT_SHARE * 100);
 };
 export function shareSentence(percent) {
   const p = Math.round(Number(percent));

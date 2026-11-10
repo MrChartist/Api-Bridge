@@ -483,6 +483,85 @@ def test_dead_letters_list_retry_and_clear(bridge, fake):
         bridge.subscriptions.retry_dead_letter(s.id, "del_999")
 
 
+# ── estimate, settings, status, presets, saved calls ──
+
+
+def test_estimate_sends_a_dry_run_and_starts_nothing(bridge, fake):
+    est = bridge.downloads.estimate(["NSE:RELIANCE", "NSE:TCS"], ["5m"], from_="2026-11-04", to="2026-11-06", dataset="lc-5m")
+    assert ("POST", "/v1/downloads?dryRun=true") in fake.data.requests
+    assert last_body(fake, "POST", "/v1/downloads") == {"symbols": ["NSE:RELIANCE", "NSE:TCS"], "intervals": ["5m"], "from": "2026-11-04", "to": "2026-11-06", "dataset": "lc-5m"}
+    assert len(fake.data.jobs) == 0
+    assert (est.symbols, est.intervals, est.items) == (2, 1, 2)
+    assert est.broker_calls == 2 and est.rows == 2 * 3 * 75 and est.bytes == est.rows * 62
+    assert est.eta_sec == 8 and est.budget_share == 0.3 and est.fits_disk is True and est.notes
+
+
+def test_estimate_checks_its_arguments_like_create(bridge, fake):
+    with pytest.raises(ValueError):
+        bridge.downloads.estimate(["NSE:A"], None, from_="2024-01-01")
+    with pytest.raises(ValueError):
+        bridge.downloads.estimate(None, "5m", from_="2024-01-01")
+    assert ("POST", "/v1/downloads?dryRun=true") not in fake.data.requests
+
+
+def test_download_settings_read_and_change(bridge, fake):
+    s = bridge.downloads.settings()
+    assert (s.max_budget_share, s.after_hours_only, s.default_share, s.min_share, s.max_share) == (0.3, False, 0.3, 0.05, 0.8)
+    s = bridge.downloads.set_settings(max_budget_share=0.6, after_hours_only=True)
+    assert last_body(fake, "PATCH", "/v1/downloads/settings") == {"maxBudgetShare": 0.6, "afterHoursOnly": True}
+    assert s.max_budget_share == 0.6 and s.after_hours_only is True and bridge.downloads.settings().max_budget_share == 0.6
+    with pytest.raises(ValueError):
+        bridge.downloads.set_settings()
+    with pytest.raises(ValidationFailed):
+        bridge.downloads.set_settings(max_budget_share=0.95)
+
+
+def test_recording_settings_have_only_the_share(bridge, fake):
+    s = bridge.recordings.settings()
+    assert s.max_budget_share == 0.3 and s.after_hours_only is None
+    assert bridge.recordings.set_settings(max_budget_share=0.5).max_budget_share == 0.5
+    assert last_body(fake, "PATCH", "/v1/recordings/settings") == {"maxBudgetShare": 0.5}
+    with pytest.raises(ValidationFailed):
+        bridge.recordings.set_settings(max_budget_share=0.01)
+
+
+def test_recording_status_reads_the_plain_line(bridge, fake):
+    off = bridge.recordings.status()
+    assert off.line == "Recording is off. Nothing is being saved." and off.auto_enabled is False and off.budget_share == 0.3
+    bridge.recordings.create("quotes", ["NSE:A"], every_sec=1)
+    on = bridge.recordings.status()
+    assert on.line.startswith("Recording today: 1 recordings") and on.calls_saved == 7 and on.raw["dataClass"] == "realtime"
+
+
+def test_recording_presets_list_and_apply(bridge, fake):
+    names = [p.id for p in bridge.recordings.presets()]
+    assert names == ["index-option-chains", "my-watchlist"]
+    assert "option chains" in bridge.recordings.presets()[0].about
+    r = bridge.recordings.apply_preset("index-option-chains")
+    assert r.created is True and r.auto_enabled is True and r.rule.kind == "chain"
+    again = bridge.recordings.apply_preset(bridge.recordings.presets()[0])
+    assert again.created is False and again.rule.id == r.rule.id and len(bridge.recordings.rules.list()) == 1
+    w = bridge.recordings.apply_preset("my-watchlist", collection="mine")
+    assert last_body(fake, "POST", "/v1/recordings/presets/my-watchlist/apply") == {"collection": "mine"} and w.rule.collection == "mine"
+    with pytest.raises(NotFound):
+        bridge.recordings.apply_preset("nope")
+
+
+def test_saved_calls_reads_the_explain_view(bridge, fake):
+    c = bridge.saved_calls()
+    assert ("GET", "/v1/limits?explain=true") in fake.data.requests
+    assert c.day == "2026-11-09" and c.total == 120 and c.by_reason == {"dataset-incremental": 100, "local-history": 20}
+    assert c.scheduler["servedFromStream"] == 5 and c.total_today == 130
+    fake.data.saved_calls = {"day": "2026-11-09", "total": 0, "byReason": {}}
+    assert bridge.saved_calls().total == 0
+
+
+def test_saved_calls_of_an_older_bridge_is_zero(bridge, fake):
+    from mrchartist_bridge import SavedCalls
+
+    assert SavedCalls.from_dict(None).total_today == 0
+
+
 # ── async ──
 
 
@@ -496,6 +575,9 @@ def test_async_namespaces(fake):
             job = await b.downloads.create(["NSE:A"], "5m", from_="2024-01-01")
             job = await b.downloads.wait(job, poll=0)
             assert job.is_done
+            assert (await b.downloads.estimate(["NSE:A"], "5m", from_="2024-01-01")).broker_calls == 1
+            assert (await b.recordings.settings()).max_budget_share == 0.3
+            assert (await b.saved_calls()).total == 120
             await b.recordings.rules.create("r", "chain", 30, collection="c")
             assert len(await b.recordings.rules.list()) == 1
             h = await b.history_all("NSE:A", "5m", "2025-10-09", "2025-10-10")

@@ -12,6 +12,8 @@ import {
   DEFAULT_INTERVALS,
   DEFAULT_RANGE,
   DEFAULT_SHARE,
+  SHARE_MAX_PERCENT,
+  SHARE_MIN_PERCENT,
   FORMATS,
   INTERVALS,
   LAYOUTS,
@@ -257,16 +259,16 @@ function savingCard() {
   const lead = h("p", { class: "dt-saved-lead" }, "calls saved today");
   const parts = h("ul", { class: "dt-parts" });
   const percentText = h("output", { class: "dt-share-num" }, `${Math.round(DEFAULT_SHARE * 100)}%`);
-  const range = h("input", { type: "range", min: 5, max: 100, step: 5, value: Math.round(DEFAULT_SHARE * 100), id: "dt-share", class: "dt-range", "aria-describedby": "dt-share-text" });
+  const range = h("input", { type: "range", min: SHARE_MIN_PERCENT, max: SHARE_MAX_PERCENT, step: 5, value: Math.round(DEFAULT_SHARE * 100), id: "dt-share", class: "dt-range", "aria-describedby": "dt-share-text" });
   const shareText = h("p", { class: "hint", id: "dt-share-text" }, shareSentence(Math.round(DEFAULT_SHARE * 100)));
   const after = h("input", { type: "checkbox", id: "dt-after" });
-  const afterRow = h("label", { class: "check dt-after" }, after, "Only download after market hours");
+  const afterRow = h("label", { class: "check dt-after" }, after, "Only download after market hours (applies to downloads; recordings follow the market by themselves)");
   const note = h("p", { class: "hint dt-share-note", hidden: true }, "Setting the share needs a newer Bridge.");
   let settings = { downloads: null, recorder: null };
   let timer = null;
   const paintShare = (p) => {
     percentText.textContent = `${p}%`;
-    range.style.setProperty("--p", `${((p - 5) / 95) * 100}%`);
+    range.style.setProperty("--p", `${((p - SHARE_MIN_PERCENT) / (SHARE_MAX_PERCENT - SHARE_MIN_PERCENT)) * 100}%`);
     setText(shareText, shareSentence(p));
     range.setAttribute("aria-valuetext", `${p} percent of the spare room`);
   };

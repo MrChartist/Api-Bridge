@@ -155,6 +155,29 @@ describe("delete needs an admin key from this computer", () => {
   });
 });
 
+describe("settings: GET /v1/downloads/settings and PATCH", () => {
+  it("is not read as a download id; a read key reads, only an admin key from this computer changes", async () => {
+    const got = await bridge.http("/v1/downloads/settings", { key: keys.read });
+    expect(got.status).toBe(200);
+    expect(got.json.data).toMatchObject({ maxBudgetShare: 0.5, afterHoursOnly: false, limits: { minBudgetShare: 0.05, maxBudgetShare: 0.8 } });
+    expect((await bridge.http("/v1/downloads/settings")).status).toBe(401);
+    const patch = (body, o = {}) => bridge.http("/v1/downloads/settings", { method: "PATCH", key: keys.admin, body, ...o });
+    expect((await patch({ maxBudgetShare: 0.6 }, { key: keys.read })).status).toBe(403);
+    const far = await patch({ maxBudgetShare: 0.6 }, { headers: { "X-Forwarded-For": "192.0.2.5" } });
+    expect(far.status).toBe(403);
+    expect(far.json.code).toBe("LOOPBACK_ONLY");
+    const bad = await patch({ maxBudgetShare: 0.95 });
+    expect(bad.status).toBe(400);
+    expect(bad.json.code).toBe("VALIDATION_FAILED");
+    expect((await patch({ maxBudgetShare: 0.6, afterHoursOnly: true })).json.data).toMatchObject({ maxBudgetShare: 0.6, afterHoursOnly: true });
+    // applied at once, with no restart: the estimate uses the new share; the saved file is not the config file
+    expect((await post("/v1/downloads?dryRun=1", BODY)).json.data.budgetShare).toBe(0.6);
+    expect(JSON.parse(readFileSync(join(bridge.dataDir, "downloads", "settings.json"), "utf8"))).toEqual({ maxBudgetShare: 0.6, afterHoursOnly: true });
+    expect(JSON.parse(readFileSync(bridge.configFile, "utf8")).downloads.maxBudgetShare).toBe(0.5);
+    await patch({ maxBudgetShare: 0.5, afterHoursOnly: false });
+  });
+});
+
 describe("datasets", () => {
   it("grow by update, take tags, and are listed and filtered", async () => {
     const j = await post("/v1/downloads", { symbols: ["NSE:RELIANCE"], intervals: ["1d"], from: "2026-10-01", dataset: "reliance-1d", tags: ["eq"] });
@@ -227,6 +250,8 @@ describe("calls saved", () => {
     expect(done.notes.join(" ")).toMatch(/came from dataset sept/);
     const limits = (await bridge.http("/v1/limits?explain=1", { key: keys.read })).json.data.savedCalls;
     expect(limits.byReason["local-dataset"]).toBeGreaterThanOrEqual(1);
+    // the same count is in GET /v1/usage, which is what the Data page's "API calls saved today" reads
+    expect((await bridge.http("/v1/usage", { key: keys.read })).json.data.savings.servedFromLocal).toBe(limits.total);
     expect(readFileSync(join(bridge.dataDir, "downloads", "jobs", b.json.data.id, "NSE_RELIANCE_1d.csv"), "utf8").split("\r\n").filter(Boolean)).toHaveLength(1 + 10);
   });
 });

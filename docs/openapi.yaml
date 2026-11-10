@@ -2236,6 +2236,56 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/downloads/settings:
+    get:
+      tags: [Data downloads]
+      operationId: getDownloadSettings
+      summary: The budget share and the after-hours switch downloads use now
+      description: The values in force (the config values unless changed here), the config defaults and the allowed range.
+      x-module: downloads
+      x-scope: read
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadSettings" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Data downloads]
+      operationId: patchDownloadSettings
+      summary: Change the budget share or the after-hours switch while the Bridge runs
+      description: |
+        Applies at once to running and waiting jobs (the next broker call reads it), is kept in a small file in the data folder
+        (not in bridge.config.json) and survives a restart. A job that was started with its own `afterHoursOnly` keeps that value.
+      x-module: downloads
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DownloadSettingsUpdate" }
+      responses:
+        "200":
+          description: Saved. The settings now in force.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/DownloadSettings" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /v1/downloads/{downloadId}:
     parameters:
       - name: downloadId
@@ -5122,6 +5172,56 @@ paths:
                 required: [data, meta]
                 properties:
                   data: { $ref: "#/components/schemas/RecordingStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/settings:
+    get:
+      tags: [Recordings]
+      operationId: getRecordingSettings
+      summary: The budget share recordings use now
+      description: The value in force (the config value unless changed here), the config default and the allowed range.
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingSettings" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Recordings]
+      operationId: patchRecordingSettings
+      summary: Change the budget share while the Bridge runs
+      description: |
+        Applies at the next broker read, is kept in recordings/settings.json in the data folder and survives a restart. There is
+        no after-hours switch: recordings run during market hours.
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordingSettingsUpdate" }
+      responses:
+        "200":
+          description: Saved. The settings now in force.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingSettings" }
                   meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
@@ -8400,6 +8500,7 @@ components:
           type: object
           description: Broker calls avoided today.
           properties:
+            servedFromLocal: { type: integer, description: "Served from data already stored on this computer (datasets, recordings)." }
             servedFromStream: { type: integer }
             servedFromCache: { type: integer }
             coalesced: { type: integer }
@@ -8432,7 +8533,7 @@ components:
         dataset: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$", description: "Continue (or create) this dataset instead of writing a one-off set of files." }
         account: { type: string, description: "Use only this broker account." }
         backup: { type: boolean, default: false, description: "Allow data sources other than your broker accounts. The files then carry the source's data class (delayed or eod)." }
-        afterHoursOnly: { type: boolean, description: "Wait outside market hours. Default: downloads.afterHoursOnly." }
+        afterHoursOnly: { type: boolean, description: "Wait outside market hours. Default: follows the downloads setting when the job runs (downloads.afterHoursOnly, or GET /v1/downloads/settings)." }
         tags: { type: array, maxItems: 20, items: { type: string, maxLength: 32 } }
     DownloadEstimate:
       type: object
@@ -8518,6 +8619,27 @@ components:
         firstBar: { type: [string, "null"], description: "IST bar-open time of the first bar." }
         lastBar: { type: [string, "null"] }
         sha256: { type: [string, "null"] }
+    DownloadSettings:
+      type: object
+      required: [maxBudgetShare, afterHoursOnly, defaults, limits]
+      properties:
+        maxBudgetShare: { type: number, minimum: 0.05, maximum: 0.8, description: "The share of an account's spare API budget downloads may use now." }
+        afterHoursOnly: { type: boolean, description: Jobs wait for the market to close (unless a job says otherwise). }
+        defaults:
+          type: object
+          description: The values in bridge.config.json (or the built-in defaults).
+          properties: { maxBudgetShare: { type: number }, afterHoursOnly: { type: boolean } }
+        limits:
+          type: object
+          properties: { minBudgetShare: { type: number, example: 0.05 }, maxBudgetShare: { type: number, example: 0.8 } }
+        changed: { type: array, items: { type: string }, description: The fields changed at run time. }
+    DownloadSettingsUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        maxBudgetShare: { type: number, minimum: 0.05, maximum: 0.8 }
+        afterHoursOnly: { type: boolean }
     Dataset:
       type: object
       required: [name, format, series, rows, bytes]
@@ -9262,8 +9384,24 @@ components:
         recordings: { type: object, additionalProperties: true }
         disk: { type: object, additionalProperties: true }
         apiCalls: { type: object, properties: { made: { type: integer }, saved: { type: integer } } }
-        budgetShare: { type: number, description: The share of an account's spare API budget recordings may use (recorder.maxBudgetShare). }
+        budgetShare: { type: number, description: The share of an account's spare API budget recordings may use now (recorder.maxBudgetShare, or the value set at run time). }
         dataClass: { type: string, enum: [realtime] }
+    RecordingSettings:
+      type: object
+      required: [maxBudgetShare, defaults, limits]
+      properties:
+        maxBudgetShare: { type: number, minimum: 0.05, maximum: 0.8, description: "The share of an account's spare API budget recordings may use now." }
+        defaults: { type: object, properties: { maxBudgetShare: { type: number } } }
+        limits:
+          type: object
+          properties: { minBudgetShare: { type: number, example: 0.05 }, maxBudgetShare: { type: number, example: 0.8 } }
+        changed: { type: array, items: { type: string } }
+    RecordingSettingsUpdate:
+      type: object
+      additionalProperties: false
+      required: [maxBudgetShare]
+      properties:
+        maxBudgetShare: { type: number, minimum: 0.05, maximum: 0.8 }
     RecordingAuto:
       type: object
       required: [enabled]

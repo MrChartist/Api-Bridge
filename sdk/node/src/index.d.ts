@@ -622,8 +622,67 @@ export interface WaitOptions {
   signal?: AbortSignal;
 }
 type JobRef = string | { id: string };
+export interface DownloadEstimate {
+  symbols: number;
+  intervals: number;
+  items: number;
+  brokerCalls: number;
+  callsSaved: number;
+  rows: number;
+  rowsToFetch: number;
+  bytes: number;
+  etaSec: number | null;
+  budgetShare: number;
+  account: string | null;
+  alreadyStored: boolean;
+  disk: { usedBytes: number; maxBytes: number; wouldExceed: boolean };
+  notes: string[];
+  [k: string]: unknown;
+}
+/** The share of an account's spare API budget background work may use (0.05 to 0.8), as the Bridge applies it now. */
+export interface BudgetSettings {
+  maxBudgetShare: number;
+  /** Downloads only; recordings have no after-hours switch. */
+  afterHoursOnly?: boolean;
+  defaults: { maxBudgetShare: number; afterHoursOnly?: boolean };
+  limits: { minBudgetShare: number; maxBudgetShare: number };
+  /** What was changed at run time (not the config file). */
+  changed: string[];
+}
+export interface RecordingStatus {
+  line: string;
+  enabled: boolean;
+  auto: { enabled: boolean; rules: number; activeRules: number };
+  today: { rows: number; bytes: number; symbols: number; gaps: number; lastWriteAt: string | null; [k: string]: unknown };
+  disk: { usedBytes: number; limitMb: number; [k: string]: unknown };
+  apiCalls: { made: number; saved: number };
+  budgetShare: number;
+  dataClass: "realtime";
+  [k: string]: unknown;
+}
+export interface RecordingPreset {
+  id: string;
+  title: string;
+  about: string;
+  needs: string | null;
+  rule: Record<string, unknown>;
+}
+export interface SavedCalls {
+  day: string | null;
+  /** Reads served from datasets and recordings. */
+  total: number;
+  byReason: Record<string, number>;
+  /** The scheduler's own savings: servedFromStream, servedFromCache, coalesced, batched. */
+  scheduler: Record<string, number>;
+  totalToday: number;
+}
 export declare class Downloads {
   create(p: DownloadRequest): Promise<DownloadJob>;
+  /** What a download would cost, without starting it (POST /v1/downloads?dryRun=1). Same fields as `create`. */
+  estimate(p: DownloadRequest): Promise<DownloadEstimate>;
+  settings(): Promise<BudgetSettings>;
+  /** An admin key from this computer. The share is 0.05 to 0.8; it applies at once and is kept across restarts. */
+  setSettings(changes: { maxBudgetShare?: number; afterHoursOnly?: boolean }): Promise<BudgetSettings>;
   get(job: JobRef): Promise<DownloadJob>;
   list(o?: { status?: JobStatus; limit?: number; cursor?: string }): Promise<DownloadJob[]>;
   pause(job: JobRef): Promise<DownloadJob>;
@@ -659,6 +718,12 @@ export declare class Recordings {
   readonly rules: RecordingRules;
   create(p: RecordingRequest): Promise<Recording>;
   get(rec: JobRef): Promise<Recording>;
+  status(): Promise<RecordingStatus>;
+  settings(): Promise<BudgetSettings>;
+  setSettings(changes: { maxBudgetShare: number }): Promise<BudgetSettings>;
+  presets(): Promise<RecordingPreset[]>;
+  /** Makes the preset's rule (once) and turns auto-record on. `collection` picks the list for `my-watchlist`. */
+  applyPreset(preset: string | RecordingPreset, o?: { collection?: string }): Promise<{ preset: string; created: boolean; rule: RecordingRule; auto: { enabled: boolean; rules: number; activeRules: number } }>;
   list(o?: { status?: string }): Promise<Recording[]>;
   pause(rec: JobRef): Promise<Recording>;
   resume(rec: JobRef): Promise<Recording>;
@@ -802,7 +867,9 @@ export declare class BridgeClient {
   accounts(): Promise<Envelope<Array<Record<string, unknown>>>>;
   account(accountId: string): Promise<Envelope<Record<string, unknown>>>;
   testAccount(accountId: string): Promise<Envelope<{ ok: boolean; message: string }>>;
-  limits(o?: { account?: string }): Promise<Envelope<unknown>>;
+  limits(o?: { account?: string; explain?: boolean }): Promise<Envelope<unknown>>;
+  /** Broker calls not made today (data already stored, streamed, cached or shared), from GET /v1/limits?explain=1. */
+  savedCalls(): Promise<SavedCalls>;
   usage(): Promise<Envelope<unknown>>;
 
   searchInstruments(p: { q: string; exchange?: Exchange; kind?: InstrumentKind; underlying?: string; expiry?: string; limit?: number; cursor?: string }): Promise<Envelope<Instrument[]>>;
@@ -857,7 +924,15 @@ export declare class BridgeClient {
   readonly subscriptions: Subscriptions;
   readonly events: Events;
 
-  createDownload(request: DownloadRequest): Promise<Envelope<DownloadJob>>;
+  createDownload(request: DownloadRequest, o?: { dryRun?: false }): Promise<Envelope<DownloadJob>>;
+  createDownload(request: DownloadRequest, o: { dryRun: true }): Promise<Envelope<DownloadEstimate>>;
+  downloadSettings(): Promise<Envelope<BudgetSettings>>;
+  setDownloadSettings(changes: { maxBudgetShare?: number; afterHoursOnly?: boolean }): Promise<Envelope<BudgetSettings>>;
+  recordingStatus(): Promise<Envelope<RecordingStatus>>;
+  recordingSettings(): Promise<Envelope<BudgetSettings>>;
+  setRecordingSettings(changes: { maxBudgetShare: number }): Promise<Envelope<BudgetSettings>>;
+  recordingPresets(): Promise<Envelope<RecordingPreset[]>>;
+  applyRecordingPreset(id: string, body?: { collection?: string }): Promise<Envelope<unknown>>;
   listDownloads(p?: { status?: JobStatus; limit?: number; cursor?: string }): Promise<Envelope<DownloadJob[]>>;
   download(id: string): Promise<Envelope<DownloadJob>>;
   pauseDownload(id: string): Promise<Envelope<DownloadJob>>;

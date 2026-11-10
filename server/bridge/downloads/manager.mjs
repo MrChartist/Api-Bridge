@@ -29,7 +29,7 @@ import { record as recordSaved } from "../market/savedCalls.mjs";
 import { DAY_MS, istDate, parseTimeInput, toIstIso } from "../market/time.mjs";
 import { EXTENSIONS, FORMATS, LAYOUTS, coveredUpTo, decodeLine, encodeBars, exchangeOf, findHoles, headerText, isClosedBar, lastBarOf, normaliseBar, readBars, trimPartialTail } from "./bars.mjs";
 import { CALENDAR_EXCHANGES, sharedCalendar } from "./calendar.mjs";
-import { parseDownloadsConfig } from "./config.mjs";
+import { SHARE_MAX, SHARE_MIN, parseDownloadsConfig } from "./config.mjs";
 import { checkDatasetName, cleanTags, createDatasets, toPublicDataset } from "./datasets.mjs";
 import { estimateDownload, planWindows, timeAtShare } from "./estimate.mjs";
 import { JOB_ID_RE, folderBytes, removeQuiet, safeFileName, sha256File, sizeOf, uniqueName, writeJsonAtomic } from "./files.mjs";
@@ -85,7 +85,12 @@ class DiskLimit extends Error {}
 export function createDownloadManager(deps, opts = {}) {
   const { bus, logger } = deps;
   const now = () => deps.clock.now();
-  const cfg = () => parseDownloadsConfig(deps.config?.downloads);
+  const baseCfg = () => parseDownloadsConfig(deps.config?.downloads);
+  /** Changes made at run time (Data page, PATCH /v1/downloads/settings), kept in <dataDir>/downloads/settings.json. */
+  let overrides = {};
+  const settingsFile = join(deps.paths.dataDir, "downloads", "settings.json");
+  /** The config with the run-time changes on top: every pacing decision reads this, so a change applies at once. */
+  const cfg = () => ({ ...baseCfg(), ...overrides });
   const dataDir = deps.paths.dataDir;
   const jobsRoot = join(dataDir, "downloads", "jobs");
   const calendar = opts.calendar ?? sharedCalendar();
@@ -397,7 +402,8 @@ export function createDownloadManager(deps, opts = {}) {
       dataset: r.dataset ?? null,
       account: r.account ?? null,
       backup: r.backup === true,
-      afterHoursOnly: r.afterHoursOnly ?? c.afterHoursOnly,
+      // null: follows the downloads setting at the time the job runs (it can be changed while the job waits).
+      afterHoursOnly: r.afterHoursOnly ?? null,
       ...(r.collection ? { collection: r.collection } : {}),
     };
     return { request, collection, fromSec: Math.floor(fromMs / 1000), toSec: Math.floor(toMs / 1000), name: r.name, tags, fromDataset };
@@ -647,7 +653,7 @@ export function createDownloadManager(deps, opts = {}) {
   async function gate(job, signal) {
     const rt = running.get(job.id);
     if (killEngaged()) throw new PauseJob("kill_switch", "The kill switch is on, so downloads are paused. They continue when it is released.");
-    while (job.request.afterHoursOnly && marketOpen()) {
+    while ((job.request.afterHoursOnly ?? cfg().afterHoursOnly) && marketOpen()) {
       if (rt) rt.waiting = { reason: "market-hours", waitMs: SLICE_MS };
       await sleep(SLICE_MS, signal);
       if (killEngaged()) throw new PauseJob("kill_switch", "The kill switch is on, so downloads are paused. They continue when it is released.");
@@ -957,6 +963,16 @@ export function createDownloadManager(deps, opts = {}) {
       }
     }
     job.outputs = outputs;
+    // A dataset job that asked the broker for nothing (the dataset was already up to date) still says where its data came from.
+    if (job.dataset && !job.sources.length) {
+      const ds = datasets.get(job.dataset);
+      if (ds?.source) {
+        job.dataClass = ds.dataClass ?? job.dataClass;
+        job.sources = String(ds.source).split(", ");
+        job.official = ds.official ?? job.official;
+        job.delaySec = ds.delaySec ?? job.delaySec;
+      }
+    }
     const gapNotes = job.items.filter((i) => i.holesNote).map((i) => `${i.symbol} ${i.interval}: ${i.holesNote}.`);
     for (const n of [...gapNotes.slice(0, 10), ...(gapNotes.length > 10 ? [`... and ${gapNotes.length - 10} more series with missing bars. A thin stock has no bar for a minute with no trade.`] : [])]) if (!job.notes.includes(n)) job.notes.push(n);
     const pushNote = (n) => {
@@ -1121,7 +1137,7 @@ export function createDownloadManager(deps, opts = {}) {
     const meta = datasets.get(name);
     if (!meta) throw new BridgeError("NOT_FOUND", `There is no dataset "${name}".`);
     const r = meta.request ?? {};
-    const body = { name: meta.title ?? name, intervals: r.intervals, from: r.from, format: meta.format, layout: "per-symbol", dataset: name, backup: r.backup === true, ...(r.account ? { account: r.account } : {}), ...(r.afterHoursOnly !== undefined ? { afterHoursOnly: r.afterHoursOnly } : {}) };
+    const body = { name: meta.title ?? name, intervals: r.intervals, from: r.from, format: meta.format, layout: "per-symbol", dataset: name, backup: r.backup === true, ...(r.account ? { account: r.account } : {}), ...(r.afterHoursOnly != null ? { afterHoursOnly: r.afterHoursOnly } : {}) };
     if (r.collection) body.collection = r.collection;
     else body.symbols = r.symbols;
     return create(body, { ...o, fromDataset: true });
@@ -1230,10 +1246,63 @@ export function createDownloadManager(deps, opts = {}) {
 
   // ───────────────────────── lifecycle ─────────────────────────
 
+  // ───────────────────────── run-time settings ─────────────────────────
+
+  const SETTINGS_SCHEMA = z
+    .object({
+      maxBudgetShare: z.number({ error: "maxBudgetShare must be a number." }).min(SHARE_MIN, `maxBudgetShare must be at least ${SHARE_MIN} (${Math.round(SHARE_MIN * 100)}%).`).max(SHARE_MAX, `maxBudgetShare must be at most ${SHARE_MAX} (${Math.round(SHARE_MAX * 100)}%).`).optional(),
+      afterHoursOnly: z.boolean({ error: "afterHoursOnly must be true or false." }).optional(),
+    })
+    .strict();
+
+  /** What is in force now, the config defaults and the allowed range. */
+  function settings() {
+    const base = baseCfg();
+    const c = cfg();
+    return {
+      maxBudgetShare: c.maxBudgetShare,
+      afterHoursOnly: c.afterHoursOnly,
+      defaults: { maxBudgetShare: base.maxBudgetShare, afterHoursOnly: base.afterHoursOnly },
+      limits: { minBudgetShare: SHARE_MIN, maxBudgetShare: SHARE_MAX },
+      changed: Object.keys(overrides),
+    };
+  }
+
+  async function loadSettings() {
+    try {
+      const raw = JSON.parse(await readFile(settingsFile, "utf8"));
+      const r = SETTINGS_SCHEMA.safeParse(raw);
+      // A hand-edited or old file never stops the Bridge: take the good fields, ignore the rest.
+      overrides = r.success ? r.data : {};
+      if (!r.success && raw && typeof raw === "object") {
+        for (const key of ["maxBudgetShare", "afterHoursOnly"]) {
+          const one = SETTINGS_SCHEMA.safeParse({ [key]: raw[key] });
+          if (one.success && raw[key] !== undefined) overrides[key] = raw[key];
+        }
+      }
+    } catch (err) {
+      overrides = {};
+      if (err?.code !== "ENOENT") logger?.warn?.("downloads settings file ignored", { err: err?.message });
+    }
+  }
+
+  /** Change the share or the after-hours switch. Applies to running jobs at their next call; kept across restarts. */
+  async function setSettings(body) {
+    const r = SETTINGS_SCHEMA.safeParse(body ?? {});
+    if (!r.success) throw fromValidation(r.error, "Send { maxBudgetShare?: 0.05 to 0.8, afterHoursOnly?: true | false }.");
+    if (!Object.keys(r.data).length) throw new BridgeError("VALIDATION_FAILED", "Send maxBudgetShare and/or afterHoursOnly.", { errors: [{ path: "", message: "nothing to change" }] });
+    const next = { ...overrides, ...r.data };
+    await mkdir(join(dataDir, "downloads"), { recursive: true, mode: 0o700 });
+    await writeJsonAtomic(settingsFile, next);
+    overrides = next;
+    return settings();
+  }
+
   async function start() {
     if (started) return;
     started = true;
     stopped = false;
+    await loadSettings();
     if (!cfg().enabled) return;
     await mkdir(jobsRoot, { recursive: true, mode: 0o700 });
     await loadJobs();
@@ -1271,6 +1340,8 @@ export function createDownloadManager(deps, opts = {}) {
   return {
     start,
     stop,
+    settings,
+    setSettings,
     estimate,
     create,
     get,

@@ -10,7 +10,7 @@
  *     "retentionDays": null,          // delete day files older than this many days (null = keep everything)
  *     "compressFinished": false,      // gzip day files of finished days (.csv.gz / .jsonl.gz)
  *     "minFreeDiskMb": 500,           // stop writing when the disk has less than this free
- *     "maxBudgetShare": 0.3,          // share of an account's spare API budget a recording may use (never above 0.5)
+ *     "maxBudgetShare": 0.3,          // share of an account's spare API budget a recording may use (0.05 to 0.8; the default, changed live by PATCH /v1/recordings/settings)
  *     "maxSymbolsPerRecording": 1000,
  *     "maxStreamSymbols": 400,        // how many symbols one recording asks the live feed for
  *     "gapAfterSec": null,            // silence longer than this inside a session is a gap (null = 3 x everySec, at least 30)
@@ -27,6 +27,9 @@ export const hhmm = z.string().regex(HHMM, 'a time as HH:MM (IST, 24-hour)');
 export const DAYS = Object.freeze(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 export const FORMATS = Object.freeze(["csv", "jsonl"]);
 export const KINDS = Object.freeze(["quotes", "chain"]);
+/** The range of the background budget share (also the range of PATCH /v1/recordings/settings). */
+export const SHARE_MIN = 0.05;
+export const SHARE_MAX = 0.8;
 
 const symbolList = z.array(z.string().trim().min(3).max(80)).min(1).max(2000);
 const name = z.string().trim().min(1).max(60);
@@ -96,7 +99,7 @@ export const RECORDER_CONFIG_SCHEMA = z
     retentionDays: z.number().int().min(1).max(3650).nullable().default(null),
     compressFinished: z.boolean().default(false),
     minFreeDiskMb: z.number().int().min(0).max(1_000_000).default(500),
-    maxBudgetShare: z.number().min(0.01).max(0.5).default(0.3),
+    maxBudgetShare: z.number().min(SHARE_MIN).max(SHARE_MAX).default(0.3),
     maxSymbolsPerRecording: z.number().int().min(1).max(5000).default(1000),
     maxStreamSymbols: z.number().int().min(0).max(5000).default(400),
     gapAfterSec: z.number().int().min(5).max(3600).nullable().default(null),
