@@ -372,12 +372,25 @@ describe("the starters, run against a demo Bridge", () => {
       const h = { ...signatureHeaders(secret, t, body), "X-Bridge-Event-Id": "evt_once" };
       expect(((await (await post(body, h)).json()).duplicate)).toBe(false);
       expect(((await (await post(body, h)).json()).duplicate)).toBe(true);
+      // a captured request sent again with another, unsigned X-Bridge-Event-Id header is still the same event (audit S3)
+      for (const fake of ["evt_x1", "evt_x2", ""]) {
+        const replay = await post(body, { ...signatureHeaders(secret, t, body), ...(fake ? { "X-Bridge-Event-Id": fake } : {}) });
+        expect((await replay.json()).duplicate, `header ${fake || "(none)"}`).toBe(true);
+      }
       // a body changed after signing, and a stale timestamp
       expect((await post(body.replace("evt_once", "evt_twice"), h)).status).toBe(401);
       const old = t - 3600;
       expect((await post(body, { ...signatureHeaders(secret, old, body), "X-Bridge-Event-Id": "evt_old" })).status).toBe(401);
       await new Promise((r) => setTimeout(r, 50));
       expect(got.map((e) => e.id).filter((i) => i === "evt_once")).toHaveLength(1);
+      expect(got.some((e) => e.id === "evt_x1" || e.id === "evt_x2")).toBe(false);
+      // the memory of handled ids is bounded and forgets old ids, never the recent ones
+      const { seenBefore } = await import(join(dir, "receiver.mjs"));
+      const t0 = 1_000_000_000;
+      for (let i = 0; i < 12_000; i += 1) seenBefore(`bulk_${i}`, t0 + i);
+      expect(seenBefore("bulk_11999", t0 + 12_000)).toBe(true); // recent: remembered
+      expect(seenBefore("bulk_0", t0 + 12_001)).toBe(false); // oldest: dropped to stay inside the bound
+      expect(seenBefore("bulk_11999", t0 + 12_000 + 11 * 60_000)).toBe(false); // older than 10 minutes: forgotten
     } finally {
       await new Promise((r) => server.close(r));
     }

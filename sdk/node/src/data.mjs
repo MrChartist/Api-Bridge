@@ -565,7 +565,7 @@ export class Collections {
 
 /**
  * Signed outbound webhooks (the Bridge posts events to your URL). Needs an admin key from the Bridge's computer. Verify each
- * delivery with `verifySignature`. Delivery is at least once: de-duplicate on the `X-Bridge-Event-Id` header.
+ * delivery with `verifySignature`. Delivery is at least once: de-duplicate on the `id` in the verified body (the `X-Bridge-Event-Id` header is not signed).
  */
 export class Subscriptions {
   constructor(client) {

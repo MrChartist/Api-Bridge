@@ -2,12 +2,13 @@
 // It listens on this computer only (127.0.0.1) until you decide otherwise. Rules it follows, and you should keep:
 //   - verify the signature BEFORE you trust anything in the body (verify.mjs)
 //   - answer 2xx quickly and do slow work afterwards: the Bridge retries anything that is not 2xx, with growing waits
-//   - expect the same event twice (a retry after a slow answer): handle each event id once
+//   - expect the same event twice (a retry after a slow answer, or a copy someone captured): handle each event id once,
+//     using the `id` INSIDE the signed body. The X-Bridge-Event-Id header is not covered by the signature: anyone can change it.
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./env.mjs";
-import { EVENT_ID_HEADER, SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignature } from "./verify.mjs";
+import { SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignature } from "./verify.mjs";
 
 const env = loadEnv();
 const SECRET = env.WEBHOOK_SECRET;
@@ -19,14 +20,23 @@ if (!SECRET) {
   process.exit(1);
 }
 
-/** Event ids handled recently, so a retry of the same event is acknowledged but not handled again. */
+/**
+ * Event ids handled recently, so a retry (or a replayed copy) of the same event is acknowledged but not handled again.
+ * Remembered for 10 minutes (longer than the 5-minute signature window, so a captured request cannot be replayed after
+ * it is forgotten) and at most MAX_SEEN ids, so a flood of events cannot grow it without bound.
+ */
+const SEEN_MS = 10 * 60_000;
+const MAX_SEEN = 10_000;
 const seen = new Map();
-function seenBefore(id) {
-  const now = Date.now();
-  for (const [k, at] of seen) if (now - at > 10 * 60_000) seen.delete(k);
-  if (!id) return false;
+export function seenBefore(id, now = Date.now()) {
+  for (const [k, at] of seen) {
+    if (now - at > SEEN_MS) seen.delete(k);
+    else break; // insertion order is time order: the rest are newer
+  }
+  if (typeof id !== "string" || !id) return false; // an event with no id cannot be matched: handle it
   if (seen.has(id)) return true;
   seen.set(id, now);
+  while (seen.size > MAX_SEEN) seen.delete(seen.keys().next().value); // the oldest goes first
   return false;
 }
 
@@ -63,7 +73,8 @@ export function createReceiver({ secret = SECRET, onEvent = handleEvent } = {}) 
         res.writeHead(400).end();
         return;
       }
-      const duplicate = seenBefore(req.headers[EVENT_ID_HEADER] ?? event.id);
+      // The id from the body, which the signature covers. Never the X-Bridge-Event-Id header: it is not signed.
+      const duplicate = seenBefore(event?.id === undefined || event?.id === null ? undefined : String(event.id));
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, duplicate }));
       if (!duplicate) setImmediate(() => onEvent(event)); // after the answer: slow work must not delay it
     });

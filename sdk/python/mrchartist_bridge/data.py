@@ -1043,7 +1043,7 @@ class Collections(_Ns):
 class Subscriptions(_Ns):
     """``bridge.subscriptions``: signed outbound webhooks (the Bridge posts events to your URL). Needs an admin key from
     the Bridge's computer. Verify each delivery with ``mrchartist_bridge.verify_signature``. Delivery is at least once:
-    de-duplicate on the ``X-Bridge-Event-Id`` header."""
+    de-duplicate on the ``id`` in the verified body (the ``X-Bridge-Event-Id`` header is not signed)."""
 
     def list(self) -> Result[Subscription]:
         return _result(self._c.subscriptions(), Subscription.from_dict)

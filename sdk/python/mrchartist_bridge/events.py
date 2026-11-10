@@ -17,7 +17,8 @@ Webhooks (the Bridge posts to your URL) are managed with ``bridge.subscriptions`
     ok = verify_signature(SECRET, raw_body_bytes, request.headers)        # or timestamp=..., signature=...
 
 Use the raw bytes as received: re-serialising parsed JSON changes them. A timestamp more than 5 minutes from your clock
-fails (replay protection; this helper keeps no memory: de-duplicate on ``X-Bridge-Event-Id``, delivery is at least once). A
+fails (replay protection; this helper keeps no memory: de-duplicate on the ``id`` of the verified body, delivery is at least once. The
+``X-Bridge-Event-Id`` header is not signed, so never de-duplicate on it: a captured copy could carry another one). A
 secret being replaced makes the Bridge send several ``v1=`` values: any one may match, and you may pass a list of secrets.
 Standard library only.
 """

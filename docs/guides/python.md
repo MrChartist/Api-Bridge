@@ -174,7 +174,7 @@ ok = verify_signature(SECRET, raw_body_bytes, request.headers)        # False: a
 
 The Bridge sends `X-Bridge-Signature: v1=<hex>` and `X-Bridge-Timestamp: <unix seconds>` (and `X-Bridge-Event-Id`,
 `X-Bridge-Delivery`, `X-Bridge-Attempt`). The hex is the HMAC-SHA256 of `"<timestamp>." + the exact raw body`; a timestamp more
-than 5 minutes off fails. Use the raw bytes as received. Delivery is at least once: de-duplicate on `X-Bridge-Event-Id`.
+than 5 minutes off fails. Use the raw bytes as received. Delivery is at least once: de-duplicate on the `id` in the verified body (`X-Bridge-Event-Id` is not signed, so a captured copy could change it).
 `raise_on_fail=True` raises `SignatureInvalid` with a `reason`. A delivery that keeps failing becomes a dead letter:
 `bridge.subscriptions.dead_letters(id)`, `retry_dead_letter(id, letter)`, `retry_all_dead_letters(id)`, `clear_dead_letters(id)`;
 `deliveries(id, outcome="dead")` is the attempt log.

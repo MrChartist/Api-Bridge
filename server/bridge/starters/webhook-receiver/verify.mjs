@@ -9,11 +9,13 @@
 //   1. Sign the raw bytes you received, never JSON that you parsed and wrote out again (spacing and key order change).
 //   2. Compare in constant time (timingSafeEqual), never with ===.
 //   3. Reject a timestamp that is too old or too new (replay window, 300 s), and remember event ids so a retry of the
-//      same event is handled once. See `seenBefore` in receiver.mjs.
+//      same event is handled once. Use the `id` in the BODY: it is covered by the signature. The X-Bridge-Event-Id header is
+//      not, so someone who captured one request could change it and make you act again. See `seenBefore` in receiver.mjs.
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const SIGNATURE_HEADER = "x-bridge-signature";
 export const TIMESTAMP_HEADER = "x-bridge-timestamp";
+/** Not signed: for logs only. De-duplicate on the `id` in the signed body instead. */
 export const EVENT_ID_HEADER = "x-bridge-event-id";
 export const TOLERANCE_SECONDS = 300;
 
