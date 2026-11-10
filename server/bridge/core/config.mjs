@@ -351,7 +351,6 @@ export const REMOVED_SETTINGS = Object.freeze({
   analytics: "analytics are not part of v2",
   studies: "studies are not part of v2",
   vol: "volatility data is not part of v2",
-  recorder: "the options recorder is not part of v2",
   reference: "the reference-data store is not part of v2",
   participants: "participant open interest is not part of v2",
   "stream.candles": "live candles are not served by the stream",

@@ -121,6 +121,8 @@ tags:
     description: Per-key request quotas and fair-queue weights.
   - name: Notifications
     description: Events to Telegram and a few read-only Telegram commands. Setup is on this computer only; nothing here returns a bot token or a chat id.
+  - name: Recordings
+    description: "Saves this Bridge's own real-time data going forward (quotes, option chains) to files on this computer, by hand or by rules every trading day. Real-time class only."
   - name: Safety
     description: Kill switch, safety counters and the audit log.
   - name: Readiness
@@ -5030,6 +5032,466 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/recordings:
+    get:
+      tags: [Recordings]
+      operationId: listRecordings
+      summary: "List recordings (meta.status is a plain status line)"
+      description: "A recording saves this Bridge's own real-time data going forward, because brokers give no history for option chains, open interest snapshots or ticks. Every item says dataClass realtime."
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: The recordings, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Recording" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Recordings]
+      operationId: createRecording
+      summary: "Start a recording of quotes or an option chain"
+      description: "Real-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written. everySec is at least 1 for quotes from the live feed (5 or more to read symbols the feed does not carry) and at least 15 for a chain. With sessionOnly (the default) it records only inside market hours, from the market calendar. One file per symbol per IST trading day."
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordingCreate" }
+      responses:
+        "201":
+          description: Started.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Recording" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/status:
+    get:
+      tags: [Recordings]
+      operationId: getRecordingsStatus
+      summary: "One plain line about today's recording, and the numbers behind it"
+      description: "For example: Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02."
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingStatus" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/auto:
+    get:
+      tags: [Recordings]
+      operationId: getRecordingAuto
+      summary: "Whether auto-record is on"
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: The switch.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingAuto" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [Recordings]
+      operationId: putRecordingAuto
+      summary: "Turn auto-record on or off"
+      description: "Off until a person turns it on. Turning it off stops every rule's recording (the files stay); turning it on starts the enabled rules at their next session."
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordingAutoUpdate" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingAuto" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/presets:
+    get:
+      tags: [Recordings]
+      operationId: listRecordingPresets
+      summary: "The one-click presets"
+      description: "Record index option chains, and Record my watchlist."
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: Presets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/RecordingPreset" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/presets/{presetId}/apply:
+    parameters:
+      - name: presetId
+        in: path
+        required: true
+        schema: { type: string, enum: [index-option-chains, my-watchlist] }
+    post:
+      tags: [Recordings]
+      operationId: applyRecordingPreset
+      summary: "Create the preset's rule and turn auto-record on"
+      description: "Applying a preset again does not duplicate its rule (answers 200). my-watchlist reads a collection named watchlist unless the body names another; it needs the library of collections (422 when it is not there)."
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordingPresetApply" }
+      responses:
+        "201":
+          description: Applied.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingPresetResult" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/rules:
+    get:
+      tags: [Recordings]
+      operationId: listRecordingRules
+      summary: "The auto-record rules"
+      description: "Rules from this computer's data folder and from recorder.autoRecord.rules in the config file (source config, read-only here)."
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: Rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/RecordingRule" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Recordings]
+      operationId: createRecordingRule
+      summary: "Add an auto-record rule"
+      description: "For example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours. The universe is chosen again every day (and every 30 minutes for a moving ATM window); an ATM window is never built from a delayed or stale price."
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordingRuleCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingRule" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/rules/{ruleId}:
+    parameters:
+      - name: ruleId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,40}$' }
+    get:
+      tags: [Recordings]
+      operationId: getRecordingRule
+      summary: "One rule with today's state"
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: The rule.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingRule" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    patch:
+      tags: [Recordings]
+      operationId: patchRecordingRule
+      summary: "Change a rule"
+      description: "Only the fields sent change. A rule written in the config file is refused with 409."
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordingRulePatch" }
+      responses:
+        "200":
+          description: Changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/RecordingRule" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Recordings]
+      operationId: deleteRecordingRule
+      summary: "Delete a rule (its files stay unless deleteFiles=true)"
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      parameters:
+        - { name: deleteFiles, in: query, schema: { type: boolean, default: false }, description: Also delete the recorded files of this rule. }
+      responses:
+        "204": { description: Deleted. }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/{recordingId}:
+    parameters:
+      - name: recordingId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
+    get:
+      tags: [Recordings]
+      operationId: getRecording
+      summary: "One recording: counters, gaps, disk use, files summary"
+      description: "gaps lists stretches with no data and why (feed silent, login missing, Bridge stopped, budget in use, disk limit). disk shows its use against its limit and the total limit."
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: The recording.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Recording" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [Recordings]
+      operationId: deleteRecording
+      summary: "Delete a recording and its files"
+      description: "A recording that belongs to a rule is deleted by deleting the rule (409 otherwise)."
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "204": { description: Deleted. }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/{recordingId}/pause:
+    parameters:
+      - name: recordingId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
+    post:
+      tags: [Recordings]
+      operationId: pauseRecording
+      summary: "Pause a recording"
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The recording.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Recording" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/{recordingId}/resume:
+    parameters:
+      - name: recordingId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
+    post:
+      tags: [Recordings]
+      operationId: resumeRecording
+      summary: "Resume a paused recording"
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The recording.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Recording" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/{recordingId}/stop:
+    parameters:
+      - name: recordingId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
+    post:
+      tags: [Recordings]
+      operationId: stopRecording
+      summary: "Stop a recording (final; the files stay)"
+      description: "A recording that belongs to a rule is changed through the rule (409 otherwise)."
+      x-module: recorder
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The recording.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/Recording" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/{recordingId}/files:
+    parameters:
+      - name: recordingId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
+    get:
+      tags: [Recordings]
+      operationId: listRecordingFiles
+      summary: "The day files of a recording"
+      description: "One file per symbol per IST trading day, named YYYY-MM-DD__EXCHANGE_SYMBOL.csv (or .jsonl; .gz after compression). The layout is in docs/guides/recording.md."
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: Files, oldest day first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/RecordingFile" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/recordings/{recordingId}/files/{name}:
+    parameters:
+      - name: recordingId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^(rec_[a-z0-9]{4,20}|rule-[a-z0-9-]{2,41})$' }
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Recordings]
+      operationId: getRecordingFile
+      summary: Download one day file as it is on disk
+      description: "Only names from the file list open. The answer carries X-Data-Class realtime."
+      x-module: recorder
+      x-scope: read
+      responses:
+        "200":
+          description: The file (CSV, JSON lines, or gzip for a compressed day).
+          content:
+            text/csv: { schema: { type: string } }
+            application/x-ndjson: { schema: { type: string } }
+            application/gzip: { schema: { type: string, format: binary } }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /mcp:
     post:
       tags: [AI (MCP)]
@@ -8629,6 +9091,235 @@ components:
         counters: { type: object, properties: { delivered: { type: integer }, failed: { type: integer }, suppressed: { type: integer }, ignoredMessages: { type: integer, description: "Messages from chats that are not on the list. Counted, never answered." }, commands: { type: integer } } }
         quietHours: { type: object, additionalProperties: true }
         reminders: { type: object, additionalProperties: true }
+    RecordingUniverse:
+      type: object
+      additionalProperties: false
+      properties:
+        expiries:
+          description: A rule or a list of dates.
+          oneOf:
+            - { type: string, enum: [current-weekly, next-weekly, current-monthly, all-weekly] }
+            - { type: array, items: { type: string, format: date } }
+        strikes:
+          description: Around the ATM (from the real-time price) or between two strikes.
+          oneOf:
+            - { type: object, additionalProperties: false, properties: { around: { type: string, enum: [atm] }, count: { type: integer, minimum: 0, maximum: 100 } } }
+            - { type: object, additionalProperties: false, required: [from, to], properties: { from: { type: number }, to: { type: number } } }
+        sides: { type: array, items: { type: string, enum: [CE, PE] } }
+        includeUnderlying: { type: boolean }
+        includeFuture: { type: boolean }
+    RecordingSchedule:
+      description: "market-hours (the exchange session of each trading day, from the market calendar) or chosen days and hours (IST; trading days only for NSE, BSE, NFO and BFO)."
+      oneOf:
+        - { type: string, enum: [market-hours] }
+        - { type: object, additionalProperties: false, required: [start, end], properties: { days: { type: array, items: { type: string, enum: [mon, tue, wed, thu, fri, sat, sun] } }, start: { type: string, example: "09:15" }, end: { type: string, example: "15:30" } } }
+    RecordingCreate:
+      type: object
+      additionalProperties: false
+      required: [kind, everySec]
+      description: "Give exactly one of symbols, collection or underlying."
+      properties:
+        name: { type: string, maxLength: 60 }
+        kind: { type: string, enum: [quotes, chain] }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" }, maxItems: 2000 }
+        collection: { type: string, description: A collection from the library; resolved again every day. }
+        underlying:
+          description: An index or stock name, or a list of them.
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        expiry: { type: string, format: date, description: "With underlying: one expiry date (else the current weekly)." }
+        strikes: { type: integer, minimum: 0, maximum: 100, description: "With underlying: strikes each side of the ATM (default 10)." }
+        universe: { $ref: "#/components/schemas/RecordingUniverse" }
+        everySec: { type: integer, minimum: 1, maximum: 86400, description: Seconds between samples. At least 15 for a chain. }
+        sessionOnly: { type: boolean, default: true, description: Record only inside market hours (the market calendar). False records all day and rolls at IST midnight. }
+        format: { type: string, enum: [csv, jsonl], default: csv }
+        keepDays: { type: [integer, "null"], description: Keep this many days of files (today included); older day files are deleted. }
+        maxDiskMb: { type: [integer, "null"], description: This recording's own disk limit. Writing stops before it is passed. }
+        compress: { type: boolean, description: Gzip the files of finished days. }
+        dataClass: { type: string, enum: [realtime], description: Only realtime is accepted; anything else is refused with the reason. }
+    Recording:
+      type: object
+      required: [id, name, kind, status, statusText, dataClass, everySec, rows, bytes]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [quotes, chain] }
+        status: { type: string, enum: [recording, waiting, paused, stopped, blocked], description: "waiting: outside the session, or no login yet. blocked: a disk limit was reached; nothing is written until there is room." }
+        statusText: { type: string, description: The state in a plain sentence. }
+        auto: { type: boolean, description: True when a rule runs it. }
+        ruleId: { type: [string, "null"] }
+        target: { type: object, additionalProperties: true }
+        everySec: { type: integer }
+        sessionOnly: { type: boolean }
+        schedule:
+          description: always, market-hours, or chosen days and hours.
+          oneOf:
+            - { type: string }
+            - { type: object, additionalProperties: true }
+        format: { type: string, enum: [csv, jsonl] }
+        createdAt: { type: string }
+        dataClass: { type: string, enum: [realtime] }
+        delaySec: { type: integer }
+        source: { type: string }
+        symbols:
+          type: object
+          properties:
+            count: { type: integer }
+            sample: { type: array, items: { type: string } }
+            resolvedAt: { type: [string, "null"] }
+            rule: { type: [string, "null"], description: "How the symbols were chosen, for example NIFTY 2026-11-12 ATM 24000 +/- 10 strikes (spot 24012)." }
+            via: { type: [string, "null"], enum: [given, library, bridge, null] }
+            notes: { type: array, items: { type: string } }
+            stale: { type: boolean }
+            problem: { type: [string, "null"] }
+            onLiveFeed: { type: integer }
+            notOnLiveFeed: { type: integer }
+        rows: { type: integer }
+        bytes: { type: integer }
+        today: { type: object, properties: { date: { type: [string, "null"] }, rows: { type: integer }, bytes: { type: integer }, gaps: { type: integer } } }
+        lastWriteAt: { type: [string, "null"] }
+        gaps:
+          type: object
+          properties:
+            total: { type: integer }
+            today: { type: integer }
+            open: { type: [object, "null"], additionalProperties: true }
+            recent: { type: array, items: { $ref: "#/components/schemas/RecordingGap" } }
+        refused: { type: object, description: Answers that were not real-time and so were not written., properties: { total: { type: integer }, last: { type: [object, "null"], additionalProperties: true } } }
+        apiCalls: { type: object, properties: { madeToday: { type: integer }, savedToday: { type: integer, description: Broker calls avoided because the live feed or the cache answered. } } }
+        disk: { type: object, additionalProperties: true }
+        keepDays: { type: [integer, "null"] }
+        nextStartAt: { type: [string, "null"] }
+        issue: { type: [object, "null"], additionalProperties: true }
+        filesUrl: { type: string }
+        files: { type: object, description: "On GET /v1/recordings/{recordingId} only.", properties: { count: { type: integer }, firstDate: { type: [string, "null"] }, lastDate: { type: [string, "null"] } } }
+    RecordingGap:
+      type: object
+      properties:
+        id: { type: string }
+        state: { type: string, enum: [open, closed] }
+        from: { type: string }
+        to: { type: [string, "null"] }
+        reason: { type: string, enum: [login-missing, feed-down, feed-silent, budget, delayed-source, universe-unresolved, bridge-stopped, disk-full, error] }
+        detail: { type: [string, "null"] }
+        seconds: { type: [integer, "null"] }
+    RecordingFile:
+      type: object
+      required: [name, date, symbol, format, bytes, rows]
+      properties:
+        name: { type: string, description: "YYYY-MM-DD__EXCHANGE_SYMBOL.csv or .jsonl, with .gz after compression." }
+        date: { type: string, format: date }
+        symbol: { $ref: "#/components/schemas/Symbol" }
+        format: { type: string, enum: [csv, jsonl] }
+        compressed: { type: boolean }
+        bytes: { type: integer }
+        rows: { type: integer }
+        url: { type: string }
+    RecordingStatus:
+      type: object
+      required: [line, today, recordings, disk]
+      properties:
+        line: { type: string, example: "Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02." }
+        enabled: { type: boolean }
+        auto: { $ref: "#/components/schemas/RecordingAuto" }
+        today: { type: object, additionalProperties: true }
+        recordings: { type: object, additionalProperties: true }
+        disk: { type: object, additionalProperties: true }
+        apiCalls: { type: object, properties: { made: { type: integer }, saved: { type: integer } } }
+        budgetShare: { type: number, description: The share of an account's spare API budget recordings may use (recorder.maxBudgetShare). }
+        dataClass: { type: string, enum: [realtime] }
+    RecordingAuto:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        setBy: { type: string, enum: [user, config] }
+        rules: { type: integer }
+        activeRules: { type: integer }
+    RecordingAutoUpdate:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+    RecordingRuleCreate:
+      type: object
+      additionalProperties: false
+      required: [name, kind, everySec]
+      description: "Give exactly one of symbols, collection or underlying (with universe)."
+      properties:
+        id: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,40}$' }
+        name: { type: string, maxLength: 60 }
+        enabled: { type: boolean, default: true }
+        kind: { type: string, enum: [quotes, chain] }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        collection: { type: string }
+        underlying:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        universe: { $ref: "#/components/schemas/RecordingUniverse" }
+        everySec: { type: integer, minimum: 1 }
+        schedule: { $ref: "#/components/schemas/RecordingSchedule" }
+        keepDays: { type: [integer, "null"] }
+        maxDiskMb: { type: [integer, "null"] }
+        compress: { type: boolean }
+        format: { type: string, enum: [csv, jsonl], default: csv }
+    RecordingRulePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string }
+        enabled: { type: boolean }
+        kind: { type: string, enum: [quotes, chain] }
+        symbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
+        collection: { type: string }
+        underlying:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+        universe: { $ref: "#/components/schemas/RecordingUniverse" }
+        everySec: { type: integer, minimum: 1 }
+        schedule: { $ref: "#/components/schemas/RecordingSchedule" }
+        keepDays: { type: [integer, "null"] }
+        maxDiskMb: { type: [integer, "null"] }
+        compress: { type: boolean }
+        format: { type: string, enum: [csv, jsonl] }
+    RecordingRule:
+      allOf:
+        - { $ref: "#/components/schemas/RecordingRuleCreate" }
+        - type: object
+          properties:
+            id: { type: string }
+            source: { type: string, enum: [user, config] }
+            preset: { type: string }
+            recordingId: { type: [string, "null"], description: The recording that carries this rule's files. }
+            state: { type: string, enum: [recording, waiting, paused, stopped, blocked, off] }
+            statusText: { type: string }
+            blockedBy: { type: [string, "null"] }
+            createdAt: { type: [string, "null"] }
+            updatedAt: { type: [string, "null"] }
+    RecordingPreset:
+      type: object
+      properties:
+        id: { type: string, enum: [index-option-chains, my-watchlist] }
+        title: { type: string }
+        about: { type: string }
+        needs: { type: string }
+        rule: { $ref: "#/components/schemas/RecordingRuleCreate" }
+    RecordingPresetApply:
+      type: object
+      additionalProperties: false
+      properties:
+        collection: { type: string, description: "my-watchlist only: the collection to record (default watchlist)." }
+    RecordingPresetResult:
+      type: object
+      properties:
+        preset: { type: string }
+        created: { type: boolean }
+        rule: { $ref: "#/components/schemas/RecordingRule" }
+        auto: { $ref: "#/components/schemas/RecordingAuto" }
     Hook:
       type: object
       required: [id, source, label, account, mode, createdAt]

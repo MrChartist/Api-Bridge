@@ -73,6 +73,11 @@ Usage:
                                    save history to files on this computer (a background job; never slows live reads)
   mc-bridge download list | show <id> | pause <id> | resume <id> | cancel <id> | files <id> [--out <folder>]
   mc-bridge download datasets | update <dataset>   datasets grow from their last stored bar
+  mc-bridge record quotes <symbols...> --every <s> [--all-day]   save real-time prices to files (one file per symbol per day)
+  mc-bridge record chain <UNDERLYING> --every <s> [--expiry <date>] [--strikes <n>] [--all-day]   save option-chain snapshots (at least 15 s)
+  mc-bridge record list | status | show <id> | files <id> | pause <id> | resume <id> | stop <id> | delete <id>
+  mc-bridge record auto on|off|status   record by itself every trading day (off until you turn it on)
+  mc-bridge record rules | rule add quotes|chain <...> --every <s> | rule on|off|remove <id> | preset index-option-chains|my-watchlist
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -606,6 +611,8 @@ export async function runCli(positionals, flags, io) {
       }
       case "download":
         return await downloadsCommand(positionals.slice(1), flags, io);
+      case "record":
+        return await recordCliCommand(positionals.slice(1), flags, io);
       case "kill":
         return await killCommand(sub, flags, io);
       case "backup":
@@ -1046,3 +1053,8 @@ async function collectionsCliCommand(args, flags, io) {
   return await collectionsCommand(args, flags, io, { connect: () => sourcesClient(flags, io), cli: cliCommand(io.env), usage: USAGE });
 }
 // === end collections ===========================================================================================
+/** `mc-bridge record ...` (server/bridge/recorder/cli.mjs). A separate block: it only connects to the running Bridge and hands over. */
+async function recordCliCommand(args, flags, io) {
+  const { recordCommand } = await import("../recorder/cli.mjs");
+  return recordCommand(args, flags, io, { connect: () => sourcesClient(flags, io), cli: cliCommand(io.env), usage: USAGE });
+}

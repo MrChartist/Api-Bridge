@@ -20,6 +20,7 @@
   are read from disk (`?dataset=` on `/v1/history`, `market.history.localFirst`), and `GET /v1/limits?explain=1` shows `savedCalls`.
 
 - Dashboard Data page (`#/data`): a download wizard with an estimate before start, live progress, recordings with auto-record rules and one-click presets, datasets with Update now, collections with an option-universe builder and live preview, and a Saving API calls card.
+- Recorder ([docs/guides/recording.md](docs/guides/recording.md)): saves your own real-time quotes and option chains to files on your computer, by hand or by auto-record rules every trading day (market calendar, ATM window and expiry chosen again each day, restart resume, gaps with reasons, disk and retention limits, background priority inside a share cap, real-time class only). New `/v1/recordings` routes (rules, presets, files), `mc-bridge record ...`, bus topics `recording.started`, `recording.stopped`, `recording.gap`, `recording.disk_low`, config `recorder`. Auto-record is off until you turn it on.
 - Developer files generated from `docs/openapi.yaml`: Postman and Bruno collections (`docs/collections/`), one Markdown page
   per endpoint and the error codes (`docs/api/`), `docs/llms.txt`, `docs/llms-full.txt` and a search index. The curl
   examples in them and in the quickstart run in the tests; `npm run docs:generate` rewrites everything and `npm run

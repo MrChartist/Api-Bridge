@@ -3962,6 +3962,554 @@
       "name": "Notifications"
     },
     {
+      "description": "Saves this Bridge's own real-time data going forward (quotes, option chains) to files on this computer, by hand or by rules every trading day. Real-time class only.",
+      "item": [
+        {
+          "name": "List recordings (meta.status is a plain status line)",
+          "request": {
+            "description": "List recordings (meta.status is a plain status line)\n\n- An API key with the `read` scope (any key).\n\nA recording saves this Bridge's own real-time data going forward, because brokers give no history for option chains, open interest snapshots or ticks. Every item says dataClass realtime.\n\nReference: docs/api/recordings/listRecordings.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Start a recording of quotes or an option chain",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"kind\": \"quotes\",\n  \"everySec\": 1\n}"
+            },
+            "description": "Start a recording of quotes or an option chain\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReal-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written. everySec is at least 1 for quotes from the live feed (5 or more to read symbols the feed does not carry) and at least 15 for a chain. With sessionOnly (the default) it records only inside market hours, from the market calendar. One file per symbol per IST trading day.\n\nReference: docs/api/recordings/createRecording.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One plain line about today's recording, and the numbers behind it",
+          "request": {
+            "description": "One plain line about today's recording, and the numbers behind it\n\n- An API key with the `read` scope (any key).\n\nFor example: Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02.\n\nReference: docs/api/recordings/getRecordingsStatus.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "status"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/status"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Whether auto-record is on",
+          "request": {
+            "description": "Whether auto-record is on\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/recordings/getRecordingAuto.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "auto"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/auto"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Turn auto-record on or off",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"enabled\": false\n}"
+            },
+            "description": "Turn auto-record on or off\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOff until a person turns it on. Turning it off stops every rule's recording (the files stay); turning it on starts the enabled rules at their next session.\n\nReference: docs/api/recordings/putRecordingAuto.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "auto"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/auto"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The one-click presets",
+          "request": {
+            "description": "The one-click presets\n\n- An API key with the `read` scope (any key).\n\nRecord index option chains, and Record my watchlist.\n\nReference: docs/api/recordings/listRecordingPresets.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "presets"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/presets"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create the preset's rule and turn auto-record on",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Create the preset's rule and turn auto-record on\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nApplying a preset again does not duplicate its rule (answers 200). my-watchlist reads a collection named watchlist unless the body names another; it needs the library of collections (422 when it is not there).\n\nReference: docs/api/recordings/applyRecordingPreset.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "presets",
+                ":presetId",
+                "apply"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/presets/:presetId/apply",
+              "variable": [
+                {
+                  "key": "presetId",
+                  "value": "index-option-chains"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The auto-record rules",
+          "request": {
+            "description": "The auto-record rules\n\n- An API key with the `read` scope (any key).\n\nRules from this computer's data folder and from recorder.autoRecord.rules in the config file (source config, read-only here).\n\nReference: docs/api/recordings/listRecordingRules.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "rules"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/rules"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add an auto-record rule",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"name\": \"<name>\",\n  \"kind\": \"quotes\",\n  \"everySec\": 1\n}"
+            },
+            "description": "Add an auto-record rule\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nFor example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours. The universe is chosen again every day (and every 30 minutes for a moving ATM window); an ATM window is never built from a delayed or stale price.\n\nReference: docs/api/recordings/createRecordingRule.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "rules"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/rules"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One rule with today's state",
+          "request": {
+            "description": "One rule with today's state\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/recordings/getRecordingRule.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "rules",
+                ":ruleId"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/rules/:ruleId",
+              "variable": [
+                {
+                  "key": "ruleId",
+                  "value": "<ruleId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change a rule",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Change a rule\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nOnly the fields sent change. A rule written in the config file is refused with 409.\n\nReference: docs/api/recordings/patchRecordingRule.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "rules",
+                ":ruleId"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/rules/:ruleId",
+              "variable": [
+                {
+                  "key": "ruleId",
+                  "value": "<ruleId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete a rule (its files stay unless deleteFiles=true)",
+          "request": {
+            "description": "Delete a rule (its files stay unless deleteFiles=true)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/recordings/deleteRecordingRule.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "rules",
+                ":ruleId"
+              ],
+              "query": [
+                {
+                  "description": "Also delete the recorded files of this rule.",
+                  "disabled": true,
+                  "key": "deleteFiles",
+                  "value": "false"
+                }
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/rules/:ruleId",
+              "variable": [
+                {
+                  "key": "ruleId",
+                  "value": "<ruleId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "One recording: counters, gaps, disk use, files summary",
+          "request": {
+            "description": "One recording: counters, gaps, disk use, files summary\n\n- An API key with the `read` scope (any key).\n\ngaps lists stretches with no data and why (feed silent, login missing, Bridge stopped, budget in use, disk limit). disk shows its use against its limit and the total limit.\n\nReference: docs/api/recordings/getRecording.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                ":recordingId"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId",
+              "variable": [
+                {
+                  "key": "recordingId",
+                  "value": "<recordingId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete a recording and its files",
+          "request": {
+            "description": "Delete a recording and its files\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nA recording that belongs to a rule is deleted by deleting the rule (409 otherwise).\n\nReference: docs/api/recordings/deleteRecording.md in the repository.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                ":recordingId"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId",
+              "variable": [
+                {
+                  "key": "recordingId",
+                  "value": "<recordingId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Pause a recording",
+          "request": {
+            "description": "Pause a recording\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/recordings/pauseRecording.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                ":recordingId",
+                "pause"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/pause",
+              "variable": [
+                {
+                  "key": "recordingId",
+                  "value": "<recordingId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resume a paused recording",
+          "request": {
+            "description": "Resume a paused recording\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nReference: docs/api/recordings/resumeRecording.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                ":recordingId",
+                "resume"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/resume",
+              "variable": [
+                {
+                  "key": "recordingId",
+                  "value": "<recordingId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Stop a recording (final; the files stay)",
+          "request": {
+            "description": "Stop a recording (final; the files stay)\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nA recording that belongs to a rule is changed through the rule (409 otherwise).\n\nReference: docs/api/recordings/stopRecording.md in the repository.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                ":recordingId",
+                "stop"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/stop",
+              "variable": [
+                {
+                  "key": "recordingId",
+                  "value": "<recordingId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The day files of a recording",
+          "request": {
+            "description": "The day files of a recording\n\n- An API key with the `read` scope (any key).\n\nOne file per symbol per IST trading day, named YYYY-MM-DD__EXCHANGE_SYMBOL.csv (or .jsonl; .gz after compression). The layout is in docs/guides/recording.md.\n\nReference: docs/api/recordings/listRecordingFiles.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                ":recordingId",
+                "files"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/files",
+              "variable": [
+                {
+                  "key": "recordingId",
+                  "value": "<recordingId>"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Download one day file as it is on disk",
+          "request": {
+            "description": "Download one day file as it is on disk\n\n- An API key with the `read` scope (any key).\n\nOnly names from the file list open. The answer carries X-Data-Class realtime.\n\nReference: docs/api/recordings/getRecordingFile.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                ":recordingId",
+                "files",
+                ":name"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/:recordingId/files/:name",
+              "variable": [
+                {
+                  "key": "recordingId",
+                  "value": "<recordingId>"
+                },
+                {
+                  "key": "name",
+                  "value": "<name>"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "name": "Recordings"
+    },
+    {
       "description": "Kill switch, safety counters and the audit log.",
       "item": [
         {

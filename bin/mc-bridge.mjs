@@ -23,6 +23,7 @@
  *   mc-bridge subscriptions list | add <https url> --topics ... | test | deliveries | dead-letters | tail   (signed webhooks out; see docs/guides/events.md)
  *   mc-bridge download <symbols...> --interval 5m --from 2024-01-01 [--dataset <name>] [--watch] | list | show | pause | resume | cancel | files | datasets | update
  *                                       (save history to files; see docs/guides/downloads.md)
+ *   mc-bridge record quotes|chain ..., record list|status|show|files|pause|resume|stop|delete, record auto on|off, record rules|rule ..., record preset ...   (save real-time data; docs/guides/recording.md)
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
  * (principal { kind: "local", id: "cli" }). Keys are printed once and never again.
@@ -114,6 +115,18 @@ const { positionals, values } = parseArgs({
     "retry-all": { type: "boolean" },
     clear: { type: "boolean" },
     "secret-stdin": { type: "boolean" },
+    every: { type: "string" },
+    expiry: { type: "string" },
+    strikes: { type: "string" },
+    name: { type: "string" },
+    collection: { type: "string" },
+    days: { type: "string" },
+    start: { type: "string" },
+    end: { type: "string" },
+    "keep-days": { type: "string" },
+    "max-disk-mb": { type: "string" },
+    "all-day": { type: "boolean" },
+    "delete-files": { type: "boolean" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

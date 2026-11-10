@@ -131,6 +131,7 @@
         "Pooling",
         "Quotas",
         "Notifications",
+        "Recordings",
         "Safety",
         "Readiness",
         "Data downloads",
@@ -142,7 +143,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "192 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "211 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -1513,6 +1514,177 @@
     },
     {
       "headings": [
+        "POST /v1/recordings/presets/{presetId}/apply"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/applyRecordingPreset.md",
+      "text": "POST /v1/recordings/presets/{presetId}/apply. Applying a preset again does not duplicate its rule (answers 200).",
+      "title": "Create the preset's rule and turn auto-record on"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/createRecording.md",
+      "text": "POST /v1/recordings. Real-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written.",
+      "title": "Start a recording of quotes or an option chain"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/rules"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/createRecordingRule.md",
+      "text": "POST /v1/recordings/rules. For example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours.",
+      "title": "Add an auto-record rule"
+    },
+    {
+      "headings": [
+        "DELETE /v1/recordings/{recordingId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/deleteRecording.md",
+      "text": "DELETE /v1/recordings/{recordingId}. A recording that belongs to a rule is deleted by deleting the rule (409 otherwise).",
+      "title": "Delete a recording and its files"
+    },
+    {
+      "headings": [
+        "DELETE /v1/recordings/rules/{ruleId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/deleteRecordingRule.md",
+      "text": "DELETE /v1/recordings/rules/{ruleId}.",
+      "title": "Delete a rule (its files stay unless deleteFiles=true)"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/{recordingId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecording.md",
+      "text": "GET /v1/recordings/{recordingId}. gaps lists stretches with no data and why (feed silent, login missing, Bridge stopped, budget in use, disk limit).",
+      "title": "One recording: counters, gaps, disk use, files summary"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/auto"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingAuto.md",
+      "text": "GET /v1/recordings/auto.",
+      "title": "Whether auto-record is on"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/{recordingId}/files/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingFile.md",
+      "text": "GET /v1/recordings/{recordingId}/files/{name}. Only names from the file list open.",
+      "title": "Download one day file as it is on disk"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/rules/{ruleId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingRule.md",
+      "text": "GET /v1/recordings/rules/{ruleId}.",
+      "title": "One rule with today's state"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingsStatus.md",
+      "text": "GET /v1/recordings/status. For example: Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02.",
+      "title": "One plain line about today's recording, and the numbers behind it"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/{recordingId}/files"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordingFiles.md",
+      "text": "GET /v1/recordings/{recordingId}/files. One file per symbol per IST trading day, named YYYY-MM-DDEXCHANGESYMBOL.csv (or .jsonl; .gz after compression).",
+      "title": "The day files of a recording"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/presets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordingPresets.md",
+      "text": "GET /v1/recordings/presets. Record index option chains, and Record my watchlist.",
+      "title": "The one-click presets"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/rules"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordingRules.md",
+      "text": "GET /v1/recordings/rules. Rules from this computer's data folder and from recorder.autoRecord.rules in the config file (source config, read-only here).",
+      "title": "The auto-record rules"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordings.md",
+      "text": "GET /v1/recordings. A recording saves this Bridge's own real-time data going forward, because brokers give no history for option chains, open interest snapshots or ticks.",
+      "title": "List recordings (meta.status is a plain status line)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/recordings/rules/{ruleId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/patchRecordingRule.md",
+      "text": "PATCH /v1/recordings/rules/{ruleId}. Only the fields sent change.",
+      "title": "Change a rule"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/{recordingId}/pause"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/pauseRecording.md",
+      "text": "POST /v1/recordings/{recordingId}/pause.",
+      "title": "Pause a recording"
+    },
+    {
+      "headings": [
+        "PUT /v1/recordings/auto"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/putRecordingAuto.md",
+      "text": "PUT /v1/recordings/auto. Off until a person turns it on.",
+      "title": "Turn auto-record on or off"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/{recordingId}/resume"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/resumeRecording.md",
+      "text": "POST /v1/recordings/{recordingId}/resume.",
+      "title": "Resume a paused recording"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/{recordingId}/stop"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/stopRecording.md",
+      "text": "POST /v1/recordings/{recordingId}/stop. A recording that belongs to a rule is changed through the rule (409 otherwise).",
+      "title": "Stop a recording (final; the files stay)"
+    },
+    {
+      "headings": [
         "POST /v1/safety/kill-switch"
       ],
       "kind": "endpoint",
@@ -1920,7 +2092,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 187 requests in 24 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 206 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {
@@ -2287,6 +2459,28 @@
       "path": "docs/guides/rate-limits.md",
       "text": "Every broker API has request limits, and most are tight: often one quote request a second, sometimes one instrument per call. Ten tools each polling on their own break those limits within seconds. The Bridge sits between your tools and your brokers and makes the broker see one...",
       "title": "How the Bridge handles broker rate limits"
+    },
+    {
+      "headings": [
+        "Start in one minute",
+        "What is recorded",
+        "Market hours",
+        "Auto-record rules",
+        "Presets",
+        "Status in plain words",
+        "Gaps",
+        "Files",
+        "Reading them back",
+        "Disk safety and retention",
+        "Saving API calls",
+        "Settings",
+        "Routes and events",
+        "Questions"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/recording.md",
+      "text": "Brokers give you old candles, but they do not give you old option chains, old open-interest snapshots or old tick-by-tick prices. If you want those later, someone has to write them down while the market is open. The recorder does that for you, from the Bridge's own live data,...",
+      "title": "Recording: save prices and option chains as they happen"
     },
     {
       "headings": [

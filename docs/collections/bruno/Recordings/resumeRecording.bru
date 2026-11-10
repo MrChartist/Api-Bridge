@@ -1,0 +1,28 @@
+meta {
+  name: Resume a paused recording
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/v1/recordings/:recordingId/resume
+  body: none
+  auth: bearer
+}
+
+params:path {
+  recordingId: <recordingId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Resume a paused recording
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/recordings/resumeRecording.md in the repository.
+}

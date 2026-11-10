@@ -1,0 +1,34 @@
+meta {
+  name: Add an auto-record rule
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/v1/recordings/rules
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "name": "<name>",
+    "kind": "quotes",
+    "everySec": 1
+  }
+}
+
+docs {
+  Add an auto-record rule
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  For example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours. The universe is chosen again every day (and every 30 minutes for a moving ATM window); an ATM window is never built from a delayed or stale price.
+
+  Reference: docs/api/recordings/createRecordingRule.md in the repository.
+}

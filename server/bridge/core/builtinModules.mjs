@@ -23,4 +23,7 @@ import library from "../library/module.mjs";
 import events from "../events/module.mjs";
 import downloads from "../downloads/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, library, events, downloads]);
+import recorder from "../recorder/module.mjs";
+
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, library, events, downloads, recorder]);
+

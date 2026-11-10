@@ -1,0 +1,25 @@
+meta {
+  name: One plain line about today's recording, and the numbers behind it
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/recordings/status
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  One plain line about today's recording, and the numbers behind it
+
+  - An API key with the `read` scope (any key).
+
+  For example: Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02.
+
+  Reference: docs/api/recordings/getRecordingsStatus.md in the repository.
+}
