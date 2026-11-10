@@ -1249,8 +1249,8 @@ button.toolbar-demo { gap: 7px; color: hsl(var(--warning-ink)); --btn-bg: hsl(va
 }
 .demo-pop p { margin: 0; padding: 4px 16px 16px; max-width: 320px; font: var(--t-callout); color: var(--label-2); }
 @media (max-width: 420px) {
-  .toolbar { gap: 6px; }
-  .toolbar-actions { gap: 6px; }
+  .toolbar { gap: 4px; }
+  .toolbar-actions { gap: 4px; }
 }
 /* The demo indicator keeps its word while the bar has room for it (390px and up). */
 @media (max-width: 389px) {
@@ -1729,6 +1729,18 @@ dialog.sheet::backdrop { opacity: var(--sheet-p, 1); }
 /* Narrow toolbars keep the dot and this second only. */
 @media (max-width: 1279px) { .toolbar-budget :is(.bud-sep, .bud-min) { display: none; } }
 @media (max-width: 719px) { .toolbar-budget .bud-lbl { display: none; } button.toolbar-budget-btn { --btn-px: 10px; } }
+/* Phones: the capsule shrinks to its dot (its name and the sheet it opens keep the numbers) so nothing in the bar is squeezed. */
+@media (max-width: 430px) {
+  .toolbar-budget .bud-num { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  button.toolbar-budget-btn { width: var(--ctl-h); padding: 0; justify-content: center; }
+  .toolbar-budget[data-tone="warn"] .bud-dot { background: hsl(var(--warning)); }
+  .toolbar-budget[data-tone="bad"] .bud-dot { background: hsl(var(--danger)); }
+}
+/* With the capsule in the bar (Advanced, or a broker connected) seven controls need 376px: the demo word and, on the narrowest phones, the capsule give way (its numbers are on API > Rate limits). */
+@media (max-width: 449px) { .toolbar:has(.toolbar-budget:not([hidden])) button.toolbar-demo { width: var(--ctl-h); padding: 0; justify-content: center; } .toolbar:has(.toolbar-budget:not([hidden])) .toolbar-demo > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+@media (max-width: 379px) { .toolbar-budget { display: none; } }
+/* No button in the toolbar ever shrinks below its touch target; the title is what gives way. */
+.toolbar button, .toolbar .toolbar-budget, .toolbar .toolbar-ready { flex: none; min-width: var(--ctl-h); }
 .bud-pop { display: flex; flex-direction: column; gap: 10px; min-width: min(300px, 80vw); max-width: 360px; padding: 4px 16px 16px; font: var(--t-subhead); }
 .bud-stream { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .bud-acct { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-md); background: var(--fill-1); }
