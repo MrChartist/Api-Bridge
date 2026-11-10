@@ -601,7 +601,7 @@ Recording live prices and option chains to files, by hand or by rules every trad
 | `recorder.autoRecord.enabled` | true or false | `false` | Record by itself every trading day from the rules. Off until a person turns it on. The switch you set in the dashboard or with mc-bridge record auto is stored in the data folder and wins over this value. |
 | `recorder.autoRecord.rules` | list of settings groups; at most 50 items | `[]` | Rules kept in the config file. Rules made in the dashboard or the API live in the data folder instead. |
 | `recorder.autoRecord.rules[].id` | text; a fixed pattern | not set | A short name for the rule. Made from the name when not given. |
-| `recorder.autoRecord.rules[].name` | text; at least 1 character, at most 60 characters | required | The rule's name. |
+| `recorder.autoRecord.rules[].name` | text; at least 1 character, at most 60 characters, a fixed pattern | required | The rule's name. |
 | `recorder.autoRecord.rules[].enabled` | true or false | `true` | Turn the rule off without deleting it. |
 | `recorder.autoRecord.rules[].kind` | one of `quotes`, `chain` | required | quotes records prices; chain records option-chain snapshots. |
 | `recorder.autoRecord.rules[].symbols` | list of text; at least 1 item, at most 2000 items | not set | The symbols to record. Give exactly one of symbols, collection or underlying. |

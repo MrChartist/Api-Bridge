@@ -21,6 +21,7 @@
  * Auto-record is off until a person turns it on (dashboard, `mc-bridge record auto on` or PUT /v1/recordings/auto).
  */
 import { z } from "zod";
+import { NO_CONTROL, NO_CONTROL_MESSAGE } from "../core/plainText.mjs";
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const hhmm = z.string().regex(HHMM, 'a time as HH:MM (IST, 24-hour)');
@@ -32,7 +33,7 @@ export const SHARE_MIN = 0.05;
 export const SHARE_MAX = 0.8;
 
 const symbolList = z.array(z.string().trim().min(3).max(80)).min(1).max(2000);
-const name = z.string().trim().min(1).max(60);
+const name = z.string().trim().min(1).max(60).regex(NO_CONTROL, NO_CONTROL_MESSAGE);
 
 /** Option-universe rule (the same words the library of collections uses). */
 export const universeSchema = z

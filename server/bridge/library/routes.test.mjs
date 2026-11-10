@@ -43,8 +43,18 @@ describe("route table", () => {
       expect(res.json.code).toBe("SCOPE_REQUIRED");
     }
     expect((await r("/v1/collections/scoped")).json.data.symbolCount).toBe(1);
-    // a paper key holds read too; an admin key holds read and can do everything
-    expect((await t.request("/v1/collections/scoped", { method: "PATCH", key: t.keys.paper, body: { description: "d" } })).status).toBe(200);
+    // RDATA-11: another key (even one that holds paper) cannot rewrite a collection it did not create; an admin can
+    const other = await t.request("/v1/collections/scoped", { method: "PATCH", key: t.keys.paper, body: { description: "d" } });
+    expect(other.status).toBe(403);
+    expect(other.json.code).toBe("SCOPE_REQUIRED");
+    expect((await t.request("/v1/collections/scoped", { method: "PATCH", key: t.keys.admin, body: { description: "d" } })).status).toBe(200);
+    // it may still read it and make its own copy, which it then owns
+    expect((await t.request("/v1/collections/scoped", { key: t.keys.paper })).status).toBe(200);
+    const copy = await t.request("/v1/collections/scoped/duplicate", { method: "POST", key: t.keys.paper, body: { name: "mine-now" } });
+    expect(copy.status).toBe(201);
+    expect(copy.json.data.createdBy).toMatch(/^key:/);
+    expect((await t.request("/v1/collections/mine-now", { method: "PATCH", key: t.keys.paper, body: { description: "mine" } })).status).toBe(200);
+    expect((await t.request("/v1/collections/mine-now", { method: "PATCH", key: t.keys.read, body: { description: "not mine" } })).status).toBe(403);
     expect((await t.request("/v1/collections/scoped", { method: "DELETE", key: t.keys.admin })).status).toBe(204);
   });
 });

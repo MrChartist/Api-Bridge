@@ -207,6 +207,64 @@ export async function* readBars(file, opts) {
   }
 }
 
+const SEEK_CHUNK = 8192;
+const SEEK_SMALL = 256 * 1024;
+
+/**
+ * Bars of a file from the first bar at or after `fromSec`, oldest first. The files are sorted, so the start is found by
+ * halving the byte range (a few small reads) instead of parsing every line from the top: a recent hour of a three-year
+ * 1-minute file no longer costs a second of CPU. Bars before `fromSec` that share the first block may still be yielded; the
+ * caller filters. A small file is simply read from the top.
+ * @param {string} file @param {object} opts decodeLine options @param {number} fromSec
+ */
+export async function* readBarsFrom(file, opts, fromSec) {
+  let size;
+  try {
+    size = (await stat(file)).size;
+  } catch (err) {
+    if (err?.code === "ENOENT") return;
+    throw err;
+  }
+  let lo = 0;
+  if (size > SEEK_SMALL) {
+    const fh = await open(file, "r");
+    try {
+      let hi = size;
+      const buf = Buffer.alloc(SEEK_CHUNK);
+      while (hi - lo > SEEK_CHUNK * 2) {
+        const mid = lo + Math.floor((hi - lo) / 2);
+        const { bytesRead } = await fh.read(buf, 0, SEEK_CHUNK, mid);
+        const chunk = buf.subarray(0, bytesRead);
+        const nl = chunk.indexOf(0x0a);
+        const nl2 = nl < 0 ? -1 : chunk.indexOf(0x0a, nl + 1);
+        // the first whole line after mid: it starts at mid + nl + 1
+        const whole = nl >= 0 && (nl2 >= 0 || mid + bytesRead >= size);
+        const d = whole ? decodeLine(chunk.subarray(nl + 1, nl2 < 0 ? bytesRead : nl2).toString("utf8"), opts) : null;
+        if (!d) {
+          hi = mid; // nothing readable there: look earlier (never skip a bar)
+        } else if (d.bar.time < fromSec) {
+          lo = mid + nl + 1; // this line is still before the wanted start, and it starts a line
+        } else {
+          hi = mid;
+        }
+      }
+    } finally {
+      await fh.close();
+    }
+  }
+  let stream;
+  try {
+    stream = createReadStream(file, { encoding: "utf8", start: lo });
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+    for await (const line of rl) {
+      const d = decodeLine(line, opts);
+      if (d) yield d;
+    }
+  } finally {
+    stream?.destroy();
+  }
+}
+
 /**
  * Make sure a file ends at a line break: a write that was cut off (a crash, a full disk) leaves half a line, which is
  * cut away here so the next append starts clean. Returns the size afterwards, or 0 for a missing file.

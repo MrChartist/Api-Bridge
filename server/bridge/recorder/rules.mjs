@@ -24,7 +24,14 @@ export function newRuleId(name, taken) {
 export function ruleFingerprint(rule) {
   const { id, name, enabled, preset, source, createdAt, updatedAt, ...plan } = rule;
   void id; void name; void enabled; void preset; void source; void createdAt; void updatedAt;
-  return createHash("sha256").update(JSON.stringify(plan, Object.keys(plan).sort())).digest("hex").slice(0, 16);
+  return createHash("sha256").update(stable(plan)).digest("hex").slice(0, 16);
+}
+
+/** A canonical string with every nested key sorted (an array replacer in JSON.stringify would drop nested keys). */
+function stable(v) {
+  if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}`;
+  return JSON.stringify(v ?? null);
 }
 
 /**

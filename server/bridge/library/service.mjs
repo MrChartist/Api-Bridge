@@ -38,6 +38,7 @@ function view(rec, { full = true, via } = {}) {
   const out = {
     id: rec.id,
     name: rec.name,
+    createdBy: rec.createdBy ?? null,
     description: rec.description,
     tags: [...rec.tags],
     kind: rec.kind,
@@ -92,6 +93,17 @@ export function createLibraryService(deps, opts = {}) {
     return hit;
   }
 
+  /**
+   * Only the key that made a collection, or an admin, may rewrite it: datasets, downloads and auto-record rules fetch what it
+   * lists. `actor` ({ id, admin }) comes from the route; calls from inside the Bridge pass none. A collection made before
+   * owners were recorded has no owner, so only an admin may change it.
+   */
+  function authorize(rec, actor) {
+    if (!actor || actor.admin === true) return;
+    if (rec.createdBy && rec.createdBy === actor.id) return;
+    throw new BridgeError("SCOPE_REQUIRED", `Only the key that created collection "${rec.name}", or an admin key, may change it. Make your own copy with POST /v1/collections/${rec.name}/duplicate.`);
+  }
+
   function ensureRoom() {
     if (store.size() >= cfg.maxCollections) throw new BridgeError("VALIDATION_FAILED", `The library holds at most ${cfg.maxCollections} collections (library.maxCollections). Delete one first.`, { errors: [{ path: "name", message: "library is full" }] });
   }
@@ -140,18 +152,19 @@ export function createLibraryService(deps, opts = {}) {
       return view(record, { full: true, via });
     },
 
-    create(body) {
+    create(body, { actor } = {}) {
       ensureOn();
       const def = parseCreate(body, { maxSymbols: cfg.maxSymbols });
       ensureRoom();
       ensureFree(def.name);
-      const rec = store.add(def);
+      const rec = store.add({ ...def, createdBy: actor?.id ?? null });
       changed("created", rec);
       return view(rec);
     },
 
-    update(key, body) {
+    update(key, body, { actor } = {}) {
       const { record } = find(key);
+      authorize(record, actor);
       const patch = parsePatch(body, record, { maxSymbols: cfg.maxSymbols });
       if (patch.name !== undefined) ensureFree(patch.name, record.id);
       const { record: next, renamedFrom } = store.update(record.id, patch);
@@ -159,8 +172,9 @@ export function createLibraryService(deps, opts = {}) {
       return view(next);
     },
 
-    async remove(key, { force = false } = {}) {
+    async remove(key, { force = false, actor } = {}) {
       const { record } = find(key);
+      authorize(record, actor);
       if (!force) {
         const { out } = await usageOf(record);
         const active = USAGE_KINDS.flatMap((k) => out[k].filter((r) => r.active === true).map((r) => `${k.replace(/s$/, "")} ${r.label ?? r.id}`));
@@ -174,7 +188,7 @@ export function createLibraryService(deps, opts = {}) {
       return view(record, { full: false });
     },
 
-    duplicate(key, newName) {
+    duplicate(key, newName, { actor } = {}) {
       const { record } = find(key);
       ensureRoom();
       let name;
@@ -186,7 +200,7 @@ export function createLibraryService(deps, opts = {}) {
         name = `${base}-copy`;
         for (let i = 2; store.nameTaken(name); i += 1) name = `${base}-copy${i}`;
       }
-      const fields = { name, description: record.description, tags: [...record.tags], kind: record.kind };
+      const fields = { name, description: record.description, tags: [...record.tags], kind: record.kind, createdBy: actor?.id ?? null };
       if (record.kind === "static") fields.symbols = [...record.symbols];
       else fields.universe = structuredClone(record.universe);
       const rec = store.add(fields);
@@ -260,7 +274,7 @@ export function createLibraryService(deps, opts = {}) {
      * Make collections from CSV or JSON text (or a parsed object).
      * @param {{ data: string | object, format?: "csv"|"json", name?: string, description?: string, tags?: string[], replace?: boolean, skipInvalid?: boolean }} p
      */
-    importData({ data, format, name, description, tags, replace = false, skipInvalid = false }) {
+    importData({ data, format, name, description, tags, replace = false, skipInvalid = false, actor }) {
       ensureOn();
       let fmt = format;
       if (fmt === undefined) fmt = typeof data === "string" && !/^\s*[[{]/.test(data) ? "csv" : "json";
@@ -307,6 +321,12 @@ export function createLibraryService(deps, opts = {}) {
         seen.add(k);
         if (!replace && store.nameTaken(d.name)) throw new BridgeError("STATE_CONFLICT", `A collection called "${d.name}" already exists. Import with another name, or replace it with replace=true.`);
       }
+      if (replace) {
+        for (const d of defs) {
+          const hit = store.find(d.name);
+          if (hit && hit.via === "name") authorize(hit.record, actor);
+        }
+      }
       const fresh = defs.filter((d) => !store.nameTaken(d.name)).length;
       if (store.size() + fresh > cfg.maxCollections) throw new BridgeError("VALIDATION_FAILED", `The library holds at most ${cfg.maxCollections} collections (library.maxCollections).`);
       const created = [];
@@ -319,7 +339,7 @@ export function createLibraryService(deps, opts = {}) {
           replaced.push(view(record, { full: false }));
           changed("updated", record, { imported: true });
         } else {
-          const rec = store.add(d);
+          const rec = store.add({ ...d, createdBy: actor?.id ?? null });
           created.push(view(rec, { full: false }));
           changed("created", rec, { imported: true });
         }

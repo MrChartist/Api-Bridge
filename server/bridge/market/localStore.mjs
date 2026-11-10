@@ -17,7 +17,7 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { readBars } from "../downloads/bars.mjs";
+import { readBarsFrom } from "../downloads/bars.mjs";
 
 export const DATASET_META_FILE = "dataset.json";
 // Windows refuses folders named like its device files (con, prn, aux, nul, com1-9, lpt1-9), and dataset names become folder names.
@@ -98,7 +98,7 @@ export function createLocalStore({ dataDir }) {
       if (!best) return none;
       const { name, meta, s, lo, hi } = best;
       const bars = [];
-      for await (const { bar } of readBars(join(datasetsRoot(dataDir), name, s.file), { format: meta.format, layout: "per-symbol", interval })) {
+      for await (const { bar } of readBarsFrom(join(datasetsRoot(dataDir), name, s.file), { format: meta.format, layout: "per-symbol", interval }, lo)) {
         if (bar.time > hi) break;
         if (bar.time >= lo) bars.push(bar);
       }

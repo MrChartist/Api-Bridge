@@ -1,7 +1,8 @@
 // A small server that receives signed events from the Bridge.   Run it with:  node receiver.mjs
 // It listens on this computer only (127.0.0.1) until you decide otherwise. Rules it follows, and you should keep:
 //   - verify the signature BEFORE you trust anything in the body (verify.mjs)
-//   - answer 2xx quickly and do slow work afterwards: the Bridge retries anything that is not 2xx, with growing waits
+//   - answer 2xx only after your handler worked: the Bridge retries anything that is not 2xx, with growing waits. A handler that
+//     throws gets a 500, so the event comes again. Keep the handler quick (put slow work on a queue) so the answer is not late
 //   - expect the same event twice (a retry after a slow answer, or a copy someone captured): handle each event id once,
 //     using the `id` INSIDE the signed body. The X-Bridge-Event-Id header is not covered by the signature: anyone can change it.
 import { createServer } from "node:http";
@@ -28,6 +29,9 @@ if (!SECRET) {
 const SEEN_MS = 10 * 60_000;
 const MAX_SEEN = 10_000;
 const seen = new Map();
+export function forget(id) {
+  seen.delete(id);
+}
 export function seenBefore(id, now = Date.now()) {
   for (const [k, at] of seen) {
     if (now - at > SEEN_MS) seen.delete(k);
@@ -74,9 +78,24 @@ export function createReceiver({ secret = SECRET, onEvent = handleEvent } = {}) 
         return;
       }
       // The id from the body, which the signature covers. Never the X-Bridge-Event-Id header: it is not signed.
-      const duplicate = seenBefore(event?.id === undefined || event?.id === null ? undefined : String(event.id));
-      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, duplicate }));
-      if (!duplicate) setImmediate(() => onEvent(event)); // after the answer: slow work must not delay it
+      // The Bridge's own delivery test always carries the id "test": it is never treated as a repeat.
+      const id = event?.id === undefined || event?.id === null || event?.topic === "subscription.test" ? undefined : String(event.id);
+      const duplicate = seenBefore(id);
+      if (duplicate) {
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, duplicate: true }));
+        return;
+      }
+      Promise.resolve()
+        .then(() => onEvent(event))
+        .then(
+          () => res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true, duplicate: false })),
+          (err) => {
+            // The handler failed: forget the id and answer 500, so the Bridge sends this event again. The process stays up.
+            if (id !== undefined) forget(id);
+            console.error(`Your handler failed for event ${id ?? "(no id)"}; answering 500 so it is retried:`, err?.message ?? err);
+            res.writeHead(500, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "handler failed" }));
+          },
+        );
     });
   });
 }

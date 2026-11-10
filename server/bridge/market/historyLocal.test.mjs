@@ -89,3 +89,64 @@ describe("readHistoryLocalFirst", () => {
     expect(await readHistoryLocalFirst(t.deps, { params: P({ from: "2026-11-03", to: "2026-11-02" }), opts: {}, enabled: true })).toBeNull();
   });
 });
+
+describe("RDATA-02 a mixed answer carries partial and the worst class of any part", () => {
+  const wrap = (broker, mutate) => {
+    let n = 0;
+    return async (p, o) => {
+      const r = await broker.history(p, o);
+      n += 1;
+      return mutate(r, n);
+    };
+  };
+  it("a partial broker tail is reported as partial", async () => {
+    const t = await setup();
+    const history = wrap(t.broker, (r) => ({ ...r, candles: r.candles.slice(0, 3), partial: true }));
+    const r = await readHistoryLocalFirst({ ...t.deps, history }, { params: P({ to: "2026-11-03" }), opts: {}, dataset: "rel-5m", enabled: false });
+    expect(r.data.partial).toBe(true);
+    expect(r.data.candles).toHaveLength(75 + 3);
+  });
+
+  it("an end-of-day head with a real-time tail is labelled end-of-day and unofficial", async () => {
+    const t = await setup();
+    // the dataset holds only Monday; ask Friday 30 Oct to Tuesday: a head gap and a tail gap
+    const history = wrap(t.broker, (r, n) => ({ ...r, freshness: { ...r.freshness, class: n === 1 ? "eod" : "realtime", official: n !== 1, delaySec: n === 1 ? 86400 : null, flags: n === 1 ? ["backup"] : [] } }));
+    const r = await readHistoryLocalFirst({ ...t.deps, history }, { params: P({ from: "2026-10-30", to: "2026-11-03" }), opts: {}, dataset: "rel-5m", enabled: false });
+    expect(r.meta.brokerCalls).toBe(2);
+    expect(r.data.freshness).toMatchObject({ class: "eod", official: false, delaySec: 86400 });
+    expect(r.data.freshness.flags).toEqual(expect.arrayContaining(["backup", "partly-local"]));
+  });
+
+  it("a delayed part beats real-time parts, whichever gap it is", async () => {
+    const t = await setup();
+    const history = wrap(t.broker, (r, n) => ({ ...r, freshness: { ...r.freshness, class: n === 1 ? "delayed" : "realtime", delaySec: n === 1 ? 900 : null } }));
+    const r = await readHistoryLocalFirst({ ...t.deps, history }, { params: P({ from: "2026-10-30", to: "2026-11-03" }), opts: {}, dataset: "rel-5m", enabled: false });
+    expect(r.data.freshness).toMatchObject({ class: "delayed", delaySec: 900 });
+  });
+});
+
+describe("RDATA-03 from inside a daily or weekly bar still gets that bar", () => {
+  const dayBars = (days) => days.map((d) => ({ time: sec(`${d}T00:00:00+05:30`), open: 1, high: 2, low: 1, close: 1.5, volume: 1 }));
+  async function daily(days, interval = "1d") {
+    const dataDir = mkdtempSync(join(tmpdir(), "mcb-hl-"));
+    writeDatasetFixture(dataDir, "ds", { series: [{ symbol: "NSE:RELIANCE", interval, bars: dayBars(days), coverage: { from: sec(`${days[0]}T00:00:00+05:30`), to: sec(`${days.at(-1)}T23:59:59+05:30`) } }] });
+    return { store: createLocalStore({ dataDir }), history: async () => { throw new Error("no broker call expected"); }, now: () => NOW };
+  }
+  it("1d: from at noon keeps that day's bar", async () => {
+    const deps = await daily(["2026-11-02", "2026-11-03"]);
+    const r = await readHistoryLocalFirst(deps, { params: { symbol: "NSE:RELIANCE", interval: "1d", from: "2026-11-02T12:00", to: "2026-11-03" }, opts: {}, dataset: "ds", enabled: false });
+    expect(r.data.candles).toHaveLength(2);
+  });
+  it("1w: from on a Wednesday keeps that week's bar (stamped on its Monday)", async () => {
+    const deps = await daily(["2026-10-26", "2026-11-02"], "1w");
+    const r = await readHistoryLocalFirst(deps, { params: { symbol: "NSE:RELIANCE", interval: "1w", from: "2026-10-28", to: "2026-11-02" }, opts: {}, dataset: "ds", enabled: false });
+    expect(r.data.candles).toHaveLength(2);
+  });
+  it("a mixed 1d answer stamps the broker's days at IST midnight like the stored ones", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "mcb-hl-"));
+    writeDatasetFixture(dataDir, "ds", { series: [{ symbol: "NSE:RELIANCE", interval: "1d", bars: dayBars(["2026-11-02"]), coverage: { from: sec("2026-11-02T00:00:00+05:30"), to: sec("2026-11-02T23:59:59+05:30") } }] });
+    const broker = createFakeHistory();
+    const r = await readHistoryLocalFirst({ store: createLocalStore({ dataDir }), history: broker.history, now: () => NOW }, { params: { symbol: "NSE:RELIANCE", interval: "1d", from: "2026-11-02", to: "2026-11-04" }, opts: {}, dataset: "ds", enabled: false });
+    expect(r.data.candles.map((c) => new Date(c.time * 1000 + 19800000).toISOString().slice(0, 16))).toEqual(["2026-11-02T00:00", "2026-11-03T00:00", "2026-11-04T00:00"]);
+  });
+});

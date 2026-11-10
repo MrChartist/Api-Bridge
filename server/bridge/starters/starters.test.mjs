@@ -522,6 +522,42 @@ describe("the starters, run against a demo Bridge", () => {
   });
 });
 
+describe("RDATA-19c the receiver survives a failing handler and does not lose the event", () => {
+  it("answers 500 and forgets the id so the retry is handled; the Bridge's own test event is never a repeat", async () => {
+    const dir = project("webhook-receiver");
+    const { createReceiver } = await import(join(dir, "receiver.mjs"));
+    const secret = /WEBHOOK_SECRET=(\S+)/.exec(readFileSync(join(dir, ".env"), "utf8"))[1];
+    let fail = true;
+    const handled = [];
+    const server = createReceiver({
+      secret,
+      onEvent: (e) => {
+        if (fail) throw new Error("database is down");
+        handled.push(e.id);
+      },
+    });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${server.address().port}/events`;
+    const post = (event) => {
+      const body = JSON.stringify(event);
+      return fetch(url, { method: "POST", body, headers: signatureHeaders(secret, Math.floor(Date.now() / 1000), body) });
+    };
+    try {
+      const first = await post({ id: "evt_fail_1", topic: "order.updated", data: {} });
+      expect(first.status).toBe(500); // not 200: the Bridge sends it again
+      fail = false;
+      const retry = await post({ id: "evt_fail_1", topic: "order.updated", data: {} });
+      expect(retry.status).toBe(200);
+      expect((await retry.json()).duplicate).toBe(false);
+      expect(handled).toEqual(["evt_fail_1"]);
+      // the delivery test of the Bridge always has the id "test"
+      for (let i = 0; i < 2; i += 1) expect((await (await post({ id: "test", topic: "subscription.test", data: {} })).json()).duplicate).toBe(false);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+});
+
 describe("starter hardening (audit S13)", () => {
   it("python: a redirect is refused, so the key never goes to another address", async (ctx) => {
     if (!(await hasCmd("python3"))) return ctx.skip();

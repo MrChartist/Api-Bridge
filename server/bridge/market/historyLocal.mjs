@@ -10,11 +10,14 @@
  *
  * Honest labels: stored bars carry the data class, source, delay and official flag the dataset was written with. The
  * Freshness says `source: "cache"`, `provider: "dataset:<name>"` and the flag `local`; a mixed answer takes the least
- * current class of its parts and the flag `partly-local`. Daily and longer bars are stored stamped at IST midnight of
- * their date, so their `time` can differ from the broker's own stamp by hours; intraday bars are identical.
+ * current class of ALL its parts (an end-of-day head with a real-time tail is end-of-day), is `partial` when any broker
+ * part was, and carries the flag `partly-local`. Daily and longer bars are stored stamped at IST midnight of their date,
+ * and the broker's part is stamped the same way, so one series has one style; intraday bars are identical.
  */
 import { BridgeError } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
+import { normaliseBar } from "../downloads/bars.mjs";
+import { barStartOf } from "./history.mjs";
 import { DATASET_NAME_RE } from "./localStore.mjs";
 import { freshness } from "./normalise.mjs";
 import { record as recordSaved } from "./savedCalls.mjs";
@@ -49,7 +52,8 @@ export async function readHistoryLocalFirst({ store, history, now }, { params, o
   let toMs = params.to !== undefined ? parseTimeInput(params.to, { endOfDay: true, field: "to" }) : t;
   if (toMs > t) toMs = t;
   if (fromMs > toMs) return null; // the normal path reports it
-  const fromSec = Math.floor(fromMs / 1000);
+  // Daily, weekly and monthly bars are stored at IST midnight: a from inside that bar still means that bar (as on the broker path).
+  const fromSec = Math.floor(barStartOf(params.interval, fromMs) / 1000);
   const toSec = Math.floor(toMs / 1000);
   const local = await store.readRange(symbol, params.interval, fromSec, toSec, dataset ? { dataset } : {});
   if (!local.covered) {
@@ -58,14 +62,18 @@ export async function readHistoryLocalFirst({ store, history, now }, { params, o
   }
 
   let candles = local.bars;
-  let brokerFreshness = null;
+  const brokerLabels = [];
   let brokerCalls = 0;
+  let partial = false;
   for (const gap of local.gaps) {
     const r = await history({ symbol: params.symbol, interval: params.interval, from: gap.from, to: gap.to }, opts);
     brokerCalls += 1;
-    brokerFreshness = r.freshness;
+    brokerLabels.push(r.freshness);
+    if (r.partial) partial = true;
+    // Stored daily and longer bars are stamped at IST midnight: stamp the broker's part the same way, so one series has one style.
+    const fetched = r.candles.map((c) => normaliseBar(c, params.interval) ?? c);
     const seen = new Set(candles.map((c) => c.time));
-    candles = [...candles, ...r.candles.filter((c) => !seen.has(c.time))];
+    candles = [...candles, ...fetched.filter((c) => !seen.has(c.time))];
   }
   candles.sort((a, b) => a.time - b.time);
   if (!brokerCalls) recordSaved(1, "local-history");
@@ -87,12 +95,26 @@ export async function readHistoryLocalFirst({ store, history, now }, { params, o
     flags: ["local"],
   });
   let label = localLabel;
-  if (brokerFreshness) {
-    const cls = worst(src.dataClass, brokerFreshness.class);
-    label = { ...brokerFreshness, class: cls, delaySec: cls === "realtime" ? 0 : Math.max(src.delaySec ?? 0, brokerFreshness.delaySec ?? 0), official: Boolean(src.official ?? false) && brokerFreshness.official, flags: [...new Set([...(brokerFreshness.flags ?? []), "partly-local"])] };
+  const fetchedLabels = brokerLabels.filter(Boolean);
+  if (fetchedLabels.length) {
+    // The answer is only as good as its worst part: fold the class, delay, official flag, confidence and flags of the
+    // stored bars and of EVERY broker part (an end-of-day head with a real-time tail is end-of-day).
+    const parts = [localLabel, ...fetchedLabels];
+    const cls = parts.reduce((acc, p) => worst(acc, p.class ?? "realtime"), "realtime");
+    const lead = fetchedLabels.find((p) => (p.class ?? "realtime") === cls) ?? fetchedLabels[0];
+    const confRank = { high: 0, medium: 1, low: 2 };
+    const confidence = parts.reduce((acc, p) => ((confRank[p.confidence] ?? 0) > (confRank[acc] ?? 0) ? p.confidence : acc), "high");
+    label = {
+      ...lead,
+      class: cls,
+      delaySec: cls === "realtime" ? 0 : Math.max(...parts.map((p) => p.delaySec ?? 0)),
+      official: parts.every((p) => p.official === true),
+      confidence,
+      flags: [...new Set([...parts.flatMap((p) => p.flags ?? []).filter((f) => f !== "local"), "partly-local"])],
+    };
   }
   return {
-    data: { symbol, interval: params.interval, candles, partial: false, freshness: label },
+    data: { symbol, interval: params.interval, candles, partial, freshness: label },
     meta: { source: brokerCalls ? "mixed" : "local", dataset: src.dataset, localBars: local.bars.length, brokerCalls },
   };
 }

@@ -20,11 +20,19 @@ try:
         job = made["data"]
         print(f"Job {job['id']} is {job['status']}. Waiting for it (Ctrl+C leaves it running on the Bridge)...")
         now = job
+        # A pause the user asked for, or one the Bridge made by itself (disk low, login lost), can last: say why and stop waiting.
         while now["status"] in ("queued", "running", "paused"):
+            if now["status"] == "paused":
+                print(f"  paused ({now.get('reason') or 'unknown'}): {now.get('message') or ''}")
+                print("The job stays on the Bridge and continues when the cause is gone. Stopped waiting.")
+                sys.exit(0)
             time.sleep(1.5)
             now = bridge.get(f"/v1/downloads/{job['id']}")["data"]
             p = now.get("progress") or {}
             print(f"  {now['status']}: {p.get('done', 0)} of {p.get('total', '?')} done, {p.get('rows', 0)} rows")
+        failure = now.get("failure")
+        if now["status"] == "failed" and failure:
+            print(f"Why: {failure.get('message')}" + (f" Fix: {failure['fix']}" if failure.get("fix") else ""))
         print(f"Finished: {now['status']}. Data class: {now.get('dataClass', 'unknown')}, source: {now.get('source', 'unknown')}.")
         files = bridge.optional("GET", f"/v1/downloads/{job['id']}/files") or {}
         for f in files.get("data", []):

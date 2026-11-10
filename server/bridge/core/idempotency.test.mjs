@@ -9,6 +9,13 @@ import { bootDemoBridge } from "./__fixtures__/demoBridge.mjs";
 
 describe("write idempotency store", () => {
   const fp = (body) => fingerprint({ method: "POST", path: "/v1/x", query: new URLSearchParams(), body });
+  it("RDATA-19e never evicts a request that is still running, however many others come", () => {
+    const s = createWriteIdempotency({ now: () => 1000 });
+    s.begin("key:1", "running-key-1", fp({ a: 1 }));
+    for (let i = 0; i < 2100; i += 1) s.begin("key:1", `other-${String(i).padStart(6, "0")}`, fp({ i })).done({ status: 201, body: "x", headers: {} });
+    expect(() => s.begin("key:1", "running-key-1", fp({ a: 1 }))).toThrow(/still running/);
+  });
+
   it("replays, refuses a different request and forgets a failed one", () => {
     let t = 1000;
     const s = createWriteIdempotency({ now: () => t });

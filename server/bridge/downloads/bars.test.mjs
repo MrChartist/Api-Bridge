@@ -10,7 +10,7 @@ import { amibrokerRows } from "../integrations/xl.mjs";
 import { historyCsvRows } from "../market/history.mjs";
 import { toCsv } from "../core/http.mjs";
 import { calendarCovers, sharedCalendar } from "./calendar.mjs";
-import { coveredUpTo, decodeLine, encodeBars, findHoles, headerText, isClosedBar, lastBarOf, normaliseBar, openBoundaryMs, readBars, splitCsvLine, stepSeconds, trimPartialTail } from "./bars.mjs";
+import { coveredUpTo, decodeLine, encodeBars, findHoles, headerText, isClosedBar, lastBarOf, normaliseBar, openBoundaryMs, readBars, readBarsFrom, splitCsvLine, stepSeconds, trimPartialTail } from "./bars.mjs";
 
 const at = (iso) => Date.parse(iso);
 const sec = (iso) => Math.floor(Date.parse(iso) / 1000);
@@ -183,5 +183,39 @@ describe("findHoles", () => {
   it("is empty for no bars and for weekly bars", () => {
     expect(findHoles([], opts)).toEqual([]);
     expect(findHoles([{ time: 1 }, { time: 9 * 86_400 }], { interval: "1w", exchange: "NSE" })).toEqual([]);
+  });
+});
+
+describe("RDATA-18 readBarsFrom finds the start without parsing the whole file", () => {
+  const start = sec("2026-01-01T09:15:00+05:30");
+  const bars = Array.from({ length: 14_000 }, (_, i) => ({ time: start + i * 60, open: 100 + (i % 7), high: 108, low: 99, close: 101 + (i % 5), volume: i }));
+  for (const format of ["csv", "jsonl"]) {
+    it(`gives the same bars as a full read from any start (${format})`, async () => {
+      const file = join(tmp(), `big.${format}`);
+      writeFileSync(file, headerText({ format, layout: "per-symbol", interval: "1m" }) + encodeBars(bars, { symbol: "NSE:X", interval: "1m", format, layout: "per-symbol" }));
+      const opts = { format, layout: "per-symbol", interval: "1m" };
+      const full = [];
+      for await (const { bar } of readBars(file, opts)) full.push(bar);
+      expect(full).toHaveLength(bars.length);
+      for (const from of [0, start, start + 60 * 7_000 + 30, start + 60 * 13_999, start + 60 * 14_000, start + 99_999_999]) {
+        const got = [];
+        for await (const { bar } of readBarsFrom(file, opts, from)) if (bar.time >= from) got.push(bar);
+        expect(got, `from ${from}`).toEqual(full.filter((b) => b.time >= from));
+      }
+      // it really skips: a recent start does not yield the early bars
+      let yielded = 0;
+      for await (const _ of readBarsFrom(file, opts, start + 60 * 13_900)) yielded += 1;
+      expect(yielded).toBeLessThan(2_000);
+    });
+  }
+  it("reads a small file from the top and a missing file as nothing", async () => {
+    const file = join(tmp(), "small.csv");
+    writeFileSync(file, headerText({ format: "csv", layout: "per-symbol", interval: "1m" }) + encodeBars(bars.slice(0, 10), { symbol: "NSE:X", interval: "1m", format: "csv", layout: "per-symbol" }));
+    const got = [];
+    for await (const { bar } of readBarsFrom(file, { format: "csv", layout: "per-symbol", interval: "1m" }, start + 300)) got.push(bar);
+    expect(got.filter((b) => b.time >= start + 300)).toHaveLength(5);
+    const none = [];
+    for await (const x of readBarsFrom(join(tmp(), "nope.csv"), { format: "csv", layout: "per-symbol", interval: "1m" }, 0)) none.push(x);
+    expect(none).toEqual([]);
   });
 });

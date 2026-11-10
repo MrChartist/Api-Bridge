@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { assertService } from "../core/contracts.mjs";
@@ -25,6 +25,60 @@ describe("library.enabled false", () => {
     await expect(lib.resolve("a")).rejects.toMatchObject({ code: "CAPABILITY_UNSUPPORTED" });
     expect(() => lib.importData({ data: [], name: "x" })).toThrow(/switched off/);
     expect(lib.status().enabled).toBe(false);
+  });
+});
+
+describe("RDATA-08 a failed save leaves memory as the disk is", () => {
+  it("create, update and remove roll back, and the retry works once the problem is fixed", async () => {
+    const { lib, dataDir } = makeLibrary();
+    const file = join(dataDir, "collections.json");
+    lib.create({ name: "keep", symbols: ["NSE:TCS"] });
+    const good = readFileSync(file, "utf8");
+    // make every save fail: the target of the atomic rename is a directory
+    rmSync(file);
+    mkdirSync(file);
+    expect(() => lib.create({ name: "wl", symbols: ["NSE:TCS"] })).toThrow(expect.objectContaining({ code: "INTERNAL" }));
+    expect(lib.list().map((c) => c.name)).toEqual(["keep"]);
+    expect(() => lib.update("keep", { description: "changed" })).toThrow(expect.objectContaining({ code: "INTERNAL" }));
+    expect(lib.get("keep").description).toBe("");
+    expect(() => lib.update("keep", { name: "renamed" })).toThrow(expect.objectContaining({ code: "INTERNAL" }));
+    expect(lib.get("keep").previousNames).toEqual([]);
+    await expect(lib.remove("keep")).rejects.toMatchObject({ code: "INTERNAL" });
+    expect(lib.list().map((c) => c.name)).toEqual(["keep"]);
+    rmSync(file, { recursive: true });
+    writeFileSync(file, good);
+    expect(lib.create({ name: "wl", symbols: ["NSE:TCS"] }).name).toBe("wl"); // not "already exists"
+    expect(JSON.parse(readFileSync(file, "utf8")).collections.map((c) => c.name).sort()).toEqual(["keep", "wl"]);
+  });
+});
+
+describe("RDATA-11 collections have an owner", () => {
+  const A = { id: "key:aaa", admin: false };
+  const B = { id: "key:bbb", admin: false };
+  const ADMIN = { id: "key:root", admin: true };
+  it("records createdBy; only the owner or an admin may update, delete or replace; anyone may read and copy", async () => {
+    const { lib } = makeLibrary();
+    const c = lib.create({ name: "mine", symbols: ["NSE:TCS"] }, { actor: A });
+    expect(c.createdBy).toBe("key:aaa");
+    expect(() => lib.update("mine", { symbols: ["NSE:INFY"] }, { actor: B })).toThrow(expect.objectContaining({ code: "SCOPE_REQUIRED" }));
+    await expect(lib.remove("mine", { actor: B })).rejects.toMatchObject({ code: "SCOPE_REQUIRED" });
+    expect(() => lib.importData({ data: "NSE:INFY\n", format: "csv", name: "mine", replace: true, actor: B })).toThrow(expect.objectContaining({ code: "SCOPE_REQUIRED" }));
+    expect(lib.get("mine").symbols).toEqual(["NSE:TCS"]);
+    expect(lib.update("mine", { description: "ok" }, { actor: A }).description).toBe("ok");
+    expect(lib.update("mine", { description: "admin" }, { actor: ADMIN }).description).toBe("admin");
+    expect(lib.duplicate("mine", "copy-b", { actor: B }).createdBy).toBe("key:bbb");
+    expect(lib.update("copy-b", { description: "b's" }, { actor: B }).description).toBe("b's");
+    // an internal call (no actor) and a collection made before owners were recorded
+    expect(lib.update("mine", { description: "internal" }).description).toBe("internal");
+    const old = lib.create({ name: "legacy", symbols: ["NSE:TCS"] });
+    expect(old.createdBy).toBeNull();
+    expect(() => lib.update("legacy", { description: "x" }, { actor: A })).toThrow(expect.objectContaining({ code: "SCOPE_REQUIRED" }));
+  });
+  it("keeps the owner across a restart", () => {
+    const a = makeLibrary();
+    a.lib.create({ name: "mine", symbols: ["NSE:TCS"] }, { actor: { id: "key:aaa", admin: false } });
+    const b = makeLibrary({ dataDir: a.dataDir });
+    expect(b.lib.get("mine").createdBy).toBe("key:aaa");
   });
 });
 

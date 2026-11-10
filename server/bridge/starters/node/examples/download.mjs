@@ -14,12 +14,19 @@ try {
     const job = made.data;
     console.log(`Job ${job.id} is ${job.status}. Waiting for it (Ctrl+C leaves it running on the Bridge)...`);
     let now = job;
+    // A pause the user asked for, or one the Bridge made by itself (disk low, login lost), can last: say why and stop waiting.
     while (["queued", "running", "paused"].includes(now.status)) {
+      if (now.status === "paused") {
+        console.log(`  paused (${now.reason ?? "unknown"}): ${now.message ?? ""}`);
+        console.log("The job stays on the Bridge and continues when the cause is gone. Stopped waiting.");
+        process.exit(0);
+      }
       await sleep(1500);
       now = (await bridge.get(`/v1/downloads/${job.id}`)).data;
       const p = now.progress ?? {};
       console.log(`  ${now.status}: ${p.done ?? 0} of ${p.total ?? "?"} done, ${p.rows ?? 0} rows`);
     }
+    if (now.status === "failed" && now.failure) console.log(`Why: ${now.failure.message}${now.failure.fix ? ` Fix: ${now.failure.fix}` : ""}`);
     console.log(`Finished: ${now.status}. Data class: ${now.dataClass ?? "unknown"}, source: ${now.source ?? "unknown"}.`);
     const files = await bridge.optional("GET", `/v1/downloads/${job.id}/files`);
     for (const f of files.data ?? []) console.log(`  ${f.name}  ${f.rows ?? "?"} rows  ${f.bytes ?? "?"} bytes`);

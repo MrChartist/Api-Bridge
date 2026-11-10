@@ -38,8 +38,18 @@ describe("pageParams and paginate", () => {
     expect(paginate(withoutFirst, { limit: 3, cursor: first.nextCursor, keyOf: (x) => x.id }).items.map((x) => x.id)).toEqual(["r3", "r4", "r5"]);
     const withNew = [{ id: "new" }, ...rows]; // a new item was put in front
     expect(paginate(withNew, { limit: 3, cursor: first.nextCursor, keyOf: (x) => x.id }).items.map((x) => x.id)).toEqual(["r3", "r4", "r5"]);
-    const lastGone = rows.filter((r) => r.id !== "r2"); // the item the cursor names was deleted: fall back to its position
-    expect(paginate(lastGone, { limit: 3, cursor: first.nextCursor, keyOf: (x) => x.id }).items.map((x) => x.id)).toEqual(["r4", "r5", "r6"]);
+    const lastGone = rows.filter((r) => r.id !== "r2"); // the item the cursor names was deleted: step back one position (a repeat is safer than a skipped row)
+    expect(paginate(lastGone, { limit: 3, cursor: first.nextCursor, keyOf: (x) => x.id }).items.map((x) => x.id)).toEqual(["r3", "r4", "r5"]);
+  });
+
+  it("RDATA-16 does not skip a row when the last one sent was deleted or renamed", () => {
+    const abc = ["a", "b", "c", "d", "e"].map((id) => ({ id }));
+    const p1 = paginate(abc, { limit: 2, cursor: null, keyOf: (r) => r.id });
+    const p2 = paginate(abc.filter((r) => r.id !== "b"), { limit: 10, cursor: p1.nextCursor, keyOf: (r) => r.id });
+    expect(p2.items.map((r) => r.id)).toEqual(["c", "d", "e"]);
+    // b renamed to z and sorted to the end
+    const renamed = ["a", "c", "d", "e", "z"].map((id) => ({ id }));
+    expect(paginate(renamed, { limit: 10, cursor: p1.nextCursor, keyOf: (r) => r.id }).items.map((r) => r.id)).toEqual(["c", "d", "e", "z"]);
   });
 
   it("refuses a cursor that is not one of ours", () => {
