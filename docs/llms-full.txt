@@ -2090,6 +2090,7 @@ receives events about those accounts; events that name no account (the kill swit
 | `download.progress` | read | A data download moved forward (at most once a second per job) |
 | `download.done` | read | A data download finished |
 | `download.failed` | read | A data download stopped with an error |
+| `collection.changed` | read | A named list of instruments or an option universe was created, changed or deleted |
 | `recording.started` | read | A recording started writing |
 | `recording.stopped` | read | A recording stopped |
 | `recording.gap` | read | A recording missed data because the feed or the login was missing |
