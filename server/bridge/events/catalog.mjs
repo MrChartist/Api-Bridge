@@ -5,7 +5,10 @@
  *  scope     the lowest scope that may receive it. "read" topics match what a read key can already ask for over REST;
  *            "admin" topics are about keys, backups, webhook alerts and order tickets, so only an admin key sees them.
  *  accounts  the payload names an account (`accountId`); a key limited to some accounts only sees its own.
- *  throttleMs  at most one event of this topic per key of the payload in this many ms (the rest are counted, not kept).
+ *  throttleMs  at most one event of this topic per key of the payload in this many ms (the rest are counted; the newest is sent
+ *            when the interval ends).
+ *  stateKeys   payload fields that say what state something is in: an event whose values differ from the last one sent is
+ *            never held back (a pause or a feed going down must not wait for the next window).
  *
  * Never offered: `tick` (use the price stream), `audit.appended` and `key.revoked` (internal), `account.session_rejected`
  * (internal; `account.status` says the same in plain words). Events only tell what happened. Nothing that arrives or is
@@ -13,12 +16,12 @@
  */
 import { expandScopes } from "../core/context.mjs";
 
-/** @typedef {{ topic: string, scope: "read"|"admin", accounts: boolean, description: string, throttleMs?: number, key?: string }} TopicInfo */
+/** @typedef {{ topic: string, scope: "read"|"admin", accounts: boolean, description: string, throttleMs?: number, key?: string, stateKeys?: string[] }} TopicInfo */
 
 /** @type {readonly TopicInfo[]} */
 export const EVENT_TOPICS = Object.freeze(
   [
-    { topic: "stream.status", scope: "read", accounts: true, description: "A broker price feed went up, down or stale.", throttleMs: 1000, key: "accountId" },
+    { topic: "stream.status", scope: "read", accounts: true, description: "A broker price feed went up, down or stale.", throttleMs: 1000, key: "accountId", stateKeys: ["connected", "state", "detail", "reason"] },
     { topic: "account.status", scope: "read", accounts: true, description: "A broker account's login changed: connected, expired, missing or error." },
     { topic: "account.login_needed", scope: "read", accounts: true, description: "Morning reminder: an account needs a login before the market opens." },
     { topic: "order.updated", scope: "read", accounts: true, description: "An order (paper or live) changed state: placed, filled, rejected, cancelled." },
@@ -27,8 +30,8 @@ export const EVENT_TOPICS = Object.freeze(
     { topic: "trading.readiness", scope: "read", accounts: true, description: "An account can trade now, or cannot any more (session, static IP, limits)." },
     { topic: "safety.kill_switch", scope: "read", accounts: false, description: "The kill switch was turned on or off." },
     { topic: "safety.limit", scope: "read", accounts: true, description: "A daily safety limit was reached." },
-    { topic: "limits.throttled", scope: "read", accounts: true, description: "A request was slowed by a rate limit.", throttleMs: 1000, key: "accountId" },
-    { topic: "download.progress", scope: "read", accounts: false, description: "A data download moved forward (at most once a second per job).", throttleMs: 1000, key: "id" },
+    { topic: "limits.throttled", scope: "read", accounts: true, description: "A request was slowed by a rate limit.", throttleMs: 1000, key: "accountId", stateKeys: ["endpointClass", "upstream"] },
+    { topic: "download.progress", scope: "read", accounts: false, description: "A data download moved forward (at most once a second per job).", throttleMs: 1000, key: "id", stateKeys: ["status", "reason"] },
     { topic: "download.done", scope: "read", accounts: false, description: "A data download finished." },
     { topic: "download.failed", scope: "read", accounts: false, description: "A data download stopped with an error." },
     { topic: "collection.changed", scope: "read", accounts: false, description: "A named list of instruments or an option universe was created, changed or deleted." },

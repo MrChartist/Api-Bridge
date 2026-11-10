@@ -124,6 +124,7 @@ export function createEventsModule(opts = {}) {
       for (const off of state.offs.splice(0)) off();
       state.registry.all().forEach((s) => s.goAway("shutdown", "The Bridge is restarting. Reconnect in a few seconds with your last cursor."));
       state.ws.close();
+      state.eventLog.close();
       // Deliveries in flight get a few seconds to end; the queue itself is already on disk, so what is left is sent again.
       await state.webhooks.stop();
     },

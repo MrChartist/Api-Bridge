@@ -22,6 +22,7 @@
 import { z } from "zod";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { json, noContent } from "../core/http.mjs";
+import { NO_CONTROL, NO_CONTROL_MESSAGE } from "../core/plainText.mjs";
 import { pageParams, paginate } from "../core/paginate.mjs";
 import { canSee, matchesAny, topicInfo, topicsFor, viewerOf } from "./catalog.mjs";
 import { parseStreamQuery } from "./clients.mjs";
@@ -30,10 +31,10 @@ import { SUBSCRIPTION_ID_RE } from "./webhooks.mjs";
 
 const accountsField = z.union([z.literal("*"), z.array(z.string().max(32)).min(1).max(100)]);
 const createBody = z
-  .object({ url: z.string().max(2048), topics: z.array(z.string().max(64)).min(1).max(50), secret: z.string().max(256), active: z.boolean().optional(), label: z.string().max(60).optional(), accounts: accountsField.optional() })
+  .object({ url: z.string().max(2048), topics: z.array(z.string().max(64)).min(1).max(50), secret: z.string().max(256), active: z.boolean().optional(), label: z.string().max(60).regex(NO_CONTROL, NO_CONTROL_MESSAGE).optional(), accounts: accountsField.optional() })
   .strict();
 const patchBody = z
-  .object({ url: z.string().max(2048).optional(), topics: z.array(z.string().max(64)).min(1).max(50).optional(), secret: z.string().max(256).optional(), active: z.boolean().optional(), label: z.union([z.string().max(60), z.null()]).optional(), accounts: accountsField.optional() })
+  .object({ url: z.string().max(2048).optional(), topics: z.array(z.string().max(64)).min(1).max(50).optional(), secret: z.string().max(256).optional(), active: z.boolean().optional(), label: z.union([z.string().max(60).regex(NO_CONTROL, NO_CONTROL_MESSAGE), z.null()]).optional(), accounts: accountsField.optional() })
   .strict()
   .refine((b) => Object.keys(b).length > 0, { message: "Send at least one field to change." });
 
@@ -78,7 +79,9 @@ export function createEventsRoutes({ eventLog, webhooks, registry, audit, cfg })
         r = eventLog.since(0, { filter: pass, limit: Number.MAX_SAFE_INTEGER });
         r = { ...r, events: r.events.slice(-limit), gap: false, gapReason: null, more: false };
       } else r = eventLog.since(q.since, { filter: pass, limit });
-      const cursor = String(r.events.at(-1)?.seq ?? (q.since ?? r.latest));
+      // Nothing more to read: everything up to `latest` has been looked at, so the next poll starts there. Keeping the old
+      // cursor made a narrow filter fall behind the ring (a false "retention" gap) and left a client stuck after a log reset.
+      const cursor = String(r.more ? (r.events.at(-1)?.seq ?? r.latest) : r.latest);
       return json(
         // nextCursor is the same cursor under the name every list route uses: pass it as `since` for the next page (null when there is no more).
         { data: r.events.map(toEnvelope), meta: meta(ctx, { cursor, nextCursor: r.more ? cursor : null, latest: String(r.latest), oldest: r.oldest === null ? null : String(r.oldest), gap: r.gap, gapReason: r.gapReason, hasMore: r.more }) },

@@ -10,9 +10,12 @@
  *  - a restart reads the file back: the numbering continues, so a cursor from before the restart still works. A torn last
  *    line (a crash in mid-write) is skipped. If the file is deleted the numbering starts again at 1; a client that asks
  *    for a cursor beyond the newest event is told (`gap`), not silently given nothing.
- *  - noisy topics (see catalog.mjs `throttleMs`) keep at most one event per key per interval; the rest are counted.
+ *  - noisy topics (see catalog.mjs `throttleMs`) keep at most one event per key per interval; the rest are counted. A
+ *    change of state (catalog.mjs `stateKeys`: running to paused, up to down) is never held back, and the newest event
+ *    that was held back is sent when its interval ends, so a consumer always ends on the latest state.
  *
- * Time is injected (`now`), nothing here starts a timer.
+ * Time is injected (`now`). The only timer is the one that sends a held-back event at the end of its interval (`setTimer`,
+ * unref'd); `close()` cancels it.
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -31,7 +34,7 @@ export const toEnvelope = (e) => ({ id: String(e.seq), topic: e.topic, time: new
 /**
  * @param {{ dir: string, retain?: number, maxEventBytes?: number, now?: () => number, logger?: any }} opts
  */
-export function createEventLog({ dir, retain = 5000, maxEventBytes = 16_384, now = () => Date.now(), logger }) {
+export function createEventLog({ dir, retain = 5000, maxEventBytes = 16_384, now = () => Date.now(), logger, setTimer = setTimeout, clearTimer = clearTimeout }) {
   const file = join(dir, "log.jsonl");
   /** @type {LoggedEvent[]} */
   let ring = [];
@@ -40,8 +43,24 @@ export function createEventLog({ dir, retain = 5000, maxEventBytes = 16_384, now
   let writeErrors = 0;
   let throttled = 0;
   let recorded = 0;
+  /** throttle key -> { at, sig } of the last event let through */
   const lastSeen = new Map();
+  /** throttle key -> the newest event held back, sent when its interval ends */
+  const held = new Map();
+  const timers = new Map();
   const listeners = new Set();
+
+  function flush(k) {
+    timers.delete(k);
+    const h = held.get(k);
+    held.delete(k);
+    if (!h) return;
+    const t = now();
+    const info = topicInfo(h.topic);
+    const sig = info?.stateKeys && h.payload && typeof h.payload === "object" ? JSON.stringify(info.stateKeys.map((f) => h.payload[f] ?? null)) : null;
+    lastSeen.set(k, { at: t, sig });
+    api.record(h.topic, h.payload, true);
+  }
 
   const valid = (r) => r && Number.isSafeInteger(r.seq) && r.seq > 0 && typeof r.topic === "string" && Number.isFinite(r.at) && r.data && typeof r.data === "object";
   try {
@@ -72,26 +91,34 @@ export function createEventLog({ dir, retain = 5000, maxEventBytes = 16_384, now
     }
   }
 
-  return {
+  const api = {
     /**
      * Add an event from the bus. Returns the logged event, or null when the topic is not offered or the event was throttled.
      * @param {string} topic @param {unknown} payload
      * @returns {LoggedEvent | null}
      */
-    record(topic, payload) {
+    record(topic, payload, bypassThrottle = false) {
       if (!isOfferedTopic(topic)) return null;
       const t = now();
       const info = topicInfo(topic);
-      if (info?.throttleMs) {
+      if (info?.throttleMs && !bypassThrottle) {
         const keyed = info.key && payload && typeof payload === "object" ? String(payload[info.key] ?? "") : "";
         const k = `${topic}|${keyed}`;
+        const sig = info.stateKeys && payload && typeof payload === "object" ? JSON.stringify(info.stateKeys.map((f) => payload[f] ?? null)) : null;
         const last = lastSeen.get(k);
-        if (last !== undefined && t - last < info.throttleMs) {
+        if (last !== undefined && t - last.at < info.throttleMs && (sig === null || sig === last.sig)) {
           throttled += 1;
+          held.set(k, { topic, payload });
+          if (!timers.has(k)) {
+            const timer = setTimer(() => flush(k), Math.max(1, info.throttleMs - (t - last.at)));
+            timer?.unref?.();
+            timers.set(k, timer);
+          }
           return null;
         }
         if (lastSeen.size >= 2000) lastSeen.delete(lastSeen.keys().next().value);
-        lastSeen.set(k, t);
+        lastSeen.set(k, { at: t, sig });
+        held.delete(k); // this event is newer than whatever was held back
       }
       seq += 1;
       /** @type {LoggedEvent} */
@@ -108,6 +135,12 @@ export function createEventLog({ dir, retain = 5000, maxEventBytes = 16_384, now
         }
       }
       return evt;
+    },
+    /** Stop the timers that send held-back events. */
+    close() {
+      for (const timer of timers.values()) clearTimer(timer);
+      timers.clear();
+      held.clear();
     },
     /** Be told of every new event, after it is stored. @returns {() => void} */
     subscribe(listener) {
@@ -143,4 +176,5 @@ export function createEventLog({ dir, retain = 5000, maxEventBytes = 16_384, now
     latest: () => seq,
     stats: () => ({ latest: seq, oldest: ring[0]?.seq ?? null, kept: ring.length, retain, recorded, throttled, writeErrors, listeners: listeners.size }),
   };
+  return api;
 }

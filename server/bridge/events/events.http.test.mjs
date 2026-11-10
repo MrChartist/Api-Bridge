@@ -206,7 +206,7 @@ describe("topics and polling", () => {
     expect((await b.request({ path: "/v1/events?since=2&topics=download.*", key: b.keys.read.key })).json.data.map((e) => e.id)).toEqual(["4"]);
     expect((await b.request({ path: "/v1/events?topics=order.*&accounts=kite-main", key: b.keys.read.key })).json.data.map((e) => e.id)).toEqual(["2"]);
     expect((await b.request({ path: "/v1/events?limit=2", key: b.keys.admin.key })).json.data.map((e) => e.id)).toEqual(["3", "4"]);
-    expect((await b.request({ path: "/v1/events?since=99", key: b.keys.read.key })).json.meta).toMatchObject({ gap: true, gapReason: "cursor_ahead", cursor: "99" });
+    expect((await b.request({ path: "/v1/events?since=99", key: b.keys.read.key })).json.meta).toMatchObject({ gap: true, gapReason: "cursor_ahead", cursor: "4" });
     for (const bad of ["since=abc", "since=-1", "topics=nope", "topics=tick", "limit=0"]) {
       const r = await b.request({ path: `/v1/events?${bad}`, key: b.keys.read.key });
       expect([200, 400], bad).toContain(r.status);
@@ -421,6 +421,13 @@ describe("WebSocket /v1/events/ws", () => {
 
 describe("webhook subscription routes", () => {
   const create = (b, body = {}, key = b.keys.admin.key) => b.request({ method: "POST", path: "/v1/subscriptions", key, body: { url: URL_OK, topics: ["order.*"], secret: SECRET, ...body } });
+
+  it("RDATA-19d refuses a label with control characters, on create and on patch", async () => {
+    const b = await boot();
+    expect((await create(b, { label: "\u001b]0;pwned\u0007 evil" })).status).toBe(400);
+    const ok = await create(b, { label: "fine" });
+    expect((await b.request({ method: "PATCH", path: `/v1/subscriptions/${ok.json.data.id}`, key: b.keys.admin.key, body: { label: "a\nb" } })).status).toBe(400);
+  });
 
   it("creates (this computer only), lists, reads, patches and deletes; the answers hold no secret and no URL path", async () => {
     const b = await boot();
