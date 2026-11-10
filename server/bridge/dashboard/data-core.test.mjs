@@ -463,6 +463,7 @@ describe("recordings and auto-record", () => {
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", keepDays: "" })).toBe("");
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "", end: "15:00" })).toMatch(/start and end/);
     expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "09:20", end: "15:00" })).toBe("");
+    expect(recordingProblem({ kind: "quotes", everySec: 5, collection: "c", custom: true, start: "15:00", end: "09:20" })).toMatch(/end time must be later/);
   });
 });
 

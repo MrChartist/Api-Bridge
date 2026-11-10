@@ -48,6 +48,7 @@ import {
   parseSymbolList,
   parseTags,
   presetPlan,
+  recordingBody,
   rangeDates,
   recordingProblem,
   recordingView,
@@ -127,6 +128,13 @@ function busy(button, on) {
   if (!button) return;
   setAttr(button, "aria-busy", on ? "true" : null);
   button.disabled = Boolean(on);
+}
+/** An error box next to the buttons of a sheet: filled, scrolled into view and focused so nobody presses the button blind. */
+function showFormError(box, title, detail = "") {
+  box.replaceChildren(h("div", { class: "alert bad", role: "alert", tabindex: "-1" }, icon("warn"), h("div", {}, h("strong", {}, title), detail ? h("span", { class: "detail" }, detail) : null)));
+  const a = box.firstElementChild;
+  a.scrollIntoView?.({ block: "nearest" });
+  a.focus?.({ preventScroll: true });
 }
 /** Run a button's action: show it working, then a toast on failure. Returns the result or undefined on failure. */
 async function run(button, fn, { ok = null } = {}) {
@@ -906,7 +914,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
     custom: typeof rule?.schedule === "object" && rule?.schedule !== null,
     start: rule?.schedule?.start ?? "",
     end: rule?.schedule?.end ?? "",
-    days: rule?.schedule?.days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    days: (rule?.schedule?.days ?? ["mon", "tue", "wed", "thu", "fri"]).map((d) => String(d).slice(0, 1).toUpperCase() + String(d).slice(1).toLowerCase()),
     keepDays: rule?.keepDays ?? "",
     format: rule?.format ?? "csv",
   };
@@ -925,21 +933,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
       const hoursSel = select([["market", "During market hours (trading days)"], ["custom", "Choose days and hours"]], f.custom ? "custom" : "market", { id: "rc-hours" });
       const hoursBox = h("div", { class: "dt-custom form-grid" });
       const keep = input({ id: "rc-keep", type: "number", min: 1, value: f.keepDays, placeholder: "Keep everything", inputmode: "numeric" });
-      const bodyOf = () => {
-        const b = { ...(f.name.trim() ? { name: f.name.trim() } : {}), kind: f.kind, everySec: Number(f.everySec), format: f.format };
-        if (f.source === "collection") b.collection = f.collection;
-        else if (f.source === "index") {
-          b.underlying = f.underlying.trim().toUpperCase();
-          if (mode === "rule") b.universe = { ...defaultUniverse(b.underlying), expiries: f.expiries, strikes: { around: "atm", count: Math.max(1, Math.min(100, Number(f.count) || 10)) } };
-          else b.expiry = f.expiries;
-        } else b.symbols = parseSymbolList(f.symbols).symbols;
-        if (mode === "rule") {
-          b.enabled = rule ? rule.enabled !== false : true;
-          b.schedule = f.custom ? { days: f.days, start: f.start, end: f.end } : "market-hours";
-          if (f.keepDays !== "" && Number(f.keepDays) >= 1) b.keepDays = Number(f.keepDays);
-        } else b.sessionOnly = true;
-        return b;
-      };
+      const bodyOf = () => recordingBody({ ...f, symbols: f.source === "symbols" ? parseSymbolList(f.symbols).symbols : [] }, mode, { enabled: rule ? rule.enabled !== false : true });
       const paintSize = () => {
         const b = bodyOf();
         let n = 0;
@@ -947,7 +941,6 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
           const c = collections.find((x) => x.name === b.collection);
           n = c?.kind === "option-universe" ? (universeSize(c.universe).count ?? 0) : (c?.symbols?.length ?? 0);
         } else if (b.universe) n = universeSize(b.universe).count ?? 0;
-        else if (b.underlying) n = universeSize({ ...defaultUniverse(b.underlying), strikes: { around: "atm", count: 10 } }).count ?? 0;
         else n = b.symbols?.length ?? 0;
         const e = estimateRecording({ kind: f.kind, symbolCount: n, everySec: Number(f.everySec) || 30, format: f.format });
         setText(sizeBox, n ? `About ${plural(n, "symbol")}: roughly ${formatBytes(e.bytesPerDay)} a trading day. It uses your live stream, so it costs no extra broker calls when the stream is up.` : "");
@@ -1008,7 +1001,7 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
       paintSize();
       const save = btn(mode === "rule" ? (rule ? "Save rule" : "Add rule and turn it on") : "Start recording", "primary", async () => {
         const p = recordingProblem({ kind: f.kind, everySec: f.everySec, collection: f.source === "collection" ? f.collection : null, underlying: f.source === "index" ? f.underlying : null, symbols: f.source === "symbols" ? parseSymbolList(f.symbols).symbols : [], keepDays: f.keepDays, custom: mode === "rule" && f.custom, start: f.start, end: f.end });
-        if (p) return err.replaceChildren(h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, p))));
+        if (p) return showFormError(err, p);
         busy(save, true);
         try {
           if (mode === "rule") await (rule ? client.recordings.rules.patch(rule.id, bodyOf()) : client.recordings.rules.create(bodyOf()));
@@ -1019,10 +1012,10 @@ function openRecordingSheet({ mode, rule = null, collections, preset = {}, onSav
         } catch (e) {
           busy(save, false);
           const fe = friendlyError(e);
-          err.replaceChildren(h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, fe.title), fe.detail ? h("span", { class: "detail" }, fe.detail) : null)));
+          showFormError(err, fe.title, fe.detail);
         }
       });
-      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What to record"), kind), field("Where from", srcSel), body, field("Save every (seconds)", every, f.kind === "chain" ? "At least 15 seconds for an option chain." : "At least 1 second."), ...(mode === "rule" ? [field("When", hoursSel), hoursBox, field("Delete files older than (days)", keep, "Leave empty to keep everything. Old days can be removed by hand on the Recordings tab.")] : []), field("Format", fmt), field("Name", name), sizeBox, hint("Recordings are saved from your own live data only (real-time), never from a delayed or end-of-day source.")), err, h("div", { class: "dt-wiz-foot" }, btn("Cancel", "", () => close(false)), save));
+      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What to record"), kind), field("Where from", srcSel), body, field("Save every (seconds)", every, f.kind === "chain" ? "At least 15 seconds for an option chain." : "At least 1 second."), ...(mode === "rule" ? [field("When", hoursSel), hoursBox, field("Delete files older than (days)", keep, "Leave empty to keep everything. Old days can be removed by hand on the Recordings tab.")] : []), field("Format", fmt), field("Name", name), sizeBox, hint("Recordings are saved from your own live data only (real-time), never from a delayed or end-of-day source.")), h("div", { class: "dt-wiz-foot" }, err, btn("Cancel", "", () => close(false)), save));
     },
     buttons: [],
     dirty: () => false,
@@ -1091,20 +1084,34 @@ export async function renderRecordings() {
     }
     const c = collections.find((x) => x.name === collection);
     const plan = presetPlan(p, { collection, collectionSize: c ? (c.kind === "option-universe" ? universeSize(c.universe).count : (c.symbols?.length ?? 0)) : 0 });
-    const ok = await modal({
+    const unavailable = (e) => isUnavailable(e);
+    const done = await modal({
       title: p.title,
-      body: h("div", { class: "dt-fields" }, h("p", { class: "dt-confirm" }, p.sub, "."), plan.symbols ? h("p", { class: "hint" }, `About ${plural(plan.symbols, "symbol")} and roughly ${formatBytes(plan.bytesPerDay)} a trading day. It uses your live stream and starts by itself at each market open. You can turn it off any time.`) : null, hint("Recorded from your own real-time data only.")),
-      buttons: [{ label: "Not now", value: false }, { label: "Turn it on", cls: "primary", value: true }],
+      body: (close) => {
+        const err = h("div", { class: "dt-err", "aria-live": "assertive" });
+        let made = 0; // a second try carries on after the rules that were already made
+        const go1 = btn("Turn it on", "primary", async () => {
+          busy(go1, true);
+          try {
+            while (made < plan.bodies.length) {
+              await client.recordings.rules.create(plan.bodies[made]);
+              made += 1;
+            }
+            close(true, true);
+          } catch (e) {
+            busy(go1, false);
+            const f = friendlyError(e);
+            if (unavailable(e)) showFormError(err, "This Bridge cannot auto-record yet.");
+            else showFormError(err, f.title, f.detail);
+          }
+        });
+        return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("p", { class: "dt-confirm" }, p.sub, "."), plan.symbols ? h("p", { class: "hint" }, `About ${plural(plan.symbols, "symbol")} and roughly ${formatBytes(plan.bytesPerDay)} a trading day. It uses your live stream and starts by itself at each market open. You can turn it off any time.`) : null, hint("Recorded from your own real-time data only.")), h("div", { class: "dt-wiz-foot" }, err, btn("Not now", "", () => close(false)), go1));
+      },
+      buttons: [],
     });
-    if (!ok) return;
-    try {
-      for (const b of plan.bodies) await client.recordings.rules.create(b);
-      toast("Auto-record is on. It starts at the next market session.");
-      refresh();
-    } catch (e) {
-      const f = friendlyError(e);
-      toast(isUnavailable(e) ? "This Bridge cannot auto-record yet." : `${f.title}. ${f.detail}`.trim(), { tone: isUnavailable(e) ? "info" : "error" });
-    }
+    if (!done) return;
+    toast("Auto-record is on. It starts at the next market session.");
+    refresh();
   }
 
   function drawRules() {
@@ -1511,7 +1518,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
       drawKind();
       const save = btn(edit ? "Save changes" : "Save collection", "primary", async () => {
         const p = collectionNameProblem(f.name, others);
-        const showErr = (title, detail) => err.replaceChildren(h("div", { class: "alert bad", role: "alert" }, icon("warn"), h("div", {}, h("strong", {}, title), detail ? h("span", { class: "detail" }, detail) : null)));
+        const showErr = (title, detail) => showFormError(err, title, detail);
         if (p) return showErr(p);
         const body = { name: f.name.trim(), description: f.description.trim(), tags: parseTags(f.tags), kind: f.kind };
         if (f.kind === "static") {
@@ -1536,7 +1543,7 @@ function openCollectionSheet({ collection = null, kind = "static", names = [], o
           showErr(isUnavailable(e) ? "This Bridge cannot save collections yet" : fe.title, isUnavailable(e) ? "Update the Bridge to the latest version." : fe.detail);
         }
       });
-      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "form-grid" }, field("Name", name), field("Tags", tags, "Separate with commas, for example index, weekly.")), nameMsg, field("Description", desc), h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What kind"), kindSeg), kindBody, preview), err, h("div", { class: "dt-wiz-foot" }, btn("Cancel", "", () => close(false)), save));
+      return h("div", { class: "dt-wiz" }, h("div", { class: "dt-fields" }, h("div", { class: "form-grid" }, field("Name", name), field("Tags", tags, "Separate with commas, for example index, weekly.")), nameMsg, field("Description", desc), h("div", { class: "field seg-field" }, h("span", { class: "dt-label" }, "What kind"), kindSeg), kindBody, preview), h("div", { class: "dt-wiz-foot" }, err, btn("Cancel", "", () => close(false)), save));
     },
     buttons: [],
   });

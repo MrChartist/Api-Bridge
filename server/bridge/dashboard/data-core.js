@@ -765,6 +765,44 @@ export function autoRecordSummary({ rules = [], recordings = [] } = {}) {
   return { tone: "ok", headline: `Recording today: ${parts.join(", ")}`, detail: "", on: on.length };
 }
 
+/**
+ * The option window of a chain rule or recording, in the shape the recorder accepts: the index goes at the top of the
+ * body (`underlying`), never inside `universe`, which is strict.
+ */
+export function recordingUniverse(underlying, { expiries = "current-weekly", count = 10 } = {}) {
+  const { underlying: _u, ...rest } = defaultUniverse(String(underlying ?? "NIFTY").trim().toUpperCase());
+  void _u;
+  return { ...rest, expiries, strikes: { around: "atm", count: Math.max(1, Math.min(100, Math.round(Number(count)) || 10)) } };
+}
+
+/** A plain name for a rule the person did not name (the Bridge needs one). */
+export function defaultRuleName(f) {
+  if (f.source === "collection") return `${f.collection} ${f.kind === "chain" ? "option chain" : "prices"}`.slice(0, 60);
+  if (f.source === "index") return `${String(f.underlying ?? "").trim().toUpperCase() || "Index"} option chain`.slice(0, 60);
+  return "Price recording";
+}
+
+/**
+ * The body for POST /v1/recordings/rules (mode "rule"), PATCH of a rule, or POST /v1/recordings (mode "once"), built the way
+ * the Bridge's schemas take it. `f` is the sheet's form: { name, kind, source: index|collection|symbols, collection,
+ * underlying, expiries, count, symbols: string[], everySec, format, custom, days, start, end, keepDays }.
+ */
+export function recordingBody(f, mode = "rule", { enabled = true } = {}) {
+  const b = { name: String(f.name ?? "").trim() || (mode === "rule" ? defaultRuleName(f) : undefined), kind: f.kind, everySec: Number(f.everySec), format: f.format };
+  if (b.name === undefined) delete b.name;
+  if (f.source === "collection") b.collection = f.collection;
+  else if (f.source === "index") {
+    b.underlying = String(f.underlying ?? "").trim().toUpperCase();
+    b.universe = recordingUniverse(b.underlying, { expiries: f.expiries, count: f.count });
+  } else b.symbols = f.symbols;
+  if (mode === "rule") {
+    b.enabled = enabled;
+    b.schedule = f.custom ? { days: (f.days ?? []).map((d) => String(d).toLowerCase()), start: f.start, end: f.end } : "market-hours";
+    if (f.keepDays !== "" && f.keepDays !== undefined && f.keepDays !== null && Number(f.keepDays) >= 1) b.keepDays = Number(f.keepDays);
+  } else b.sessionOnly = true;
+  return b;
+}
+
 /** The one-click auto-record presets. `build` makes the rule bodies to POST (one per rule). */
 export const RECORD_PRESETS = Object.freeze([
   {
@@ -773,14 +811,14 @@ export const RECORD_PRESETS = Object.freeze([
     sub: "NIFTY and BANKNIFTY, ATM +/- 10, current weekly expiry, every 30 s, during market hours",
     needs: null,
     build: () =>
-      ["NIFTY", "BANKNIFTY"].map((u) => ({ name: `${u} option chain`, enabled: true, kind: "chain", underlying: u, universe: { ...defaultUniverse(u), includeUnderlying: true }, everySec: 30, schedule: "market-hours", format: "csv" })),
+      ["NIFTY", "BANKNIFTY"].map((u) => recordingBody({ kind: "chain", source: "index", underlying: u, expiries: "current-weekly", count: 10, everySec: 30, format: "csv" })),
   },
   {
     id: "my-watchlist",
     title: "Record my watchlist",
     sub: "Prices of a collection you pick, every 5 s, during market hours",
     needs: "collection",
-    build: ({ collection }) => [{ name: `Watchlist ${collection}`, enabled: true, kind: "quotes", collection, everySec: 5, schedule: "market-hours", format: "csv" }],
+    build: ({ collection }) => [recordingBody({ name: `Watchlist ${collection}`.slice(0, 60), kind: "quotes", source: "collection", collection, everySec: 5, format: "csv" })],
   },
 ]);
 
@@ -803,6 +841,7 @@ export function recordingProblem(f) {
     if (!f.collection && !String(f.underlying ?? "").trim()) return "Pick a collection or type the index to record, for example NIFTY.";
   } else if (!f.collection && !(f.symbols ?? []).length) return "Pick a collection or paste the symbols to record.";
   if (f.custom && (!f.start || !f.end)) return "Pick the start and end time, or choose market hours.";
+  if (f.custom && f.start >= f.end) return "The end time must be later than the start time (same day, Indian time).";
   if (f.keepDays !== undefined && f.keepDays !== null && f.keepDays !== "" && !(Number(f.keepDays) >= 1)) return "Keep days must be 1 or more, or empty to keep everything.";
   return "";
 }
