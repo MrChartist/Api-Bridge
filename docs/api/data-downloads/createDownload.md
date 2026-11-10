@@ -46,10 +46,15 @@ Example:
 
 ```json
 {
-  "intervals": [
-    "1m"
+  "symbols": [
+    "NSE:RELIANCE",
+    "NSE:INFY"
   ],
-  "from": "2026-11-02"
+  "intervals": [
+    "1d"
+  ],
+  "from": "2026-10-01",
+  "dataset": "large-caps-1d"
 }
 ```
 
@@ -92,6 +97,76 @@ Example:
 | `disk` | object | no |  |
 | `notes` | array of string | no |  |
 
+### Example 202 answer
+
+```json
+{
+  "data": {
+    "id": "dl_435e6691d280",
+    "name": "large-caps-1d",
+    "status": "queued",
+    "reason": null,
+    "message": null,
+    "progress": {
+      "total": 2,
+      "done": 0,
+      "failed": 0,
+      "rows": 0,
+      "bytes": 0,
+      "etaSec": null,
+      "current": null,
+      "waiting": null
+    },
+    "request": {
+      "symbols": [
+        "NSE:RELIANCE",
+        "NSE:INFY"
+      ],
+      "intervals": [
+        "1d"
+      ],
+      "from": "2026-10-01",
+      "to": null,
+      "format": "csv",
+      "layout": "per-symbol",
+      "dataset": "large-caps-1d",
+      "account": null,
+      "backup": false,
+      "afterHoursOnly": false
+    },
+    "dataset": "large-caps-1d",
+    "tags": [],
+    "dataClass": "realtime",
+    "source": null,
+    "official": null,
+    "delaySec": null,
+    "callsSaved": 0,
+    "notes": [],
+    "createdAt": "2026-11-10T04:05:25.794Z",
+    "startedAt": null,
+    "finishedAt": null,
+    "manifestUrl": "/v1/downloads/dl_435e6691d280/files/manifest.json",
+    "items": [
+      {
+        "symbol": "NSE:RELIANCE",
+        "interval": "1d",
+        "status": "pending",
+        "rows": 0
+      },
+      {
+        "symbol": "NSE:INFY",
+        "interval": "1d",
+        "status": "pending",
+        "rows": 0
+      }
+    ]
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61"
+  }
+}
+```
+
 ## Errors
 
 Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).
@@ -115,7 +190,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/downloads" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"intervals":["1m"],"from":"2026-11-02"}'
+  -d '{"symbols":["NSE:RELIANCE","NSE:INFY"],"intervals":["1d"],"from":"2026-10-01","dataset":"large-caps-1d"}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -128,7 +203,12 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "POST",
     "/v1/downloads",
-    body={"intervals": ["1m"], "from": "2026-11-02"},
+    body={
+    "symbols": ["NSE:RELIANCE", "NSE:INFY"],
+    "intervals": ["1d"],
+    "from": "2026-10-01",
+    "dataset": "large-caps-1d",
+},
     idempotency_key="my-order-0001",
 )
 print(response.body)

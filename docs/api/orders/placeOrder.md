@@ -108,6 +108,51 @@ Example:
 | `placedAt` | string (date-time) | yes |  |
 | `updatedAt` | string (date-time) | yes |  |
 
+### Example 201 answer
+
+```json
+{
+  "data": {
+    "orderId": "PAPER-20261110-000001",
+    "clientOrderId": null,
+    "accountId": "demo-paper",
+    "broker": "paper",
+    "mode": "paper",
+    "symbol": "NSE:RELIANCE",
+    "side": "BUY",
+    "quantity": 1,
+    "filledQuantity": 1,
+    "avgPrice": 1459,
+    "price": null,
+    "triggerPrice": null,
+    "orderType": "MARKET",
+    "product": "CNC",
+    "validity": "DAY",
+    "status": "filled",
+    "brokerStatus": null,
+    "statusMessage": null,
+    "legs": [
+      {
+        "brokerOrderId": null,
+        "quantity": 1,
+        "status": "filled",
+        "error": null
+      }
+    ],
+    "source": "rest",
+    "tag": null,
+    "placedAt": "2026-11-10T09:46:00.404+05:30",
+    "updatedAt": "2026-11-10T09:46:00.404+05:30",
+    "warnings": []
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61",
+    "accountId": "demo-paper",
+    "mode": "paper"
+  }
+}
+```
+
 ## Errors
 
 Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).

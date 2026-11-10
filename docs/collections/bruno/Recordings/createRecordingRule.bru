@@ -20,10 +20,18 @@ auth:bearer {
 
 body:json {
   {
-    "name": "<name>",
+    "name": "watchlist-quotes",
     "kind": "quotes",
-    "everySec": 1
+    "symbols": [
+      "NSE:RELIANCE",
+      "NSE:INFY"
+    ],
+    "everySec": 5
   }
+}
+
+vars:post-response {
+  ruleId: res.body.data.id
 }
 
 docs {

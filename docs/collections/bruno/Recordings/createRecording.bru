@@ -21,8 +21,16 @@ auth:bearer {
 body:json {
   {
     "kind": "quotes",
-    "everySec": 1
+    "symbols": [
+      "NSE:RELIANCE",
+      "NSE:INFY"
+    ],
+    "everySec": 5
   }
+}
+
+vars:post-response {
+  recordingId: res.body.data.id
 }
 
 docs {

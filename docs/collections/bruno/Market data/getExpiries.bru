@@ -22,6 +22,10 @@ auth:bearer {
   token: {{apiKey}}
 }
 
+vars:post-response {
+  expiry: res.body.data.expiries[0]
+}
+
 docs {
   Expiry dates for an underlying
 

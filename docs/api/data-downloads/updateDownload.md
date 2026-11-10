@@ -29,7 +29,9 @@ Required, `application/json`.
 Example:
 
 ```json
-{}
+{
+  "name": "Large caps, daily"
+}
 ```
 
 ## Responses
@@ -93,7 +95,7 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X PATCH "http://127.0.0.1:4300/v1/downloads/<downloadId>" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"name":"Large caps, daily"}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -103,6 +105,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("PATCH", "/v1/downloads/<downloadId>", body={})
+response = bridge.request("PATCH", "/v1/downloads/<downloadId>", body={"name": "Large caps, daily"})
 print(response.body)
 ```

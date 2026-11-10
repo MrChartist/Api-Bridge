@@ -1540,12 +1540,14 @@ paths:
         required: true
         content:
           application/json:
+            example: {"name":"large-caps","description":"My core list","tags":["core"],"symbols":["NSE:RELIANCE","NSE:INFY","NSE:TCS"]}
             schema: { $ref: "#/components/schemas/CollectionCreate" }
       responses:
         "201":
           description: Created.
           content:
             application/json:
+              example: {"data":{"id":"col_geh4as5cz7","name":"large-caps","description":"My core list","tags":["core"],"kind":"static","createdAt":"2026-11-10T04:05:33.784Z","updatedAt":"2026-11-10T04:05:33.784Z","previousNames":[],"symbolCount":3,"symbols":["NSE:RELIANCE","NSE:INFY","NSE:TCS"]},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1580,6 +1582,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"name":"from-a-file","symbols":["NSE:RELIANCE","NSE:INFY"]}
             schema: { type: object }
           text/plain:
             schema: { type: string }
@@ -1640,6 +1643,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"tags":["core","daily"]}
             schema: { $ref: "#/components/schemas/CollectionPatch" }
       responses:
         "200":
@@ -1726,6 +1730,7 @@ paths:
         required: false
         content:
           application/json:
+            example: {"name":"large-caps-copy"}
             schema:
               type: object
               additionalProperties: false
@@ -1858,6 +1863,7 @@ paths:
           description: Prices; symbols that failed are listed in `errors`.
           content:
             application/json:
+              example: {"data":[{"symbol":"NSE:RELIANCE","ltp":1458.8,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},{"symbol":"NSE:NIFTY","ltp":24552.25,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}],"errors":[],"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1888,6 +1894,7 @@ paths:
           description: Quotes.
           content:
             application/json:
+              example: {"data":[{"symbol":"NSE:RELIANCE","ltp":1460.8,"open":1460.4,"high":1464.1,"low":1456.5,"close":1460.4,"change":0.4,"changePct":0.0274,"volume":130661,"oi":null,"bid":1460.6,"ask":1461,"bidQty":29,"askQty":28,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}],"errors":[],"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1963,6 +1970,7 @@ paths:
           description: Candles, ascending.
           content:
             application/json:
+              example: {"data":{"symbol":"NSE:RELIANCE","interval":"1d","candles":[{"time":1794162600,"open":1453.2,"high":1468.7,"low":1450.2,"close":1460.4,"volume":215004},{"time":1794249000,"open":1460.4,"high":1463.9,"low":1455.9,"close":1460.8,"volume":38459}],"partial":false,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":null,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}}
               schema:
                 type: object
                 required: [data, meta]
@@ -1999,6 +2007,7 @@ paths:
           description: ISO dates, ascending.
           content:
             application/json:
+              example: {"data":{"underlying":"NIFTY","expiries":["2026-11-17","2026-11-23","2026-12-01","2026-12-08"],"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":null,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}}
               schema:
                 type: object
                 required: [data, meta]
@@ -2189,6 +2198,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"symbols":["NSE:RELIANCE","NSE:INFY"],"intervals":["1d"],"from":"2026-10-01","dataset":"large-caps-1d"}
             schema: { $ref: "#/components/schemas/DownloadRequest" }
       responses:
         "200":
@@ -2207,6 +2217,7 @@ paths:
             Location: { description: "The job's address.", schema: { type: string } }
           content:
             application/json:
+              example: {"data":{"id":"dl_435e6691d280","name":"large-caps-1d","status":"queued","reason":null,"message":null,"progress":{"total":2,"done":0,"failed":0,"rows":0,"bytes":0,"etaSec":null,"current":null,"waiting":null},"request":{"symbols":["NSE:RELIANCE","NSE:INFY"],"intervals":["1d"],"from":"2026-10-01","to":null,"format":"csv","layout":"per-symbol","dataset":"large-caps-1d","account":null,"backup":false,"afterHoursOnly":false},"dataset":"large-caps-1d","tags":[],"dataClass":"realtime","source":null,"official":null,"delaySec":null,"callsSaved":0,"notes":[],"createdAt":"2026-11-10T04:05:25.794Z","startedAt":null,"finishedAt":null,"manifestUrl":"/v1/downloads/dl_435e6691d280/files/manifest.json","items":[{"symbol":"NSE:RELIANCE","interval":"1d","status":"pending","rows":0},{"symbol":"NSE:INFY","interval":"1d","status":"pending","rows":0}]},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -2284,6 +2295,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"name":"Large caps, daily"}
             schema:
               type: object
               additionalProperties: false
@@ -2526,6 +2538,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"title":"Large caps, daily","tags":["core"]}
             schema:
               type: object
               additionalProperties: false
@@ -2835,6 +2848,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"url":"https://hooks.example.com/bridge","topics":["order.*","download.done"],"secret":"replace-with-a-long-random-string"}
             schema: { $ref: "#/components/schemas/SubscriptionCreate" }
       responses:
         "201":
@@ -2884,6 +2898,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"active":false}
             schema: { $ref: "#/components/schemas/SubscriptionUpdate" }
       responses:
         "200":
@@ -3076,9 +3091,14 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","from":"INTRADAY","to":"CNC","quantity":1}
             schema:
               type: object
               required: [account, symbol, from, to]
+              description: "Send exactly one of `quantity` (units) or `lots`."
+              oneOf:
+                - { required: [quantity] }
+                - { required: [lots] }
               properties:
                 account: { type: string }
                 symbol: { type: string }
@@ -3165,6 +3185,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","positions":[{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC"}]}
             schema: { $ref: "#/components/schemas/MarginBasketRequest" }
       responses:
         "200":
@@ -3225,6 +3246,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET","mode":"paper"}
             schema: { $ref: "#/components/schemas/OrderRequest" }
       responses:
         "201":
@@ -3233,6 +3255,7 @@ paths:
             Idempotency-Replayed: { $ref: "#/components/headers/IdempotencyReplayed" }
           content:
             application/json:
+              example: {"data":{"orderId":"PAPER-20261110-000001","clientOrderId":null,"accountId":"demo-paper","broker":"paper","mode":"paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"filledQuantity":1,"avgPrice":1459,"price":null,"triggerPrice":null,"orderType":"MARKET","product":"CNC","validity":"DAY","status":"filled","brokerStatus":null,"statusMessage":null,"legs":[{"brokerOrderId":null,"quantity":1,"status":"filled","error":null}],"source":"rest","tag":null,"placedAt":"2026-11-10T09:46:00.404+05:30","updatedAt":"2026-11-10T09:46:00.404+05:30","warnings":[]},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":"demo-paper","mode":"paper"}}
               schema:
                 type: object
                 required: [data, meta]
@@ -3254,6 +3277,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET","mode":"paper"}
             schema: { $ref: "#/components/schemas/OrderRequest" }
       responses:
         "200":
@@ -3297,6 +3321,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","symbol":"NSE:RELIANCE","targetQuantity":10,"product":"CNC","orderType":"MARKET","mode":"paper"}
             schema: { $ref: "#/components/schemas/TargetOrderRequest" }
       responses:
         "200":
@@ -3349,6 +3374,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"account":"demo-paper","orders":[{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"},{"symbol":"NSE:INFY","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"}],"mode":"paper"}
             schema: { $ref: "#/components/schemas/OrderBatchRequest" }
       responses:
         "201":
@@ -5111,6 +5137,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"kind":"quotes","symbols":["NSE:RELIANCE","NSE:INFY"],"everySec":5}
             schema: { $ref: "#/components/schemas/RecordingCreate" }
       responses:
         "201":
@@ -5287,6 +5314,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"name":"watchlist-quotes","kind":"quotes","symbols":["NSE:RELIANCE","NSE:INFY"],"everySec":5}
             schema: { $ref: "#/components/schemas/RecordingRuleCreate" }
       responses:
         "201":
@@ -5339,6 +5367,7 @@ paths:
         required: true
         content:
           application/json:
+            example: {"enabled":false}
             schema: { $ref: "#/components/schemas/RecordingRulePatch" }
       responses:
         "200":
@@ -8158,6 +8187,9 @@ components:
       type: object
       required: [account, symbol, product, orderType]
       additionalProperties: false
+      oneOf:
+        - { required: [targetQuantity] }
+        - { required: [targetLots] }
       properties:
         account: { $ref: "#/components/schemas/AccountId" }
         symbol: { $ref: "#/components/schemas/Symbol" }
@@ -8294,6 +8326,10 @@ components:
             type: object
             required: [symbol, side]
             additionalProperties: false
+            description: "Send exactly one of `quantity` (units) or `lots`."
+            oneOf:
+              - { required: [quantity] }
+              - { required: [lots] }
             properties:
               symbol: { $ref: "#/components/schemas/Symbol" }
               side: { type: string, enum: [BUY, SELL] }

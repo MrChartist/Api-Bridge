@@ -11,7 +11,7 @@ post {
 }
 
 params:path {
-  name: <name>
+  name: large-caps
 }
 
 headers {
@@ -23,7 +23,9 @@ auth:bearer {
 }
 
 body:json {
-  {}
+  {
+    "name": "large-caps-copy"
+  }
 }
 
 docs {

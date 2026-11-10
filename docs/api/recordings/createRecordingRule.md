@@ -47,9 +47,13 @@ Example:
 
 ```json
 {
-  "name": "<name>",
+  "name": "watchlist-quotes",
   "kind": "quotes",
-  "everySec": 1
+  "symbols": [
+    "NSE:RELIANCE",
+    "NSE:INFY"
+  ],
+  "everySec": 5
 }
 ```
 
@@ -120,7 +124,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/recordings/rules" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"name":"<name>","kind":"quotes","everySec":1}'
+  -d '{"name":"watchlist-quotes","kind":"quotes","symbols":["NSE:RELIANCE","NSE:INFY"],"everySec":5}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -133,7 +137,12 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "POST",
     "/v1/recordings/rules",
-    body={"name": "<name>", "kind": "quotes", "everySec": 1},
+    body={
+    "name": "watchlist-quotes",
+    "kind": "quotes",
+    "symbols": ["NSE:RELIANCE", "NSE:INFY"],
+    "everySec": 5,
+},
     idempotency_key="my-order-0001",
 )
 print(response.body)

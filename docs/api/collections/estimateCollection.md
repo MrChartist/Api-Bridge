@@ -74,7 +74,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s "http://127.0.0.1:4300/v1/collections/<name>/estimate?intervals=<intervals>&days=1" \
+curl -s "http://127.0.0.1:4300/v1/collections/large-caps/estimate?intervals=<intervals>&days=1" \
   -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
@@ -87,7 +87,7 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 
 response = bridge.request(
     "GET",
-    "/v1/collections/<name>/estimate",
+    "/v1/collections/large-caps/estimate",
     query={"intervals": "<intervals>", "days": "1"},
 )
 print(response.body)

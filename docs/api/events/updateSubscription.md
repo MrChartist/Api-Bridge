@@ -36,7 +36,9 @@ Required, `application/json`, schema `SubscriptionUpdate`.
 Example:
 
 ```json
-{}
+{
+  "active": false
+}
 ```
 
 ## Responses
@@ -94,7 +96,7 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X PATCH "http://127.0.0.1:4300/v1/subscriptions/<subscriptionId>" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"active":false}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -104,6 +106,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("PATCH", "/v1/subscriptions/<subscriptionId>", body={})
+response = bridge.request("PATCH", "/v1/subscriptions/<subscriptionId>", body={"active": False})
 print(response.body)
 ```

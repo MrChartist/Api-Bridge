@@ -41,11 +41,12 @@ Example:
 
 ```json
 {
-  "url": "<url>",
+  "url": "https://hooks.example.com/bridge",
   "topics": [
-    "<topics>"
+    "order.*",
+    "download.done"
   ],
-  "secret": "xxxxxxxxxxxxxxxx"
+  "secret": "replace-with-a-long-random-string"
 }
 ```
 
@@ -107,7 +108,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/subscriptions" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"url":"<url>","topics":["<topics>"],"secret":"xxxxxxxxxxxxxxxx"}'
+  -d '{"url":"https://hooks.example.com/bridge","topics":["order.*","download.done"],"secret":"replace-with-a-long-random-string"}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -120,7 +121,11 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "POST",
     "/v1/subscriptions",
-    body={"url": "<url>", "topics": ["<topics>"], "secret": "xxxxxxxxxxxxxxxx"},
+    body={
+    "url": "https://hooks.example.com/bridge",
+    "topics": ["order.*", "download.done"],
+    "secret": "replace-with-a-long-random-string",
+},
     idempotency_key="my-order-0001",
 )
 print(response.body)

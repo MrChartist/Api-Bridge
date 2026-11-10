@@ -30,7 +30,12 @@ Required, `application/json`.
 Example:
 
 ```json
-{}
+{
+  "title": "Large caps, daily",
+  "tags": [
+    "core"
+  ]
+}
 ```
 
 ## Responses
@@ -89,10 +94,10 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X PATCH "http://127.0.0.1:4300/v1/datasets/<name>" \
+curl -s -X PATCH "http://127.0.0.1:4300/v1/datasets/large-caps-1d" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"title":"Large caps, daily","tags":["core"]}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -102,6 +107,10 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("PATCH", "/v1/datasets/<name>", body={})
+response = bridge.request(
+    "PATCH",
+    "/v1/datasets/large-caps-1d",
+    body={"title": "Large caps, daily", "tags": ["core"]},
+)
 print(response.body)
 ```

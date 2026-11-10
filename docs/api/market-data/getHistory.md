@@ -54,6 +54,66 @@ Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in o
 | `freshness` | `Freshness` | yes |  |
 | `partial` | boolean | yes | True when the broker could not supply the whole range (history depth limits). |
 
+### Example 200 answer
+
+```json
+{
+  "data": {
+    "symbol": "NSE:RELIANCE",
+    "interval": "1d",
+    "candles": [
+      {
+        "time": 1794162600,
+        "open": 1453.2,
+        "high": 1468.7,
+        "low": 1450.2,
+        "close": 1460.4,
+        "volume": 215004
+      },
+      {
+        "time": 1794249000,
+        "open": 1460.4,
+        "high": 1463.9,
+        "low": 1455.9,
+        "close": 1460.8,
+        "volume": 38459
+      }
+    ],
+    "partial": false,
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61",
+    "accountId": null,
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  }
+}
+```
+
 ## Errors
 
 Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).

@@ -40,7 +40,16 @@ Example:
 
 ```json
 {
-  "name": "<name>"
+  "name": "large-caps",
+  "description": "My core list",
+  "tags": [
+    "core"
+  ],
+  "symbols": [
+    "NSE:RELIANCE",
+    "NSE:INFY",
+    "NSE:TCS"
+  ]
 }
 ```
 
@@ -76,6 +85,34 @@ Example:
 | `createdAt` | string (date-time) | yes |  |
 | `updatedAt` | string (date-time) | yes |  |
 
+### Example 201 answer
+
+```json
+{
+  "data": {
+    "id": "col_geh4as5cz7",
+    "name": "large-caps",
+    "description": "My core list",
+    "tags": [
+      "core"
+    ],
+    "kind": "static",
+    "createdAt": "2026-11-10T04:05:33.784Z",
+    "updatedAt": "2026-11-10T04:05:33.784Z",
+    "previousNames": [],
+    "symbolCount": 3,
+    "symbols": [
+      "NSE:RELIANCE",
+      "NSE:INFY",
+      "NSE:TCS"
+    ]
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61"
+  }
+}
+```
+
 ## Errors
 
 Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).
@@ -100,7 +137,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/collections" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"name":"<name>"}'
+  -d '{"name":"large-caps","description":"My core list","tags":["core"],"symbols":["NSE:RELIANCE","NSE:INFY","NSE:TCS"]}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -113,7 +150,12 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "POST",
     "/v1/collections",
-    body={"name": "<name>"},
+    body={
+    "name": "large-caps",
+    "description": "My core list",
+    "tags": ["core"],
+    "symbols": ["NSE:RELIANCE", "NSE:INFY", "NSE:TCS"],
+},
     idempotency_key="my-order-0001",
 )
 print(response.body)

@@ -40,7 +40,13 @@ A JSON object.
 Example:
 
 ```json
-{}
+{
+  "name": "from-a-file",
+  "symbols": [
+    "NSE:RELIANCE",
+    "NSE:INFY"
+  ]
+}
 ```
 
 ## Responses
@@ -90,7 +96,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/collections/import" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{}'
+  -d '{"name":"from-a-file","symbols":["NSE:RELIANCE","NSE:INFY"]}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -100,6 +106,11 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/collections/import", body={}, idempotency_key="my-order-0001")
+response = bridge.request(
+    "POST",
+    "/v1/collections/import",
+    body={"name": "from-a-file", "symbols": ["NSE:RELIANCE", "NSE:INFY"]},
+    idempotency_key="my-order-0001",
+)
 print(response.body)
 ```

@@ -43,7 +43,9 @@ Required, `application/json`, schema `RecordingRulePatch`.
 Example:
 
 ```json
-{}
+{
+  "enabled": false
+}
 ```
 
 ## Responses
@@ -110,7 +112,7 @@ curl (set `MCB_API_KEY` to your key first):
 curl -s -X PATCH "http://127.0.0.1:4300/v1/recordings/rules/<ruleId>" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"enabled":false}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -120,6 +122,6 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("PATCH", "/v1/recordings/rules/<ruleId>", body={})
+response = bridge.request("PATCH", "/v1/recordings/rules/<ruleId>", body={"enabled": False})
 print(response.body)
 ```

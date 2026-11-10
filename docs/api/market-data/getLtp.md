@@ -48,6 +48,53 @@
 | `ltp` | number | yes |  |
 | `freshness` | `Freshness` | yes |  |
 
+### Example 200 answer
+
+```json
+{
+  "data": [
+    {
+      "symbol": "NSE:RELIANCE",
+      "ltp": 1458.8,
+      "freshness": {
+        "source": "broker",
+        "asOf": "2026-11-10T09:46:00.381+05:30",
+        "ageMs": 1,
+        "stale": false,
+        "accountId": "my-zerodha",
+        "broker": "zerodha",
+        "class": "realtime",
+        "delaySec": 0,
+        "official": true,
+        "confidence": "high",
+        "flags": []
+      }
+    },
+    {
+      "symbol": "NSE:NIFTY",
+      "ltp": 24552.25,
+      "freshness": {
+        "source": "broker",
+        "asOf": "2026-11-10T09:46:00.381+05:30",
+        "ageMs": 1,
+        "stale": false,
+        "accountId": "my-zerodha",
+        "broker": "zerodha",
+        "class": "realtime",
+        "delaySec": 0,
+        "official": true,
+        "confidence": "high",
+        "flags": []
+      }
+    }
+  ],
+  "errors": [],
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61"
+  }
+}
+```
+
 ## Errors
 
 Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).

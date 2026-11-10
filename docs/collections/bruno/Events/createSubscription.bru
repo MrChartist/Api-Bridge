@@ -20,12 +20,17 @@ auth:bearer {
 
 body:json {
   {
-    "url": "<url>",
+    "url": "https://hooks.example.com/bridge",
     "topics": [
-      "<topics>"
+      "order.*",
+      "download.done"
     ],
-    "secret": "xxxxxxxxxxxxxxxx"
+    "secret": "replace-with-a-long-random-string"
   }
+}
+
+vars:post-response {
+  subscriptionId: res.body.data.id
 }
 
 docs {

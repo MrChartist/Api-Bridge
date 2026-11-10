@@ -65,9 +65,10 @@ Example:
 {
   "account": "demo-paper",
   "symbol": "NSE:RELIANCE",
-  "targetQuantity": -100000000,
+  "targetQuantity": 10,
   "product": "CNC",
-  "orderType": "MARKET"
+  "orderType": "MARKET",
+  "mode": "paper"
 }
 ```
 
@@ -138,7 +139,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/orders/to-target" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","targetQuantity":-100000000,"product":"CNC","orderType":"MARKET"}'
+  -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","targetQuantity":10,"product":"CNC","orderType":"MARKET","mode":"paper"}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -154,9 +155,10 @@ response = bridge.request(
     body={
     "account": "demo-paper",
     "symbol": "NSE:RELIANCE",
-    "targetQuantity": -100000000,
+    "targetQuantity": 10,
     "product": "CNC",
     "orderType": "MARKET",
+    "mode": "paper",
 },
     idempotency_key="my-order-0001",
 )

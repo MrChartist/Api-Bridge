@@ -9,8 +9,11 @@ Import these into Postman or Bruno to try every call of the Bridge without writi
 - Every request says in its description which scope it needs and whether it works only from this computer.
 - Order examples are **paper orders** on the demo paper account (`demo-paper`, from `mc-bridge start --demo`).
   A live order needs the opt-ins in [safety.md](../guides/safety.md); nothing here turns them on.
-- Calls that act on something you create (an order id, a key id, a ticket) show a placeholder such as `<orderId>`: replace it.
-- Dates such as `expiry` in the examples are samples. Send **Expiries** first and use one of the dates it returns.
+- Calls that act on something you create (an order, a download, a recording, a hook, a key, a subscription) read its id from a variable
+  (`orderId`, `downloadId`, `recordingId`, `ruleId`, `hookId`, `keyId`, `subscriptionId`) that the call which made it fills in: send the
+  create call first. A ticket id has no such call (it comes from a pending confirmation): paste it.
+- `expiry` is a variable too. Send **Expiries** first: it stores the first date the Bridge returns, and the option chain calls use it. Until
+  then it holds a sample date, which a Bridge may not have.
 
 ## Postman
 

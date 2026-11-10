@@ -11,7 +11,7 @@ patch {
 }
 
 params:path {
-  name: <name>
+  name: large-caps-1d
 }
 
 auth:bearer {
@@ -19,7 +19,12 @@ auth:bearer {
 }
 
 body:json {
-  {}
+  {
+    "title": "Large caps, daily",
+    "tags": [
+      "core"
+    ]
+  }
 }
 
 docs {

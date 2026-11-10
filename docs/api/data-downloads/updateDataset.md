@@ -80,7 +80,7 @@ Errors are `application/problem+json` with a stable `code` and a `retryable` fla
 curl (set `MCB_API_KEY` to your key first):
 
 ```bash
-curl -s -X POST "http://127.0.0.1:4300/v1/datasets/<name>/update" \
+curl -s -X POST "http://127.0.0.1:4300/v1/datasets/large-caps-1d/update" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Idempotency-Key: my-order-0001"
 ```
@@ -92,6 +92,10 @@ from mrchartist_bridge import BridgeClient
 
 bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environment
 
-response = bridge.request("POST", "/v1/datasets/<name>/update", idempotency_key="my-order-0001")
+response = bridge.request(
+    "POST",
+    "/v1/datasets/large-caps-1d/update",
+    idempotency_key="my-order-0001",
+)
 print(response.body)
 ```

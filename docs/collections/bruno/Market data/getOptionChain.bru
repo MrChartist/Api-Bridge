@@ -5,14 +5,14 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/v1/optionchain?underlying=NIFTY&expiry=2026-11-24&strikes=5
+  url: {{baseUrl}}/v1/optionchain?underlying=NIFTY&expiry={{expiry}}&strikes=5
   body: none
   auth: bearer
 }
 
 params:query {
   underlying: NIFTY
-  expiry: 2026-11-24
+  expiry: {{expiry}}
   strikes: 5
   ~greeks: true
   ~ivModel: b76-forward

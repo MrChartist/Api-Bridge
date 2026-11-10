@@ -92,6 +92,15 @@ describe("docs examples run against a demo Bridge", () => {
     ({ key } = await app.deps.keyStore.create({ label: "docs-examples", scopes: ["admin", "paper"], accounts: "*" }));
     const ex = await call("GET", "/v1/expiries?underlying=NIFTY");
     expiry = ex.json?.data?.expiries?.[0] ?? ex.json?.data?.[0];
+    // The examples name a collection and a dataset ("large-caps", "large-caps-1d"): make them, as the create examples do.
+    expect((await call("POST", "/v1/collections", { body: { name: "large-caps", symbols: ["NSE:RELIANCE", "NSE:INFY"] } })).status).toBe(201);
+    const dl = await call("POST", "/v1/downloads", { body: { symbols: ["NSE:RELIANCE"], intervals: ["1d"], from: "2026-10-01", dataset: "large-caps-1d" } });
+    expect(dl.status).toBe(202);
+    for (let i = 0; i < 100; i += 1) {
+      const j = await call("GET", `/v1/downloads/${dl.json.data.id}`);
+      if (["done", "failed", "cancelled"].includes(j.json.data.status)) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
   });
   afterAll(async () => {
     await app?.close();

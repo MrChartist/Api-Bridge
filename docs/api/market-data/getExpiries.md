@@ -47,6 +47,52 @@ See /v1/reference/expiries for kind, lot and holiday shifts.
 | `expiries` | array of string (date) | yes |  |
 | `freshness` | `Freshness` | yes |  |
 
+### Example 200 answer
+
+```json
+{
+  "data": {
+    "underlying": "NIFTY",
+    "expiries": [
+      "2026-11-17",
+      "2026-11-23",
+      "2026-12-01",
+      "2026-12-08"
+    ],
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  },
+  "meta": {
+    "requestId": "req_2f8e1a0c4b7d9e3a5c61",
+    "accountId": null,
+    "freshness": {
+      "source": "broker",
+      "asOf": "2026-11-10T09:46:00.381+05:30",
+      "ageMs": 1,
+      "stale": false,
+      "accountId": "my-zerodha",
+      "broker": "zerodha",
+      "class": "realtime",
+      "delaySec": 0,
+      "official": true,
+      "confidence": "high",
+      "flags": []
+    }
+  }
+}
+```
+
 ## Errors
 
 Errors are `application/problem+json` with a stable `code` and a `retryable` flag. Read the code, not the text. All codes: [errors.md](../errors.md).

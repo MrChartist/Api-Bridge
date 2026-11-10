@@ -24,11 +24,20 @@ auth:bearer {
 
 body:json {
   {
-    "intervals": [
-      "1m"
+    "symbols": [
+      "NSE:RELIANCE",
+      "NSE:INFY"
     ],
-    "from": "2026-11-02"
+    "intervals": [
+      "1d"
+    ],
+    "from": "2026-10-01",
+    "dataset": "large-caps-1d"
   }
+}
+
+vars:post-response {
+  downloadId: res.body.data.id
 }
 
 docs {

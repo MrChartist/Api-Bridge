@@ -50,8 +50,22 @@ Example:
 {
   "account": "demo-paper",
   "orders": [
-    {}
-  ]
+    {
+      "symbol": "NSE:RELIANCE",
+      "side": "BUY",
+      "quantity": 1,
+      "product": "CNC",
+      "orderType": "MARKET"
+    },
+    {
+      "symbol": "NSE:INFY",
+      "side": "BUY",
+      "quantity": 1,
+      "product": "CNC",
+      "orderType": "MARKET"
+    }
+  ],
+  "mode": "paper"
 }
 ```
 
@@ -113,7 +127,7 @@ curl -s -X POST "http://127.0.0.1:4300/v1/orders/batch" \
   -H "Authorization: Bearer $MCB_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: my-order-0001" \
-  -d '{"account":"demo-paper","orders":[{}]}'
+  -d '{"account":"demo-paper","orders":[{"symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"},{"symbol":"NSE:INFY","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET"}],"mode":"paper"}'
 ```
 
 Python (the SDK in sdk/python, see [python.md](../../guides/python.md)):
@@ -126,7 +140,26 @@ bridge = BridgeClient()  # reads MCB_API_KEY and MCB_BRIDGE_URL from the environ
 response = bridge.request(
     "POST",
     "/v1/orders/batch",
-    body={"account": "demo-paper", "orders": [{}]},
+    body={
+    "account": "demo-paper",
+    "orders": [
+        {
+            "symbol": "NSE:RELIANCE",
+            "side": "BUY",
+            "quantity": 1,
+            "product": "CNC",
+            "orderType": "MARKET",
+        },
+        {
+            "symbol": "NSE:INFY",
+            "side": "BUY",
+            "quantity": 1,
+            "product": "CNC",
+            "orderType": "MARKET",
+        },
+    ],
+    "mode": "paper",
+},
     idempotency_key="my-order-0001",
 )
 print(response.body)
