@@ -193,6 +193,29 @@ describe("market routes", () => {
     expect(lines).toHaveLength(4);
   });
 
+  it("GET /v1/history: daily bars carry the IST date; timeIso and tz add an ISO twin of the epoch time", async () => {
+    const base = "/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14";
+    const j = await call(base);
+    expect(j.json.data.candles.map((c) => c.date)).toEqual(["2026-10-12", "2026-10-13", "2026-10-14"]);
+    expect(j.json.data.candles[0]).not.toHaveProperty("timeIso");
+    expect(typeof j.json.data.candles[0].time).toBe("number");
+    const ist = await call(`${base}&timeIso=true`);
+    expect(ist.json.data.candles[0].timeIso).toBe("2026-10-12T09:15:00+05:30");
+    expect(ist.json.data.candles[0].time).toBe(j.json.data.candles[0].time);
+    const utc = await call(`${base}&tz=UTC`);
+    expect(utc.json.data.candles[0].timeIso).toBe("2026-10-12T03:45:00Z");
+    expect(utc.json.data.candles[0].date).toBe("2026-10-12");
+    expect((await call(`${base}&tz=PST`)).status).toBe(400);
+    expect((await call(`${base}&timeIso=maybe`)).status).toBe(400);
+    expect((await call(`${base}&format=csv&tz=UTC`)).status).toBe(400);
+    // Intraday bars carry no date by default (the epoch time and, on request, the ISO twin say it all).
+    const m = await call("/v1/history?symbol=NSE:NIFTY&interval=5m&from=2026-10-12&to=2026-10-12&timeIso=1");
+    if (m.json.data.candles.length) {
+      expect(m.json.data.candles[0]).not.toHaveProperty("date");
+      expect(m.json.data.candles[0].timeIso).toMatch(/\+05:30$/);
+    }
+  });
+
   it("validates history parameters", async () => {
     expect((await call("/v1/history?symbol=NSE:NIFTY")).status).toBe(400);
     expect((await call("/v1/history?symbol=NSE:NIFTY&interval=7m&from=2026-10-12")).status).toBe(400);

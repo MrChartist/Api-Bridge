@@ -95,6 +95,33 @@ Bodies are strict (an unknown field is a 400). On the price and history reads (`
 ignored: the answer still comes, with `X-MCB-Ignored-Params: maxAge` and `X-MCB-Param-Hint: maxAge: did you mean maxAgeMs`.
 Add `strict=true` to get a 400 `VALIDATION_FAILED` for it instead. Other routes ignore what they do not read.
 
+## Times and time zones
+
+Every time the API returns is an ISO-8601 string, and its offset says the zone. There is one rule with two parts:
+
+- **Market and trading data is IST, written with `+05:30`** (India has no daylight saving): `freshness.asOf`, orders, trades,
+  positions, the audit log, readiness, the order-book check, the market calendar. For example `2026-11-10T09:30:00.000+05:30`.
+- **Records about the Bridge itself are UTC, written with `Z`**: keys (`createdAt`, `lastUsedAt`, `revokedAt`), the request log
+  (`at`), events (`time`), subscriptions, deliveries, backups, `health.startedAt`, and the `expiresAt` of a stream token. They
+  describe the computer, not the exchange.
+
+A string with `+05:30` and one with `Z` that mean the same moment are the same instant: parse them with a normal date parser
+and compare instants, never the text. Inputs without an offset (`from=2026-10-12`) are read as IST.
+
+**Candles** are the one place that uses epoch seconds. `time` is the bar's open, in epoch seconds. A daily bar opens at IST
+midnight, which is 18:30 UTC the day before, so the UTC date of `time` is the wrong day. Use the extra fields:
+
+- `date`: the IST trading date (`"2026-11-10"`), on daily (`1d`), weekly (`1w`) and monthly (`1M`) candles.
+- `timeIso`: the same instant as an ISO string, on any candle, when you ask with `timeIso=true` or `tz=IST|UTC`
+  (`"2026-11-10T00:00:00+05:30"`, or `"2026-11-09T18:30:00Z"` with `tz=UTC`).
+
+```bash
+curl -s -H "Authorization: Bearer $KEY" "http://127.0.0.1:4300/v1/history?symbol=NSE:NIFTY&interval=1d&countback=2&timeIso=true"
+```
+
+Both are additions: `time` did not change, and a client that ignores them works as before. The CSV `time` column is already IST
+(a date for daily bars). Where the API gives an epoch number next to a time, the ISO twin is named `<name>Iso`.
+
 ## Idempotency
 
 Send an `Idempotency-Key` header (any unique string, for example a UUID) with every order write and every create listed below. A repeat with the same key and

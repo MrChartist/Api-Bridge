@@ -48,8 +48,8 @@ info:
     `freshness` (`source`: stream, cache, broker, paper, backup or plugin; `asOf`; `ageMs`; `stale`; which account served
     it; and how current the data is: `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`), so you
     always know how old a number is and where it came from. Errors are RFC 9457 `application/problem+json` with a stable `code` and a
-    `retryable` flag. Times are ISO-8601 with the IST offset (`+05:30`) unless an endpoint says otherwise; candle times
-    are epoch seconds. List endpoints take `limit` and an opaque `cursor`; the answer's `meta.nextCursor` is the cursor of the next
+    `retryable` flag. Times are ISO-8601 strings and the offset says the zone: market and trading data are IST (`+05:30`); records about the Bridge itself (keys, request log, events, subscriptions, backups, `health.startedAt`) are UTC (`Z`). Candle `time` is epoch seconds, with an IST `date` on daily and longer bars and an ISO `timeIso` on request (`timeIso=true`, `tz=IST|UTC`). Every time is one instant, so any of them parses with a normal date parser; the
+    full rule is in the Developers guide, "Times and time zones". List endpoints take `limit` and an opaque `cursor`; the answer's `meta.nextCursor` is the cursor of the next
     page and is null on the last one (without `limit` the whole list comes back). The routes that page: instruments search, orders,
     trades, audit, downloads, datasets, collections, recordings and their rules, subscriptions and their dead letters, keys,
     accounts and hooks; `GET /v1/events` pages with `since` and also gives `meta.nextCursor`. Market reads (prices, quotes,
@@ -2030,7 +2030,7 @@ paths:
       tags: [Market data]
       operationId: getHistory
       summary: Historical candles, automatically split across broker limits
-      description: Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps.
+      description: Give `from`+`to`, or `to`+`countback`. Ranges longer than the broker allows in one call are fetched in chunks within the rate limits. `format=csv` returns `time,open,high,low,close,volume,oi` with IST timestamps. Each candle's `time` is epoch seconds; daily, weekly and monthly candles also carry `date`, the IST trading date (a daily bar opens at IST midnight, so the UTC date of `time` is the day before). `timeIso=true` or `tz` adds `timeIso`, the same instant as an ISO string. For times in this API, see "Times and time zones" in the Developers guide.
       x-module: market
       x-scope: read
       parameters:
@@ -2060,13 +2060,15 @@ paths:
         - $ref: "#/components/parameters/Purpose"
         - $ref: "#/components/parameters/AccountQueryOptional"
         - $ref: "#/components/parameters/Strict"
+        - { name: timeIso, in: query, description: "`true` adds `timeIso` to each candle: the epoch `time` as an ISO-8601 string (IST `+05:30` unless `tz=UTC`). JSON only.", schema: { type: boolean, default: false } }
+        - { name: tz, in: query, description: "Zone of `timeIso`: `IST` (default, `+05:30`) or `UTC` (`Z`). Sending it turns `timeIso` on. JSON only. The epoch `time` and the IST `date` do not change.", schema: { type: string, enum: [IST, UTC], default: IST } }
         - { name: localFirst, in: query, description: "`true` serves the range from a dataset on this computer that covers it, and fetches only the rest from the broker (the answer says so in `meta.source`). `dataset` picks one dataset; the config `market.history.localFirst` turns it on for every read. Not with `countback`.", schema: { type: boolean, default: false } }
       responses:
         "200":
           description: Candles, ascending.
           content:
             application/json:
-              example: {"data":{"symbol":"NSE:RELIANCE","interval":"1d","candles":[{"time":1794162600,"open":1453.2,"high":1468.7,"low":1450.2,"close":1460.4,"volume":215004},{"time":1794249000,"open":1460.4,"high":1463.9,"low":1455.9,"close":1460.8,"volume":38459}],"partial":false,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":null,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}}
+              example: {"data":{"symbol":"NSE:RELIANCE","interval":"1d","candles":[{"time":1794162600,"open":1453.2,"high":1468.7,"low":1450.2,"close":1460.4,"volume":215004,"date":"2026-11-09"},{"time":1794249000,"open":1460.4,"high":1463.9,"low":1455.9,"close":1460.8,"volume":38459,"date":"2026-11-10"}],"partial":false,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}},"meta":{"requestId":"req_2f8e1a0c4b7d9e3a5c61","accountId":null,"freshness":{"source":"broker","asOf":"2026-11-10T09:46:00.381+05:30","ageMs":1,"stale":false,"accountId":"my-zerodha","broker":"zerodha","class":"realtime","delaySec":0,"official":true,"confidence":"high","flags":[]}}}
               schema:
                 type: object
                 required: [data, meta]
@@ -8309,13 +8311,15 @@ components:
       type: object
       required: [time, open, high, low, close, volume]
       properties:
-        time: { type: integer, description: "Bar open time, epoch seconds." }
+        time: { type: integer, description: "Bar open time, epoch seconds (UTC based). A daily bar opens at IST midnight, which is 18:30 UTC the day before: do not take its date from `time` in UTC; use `date`." }
         open: { type: number }
         high: { type: number }
         low: { type: number }
         close: { type: number }
         volume: { type: number }
         oi: { type: number }
+        date: { type: string, format: date, description: "IST trading date of the bar's open. Present on daily (`1d`), weekly (`1w`) and monthly (`1M`) candles." }
+        timeIso: { type: string, description: "`time` as an ISO-8601 string. Present only when asked for with `timeIso=true` or `tz`. IST with `+05:30` by default, `Z` with `tz=UTC`. The same instant as `time`." }
     HistoryResult:
       type: object
       required: [symbol, interval, candles, freshness, partial]

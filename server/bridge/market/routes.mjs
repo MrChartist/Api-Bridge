@@ -23,6 +23,7 @@ import { csv } from "../core/http.mjs";
 import { READ_OPTION_PARAMS, checkQuery } from "../core/query.mjs";
 import { IV_MODELS } from "./chain.mjs";
 import { parseMarketConfig } from "./config.mjs";
+import { withCandleTimes } from "./candleTime.mjs";
 import { historyCsvRows } from "./history.mjs";
 import { readHistoryLocalFirst } from "./historyLocal.mjs";
 import { createLocalStore } from "./localStore.mjs";
@@ -213,7 +214,7 @@ export function createMarketRoutes(deps) {
 
     async history(ctx) {
       // No maxAgeMs here: a history range has no freshness target, so a caller who sends one is told it was ignored.
-      checkQuery(ctx, ["symbol", "interval", "format", "from", "to", "countback", "dataset", "localFirst", ...READ_OPTION_PARAMS]);
+      checkQuery(ctx, ["symbol", "interval", "format", "from", "to", "countback", "dataset", "localFirst", "timeIso", "tz", ...READ_OPTION_PARAMS]);
       const q = ctx.query;
       const symbol = opt(q, "symbol");
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:NIFTY.");
@@ -221,6 +222,12 @@ export function createMarketRoutes(deps) {
       if (!interval) throw invalid("interval", "interval is required: 1m, 3m, 5m, 10m, 15m, 30m, 60m, 1d, 1w or 1M.");
       const format = opt(q, "format") ?? "json";
       if (format !== "json" && format !== "csv") throw invalid("format", "format must be json or csv.");
+      // timeIso / tz: an ISO twin of each candle's epoch `time` (IST by default). JSON only: the CSV time column is IST already.
+      const tzRaw = opt(q, "tz");
+      if (tzRaw !== undefined && !["IST", "UTC"].includes(tzRaw.toUpperCase())) throw invalid("tz", "tz must be IST or UTC.");
+      const tz = tzRaw === undefined ? undefined : tzRaw.toUpperCase();
+      const timeIso = boolParam(q, "timeIso", tz !== undefined);
+      if (format === "csv" && (timeIso || tz !== undefined)) throw invalid(tz !== undefined ? "tz" : "timeIso", "timeIso and tz apply to format=json. The CSV time column is already IST.");
       const params = { symbol, interval };
       for (const name of ["from", "to"]) {
         const v = opt(q, name);
@@ -239,7 +246,7 @@ export function createMarketRoutes(deps) {
         const headers = { "X-MCB-Partial": String(Boolean(data.partial)), "X-MCB-Freshness-Source": data.freshness.source };
         return csv(historyCsvRows(data), { filename: name, headers });
       }
-      return { data, meta: { ...meta(ctx, opts), freshness: data.freshness, ...(local ? local.meta : {}) } };
+      return { data: withCandleTimes(data, { iso: timeIso, tz }), meta: { ...meta(ctx, opts), freshness: data.freshness, ...(local ? local.meta : {}) } };
     },
 
     async expiries(ctx) {
