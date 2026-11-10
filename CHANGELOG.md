@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Open-source readiness: THIRD-PARTY-NOTICES.md (`npm run notices`), MIT stated in the AmiBroker include, launcher scripts keep their execute bit, a release-notes script and [docs/release-process.md](docs/release-process.md), SUPPORT.md, one version across package.json, the lockfile, OpenAPI, AsyncAPI and the MCP relay (`docs/CHANGELOG.md` is now `docs/API-DEPRECATIONS.md`), Node.js 22.12 as the stated minimum.
 - Library of collections ([docs/guides/collections.md](docs/guides/collections.md)): named, tagged lists of instruments and option
   universes (`current-weekly`, `current-monthly`, `all-weekly`, dates; ATM +/- N listed strikes, honest about a stale, delayed or
   last-close price). `GET/POST /v1/collections`, `.../{name}` (rename, tags), `/resolve`, `/estimate`, `/usage`, `/export`,
