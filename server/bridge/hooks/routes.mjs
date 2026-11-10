@@ -319,10 +319,17 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
     }
     // The per-minute budget is charged only here, for an alert that has passed every check above (so a flood of
     // malformed, refused or repeated alerts cannot starve good ones). Over budget the alert is HELD and handled when a
-    // slot frees up (TradingView does not resend a refused alert); only past `rateWaitSec` is it refused.
+    // slot frees up (TradingView does not resend a refused alert); only past `rateWaitSec` is it refused. A live hook that cannot
+    // age-check the alert never holds it (see canAgeCheck below).
+    // A LIVE hook only holds an alert it can age-check when the hold ends: the hook has an age limit and every order of the alert
+    // carries its time (the worker checks it again just before sending). Otherwise a held alert would run up to rateWaitSec late
+    // as a real order with nobody able to say it was stale, so over the rate it is refused (429, Retry-After) and the sender retries.
+    // Paper hooks keep holding: a late paper order does no harm.
+    const canAgeCheck = Boolean(hook.maxAgeSec) && parsed.signals.every((s) => Number.isFinite(s.timeMs));
+    const holdMs = hook.mode === "live" && !canAgeCheck ? 0 : (cfg.rateWaitSec ?? 0) * 1000;
     let slot = null;
     if (!test) {
-      const r = rate.reserve(hook.id, cfg.maxSignalsPerMinute, (cfg.rateWaitSec ?? 0) * 1000);
+      const r = rate.reserve(hook.id, cfg.maxSignalsPerMinute, holdMs);
       if (!r.ok) throw new BridgeError("RATE_LIMITED", "This hook is receiving too many alerts. Try again shortly.", { retryAfterMs: r.retryAfterMs });
       slot = r;
     }
