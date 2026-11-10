@@ -20,6 +20,7 @@ import { existsSync, appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
+import { createRetentionGuard } from "../core/retentionGuard.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { createCalendarView } from "../market/calendarView.mjs";
 import { toIstIso } from "../market/time.mjs";
@@ -100,6 +101,8 @@ export function createRecorderService(deps, opts = {}) {
   let backoffUntil = 0;
   let started = false;
   let housekeeping = null;
+  /** Holds deletion by age after a jump of the computer's clock (see core/retentionGuard.mjs). Made in start(). */
+  let guard = null;
   let lastSweepAt = 0;
   let lastSweepDate = "";
   const offBus = [];
@@ -244,7 +247,8 @@ export function createRecorderService(deps, opts = {}) {
   /** Delete old days and compress finished ones, for one recording or all. */
   function sweep(rec, t = now()) {
     const today = istDateOf(t);
-    const keepDays = rec.def.keepDays ?? cfg.retentionDays;
+    // A clock that jumped forward would make every file look old: while the guard holds, nothing is deleted by age.
+    const keepDays = guard && !guard.allowed() ? null : (rec.def.keepDays ?? cfg.retentionDays);
     const compress = rec.def.compress ?? cfg.compressFinished;
     if (!keepDays && !compress) return { deleted: 0, compressed: 0, freedBytes: 0 };
     const r = store.sweep(rec.def.id, { keepDays, compress, today, cutoff: cutoffOf });
@@ -420,7 +424,10 @@ export function createRecorderService(deps, opts = {}) {
     if (rec.today.date !== date) rec.today = emptyToday(date);
     const base = Math.max(sess.window?.startMs ?? 0, rec.def.activatedAt ?? 0);
     rec.sessionBaseMs = base || t;
-    if (!wasRestored) rec.lastDataMs = null;
+    // A recording with no schedule runs round the clock: after a restart on a later day the gap starts at its last row, not
+    // at its activation. A scheduled one starts each day's window afresh.
+    const keepLast = rec.restored && rec.lastDataMs !== null && (wasRestored || !sess.window);
+    if (!keepLast) rec.lastDataMs = null;
     rec.firstReason = rec.restored ? "bridge-stopped" : null;
     rec.restored = false;
     if (rec.def.source === "rule" && !wasRestored) {
@@ -628,7 +635,7 @@ export function createRecorderService(deps, opts = {}) {
       return Math.min(WAIT_POLL_MS, untilEnd, d.everySec * 1000);
     }
 
-    const o = { everySec: d.everySec, maxTickAgeMs: Math.max(600_000, d.everySec * 10_000), restMinSec: REST_MIN_SEC, at: t, greeks: true, noRest: t < backoffUntil, noRestMs: Math.max(0, backoffUntil - t) };
+    const o = { everySec: d.everySec, maxTickAgeMs: gapAfterMs(rec), restMinSec: REST_MIN_SEC, at: t, greeks: true, noRest: t < backoffUntil, noRestMs: Math.max(0, backoffUntil - t) };
     const res = d.kind === "chain" ? await sampler.chains(rec.symbols, o) : await sampler.quotes(rec.symbols, o);
     rec.calls = rec.calls.date === date ? rec.calls : { made: 0, saved: 0, date };
     rec.calls.made += res.madeCalls;
@@ -1277,13 +1284,17 @@ export function createRecorderService(deps, opts = {}) {
     if (!cfg.enabled) return;
     mkdirSync(store.root, { recursive: true, mode: 0o700 });
     loadRoot();
+    guard?.close();
+    guard = createRetentionGuard({ file: join(store.root, ".clock-seen.json"), now, bus, log });
     loadRecordings();
     onBus();
     sweepAll();
+    guard.touch();
     syncRules();
     for (const rec of recs.values()) if (rec.def.status === "active") arm(rec, 0);
     housekeeping = setTimer(function beat() {
       const t = now();
+      guard?.touch();
       for (const rec of recs.values()) {
         persist(rec);
         if (rec.def.status === "active") warnDisk(rec, t);
@@ -1297,6 +1308,9 @@ export function createRecorderService(deps, opts = {}) {
 
   async function close() {
     started = false;
+    guard?.touch();
+    guard?.close();
+    guard = null;
     if (housekeeping) clearTimer(housekeeping);
     housekeeping = null;
     for (const off of offBus.splice(0)) off();

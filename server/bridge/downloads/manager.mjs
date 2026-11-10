@@ -41,6 +41,7 @@ import { filterByTags } from "./tagsCompat.mjs";
 import { assertKnownSymbols } from "../symbols/knownSymbols.mjs";
 import { describeFailure, fixFor } from "../core/failureReason.mjs";
 import { NO_CONTROL, NO_CONTROL_MESSAGE } from "../core/plainText.mjs";
+import { createRetentionGuard } from "../core/retentionGuard.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const MB = 1024 * 1024;
@@ -120,6 +121,8 @@ export function createDownloadManager(deps, opts = {}) {
   const writes = new Map();
   /** Dataset names claimed by a create() that has not added its job yet, and job ids added but not yet on disk. */
   const creatingDatasets = new Set();
+  /** Holds deletion by age after a jump of the computer's clock (core/retentionGuard.mjs). Made in start(). */
+  let guard = null;
   const creating = new Set();
   let started = false;
   let stopped = false;
@@ -1537,6 +1540,7 @@ export function createDownloadManager(deps, opts = {}) {
     await resumeIfRoom();
     await checkKeysOfOpenJobs();
     await onAccountChange();
+    guard?.touch();
     await sweepRetention();
   }
 
@@ -1544,6 +1548,8 @@ export function createDownloadManager(deps, opts = {}) {
   async function sweepRetention() {
     const days = cfg().retentionDays;
     if (!days) return [];
+    // A clock that jumped forward would make every finished job look old.
+    if (guard && !guard.allowed()) return [];
     const cutoff = now() - days * DAY_MS;
     const gone = [];
     for (const job of [...jobs.values()]) {
@@ -1623,6 +1629,9 @@ export function createDownloadManager(deps, opts = {}) {
     await loadSettings();
     if (!cfg().enabled) return;
     await mkdir(jobsRoot, { recursive: true, mode: 0o700 });
+    guard?.close();
+    guard = createRetentionGuard({ file: join(dataDir, "downloads", ".clock-seen.json"), now, bus, log: logger });
+    guard.touch();
     await loadJobs();
     diskBytes = await folderBytes(join(dataDir, "downloads"));
     unsubs.push(
@@ -1647,6 +1656,9 @@ export function createDownloadManager(deps, opts = {}) {
 
   async function stop() {
     stopped = true;
+    guard?.touch();
+    guard?.close();
+    guard = null;
     for (const u of unsubs.splice(0)) u();
     if (housekeeping) clearInterval(housekeeping);
     housekeeping = null;

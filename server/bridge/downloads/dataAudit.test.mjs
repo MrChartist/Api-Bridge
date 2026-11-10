@@ -165,6 +165,25 @@ describe("RDATA-19 smaller items", () => {
   });
 });
 
+describe("RDATA-10 a clock that jumped forward does not delete finished jobs", () => {
+  it("holds retention after a restart far ahead of the last run, then applies it again", async () => {
+    let now = Date.parse("2026-10-20T11:00:00+05:30");
+    const clock = { now: () => now };
+    const m = await boot({ clock, config: { retentionDays: 7 } });
+    const { job } = await m.manager.create({ symbols: ["NSE:A"], intervals: ["1d"], from: "2026-10-01", to: "2026-10-05" });
+    await waitStatus(m.manager, job.id);
+    await m.manager.stop();
+    now += 400 * 86_400_000; // the clock is a year ahead when the Bridge starts again
+    const again = makeManager({ dataDir: m.dataDir, clock, config: { retentionDays: 7 } });
+    await again.manager.start();
+    started.push(again);
+    expect(await again.manager.sweepRetention()).toEqual([]);
+    expect(again.manager.list().map((j) => j.id)).toEqual([job.id]);
+    now += 7 * 3_600_000; // the hold is over
+    expect(await again.manager.sweepRetention()).toEqual([job.id]);
+  });
+});
+
 describe("RDATA-05 a damaged downloads/settings.json is quarantined", () => {
   it("is moved aside, not overwritten by the next change", async () => {
     const m = await boot();

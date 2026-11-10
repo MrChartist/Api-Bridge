@@ -77,22 +77,54 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
     return ix;
   };
 
-  function dataFiles(id) {
+  /**
+   * The data files of a recording, kept in memory: one directory scan the first time a recording is touched, then updated as
+   * files are appended, compressed and deleted. A recording of a big collection holds a file per symbol per day (100,000 files
+   * after a few months), and listing and stat-ing all of them on every save blocked the event loop for most of a second.
+   * @type {Map<string, { files: Map<string, { name: string, date: string, symbol: string, format: string, compressed: boolean, bytes: number }>, bytes: number }>}
+   */
+  const catalogs = new Map();
+
+  function catalogOf(id) {
+    let c = catalogs.get(id);
+    if (c) return c;
+    c = { files: new Map(), bytes: 0 };
     const dir = dirOf(id);
-    if (!existsSync(dir)) return [];
-    const out = [];
-    for (const name of readdirSync(dir)) {
-      const p = parseFileName(name);
-      if (!p) continue;
-      let size = 0;
-      try {
-        size = statSync(join(dir, name)).size;
-      } catch {
-        continue;
+    if (existsSync(dir)) {
+      for (const name of readdirSync(dir)) {
+        const p = parseFileName(name);
+        if (!p) continue;
+        let size = 0;
+        try {
+          size = statSync(join(dir, name)).size;
+        } catch {
+          continue;
+        }
+        c.files.set(name, { name, ...p, bytes: size });
+        c.bytes += size;
       }
-      out.push({ name, ...p, bytes: size });
     }
-    return out.sort((a, b) => (a.date === b.date ? a.symbol.localeCompare(b.symbol) : a.date.localeCompare(b.date)));
+    catalogs.set(id, c);
+    return c;
+  }
+
+  /** Record that a data file now has `bytes` bytes (or is gone, when bytes is null). */
+  function noteFile(id, name, bytes) {
+    const c = catalogOf(id);
+    const old = c.files.get(name);
+    if (old) c.bytes -= old.bytes;
+    if (bytes === null) {
+      c.files.delete(name);
+      return;
+    }
+    const p = old ?? parseFileName(name);
+    if (!p) return;
+    c.files.set(name, { name, date: p.date, symbol: p.symbol, format: p.format, compressed: p.compressed, bytes });
+    c.bytes += bytes;
+  }
+
+  function dataFiles(id) {
+    return [...catalogOf(id).files.values()].sort((a, b) => (a.date === b.date ? a.symbol.localeCompare(b.symbol) : a.date.localeCompare(b.date)));
   }
 
   /** Rows of a data file: from the index when its byte count still matches, else counted from the file. */
@@ -213,20 +245,22 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
       else rows = countRows(readFileSync(path, "utf8"), format); // the file changed under us: count it
       ix.files.set(name, { rows, bytes: size });
       ix.dirty = true;
+      noteFile(id, name, size);
       return { bytes, rows: lines.length, file: name };
     },
 
     /** Data files with rows and sizes. */
     list(id) {
+      catalogs.delete(id); // a person asked: look at the folder again, so files changed outside the Bridge show up
       return dataFiles(id).map((f) => ({ name: f.name, date: f.date, symbol: f.symbol, format: f.format, compressed: f.compressed, bytes: f.bytes, rows: rowsOf(id, f) }));
     },
     /** Total bytes of the data files of a recording. */
-    usedBytes: (id) => dataFiles(id).reduce((n, f) => n + f.bytes, 0),
+    usedBytes: (id) => catalogOf(id).bytes,
     /** Save the row-count cache (call now and then, and on stop). */
     flushIndex(id) {
       const ix = indexes.get(id);
       if (!ix?.dirty || !existsSync(dirOf(id))) return;
-      const live = new Set(dataFiles(id).map((f) => f.name));
+      const live = catalogOf(id).files;
       const files = {};
       for (const [k, v] of ix.files) if (live.has(k)) files[k] = v;
       ix.files = new Map(Object.entries(files));
@@ -255,6 +289,7 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
      */
     sweep(id, { keepDays = null, compress = false, today, cutoff }) {
       const out = { deleted: 0, compressed: 0, freedBytes: 0 };
+      catalogs.delete(id); // retention is rare: start from what the folder really holds
       const limit = keepDays ? cutoff(today, keepDays) : null;
       const ix = indexOf(id);
       for (const f of dataFiles(id)) {
@@ -264,6 +299,7 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
             unlinkSync(path);
             out.deleted += 1;
             out.freedBytes += f.bytes;
+            noteFile(id, f.name, null);
             ix.files.delete(f.name);
             ix.dirty = true;
           } catch {
@@ -280,6 +316,8 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
             unlinkSync(path);
             out.compressed += 1;
             out.freedBytes += Math.max(0, f.bytes - gz.length);
+            noteFile(id, f.name, null);
+            noteFile(id, `${f.name}.gz`, gz.length);
             ix.files.delete(f.name);
             ix.files.set(`${f.name}.gz`, { rows, bytes: gz.length });
             ix.dirty = true;
@@ -293,8 +331,12 @@ export function createFileStore({ root, statfs = freeBytesOf }) {
     /** Delete a recording's folder and everything in it. */
     removeAll(id) {
       indexes.delete(id);
+      catalogs.delete(id);
       rmSync(dirOf(id), { recursive: true, force: true });
     },
-    dropIndex: (id) => indexes.delete(id),
+    dropIndex: (id) => {
+      catalogs.delete(id);
+      return indexes.delete(id);
+    },
   };
 }
