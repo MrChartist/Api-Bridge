@@ -3119,6 +3119,8 @@ button.gl-btn { --btn-h: 18px; --btn-px: 0; --btn-fs: 11px; --btn-r: 50%; --btn-
 /* The toolbar: "Something wrong?" and the emergency Stop. Text on wide screens, icons on phones (labels stay for readers). */
 .toolbar button.toolbar-help, .toolbar button.toolbar-stop { --btn-h: var(--ctl-h); --btn-px: 12px; --btn-fs: 13px; --btn-bg: var(--fill-2); --btn-bg-h: var(--fill-3); --btn-r: 999px; --btn-fw: 500; }
 .toolbar button.toolbar-stop { --btn-bg: hsl(var(--danger) / 0.12); --btn-bg-h: hsl(var(--danger) / 0.22); --btn-fg: hsl(var(--danger-ink)); --btn-fw: 600; }
+.toolbar button.toolbar-stop.is-on { --btn-bg: hsl(var(--danger)); --btn-bg-h: hsl(var(--danger-ink)); --btn-fg: hsl(var(--on-danger)); }
+.ks-banner { margin-bottom: var(--space-4); }
 @media (max-width: 1099px) {
   .toolbar button.toolbar-help, .toolbar button.toolbar-stop { width: var(--ctl-h); padding: 0; justify-content: center; }
   .toolbar :is(.toolbar-help, .toolbar-stop) > .tb-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

@@ -299,6 +299,26 @@ export function checkedLine(snapshot, now = Date.now()) {
 }
 
 /**
+ * A one-line notice under a page title while orders are stopped, with the way to release. It follows the readiness
+ * readings and hides itself when the switch is off.
+ */
+export function killBanner() {
+  const release = h("button", { type: "button", class: "small tinted", onclick: async () => { if (await releaseKillSwitch()) await refreshReadiness(); } }, "Release");
+  const el = h("div", { class: "alert warn ks-banner", role: "status", hidden: true }, icon("stop"), h("div", {}, h("strong", {}, "Orders are stopped."), h("span", { class: "detail" }, "No new order is sent from any tool. Cancels still work."), h("div", { class: "alert-actions" }, release)));
+  let seen = false;
+  const off = onReadiness((snap) => {
+    if (el.isConnected) seen = true;
+    else if (seen) return off();
+    el.hidden = !killIsOn(snap);
+  });
+  el.hidden = !killIsOn(state.snap);
+  return el;
+}
+
+/** Is the kill switch on, from a readiness snapshot? (every account's checks carry it). Pure. */
+export const killIsOn = (snapshot) => (snapshot?.accounts ?? []).some((a) => a?.checks?.killSwitch?.engaged === true);
+
+/**
  * The Safety page's status hero. The kill switch decides first (paused), then the readiness of the live accounts
  * (blocked), then caution (allowed, with a note); everything else is allowed. Pure.
  * @returns {{ state: "allowed"|"paused"|"blocked", tone: "ok"|"warn"|"bad", icon: string, title: string, sub: string, reasons: string[] }}
@@ -516,6 +536,10 @@ export async function engageKillSwitch() {
 /** "Allow orders again?": releasing is for this computer only (admin key) and needs RELEASE typed. Resolves true once released. */
 export async function releaseKillSwitch() {
   const typed = h("input", { id: "ks-release", placeholder: "RELEASE", autocomplete: "off", spellcheck: "false", autocapitalize: "characters" });
+  let releaseBtn = null; // enabled only once the word is typed
+  typed.addEventListener("input", () => {
+    if (releaseBtn) releaseBtn.disabled = typed.value !== "RELEASE";
+  });
   const go = await modal({
     title: "Allow orders again?",
     body: h(
@@ -525,7 +549,7 @@ export async function releaseKillSwitch() {
       h("p", { class: "muted" }, "Releasing works from this computer only and needs an admin key. From another device, use mc-bridge kill release on this computer."),
       h("label", { class: "field" }, h("span", {}, "Type RELEASE to confirm"), typed),
     ),
-    buttons: [{ label: "Keep stopped", value: false }, { label: "Release", cls: "primary", onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly, in capitals", { tone: "warn" }), false)) }],
+    buttons: [{ label: "Keep stopped", value: false }, { label: "Release", cls: "primary", ref: (b) => { releaseBtn = b; b.disabled = typed.value !== "RELEASE"; }, onClick: () => (typed.value === "RELEASE" ? true : (toast("Type RELEASE exactly, in capitals", { tone: "warn" }), false)) }],
   });
   if (!go) return false;
   try {

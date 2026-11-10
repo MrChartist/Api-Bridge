@@ -1,7 +1,7 @@
 // Dashboard pages. Each page renders into #content from live Bridge data; nothing here stores data outside this tab
 // except small conveniences in localStorage (theme, density, the last tab of each page).
 import { alertBox, api, app, brokerMatches, card, codeBlock, confirmCodeNotice, copyButton, currentKey, emptyState, fillLoginUrl, h, highlightJson, icon, iconTile, istDateTime, istTime, loginBody, loginFormSpec, modal, optional, pill, table, ticketFields, toast, sheetPopover, DEMO_EXPLAINER, beginNavigation, onRevalidated, pageSkeleton, prefetchPage, whenIdle } from "./app.js";
-import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
+import { STATE_TEXT, STATE_TONE, engageKillSwitch, heroModel, killBanner, limitsModel, liveConditions, loadReadiness, onReadiness, readinessSection, refreshReadiness, releaseKillSwitch } from "./readiness.js";
 import { DASH, formatFixed, formatInt, formatRupeeGrouped, formatSignedRupee, isFigure, plural } from "./format.js";
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { mountBudget } from "./budget.js";
@@ -2222,7 +2222,7 @@ async function renderOrders() {
     if (!o.error) book.update(o.data?.data ?? []);
     refreshTicketCount();
   });
-  return [pending.el, book.el, funds];
+  return [killBanner(), pending.el, book.el, funds];
 }
 
 /** Modify and Cancel for a working order (PATCH / DELETE /v1/orders/{id}); each answers with a toast and a redraw. */
