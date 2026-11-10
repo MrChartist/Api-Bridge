@@ -118,6 +118,9 @@ export function isPrivateAddress(address) {
   if ((g[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
   if ((g[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
   if ((g[0] & 0xff00) === 0xff00) return true; // multicast
+  if ((g[0] & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local (deprecated, still routed on some networks)
+  if (g[0] === 0x3fff && (g[1] & 0xf000) === 0) return true; // 3fff::/20 documentation
+  if (g.slice(0, 4).every((x) => x === 0) && g[4] === 0xffff && g[5] === 0) return true; // ::ffff:0:a.b.c.d (SIIT)
   if (g[0] === 0x2001 && (g[1] === 0x0db8 || g[1] === 0)) return true; // documentation, Teredo
   if (g[0] === 0x0100 && g.slice(1, 4).every((x) => x === 0)) return true; // discard
   return false;
