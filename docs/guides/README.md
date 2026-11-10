@@ -21,6 +21,7 @@ On Windows, run the commands in PowerShell, and read [windows.md](windows.md) fo
 | [backup.md](backup.md) | Backing up and restoring your data, the copy made before an upgrade, the daily backup, and a recovery runbook (disk died, wrong upgrade, new computer) |
 | [connect.md](connect.md) | The dashboard's Connect a tool page: pick Excel, an AI assistant, a script or AmiBroker, get a key with only the access it needs and the setup to paste |
 | [operations.md](operations.md) | Running the Bridge day to day: one Bridge per data folder, stopping, damaged files, disk space, health and readiness, metrics, logs, webhooks that do not answer, sleep and wake |
+| [orders-drift.md](orders-drift.md) | The read-only order-book check: when it runs, what differences it reports, where you see them, and what it never does |
 | [accounts.md](accounts.md) | Adding brokers and several accounts, logging in, sessions, family accounts |
 | [rate-limits.md](rate-limits.md) | How the Bridge stays inside every broker's limits, spreading reads over your own accounts |
 | [sources.md](sources.md) | Where prices come from: your brokers, optional free sources and plugins, what delayed, end-of-day and unofficial mean, how to turn a source on |
