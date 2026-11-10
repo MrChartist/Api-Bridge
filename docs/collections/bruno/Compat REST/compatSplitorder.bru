@@ -10,6 +10,10 @@ post {
   auth: none
 }
 
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
 body:json {
   {
     "apikey": "{{apiKey}}",
@@ -28,6 +32,7 @@ docs {
   One order split into pieces
 
   - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
 
   Reference: docs/api/compat-rest/compatSplitorder.md in the repository.
 }

@@ -7098,8 +7098,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"quantity\": 1,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"CNC\"\n}"
             },
-            "description": "Place an order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- The example is a paper order on the demo paper account. A live order needs every opt-in in docs/guides/safety.md.\n\nReference: docs/api/compat-rest/compatPlaceorder.md in the repository.",
+            "description": "Place an order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- The example is a paper order on the demo paper account. A live order needs every opt-in in docs/guides/safety.md.\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatPlaceorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7136,8 +7141,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"product\": \"CNC\",\n  \"pricetype\": \"MARKET\",\n  \"position_size\": 1\n}"
             },
-            "description": "Order towards a target position size\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatPlacesmartorder.md in the repository.",
+            "description": "Order towards a target position size\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatPlacesmartorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7174,8 +7184,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"orders\": [\n    {\n      \"symbol\": \"RELIANCE\",\n      \"exchange\": \"NSE\",\n      \"action\": \"BUY\",\n      \"quantity\": 1,\n      \"pricetype\": \"MARKET\",\n      \"product\": \"CNC\"\n    }\n  ]\n}"
             },
-            "description": "Several orders in one call\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatBasketorder.md in the repository.",
+            "description": "Several orders in one call\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatBasketorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7212,8 +7227,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"symbol\": \"RELIANCE\",\n  \"exchange\": \"NSE\",\n  \"action\": \"BUY\",\n  \"quantity\": 5,\n  \"splitsize\": 2,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"CNC\"\n}"
             },
-            "description": "One order split into pieces\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatSplitorder.md in the repository.",
+            "description": "One order split into pieces\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatSplitorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7250,8 +7270,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"orderid\": \"<orderId>\",\n  \"quantity\": 1,\n  \"price\": 1450,\n  \"pricetype\": \"LIMIT\"\n}"
             },
-            "description": "Modify an open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatModifyorder.md in the repository.",
+            "description": "Modify an open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatModifyorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7288,8 +7313,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"orderid\": \"<orderId>\"\n}"
             },
-            "description": "Cancel an order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCancelorder.md in the repository.",
+            "description": "Cancel an order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatCancelorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7326,8 +7356,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
             },
-            "description": "Cancel every open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCancelallorder.md in the repository.",
+            "description": "Cancel every open order\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatCancelallorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7364,8 +7399,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\"\n}"
             },
-            "description": "Square off every open position\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatCloseposition.md in the repository.",
+            "description": "Square off every open position\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatCloseposition.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
@@ -7478,8 +7518,13 @@
               },
               "raw": "{\n  \"apikey\": \"{{apiKey}}\",\n  \"strategy\": \"my-script\",\n  \"underlying\": \"NIFTY\",\n  \"exchange\": \"NSE_INDEX\",\n  \"offset\": \"ATM\",\n  \"option_type\": \"CE\",\n  \"action\": \"BUY\",\n  \"quantity\": 75,\n  \"pricetype\": \"MARKET\",\n  \"product\": \"MIS\"\n}"
             },
-            "description": "Order an option by offset (ATM, ITM2, OTM1 ...)\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n\nReference: docs/api/compat-rest/compatOptionsorder.md in the repository.",
+            "description": "Order an option by offset (ATM, ITM2, OTM1 ...)\n\n- Send your Bridge API key as `apikey` in the JSON body (no Authorization header).\n- Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.\n\nReference: docs/api/compat-rest/compatOptionsorder.md in the repository.",
             "header": [
+              {
+                "key": "Idempotency-Key",
+                "type": "text",
+                "value": "{{$guid}}"
+              },
               {
                 "key": "Content-Type",
                 "type": "text",
