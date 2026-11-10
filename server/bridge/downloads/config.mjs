@@ -4,6 +4,10 @@
  */
 import { z } from "zod";
 
+/** The range of the background budget share, for downloads and recordings (also the range of the settings routes). */
+export const SHARE_MIN = 0.05;
+export const SHARE_MAX = 0.8;
+
 export const DOWNLOADS_CONFIG_SCHEMA = z
   .object({
     /** Switch the whole feature off: every route answers CAPABILITY_UNSUPPORTED and nothing runs. */
@@ -18,9 +22,10 @@ export const DOWNLOADS_CONFIG_SCHEMA = z
     maxDiskMb: z.number().int().min(1).max(10_000_000).default(5000),
     /**
      * The share of an account's spare budget (per-second and per-day windows) that downloads may use. Never more than
-     * 0.5 and never more than the scheduler says is spare; a live read, an order check or another key always goes first.
+     * 0.8 and never more than the scheduler says is spare; a live read, an order check or another key always goes first.
+     * This is the default: PATCH /v1/downloads/settings changes it while the Bridge runs (kept in downloads/settings.json).
      */
-    maxBudgetShare: z.number().min(0.01).max(0.5).default(0.3),
+    maxBudgetShare: z.number().min(SHARE_MIN).max(SHARE_MAX).default(0.3),
     /** Run only outside market hours (NSE session plus pre-open). A job started in market hours waits. */
     afterHoursOnly: z.boolean().default(false),
     /** Serve ranges already stored in a dataset of this Bridge from disk, and fetch only the missing parts. */

@@ -42,7 +42,7 @@ import { BridgeError } from "../core/errors.mjs";
 import { createClientLimiter } from "./clientLimiter.mjs";
 import { DEFAULT_MAX_QUEUED_PER_CONSUMER, parseRatelimitConfig } from "./config.mjs";
 import { bucketPlan, resolvePolicy } from "./policy.mjs";
-import { MAX_BACKGROUND_SHARE } from "./backgroundGate.mjs";
+import { MAX_BACKGROUND_SHARE_CEILING } from "./backgroundGate.mjs";
 import { BROKER_POLICIES } from "./brokerPolicies.mjs";
 import { PRIORITY_RANK, createPriorityQueue } from "./priorityQueue.mjs";
 import { currentConsumer, currentConsumerInfo } from "./consumer.mjs";
@@ -348,13 +348,13 @@ export function createScheduler(deps, options = {}) {
     return p === "order" ? "live" : p;
   }
 
-  /** backgroundShare for a floored background call: null when not given, else clamped to 0 .. MAX_BACKGROUND_SHARE. */
+  /** backgroundShare for a floored background call: null when not given, else clamped to 0 .. MAX_BACKGROUND_SHARE_CEILING (0.8). */
   function normaliseShare(share, priority) {
     if (share == null) return null;
     const n = Number(share);
-    if (Number.isNaN(n)) throw new TypeError("backgroundShare must be a number from 0 to 0.5.");
+    if (Number.isNaN(n)) throw new TypeError("backgroundShare must be a number from 0 to 0.8.");
     if (priority !== "background") throw new TypeError('backgroundShare is only for priority "background".');
-    return Math.min(Math.max(n, 0), MAX_BACKGROUND_SHARE);
+    return Math.min(Math.max(n, 0), MAX_BACKGROUND_SHARE_CEILING);
   }
 
   function normaliseCost(cost) {
@@ -824,7 +824,7 @@ export function createScheduler(deps, options = {}) {
    *   cost: upstream HTTP requests fn will make (default 1). maxWaitMs: wait at most this long (default per priority).
    *   coalesceKey: callers with the same key share one in-flight run; include the account id in it for pinned reads.
    *   backgroundShare: priority "background" only. The call starts only while it leaves every window at or above
-   *   ceil((1 − share) × limit); share is clamped to MAX_BACKGROUND_SHARE (0.5). Jobs gated by backgroundGate pass it.
+   *   ceil((1 − share) × limit); share is clamped to MAX_BACKGROUND_SHARE_CEILING (0.8). Jobs gated by backgroundGate pass it.
    * @param {(ctx: { signal: AbortSignal, accountId: string, endpointClass: string }) => Promise<T>} fn
    * @returns {Promise<T>}
    */

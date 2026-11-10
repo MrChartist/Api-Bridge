@@ -1,6 +1,6 @@
 # API reference: one page per endpoint
 
-212 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
+216 operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
@@ -245,6 +245,8 @@ Saves this Bridge's own real-time data going forward (quotes, option chains) to 
 | [GET /v1/recordings](recordings/listRecordings.md) | List recordings (meta.status is a plain status line) | `read` |
 | [POST /v1/recordings](recordings/createRecording.md) | Start a recording of quotes or an option chain | `admin`, this computer only |
 | [GET /v1/recordings/status](recordings/getRecordingsStatus.md) | One plain line about today's recording, and the numbers behind it | `read` |
+| [GET /v1/recordings/settings](recordings/getRecordingSettings.md) | The budget share recordings use now | `read` |
+| [PATCH /v1/recordings/settings](recordings/patchRecordingSettings.md) | Change the budget share while the Bridge runs | `admin`, this computer only |
 | [GET /v1/recordings/auto](recordings/getRecordingAuto.md) | Whether auto-record is on | `read` |
 | [PUT /v1/recordings/auto](recordings/putRecordingAuto.md) | Turn auto-record on or off | `admin`, this computer only |
 | [GET /v1/recordings/presets](recordings/listRecordingPresets.md) | The one-click presets | `read` |
@@ -294,6 +296,8 @@ History downloads that run in the background and save files on this computer, da
 | [GET /v1/instruments/export](data-downloads/exportInstruments.md) | The instrument master as a CSV or JSONL file | `read` |
 | [GET /v1/downloads](data-downloads/listDownloads.md) | Download jobs, newest first | `read` |
 | [POST /v1/downloads](data-downloads/createDownload.md) | Start a history download, or only estimate it with dryRun=1 | `read` |
+| [GET /v1/downloads/settings](data-downloads/getDownloadSettings.md) | The budget share and the after-hours switch downloads use now | `read` |
+| [PATCH /v1/downloads/settings](data-downloads/patchDownloadSettings.md) | Change the budget share or the after-hours switch while the Bridge runs | `admin`, this computer only |
 | [GET /v1/downloads/{downloadId}](data-downloads/getDownload.md) | One download job with its progress and items | `read` |
 | [PATCH /v1/downloads/{downloadId}](data-downloads/updateDownload.md) | Rename a job or change its tags | `read` |
 | [DELETE /v1/downloads/{downloadId}](data-downloads/deleteDownload.md) | Delete a job and its files | `admin`, this computer only |

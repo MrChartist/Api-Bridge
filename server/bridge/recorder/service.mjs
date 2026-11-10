@@ -18,12 +18,13 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BridgeError } from "../core/errors.mjs";
+import { z } from "zod";
+import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { createCalendarView } from "../market/calendarView.mjs";
 import { toIstIso } from "../market/time.mjs";
 import { addDays, istClockOf, istDateOf } from "../reference/calendar.mjs";
-import { createSchema, recorderConfig, rulePatchSchema, ruleSchema } from "./config.mjs";
+import { SHARE_MAX, SHARE_MIN, createSchema, recorderConfig, rulePatchSchema, ruleSchema } from "./config.mjs";
 import { createFileStore } from "./files.mjs";
 import { encodeRow, rowOf } from "./format.mjs";
 import { PRESETS, newRuleId, presetList, recordingIdOfRule, ruleFingerprint } from "./rules.mjs";
@@ -81,7 +82,8 @@ export function createRecorderService(deps, opts = {}) {
   const store = createFileStore({ root: join(deps.paths.dataDir, "recordings"), statfs: opts.statfs });
   const sessions = createSessionClock({ calendarView: opts.calendarView ?? createCalendarView({ now }) });
   let libraryFn = opts.library ?? (() => null);
-  const share = () => cfg.maxBudgetShare;
+  /** The share in force: the one set at run time (settings.json) or else the config value. Read on every call. */
+  const share = () => settings.maxBudgetShare ?? cfg.maxBudgetShare;
   const sampler = createSampler({ marketData: deps.marketData, streamHub: deps.streamHub, scheduler: deps.scheduler, accounts: deps.accounts, now, share });
   const resolver = createUniverseResolver({ marketData: deps.marketData, symbols: deps.symbols, library: () => libraryFn(), now, share });
 
@@ -112,6 +114,8 @@ export function createRecorderService(deps, opts = {}) {
   const loadRoot = () => {
     rules = (store.readRoot("rules.json", { rules: [] }).rules ?? []).filter((r) => r && typeof r.id === "string");
     settings = store.readRoot("settings.json", { autoRecord: {} });
+    // A hand-edited file never breaks a read: a share outside the range is ignored (the config value stays).
+    if (!(Number.isFinite(settings.maxBudgetShare) && settings.maxBudgetShare >= SHARE_MIN && settings.maxBudgetShare <= SHARE_MAX)) delete settings.maxBudgetShare;
   };
   const saveRules = () => store.writeRoot("rules.json", { rules });
   const saveSettings = () => store.writeRoot("settings.json", settings);
@@ -1082,6 +1086,27 @@ export function createRecorderService(deps, opts = {}) {
   }
   const autoView = () => ({ enabled: autoOn(), setBy: settings.autoRecord?.enabled !== undefined ? "user" : "config", rules: allRules().length, activeRules: [...recs.values()].filter((r) => r.def.source === "rule" && r.def.status === "active").length });
 
+  const settingsSchema = z
+    .object({
+      maxBudgetShare: z.number({ error: "maxBudgetShare must be a number." }).min(SHARE_MIN, `maxBudgetShare must be at least ${SHARE_MIN} (${Math.round(SHARE_MIN * 100)}%).`).max(SHARE_MAX, `maxBudgetShare must be at most ${SHARE_MAX} (${Math.round(SHARE_MAX * 100)}%).`),
+    })
+    .strict();
+  /** What is in force now, the config default and the allowed range. */
+  const settingsView = () => ({
+    maxBudgetShare: share(),
+    defaults: { maxBudgetShare: cfg.maxBudgetShare },
+    limits: { minBudgetShare: SHARE_MIN, maxBudgetShare: SHARE_MAX },
+    changed: settings.maxBudgetShare !== undefined ? ["maxBudgetShare"] : [],
+  });
+  /** Change the share a recording may use of the spare broker budget. Applies at the next read; kept across restarts. */
+  async function setSettings(body) {
+    const r = settingsSchema.safeParse(body ?? {});
+    if (!r.success) throw fromValidation(r.error, "Send { maxBudgetShare: 0.05 to 0.8 }. Recordings have no after-hours switch: they record during market hours.");
+    settings = { ...settings, maxBudgetShare: r.data.maxBudgetShare };
+    saveSettings();
+    return settingsView();
+  }
+
   async function applyPreset(presetId, body = {}) {
     const p = PRESETS[presetId];
     if (!p) throw new BridgeError("NOT_FOUND", `No preset named ${presetId}. Presets: ${Object.keys(PRESETS).join(", ")}.`);
@@ -1153,7 +1178,7 @@ export function createRecorderService(deps, opts = {}) {
       recordings: { total: all.length, running, waiting: waiting.length, paused: all.filter((r) => r.def.status === "paused").length, stopped: all.filter((r) => r.def.status === "stopped").length, blocked },
       disk: { usedBytes: totalBytes(), limitMb: cfg.maxDiskMb, freeBytes: free, minFreeMb: cfg.minFreeDiskMb, retentionDays: cfg.retentionDays, compressFinished: cfg.compressFinished },
       apiCalls: callsToday(),
-      budgetShare: cfg.maxBudgetShare,
+      budgetShare: share(),
       dataClass: "realtime",
     };
   }
@@ -1252,6 +1277,8 @@ export function createRecorderService(deps, opts = {}) {
     deleteRule,
     auto: autoView,
     setAuto,
+    settings: settingsView,
+    setSettings,
     presets: presetList,
     applyPreset,
     // extras

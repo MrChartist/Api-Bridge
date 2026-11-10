@@ -159,6 +159,29 @@ describe("manual recordings", () => {
   });
 });
 
+describe("settings", () => {
+  it("is not read as a recording id; a read key reads, an admin key from this computer changes", async () => {
+    const got = await b.request({ path: "/v1/recordings/settings", key: read() });
+    expect(got.status).toBe(200);
+    expect(got.json.data).toMatchObject({ maxBudgetShare: 0.3, defaults: { maxBudgetShare: 0.3 }, limits: { minBudgetShare: 0.05, maxBudgetShare: 0.8 } });
+    expect((await b.request({ path: "/v1/recordings/settings" })).status).toBe(401);
+    const patch = (body, o = {}) => b.request({ method: "PATCH", path: "/v1/recordings/settings", key: admin(), body, ...o });
+    expect((await patch({ maxBudgetShare: 0.6 }, { key: read() })).status).toBe(403);
+    const far = await patch({ maxBudgetShare: 0.6 }, { headers: remote });
+    expect(far.status).toBe(403);
+    expect(far.json.code).toBe("LOOPBACK_ONLY");
+    expect((await patch({ maxBudgetShare: 0.9 })).status).toBe(400);
+    const noAfterHours = await patch({ afterHoursOnly: true });
+    expect(noAfterHours.status).toBe(400);
+    expect(noAfterHours.json.detail).toMatch(/market hours/);
+    const ok = await patch({ maxBudgetShare: 0.6 });
+    expect(ok.status).toBe(200);
+    expect(ok.json.data.maxBudgetShare).toBe(0.6);
+    expect((await b.request({ path: "/v1/recordings/status", key: read() })).json.data.budgetShare).toBe(0.6);
+    expect(b.audit.ofType("recording.settings_changed")).toHaveLength(1);
+  });
+});
+
 describe("rules, presets and the auto-record switch", () => {
   it("auto-record is off until turned on; rules are created, read, changed and deleted", async () => {
     const auto = await b.request({ path: "/v1/recordings/auto", key: read() });

@@ -36,7 +36,7 @@ Required, `application/json`, schema `DownloadRequest`.
 | `dataset` | string | no | Continue (or create) this dataset instead of writing a one-off set of files. |
 | `account` | string | no | Use only this broker account. |
 | `backup` | boolean | no | Allow data sources other than your broker accounts. The files then carry the source's data class (delayed or eod). Default `false`. |
-| `afterHoursOnly` | boolean | no | Wait outside market hours. Default: downloads.afterHoursOnly. |
+| `afterHoursOnly` | boolean | no | Wait outside market hours. Default: follows the downloads setting when the job runs (downloads.afterHoursOnly, or GET /v1/downloads/settings). |
 | `tags` | array of string, up to 32 characters | no |  |
 
 Example:

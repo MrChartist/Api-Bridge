@@ -8,10 +8,10 @@ import { timeAtShare } from "./estimate.mjs";
 const w = (window, limit, remaining, resetMs = 500) => ({ bucket: "history", window, limit, remaining, used: limit - remaining, resetMs });
 
 describe("decide", () => {
-  it("never lets a share go above one half", () => {
-    expect(MAX_SHARE).toBe(0.5);
+  it("never lets a share go above 80 %", () => {
+    expect(MAX_SHARE).toBe(0.8);
     const d = decide({ windows: [w("1s", 10, 10)], backoffMs: 0 }, 0.9);
-    expect(d.paceMs).toBe(200); // 0.5 x 10 = 5 calls a second
+    expect(d.paceMs).toBe(125); // 0.8 x 10 = 8 calls a second
   });
 
   it("paces the per-second window to share x limit, even when the limit is tiny", () => {

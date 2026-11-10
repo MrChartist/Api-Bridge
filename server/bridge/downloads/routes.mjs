@@ -3,6 +3,7 @@
  *
  *   POST   /v1/downloads[?dryRun=1]                    start a job (202), or only estimate it (200)
  *   GET    /v1/downloads[?status=&tag=&include=items]  newest first
+ *   GET|PATCH /v1/downloads/settings   the budget share and the after-hours switch (this computer, admin, to change)
  *   GET    /v1/downloads/{id}      PATCH /v1/downloads/{id}      DELETE /v1/downloads/{id}
  *   POST   /v1/downloads/{id}/pause | resume | cancel
  *   GET    /v1/downloads/{id}/files        GET /v1/downloads/{id}/files/{name}   (manifest.json is one of them)
@@ -63,6 +64,11 @@ export function createDownloadRoutes(deps, { downloads }) {
       if (flag(ctx.query, "dryRun")) return { data: await downloads.estimate(body, callOpts(ctx)), meta: meta(ctx, { dryRun: true }) };
       const { job } = await downloads.create(body, callOpts(ctx));
       return json({ data: job, meta: meta(ctx) }, { status: 202, headers: { Location: `/v1/downloads/${job.id}` } });
+    },
+
+    getSettings: (ctx) => ({ data: downloads.settings(), meta: meta(ctx) }),
+    async patchSettings(ctx) {
+      return { data: await downloads.setSettings(ctx.body), meta: meta(ctx) };
     },
 
     list(ctx) {

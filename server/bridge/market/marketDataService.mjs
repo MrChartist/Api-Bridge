@@ -110,7 +110,7 @@ const readOptionsSchema = z
     /** Broker option-chain calls only: the longest the call may wait for budget (background jobs such as the recorder). */
     maxWaitMs: z.number().int().min(0).max(60_000).optional(),
     /** Priority "background" only: the scheduler keeps every window at or above (1 − share) of its limit (≤ 0.5). */
-    backgroundShare: z.number().min(0).max(0.5).optional(),
+    backgroundShare: z.number().min(0).max(0.8).optional(),
     /**
      * Stale-while-revalidate: when only an older cached value exists (within market.stale.maxStaleMs), answer with it
      * at once, labelled `stale: true` and `revalidating: true`, and refresh it in the background for the next read.

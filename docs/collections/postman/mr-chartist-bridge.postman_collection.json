@@ -4057,6 +4057,61 @@
           "response": []
         },
         {
+          "name": "The budget share recordings use now",
+          "request": {
+            "description": "The budget share recordings use now\n\n- An API key with the `read` scope (any key).\n\nThe value in force (the config value unless changed here), the config default and the allowed range.\n\nReference: docs/api/recordings/getRecordingSettings.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "settings"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/settings"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change the budget share while the Bridge runs",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"maxBudgetShare\": 0.05\n}"
+            },
+            "description": "Change the budget share while the Bridge runs\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nApplies at the next broker read, is kept in recordings/settings.json in the data folder and survives a restart. There is\nno after-hours switch: recordings run during market hours.\n\nReference: docs/api/recordings/patchRecordingSettings.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "recordings",
+                "settings"
+              ],
+              "raw": "{{baseUrl}}/v1/recordings/settings"
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Whether auto-record is on",
           "request": {
             "description": "Whether auto-record is on\n\n- An API key with the `read` scope (any key).\n\nReference: docs/api/recordings/getRecordingAuto.md in the repository.",
@@ -4956,6 +5011,61 @@
                 }
               ],
               "raw": "{{baseUrl}}/v1/downloads"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "The budget share and the after-hours switch downloads use now",
+          "request": {
+            "description": "The budget share and the after-hours switch downloads use now\n\n- An API key with the `read` scope (any key).\n\nThe values in force (the config values unless changed here), the config defaults and the allowed range.\n\nReference: docs/api/data-downloads/getDownloadSettings.md in the repository.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                "settings"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/settings"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change the budget share or the after-hours switch while the Bridge runs",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}"
+            },
+            "description": "Change the budget share or the after-hours switch while the Bridge runs\n\n- An API key with the `admin` scope.\n- This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).\n\nApplies at once to running and waiting jobs (the next broker call reads it), is kept in a small file in the data folder\n(not in bridge.config.json) and survives a restart. A job that was started with its own `afterHoursOnly` keeps that value.\n\nReference: docs/api/data-downloads/patchDownloadSettings.md in the repository.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "type": "text",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "downloads",
+                "settings"
+              ],
+              "raw": "{{baseUrl}}/v1/downloads/settings"
             }
           },
           "response": []

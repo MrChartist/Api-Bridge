@@ -485,7 +485,7 @@ describe("datasets and the saving card", () => {
     expect(sharePercent(0.3)).toBe(30);
     expect(sharePercent(0.33)).toBe(35);
     expect(sharePercent(0)).toBe(5);
-    expect(sharePercent(4)).toBe(100);
+    expect(sharePercent(4)).toBe(80);
     expect(sharePercent(undefined)).toBe(30);
     expect(shareSentence(30)).toBe("Downloads and recordings may use up to 30% of the room your broker leaves free, so they work gently. Live prices, orders and risk checks always go first.");
   });
@@ -569,6 +569,27 @@ describe("the client against a fake Bridge", () => {
     await expect(c.downloads.settings()).rejects.toSatisfy((e) => isUnavailable(e));
     expect(isUnavailable({ status: 500 })).toBe(false);
     expect(isUnavailable(null)).toBe(false);
+  });
+
+  it("reads and changes the share on the routes a current Bridge has (downloads has the after-hours switch, recordings only the share)", async () => {
+    const sent = [];
+    const answers = {
+      "GET /v1/downloads/settings": { data: { maxBudgetShare: 0.3, afterHoursOnly: false, defaults: { maxBudgetShare: 0.3, afterHoursOnly: false }, limits: { minBudgetShare: 0.05, maxBudgetShare: 0.8 }, changed: [] }, meta: {} },
+      "PATCH /v1/downloads/settings": { data: { maxBudgetShare: 0.6, afterHoursOnly: false, limits: { minBudgetShare: 0.05, maxBudgetShare: 0.8 } }, meta: {} },
+      "GET /v1/recordings/settings": { data: { maxBudgetShare: 0.3, limits: { minBudgetShare: 0.05, maxBudgetShare: 0.8 } }, meta: {} },
+    };
+    const c = createDataClient(async (method, path, body) => {
+      sent.push([method, path, body]);
+      return answers[`${method} ${path}`];
+    });
+    const dl = await c.downloads.settings();
+    expect(sharePercent(dl.data.maxBudgetShare)).toBe(30);
+    expect(dl.data.afterHoursOnly).toBe(false);
+    expect((await c.downloads.setSettings({ maxBudgetShare: 0.6 })).data.maxBudgetShare).toBe(0.6);
+    expect(Object.keys((await c.recordings.settings()).data)).not.toContain("afterHoursOnly");
+    expect(sent).toEqual([["GET", "/v1/downloads/settings", undefined], ["PATCH", "/v1/downloads/settings", { maxBudgetShare: 0.6 }], ["GET", "/v1/recordings/settings", undefined]]);
+    expect(sharePercent(0.8)).toBe(80);
+    expect(sharePercent(0.95)).toBe(80);
   });
 
   it("creates a rule, reads usage, searches and updates a dataset by encoded name", async () => {

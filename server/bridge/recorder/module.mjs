@@ -22,6 +22,8 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/recordings", READ, "list"],
   ["POST", "/v1/recordings", ADMIN_LOCAL_JSON, "create"],
   ["GET", "/v1/recordings/status", READ, "getStatus"],
+  ["GET", "/v1/recordings/settings", READ, "getSettings"],
+  ["PATCH", "/v1/recordings/settings", ADMIN_LOCAL_JSON, "patchSettings"],
   ["GET", "/v1/recordings/auto", READ, "getAuto"],
   ["PUT", "/v1/recordings/auto", ADMIN_LOCAL_JSON, "putAuto"],
   ["GET", "/v1/recordings/presets", READ, "listPresets"],
