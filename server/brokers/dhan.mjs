@@ -40,7 +40,13 @@ export const capabilities = {
   ltp: true,
   quotes: true,
   depth: true,
-  historical: { intervals: ["1m", "5m", "15m", "60m", "1d"] },
+  // "Only 90 days of data can be polled at once" for intraday (the broker's docs). The Bridge's own default of 60 days is below it,
+  // so this cap changes nothing today; it is recorded so a larger configured span cannot go past the documented limit.
+  historical: {
+    intervals: ["1m", "5m", "15m", "60m", "1d"],
+    maxSpanDays: { "1m": 90, "5m": 90, "15m": 90, "60m": 90 },
+    limitsSource: { url: "https://dhanhq.co/docs/v2/historical-data/", readOn: "2026-11-10", kind: "official docs" },
+  },
   feed: true,
   positions: true,
   holdings: true,

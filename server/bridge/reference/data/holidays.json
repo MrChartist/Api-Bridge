@@ -1,25 +1,51 @@
 {
-  "version": 1,
-  "asOf": "2025-12-15",
-  "source": "NSE and BSE trading-holiday circulars for 2025 and 2026 (equity and equity-derivatives segments). Check against the current circular before relying on a date.",
+  "version": 2,
+  "asOf": "2026-11-10",
+  "source": "NSE and BSE trading-holiday circulars for 2025 and 2026 (equity and equity-derivatives segments; the BSE list was read only through a secondary source). Check against the current circular before relying on a date.",
+  "sources": {
+    "2025": {
+      "verified": false,
+      "circulars": [],
+      "url": null,
+      "readOn": null,
+      "note": "The list matches the NSE circular as remembered by the audit, but the circular was not re-read, so every 2025 row is marked unverified."
+    },
+    "2026": {
+      "verified": true,
+      "circulars": ["NSE/CMTR/71775 and NSE/FAOP/71777 dated 2025-12-12"],
+      "url": "https://nsearchives.nseindia.com/content/circulars/CMTR71775.pdf",
+      "readOn": "2026-11-10",
+      "note": "Every NSE row was read in the circular. The BSE list is the same according to BSE's published list, which was read only through a secondary source. Amendments issued after the December circular are listed under amendments; the check for others was not exhaustive."
+    }
+  },
+  "amendments": [
+    {
+      "circular": "NSE/CMTR/72260 and NSE/FAOP/72262",
+      "date": "2026-01-12",
+      "effect": "Thursday 2026-01-15 is a trading holiday (Municipal Corporation Election in Maharashtra), in partial modification of the 2026 holiday circulars. BSE equity-derivative contracts due to expire on 2026-01-15 were preponed to 2026-01-14 (BSE notice 20260112-8, secondary source).",
+      "url": "https://nsearchives.nseindia.com/content/circulars/CMTR72260.pdf",
+      "readOn": "2026-11-10"
+    }
+  ],
   "years": {
     "2025": [
-      { "date": "2025-02-26", "label": "Mahashivratri", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-03-14", "label": "Holi", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-03-31", "label": "Id-Ul-Fitr (Ramadan Eid)", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-04-10", "label": "Shri Mahavir Jayanti", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-04-14", "label": "Dr. Baba Saheb Ambedkar Jayanti", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-04-18", "label": "Good Friday", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-05-01", "label": "Maharashtra Day", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-08-15", "label": "Independence Day", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-08-27", "label": "Ganesh Chaturthi", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-10-02", "label": "Mahatma Gandhi Jayanti / Dussehra", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-10-21", "label": "Diwali Laxmi Pujan", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-10-22", "label": "Diwali-Balipratipada", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-11-05", "label": "Prakash Gurpurb Sri Guru Nanak Dev", "exchanges": ["NSE", "BSE"], "verified": true },
-      { "date": "2025-12-25", "label": "Christmas", "exchanges": ["NSE", "BSE"], "verified": true }
+      { "date": "2025-02-26", "label": "Mahashivratri", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-03-14", "label": "Holi", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-03-31", "label": "Id-Ul-Fitr (Ramadan Eid)", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-04-10", "label": "Shri Mahavir Jayanti", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-04-14", "label": "Dr. Baba Saheb Ambedkar Jayanti", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-04-18", "label": "Good Friday", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-05-01", "label": "Maharashtra Day", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-08-15", "label": "Independence Day", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-08-27", "label": "Ganesh Chaturthi", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-10-02", "label": "Mahatma Gandhi Jayanti / Dussehra", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-10-21", "label": "Diwali Laxmi Pujan", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-10-22", "label": "Diwali-Balipratipada", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-11-05", "label": "Prakash Gurpurb Sri Guru Nanak Dev", "exchanges": ["NSE", "BSE"], "verified": false },
+      { "date": "2025-12-25", "label": "Christmas", "exchanges": ["NSE", "BSE"], "verified": false }
     ],
     "2026": [
+      { "date": "2026-01-15", "label": "Municipal Corporation Election in Maharashtra", "exchanges": ["NSE", "BSE"], "verified": true },
       { "date": "2026-01-26", "label": "Republic Day", "exchanges": ["NSE", "BSE"], "verified": true },
       { "date": "2026-03-03", "label": "Holi", "exchanges": ["NSE", "BSE"], "verified": true },
       { "date": "2026-03-26", "label": "Shri Ram Navami", "exchanges": ["NSE", "BSE"], "verified": true },
@@ -36,9 +62,5 @@
       { "date": "2026-11-24", "label": "Prakash Gurpurb Sri Guru Nanak Dev", "exchanges": ["NSE", "BSE"], "verified": true },
       { "date": "2026-12-25", "label": "Christmas", "exchanges": ["NSE", "BSE"], "verified": true }
     ]
-  },
-  "special": [
-    { "date": "2025-10-21", "open": "13:45", "close": "14:45", "label": "Muhurat trading", "exchanges": ["NSE", "BSE"], "verified": true },
-    { "date": "2026-11-08", "open": "14:20", "close": "15:30", "label": "Muhurat trading", "exchanges": ["NSE", "BSE"], "verified": true }
-  ]
+  }
 }

@@ -13,8 +13,11 @@
 - An API key with the `read` scope (any key).
 
 Whether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close
-times (IST), a special session such as Muhurat trading, and the neighbouring trading days. The standard hours are
-marked `sessionTimes.verified: false`: the Bridge has not confirmed them against a current circular.
+times (IST), a special session such as Muhurat trading, and the neighbouring trading days. The hours come from
+dated rules in the data shipped with the Bridge (derivatives close at 15:40 from 3 Aug 2026 and 15:45 from 7 Dec
+2026); `sessionTimes.rule` names the rule, its circular and its source, and `sessionTimes.verified: false` says the
+hours were not confirmed from a circular. A special session carries its own `verified` flag: while it is false the
+timing is unconfirmed, and live orders are refused in it.
 
 ## Parameters
 

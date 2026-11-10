@@ -57,16 +57,22 @@ describe("tradingDaysBetween and staleness", () => {
 describe("sessionAt", () => {
   const cal = createCalendar({ holidays: shippedHolidayRows(), specialSessions: shippedSpecialSessions() });
   it.each([
-    ["08:59", "CLOSED"],
-    ["09:00", "PRE_OPEN"],
-    ["09:14", "PRE_OPEN"],
-    ["09:15", "OPEN"],
-    ["15:29", "OPEN"],
-    ["15:30", "CLOSED"],
-  ])("Thu 29 Oct %s IST is %s", (hhmm, state) => {
-    const s = cal.sessionAt("NFO", at("2026-10-29", hhmm));
+    ["NFO", "08:59", "CLOSED"],
+    ["NFO", "09:00", "PRE_OPEN"],
+    ["NFO", "09:14", "PRE_OPEN"],
+    ["NFO", "09:15", "OPEN"],
+    ["NFO", "15:29", "OPEN"],
+    ["NFO", "15:30", "OPEN"], // derivatives trade to 15:40 since 2026-08-03 (SEBI circular of 2026-01-16)
+    ["NFO", "15:39", "OPEN"],
+    ["NFO", "15:40", "CLOSED"],
+    ["BFO", "15:39", "OPEN"],
+    ["NSE", "15:29", "OPEN"],
+    ["NSE", "15:30", "CLOSED"], // the cash continuous session still ends at 15:30
+    ["BSE", "15:30", "CLOSED"],
+  ])("Thu 29 Oct %s %s IST is %s", (exchange, hhmm, state) => {
+    const s = cal.sessionAt(exchange, at("2026-10-29", hhmm));
     expect(s.state).toBe(state);
-    expect(s).toMatchObject({ date: "2026-10-29", open: "09:15", close: "15:30", preOpen: "09:00", holiday: null });
+    expect(s).toMatchObject({ date: "2026-10-29", open: "09:15", close: exchange === "NFO" || exchange === "BFO" ? "15:40" : "15:30", preOpen: "09:00", holiday: null });
   });
 
   it("a holiday reports HOLIDAY with its label and verification", () => {

@@ -113,12 +113,20 @@ describe("rolling expiries: weekly and monthly", () => {
     expect(await exp("all-weekly", { library: { maxWeeklyExpiries: 7 } })).toEqual(["2026-11-10", "2026-11-17", "2026-11-24", "2026-12-01", "2026-12-08", "2026-12-15"]);
   });
 
-  it("a weekly expiry rolls on once it has closed at 15:30 IST on its day", async () => {
+  it("a weekly expiry rolls on once it has closed on its day (15:40 IST for derivatives since 3 Aug 2026)", async () => {
     expect(await exp("current-weekly", { now: at("2026-11-10T10:00:00+05:30") })).toEqual(["2026-11-10"]);
     const t = make("n", universe({ strikes: { around: "atm", count: 1 } }), { now: at("2026-11-10T15:45:00+05:30") });
     const r = await t.lib.resolve("n");
     expect(r.expiries[0].expiry).toBe("2026-11-17");
-    expect(r.warnings.join(" ")).toMatch(/2026-11-10 expiry closed at 15:30 IST today/);
+    expect(r.warnings.join(" ")).toMatch(/2026-11-10 expiry closed at 15:40 IST today/);
+  });
+
+  it("an expiring index contract still trades at 15:35 until 7 Dec 2026, and rolls at 15:30 after that", async () => {
+    const make1 = (now, expiries) => make("n", universe({ expiries, strikes: { around: "atm", count: 1 } }), { now: at(now) });
+    expect((await make1("2026-11-10T15:35:00+05:30", "current-weekly").lib.resolve("n")).expiries[0].expiry).toBe("2026-11-10");
+    const dec = await make1("2026-12-08T15:35:00+05:30", "current-monthly").lib.resolve("n");
+    expect(dec.expiries[0].expiry).toBe("2026-12-29");
+    expect(dec.warnings.join(" ")).toMatch(/2026-12-08 expiry closed at 15:30 IST today/);
   });
 
   it("the monthly expiry rolls to the next month after it closes", async () => {

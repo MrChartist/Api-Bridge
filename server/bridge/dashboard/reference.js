@@ -11,7 +11,7 @@ export const FALLBACK_SOURCE = "dashboard fallback";
 export const REF_DEFAULTS = Object.freeze({
   source: FALLBACK_SOURCE,
   charges: Object.freeze({
-    asOf: "2026-04-01",
+    asOf: "2026-02-28",
     source: FALLBACK_SOURCE,
     verified: false,
     opt: Object.freeze({ sttSell: 0.0015, exerciseStt: 0.0015, stampBuy: 0.00003, txn: Object.freeze({ NSE: 0.0003503, BSE: 0.000325 }) }),

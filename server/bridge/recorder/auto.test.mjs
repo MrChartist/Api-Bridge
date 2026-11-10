@@ -67,14 +67,14 @@ describe("auto recording by rules", () => {
     expect(chainCalls[0][2]).toMatchObject({ priority: "background", backgroundShare: 0.3, allowBackup: false });
 
     await w.svc.patchRule("nifty-chain", { everySec: 1800 }); // fewer passes while the clock jumps to the close
-    await w.clock.set(at("2026-11-09T15:30:20"));
+    await w.clock.set(at("2026-11-09T15:40:20")); // derivatives close at 15:40 since 3 Aug 2026 (reference/data/sessions.json)
     await w.run(60_000, 10_000);
     expect(w.eventsOf("recording.stopped")).toHaveLength(1);
     expect(w.eventsOf("recording.stopped")[0]).toMatchObject({ id: "rule-nifty-chain", auto: true, reason: "session-end" });
     expect(w.svc.get("rule-nifty-chain").status).toBe("waiting");
     const last = ce.length;
     await w.run(10 * 60_000, 60_000);
-    expect(rows("rule-nifty-chain", `2026-11-09__NFO_NIFTY-2026-11-09-24000-CE.csv`).every((r) => r.time.slice(11, 16) < "15:31")).toBe(true);
+    expect(rows("rule-nifty-chain", `2026-11-09__NFO_NIFTY-2026-11-09-24000-CE.csv`).every((r) => r.time.slice(11, 16) < "15:41")).toBe(true);
     expect(last).toBeGreaterThan(0);
   });
 

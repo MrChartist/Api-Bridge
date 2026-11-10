@@ -374,21 +374,8 @@ export function expiriesFor(symbol, t, count) {
     }
     return out;
   }
-  // monthly: last Tuesday of the month
-  let y = start.y;
-  let m = start.m;
-  while (out.length < (count ?? 3)) {
-    const last = new Date(Date.UTC(y, m + 1, 0));
-    while (last.getUTCDay() !== 2) last.setUTCDate(last.getUTCDate() - 1);
-    const iso = shiftForHoliday(isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()), u.deriv);
-    if (iso >= today) out.push(iso);
-    m += 1;
-    if (m > 11) {
-      m = 0;
-      y += 1;
-    }
-  }
-  return out;
+  // monthly: the last Tuesday (NSE) or Thursday (BSE) of the month
+  return monthlyExpiries(u, t, count ?? 3);
 }
 
 // ── The vol-time clock and the IV level ──
@@ -706,14 +693,20 @@ export function adjustedContracts(u, t) {
   return rows;
 }
 
-/** Futures run on the monthly cycle (last Tuesday for NSE indices, last Thursday for SENSEX). */
-function monthlyExpiries(u, t) {
+/**
+ * The monthly cycle: the last Tuesday of the month on NSE (futures and the monthly-only underlyings) and the last Thursday on
+ * BSE, holiday-shifted. One rule for both the expiry list and the futures, so a BSE monthly-only underlying never lists Tuesdays.
+ * @param {{ deriv: string }} u
+ * @param {number} t epoch ms
+ * @param {number} [count]
+ */
+export function monthlyExpiries(u, t, count = 3) {
   const start = ist(t);
   const target = u.deriv === "BFO" ? 4 : 2;
   const out = [];
   let y = start.y;
   let m = start.m;
-  while (out.length < 3) {
+  while (out.length < count) {
     const last = new Date(Date.UTC(y, m + 1, 0));
     while (last.getUTCDay() !== target) last.setUTCDate(last.getUTCDate() - 1);
     const iso = shiftForHoliday(isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()), u.deriv);

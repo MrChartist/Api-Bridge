@@ -1925,7 +1925,7 @@
         {
           "name": "The session of one date (trading day or not, and the times)",
           "request": {
-            "description": "The session of one date (trading day or not, and the times)\n\n- An API key with the `read` scope (any key).\n\nWhether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close\ntimes (IST), a special session such as Muhurat trading, and the neighbouring trading days. The standard hours are\nmarked `sessionTimes.verified: false`: the Bridge has not confirmed them against a current circular.\n\nReference: docs/api/market-data/getCalendarSessions.md in the repository.",
+            "description": "The session of one date (trading day or not, and the times)\n\n- An API key with the `read` scope (any key).\n\nWhether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close\ntimes (IST), a special session such as Muhurat trading, and the neighbouring trading days. The hours come from\ndated rules in the data shipped with the Bridge (derivatives close at 15:40 from 3 Aug 2026 and 15:45 from 7 Dec\n2026); `sessionTimes.rule` names the rule, its circular and its source, and `sessionTimes.verified: false` says the\nhours were not confirmed from a circular. A special session carries its own `verified` flag: while it is false the\ntiming is unconfirmed, and live orders are refused in it.\n\nReference: docs/api/market-data/getCalendarSessions.md in the repository.",
             "header": [],
             "method": "GET",
             "url": {

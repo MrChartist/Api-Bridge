@@ -8,6 +8,7 @@
 - Fixes found by those tests: the Collections form accepted names with spaces that the Bridge refuses (it now says "use a dash");
   the builder's live preview called a route that did not exist (`POST /v1/collections/resolve`, now there: it resolves an option
   universe that is not saved yet); `AsyncStream` in the Python client no longer leaves an un-awaited coroutine when the loop closes.
+- Reference data ([docs/reference-data.md](docs/reference-data.md)): session hours come from dated rules, one source for the order gate, calendar, readiness, recorder and history. Derivatives trade to 15:40 from 3 Aug 2026 and 15:45 from 7 Dec 2026 (SEBI circulars; an index contract expiring that day stops at 15:30), so live NFO and BFO orders are no longer refused 15:30 to 15:40. Special sessions (Muhurat, Budget Sunday) are loaded from a data file and stay closed for live orders until their timing is verified; the 2026-01-15 holiday is added; rows without a primary source say `verified: false`. History chunks follow each broker's documented span (Upstox, Angel One, Dhan); a `1d` request whose `from` is after midnight returns that day's bar. `mc-bridge doctor` and the Safety page warn when the calendar misses next year or a table is older than six months.
 
 - Operation ([docs/guides/operations.md](docs/guides/operations.md)): one Bridge per data folder (`bridge.lock`); every damaged state
   file is set aside and reported instead of stopping the start, and a damaged order record refuses live orders (`ORDER_STATE_DAMAGED`,

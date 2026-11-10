@@ -24,9 +24,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { z } from "zod";
-import { marketSession } from "../../lib/marketHours.mjs";
+import { isTradingDay as sessionTradingDay } from "../../lib/marketHours.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
 import { isStub } from "../core/contracts.mjs";
-import { defaultSessionFor } from "../reference/defaults.mjs";
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MIN = 60_000;
@@ -90,7 +90,7 @@ export function createMorningLogin(deps, opts = {}) {
       }
     }
     try {
-      return marketSession(new Date(istInstant(date, "12:00"))).label !== "Weekend";
+      return sessionTradingDay(date, "NFO");
     } catch {
       const d = new Date(`${date}T00:00:00Z`).getUTCDay();
       return d >= 1 && d <= 5;
@@ -107,7 +107,7 @@ export function createMorningLogin(deps, opts = {}) {
         /* fall back to the default */
       }
     }
-    return istInstant(date, defaultSessionFor("NFO").close);
+    return istInstant(date, sharedCalendar().closeFor("NFO", date));
   }
 
   function persist() {

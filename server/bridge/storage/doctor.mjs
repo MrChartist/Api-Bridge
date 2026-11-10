@@ -19,6 +19,7 @@ import { findCorruptFiles } from "../../lib/safeStore.mjs";
 import { downloadsDoctorChecks } from "../downloads/doctor.mjs";
 import { eventsDoctorChecks } from "../events/doctor.mjs";
 import { libraryDoctorChecks } from "../library/doctor.mjs";
+import { referenceDoctorChecks } from "../reference/doctor.mjs";
 import { recorderDoctorChecks } from "../recorder/doctor.mjs";
 import { cliCommand } from "../core/cliName.mjs";
 import { inspectLock } from "../core/instanceLock.mjs";
@@ -109,6 +110,6 @@ export function storageDoctorChecks({ config, env = process.env, now = Date.now(
 
 /** Everything the newer parts add to `doctor`. @returns {Array<{ level: "ok"|"warn"|"fail", check: string, message: string, fix?: string, blocking?: boolean }>} */
 export function opsDoctorChecks({ config, env = process.env, now = Date.now() }) {
-  const parts = [storageDoctorChecks({ config, env, now }), downloadsDoctorChecks({ config, now }), recorderDoctorChecks({ config, now }), eventsDoctorChecks({ config, now }), libraryDoctorChecks({ config })];
+  const parts = [storageDoctorChecks({ config, env, now }), downloadsDoctorChecks({ config, now }), recorderDoctorChecks({ config, now }), eventsDoctorChecks({ config, now }), libraryDoctorChecks({ config }), referenceDoctorChecks({ now })];
   return parts.flat();
 }

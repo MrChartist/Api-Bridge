@@ -5039,7 +5039,7 @@ among them, so a holiday shift is already in the date. The calendar is used only
 
 | Rule | Means |
 |---|---|
-| `current-weekly` | The nearest listed expiry that has not closed. An expiry stops counting at 15:30 IST on its own day, so after the close the rule has already moved to the next one |
+| `current-weekly` | The nearest listed expiry that has not closed. An expiry stops counting at its own close on its own day (15:40 IST for derivatives since 3 Aug 2026; from 7 Dec 2026 index contracts expiring that day stop at 15:30 and stock contracts at 15:45), so after the close the rule has already moved to the next one |
 | `next-weekly` | The one after it |
 | `current-monthly` | The nearest expiry that is the last of its calendar month |
 | `all-weekly` | The nearest expiry and the weekly ones after it (about a week apart), at most `library.maxWeeklyExpiries` (5) |

@@ -30,6 +30,9 @@ import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { CAPITAL_MAX, CAPITAL_MIN, DEMO_STARTING_CAPITAL, EXCHANGE_SESSION_END, EXCHANGE_SQUARE_OFF, PAPER_DEFAULTS, paperConfig } from "./config.mjs";
 import { DEFAULT_SESSIONS, defaultSessionFor } from "../reference/defaults.mjs";
+import { istDateOf } from "../reference/calendar.mjs";
+import { segmentOf } from "../reference/sessions.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { applyFill, brokerageFor, evaluate, isTickMultiple, marginFor, marketFillPrice, round2, round4, stopTriggered } from "./fillModel.mjs";
 import { ACCOUNT_ID_RE, STATE_VERSION, createFileStore } from "./paperStore.mjs";
@@ -132,6 +135,8 @@ export function createPaperEngine(deps, options = {}) {
     } catch {
       // fall back to the default below
     }
+    // The dated session rule of the shipped reference data (NSE, BSE, NFO, BFO), else the labelled default.
+    if (segmentOf(exchange)) return sharedCalendar().closeFor(exchange, istDateOf(t));
     return (defaultSessionFor(exchange) ?? DEFAULT_SESSIONS.NSE).close;
   };
   const sessionEndAt = (exchange, t) => istTimeOnDay(t, sessionEndTimes[exchange] ?? cfg.sessionEnd.time ?? referenceClose(exchange, t));

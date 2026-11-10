@@ -42,7 +42,13 @@ export const capabilities = {
   ltp: true,
   quotes: true,
   depth: true,
-  historical: { intervals: ["1m", "3m", "5m", "15m", "30m", "60m", "1d"] },
+  // Span per request from the broker's own page (v3 historical candles): minutes 1-15 one month, minutes above 15 and hours one
+  // quarter, days one decade. A month is taken as 30 days and a quarter as 90.
+  historical: {
+    intervals: ["1m", "3m", "5m", "15m", "30m", "60m", "1d"],
+    maxSpanDays: { "1m": 30, "3m": 30, "5m": 30, "15m": 30, "30m": 90, "60m": 90, "1d": 3650 },
+    limitsSource: { url: "http://upstox.com/developer/api-documentation/v3/get-historical-candle-data/", readOn: "2026-11-10", kind: "official docs" },
+  },
   feed: true,
   positions: true,
   holdings: true,

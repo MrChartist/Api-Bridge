@@ -2822,6 +2822,19 @@
     },
     {
       "headings": [
+        "What the verified flag means",
+        "The files",
+        "One source for session times",
+        "How to update a file",
+        "Checks"
+      ],
+      "kind": "doc",
+      "path": "docs/reference-data.md",
+      "text": "The Bridge ships a few tables of market facts: the holiday calendar, the trading hours, special sessions such as Muhurat trading, freeze quantities, statutory charges and the delivery-margin schedule. They are plain JSON files in server/bridge/reference/data/. This page says...",
+      "title": "Reference data"
+    },
+    {
+      "headings": [
         "Version rules",
         "Cutting a release",
         "If something goes wrong",

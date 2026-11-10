@@ -48,7 +48,9 @@ import { join } from "node:path";
 import { SEBI_UNREGISTERED_OPS_CEILING, effectiveAccountLimits, liveAllowedByConfig } from "../core/config.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
-import { marketSession as libMarketSession } from "../../lib/marketHours.mjs";
+import { orderSession as libOrderSession } from "../../lib/marketHours.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
+import { INDEX_NAMES, parseSymbol } from "../core/symbolFormat.mjs";
 import { sameIp } from "../readiness/ip.mjs";
 import { createDailyCounters } from "./dailyCounters.mjs";
 import { createKillSwitchStore } from "./killSwitch.mjs";
@@ -126,6 +128,22 @@ export function actorLabel(ctx) {
 
 const actorOf = (ctx) => ({ kind: ctx?.principal?.kind ?? "system", id: ctx?.principal?.id ?? "system" });
 const exchangeOf = (symbol) => (typeof symbol === "string" && symbol.includes(":") ? symbol.split(":")[0].toUpperCase() : null);
+/**
+ * What the session gate needs to know about a contract: { kind: "index"|"stock"|null, expiry } from the canonical symbol and
+ * the underlying kind the order service found. Index contracts expiring today close earlier (reference/data/sessions.json).
+ */
+function instrumentOf(symbol, underlyingKind) {
+  let expiry = null;
+  let kind = underlyingKind === "index" || underlyingKind === "stock" ? underlyingKind : null;
+  try {
+    const p = parseSymbol(symbol);
+    expiry = p.expiry ?? null;
+    if (!kind && INDEX_NAMES.includes(p.underlying)) kind = "index";
+  } catch {
+    /* an unparsable symbol is left unknown */
+  }
+  return { kind, expiry };
+}
 const finitePos = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
 
 /**
@@ -142,18 +160,22 @@ export function createSafetyGuard(deps, opts = {}) {
   const now = () => (deps.clock ? deps.clock.now() : Date.now());
   const dir = opts.dir ?? join(deps.paths.dataDir, "safety");
   const env = opts.env ?? process.env;
-  const sessionAt = opts.marketSession ?? libMarketSession;
+  const sessionAt = opts.marketSession ?? libOrderSession;
   /**
-   * Reference calendar: holiday-aware sessions for NSE/BSE/NFO/BFO. Optional: a stub or missing service
-   * falls back to lib/marketHours alone. It only tightens: the guard takes the stricter of the two answers.
+   * Reference calendar: holiday-aware sessions for NSE/BSE/NFO/BFO. A reference service, when one is wired, wins; the
+   * default is the shared calendar built from the shipped reference data (the same source as lib/marketHours), so the
+   * holiday list applies in every installation. It only tightens: the guard takes the stricter of the two answers.
    */
   const reference = (() => {
     try {
       const r = deps.reference;
-      return r && !isStub(r) && typeof r.session === "function" ? r : null;
+      if (r && !isStub(r) && typeof r.session === "function") return r;
     } catch {
-      return null;
+      /* fall through to the shipped calendar */
     }
+    if (opts.marketSession) return null; // a test that supplies its own session answers for itself
+    const cal = sharedCalendar();
+    return { session: (exch, t, o) => cal.sessionAt(exch, t, { gate: true, ...(o ?? {}) }) };
   })();
   let egressIp = typeof opts.egressIp === "string" && opts.egressIp ? opts.egressIp : null;
 
@@ -448,10 +470,11 @@ export function createSafetyGuard(deps, opts = {}) {
       if (action === "place" || action === "modify") {
         const exch = exchangeOf(order?.symbol);
         if (exch && EQUITY_SESSION_EXCHANGES.has(exch)) {
-          const sess = sessionAt(new Date(t));
+          const instrument = instrumentOf(order?.symbol, i.underlyingKind);
+          const sess = sessionAt(new Date(t), exch, instrument);
           let ref = null;
           try {
-            ref = reference ? reference.session(exch, t) : null;
+            ref = reference ? reference.session(exch, t, { instrument }) : null;
           } catch {
             ref = null;
           }
