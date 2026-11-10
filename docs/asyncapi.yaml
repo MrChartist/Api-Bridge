@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: Mr. Chartist API Bridge — live streams
-  version: 0.1.0
+  version: 2.0.0
   description: |
     Live prices, upstream feed status and order updates from the local Bridge, over a WebSocket (`/v1/stream`) or
     Server-Sent Events (`/v1/stream/sse`). The REST side is in `docs/openapi.yaml`.

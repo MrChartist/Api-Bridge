@@ -1,6 +1,6 @@
-# Changelog
+# API deprecations and migrations
 
-API changes that need a migration window. Each entry keeps its anchor so `Link` headers can point at it.
+API changes that need a migration window. (Release notes are in the [main changelog](../CHANGELOG.md).) Each entry keeps its anchor so `Link` headers can point at it.
 
 ## paper-margin-portfolio
 
@@ -24,7 +24,7 @@ what the order adds to the book (a hedge can add 0). `"model": "simple"` keeps t
   per calendar day. Byte for byte the output before this change.
 - Default: `market.chain.ivModelDefault`, `legacy-bs-spot` until **1 May 2027**, then `b76-forward`. A response that
   used the legacy model because it was the default carries `Deprecation: @1809109800` and
-  `Link: </docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"`. `legacy-bs-spot` stays selectable until `/v2`.
+  `Link: </docs/API-DEPRECATIONS.md#optionchain-ivmodel>; rel="deprecation"`. `legacy-bs-spot` stays selectable until `/v2`.
 - Owners can switch early with `"market": { "chain": { "ivModelDefault": "b76-forward" } }`.
 
 Why: the old default gave a different IV from the dashboard (Black-76 on the forward) and jumped over weekends and on

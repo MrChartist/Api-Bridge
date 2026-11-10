@@ -10,7 +10,7 @@
     "type": "bearer"
   },
   "info": {
-    "description": "Every HTTP operation of the Bridge, one folder per area. Set `baseUrl` (default http://127.0.0.1:4300) and `apiKey` (a key from `mc-bridge keys create`) in the environment.\n\nOrder examples are paper orders on the demo paper account. Nothing here contains a real key.\n\nGenerated from docs/openapi.yaml (1.0.0-draft.1). Do not edit by hand: run node scripts/gen-collections.mjs.",
+    "description": "Every HTTP operation of the Bridge, one folder per area. Set `baseUrl` (default http://127.0.0.1:4300) and `apiKey` (a key from `mc-bridge keys create`) in the environment.\n\nOrder examples are paper orders on the demo paper account. Nothing here contains a real key.\n\nGenerated from docs/openapi.yaml (2.0.0). Do not edit by hand: run node scripts/gen-collections.mjs.",
     "name": "Mr. Chartist API Bridge",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },

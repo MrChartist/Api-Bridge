@@ -207,4 +207,4 @@ Initial public release: a local service that connects your Indian broker account
 - Inbound webhooks (signed generic, ChartInk, GoCharting), MCP tools for AI assistants, and a compat API at `/api/v1`.
 - Python and Node SDKs, spreadsheet and AmiBroker integrations, and a minimal dashboard (Accounts, API, Orders, Safety).
 
-API changes that need a migration window are recorded in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+API changes that need a migration window are recorded in [docs/API-DEPRECATIONS.md](docs/API-DEPRECATIONS.md).

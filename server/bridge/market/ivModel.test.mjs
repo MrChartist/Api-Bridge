@@ -150,7 +150,7 @@ describe("ivModel over HTTP (demo)", () => {
     expect(implicit.status).toBe(200);
     expect(implicit.headers.get("deprecation")).toBe(`@${LEGACY_IV_DEPRECATION}`);
     expect(LEGACY_IV_DEPRECATION).toBe(1809109800);
-    expect(implicit.headers.get("link")).toBe('</docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"');
+    expect(implicit.headers.get("link")).toBe('</docs/API-DEPRECATIONS.md#optionchain-ivmodel>; rel="deprecation"');
     expect((await implicit.json()).data.pricing).toBeUndefined();
     const explicit = await get(`/v1/optionchain?underlying=NIFTY&expiry=${exp}&strikes=5&ivModel=legacy-bs-spot`);
     expect(explicit.headers.get("deprecation")).toBeNull();
