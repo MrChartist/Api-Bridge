@@ -367,7 +367,7 @@ export function downloadBody(st, d) {
     ...(st.range === "custom" && d.to ? { to: d.to } : {}),
     format: st.format,
     layout: st.layout,
-    ...(String(st.name ?? "").trim() ? { name: st.name.trim() } : {}),
+    ...(stripBidi(st.name).trim() ? { name: stripBidi(st.name).trim() } : {}),
     ...(st.keep && st.dataset ? { dataset: st.dataset } : {}),
   };
 }
@@ -1038,7 +1038,7 @@ export function defaultRuleName(f) {
  * underlying, expiries, count, symbols: string[], everySec, format, custom, days, start, end, keepDays }.
  */
 export function recordingBody(f, mode = "rule", { enabled = true } = {}) {
-  const b = { name: String(f.name ?? "").trim() || (mode === "rule" ? defaultRuleName(f) : undefined), kind: f.kind, everySec: Number(f.everySec), format: f.format };
+  const b = { name: stripBidi(f.name).trim() || (mode === "rule" ? defaultRuleName(f) : undefined), kind: f.kind, everySec: Number(f.everySec), format: f.format };
   if (b.name === undefined) delete b.name;
   if (f.source === "collection") b.collection = f.collection;
   else if (f.source === "index") {
@@ -1162,11 +1162,26 @@ export const isUnavailable = unavailable;
  * own api(); a test passes a fetch to a fake Bridge. Each method answers { data, meta }.
  * @param {(method: string, path: string, body?: unknown) => Promise<any>} call
  */
+/**
+ * Text direction controls (U+202A to U+202E and U+2066 to U+2069) in a name make the text after it read backwards: a file
+ * called "report \u202Evsc.exe" shows as "report exe.csv". They are removed from names a person types and from names shown.
+ */
+export const stripBidi = (s) => String(s ?? "").replace(/[\u202A-\u202E\u2066-\u2069]/g, "");
+const NAME_KEYS = new Set(["name", "label", "description", "title"]);
+/** The same data with direction controls removed from the text fields people name things in (a copy; the input is not changed). */
+export function scrubNames(value, depth = 0) {
+  if (depth > 8 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((v) => scrubNames(v, depth + 1));
+  const out = {};
+  for (const [k, v] of Object.entries(value)) out[k] = typeof v === "string" && NAME_KEYS.has(k) ? stripBidi(v) : scrubNames(v, depth + 1);
+  return out;
+}
+
 export function createDataClient(call) {
   const e = encodeURIComponent;
   const out = async (method, path, body) => {
     const r = await call(method, path, body);
-    return { data: r?.data ?? null, meta: r?.meta ?? {} };
+    return { data: scrubNames(r?.data ?? null), meta: r?.meta ?? {} };
   };
   const qs = (o) => {
     const p = Object.entries(o ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "");

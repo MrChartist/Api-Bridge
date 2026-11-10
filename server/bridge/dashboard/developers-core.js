@@ -419,7 +419,7 @@ export function secretFromBytes(bytes) {
 export function receiverProblem({ url = "", topics = [] } = {}) {
   const u = String(url).trim();
   if (!u) return "Type the address your program listens on, for example https://example.com/bridge/events.";
-  if (!/^https?:\/\/[^\s/]+/i.test(u)) return "The address must start with https:// (or http:// for a program on this computer or network).";
+  if (!/^https?:\/\/[^\s/]+/i.test(u)) return "The address must start with https://. A plain http:// address is refused unless you allow local addresses in the Bridge's settings (the line below the form says how).";
   if (!topics.length) return "Tick at least one kind of event.";
   return "";
 }

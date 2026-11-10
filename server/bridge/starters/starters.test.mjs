@@ -703,6 +703,27 @@ describe("starter hardening (audit S13)", () => {
       expect(hits).toEqual([]);
     });
 
+    it("curl: a Ctrl+C in the middle of a call leaves no key file in the temporary folder (audit F14)", async (ctx) => {
+      if (process.platform === "win32" || !(await hasCmd("bash")) || !(await hasCmd("curl"))) return ctx.skip();
+      const slow = createServer(() => {}); // never answers
+      await new Promise((r) => slow.listen(0, "127.0.0.1", r));
+      const tmp = mkdtempSync(join(work, "tmpdir-"));
+      const dir = project("curl", { key: FAKE_KEY });
+      writeFileSync(join(dir, ".env"), `BRIDGE_KEY=${FAKE_KEY}\nBRIDGE_URL=http://127.0.0.1:${slow.address().port}\n`);
+      try {
+        const child = spawn("bash", ["-c", `. ./lib.sh; bridge GET /v1/health`], { cwd: dir, env: { ...process.env, TMPDIR: tmp }, stdio: "ignore" });
+        const closed = new Promise((r) => child.on("close", r));
+        await new Promise((r) => setTimeout(r, 700));
+        expect(readdirSync(tmp).length).toBeGreaterThan(0); // the key file exists while the call is running
+        child.kill("SIGINT");
+        await closed;
+        await new Promise((r) => setTimeout(r, 100));
+        expect(readdirSync(tmp)).toEqual([]);
+      } finally {
+        await new Promise((r) => slow.close(r));
+      }
+    });
+
     it("curl: the key is not on the command line of the events script either", () => {
       const events = readFileSync(join(project("curl"), "events.sh"), "utf8");
       expect(events).not.toMatch(/-H "Authorization: Bearer \$BRIDGE_KEY"/);

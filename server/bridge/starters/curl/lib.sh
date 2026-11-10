@@ -54,8 +54,11 @@ bridge() {
   keyfile="$(mktemp)"
   chmod 600 "$keyfile"
   printf 'Authorization: Bearer %s\n' "$BRIDGE_KEY" >"$keyfile"
+  # Ctrl+C or a kill must not leave the key file behind in the temporary folder.
+  trap 'rm -f "$headers" "$keyfile"; exit 130' INT TERM
   while :; do
     if ! out="$(bcurl -sS --max-time 30 -X "$method" -D "$headers" -H "@$keyfile" -H "Accept: application/json" -w $'\n%{http_code}' "$@" "$BRIDGE_URL$path")"; then
+      trap - INT TERM
       rm -f "$headers" "$keyfile"
       echo "Could not reach the Bridge at $BRIDGE_URL. Is it running?" >&2
       return 2
@@ -64,6 +67,7 @@ bridge() {
     BRIDGE_BODY="${out%$'\n'*}"
     case "$BRIDGE_STATUS" in
       2??)
+        trap - INT TERM
         rm -f "$headers" "$keyfile"
         return 0
         ;;
@@ -76,6 +80,7 @@ bridge() {
         fi
         ;;
     esac
+    trap - INT TERM
     rm -f "$headers" "$keyfile"
     return 1
   done

@@ -3106,7 +3106,7 @@ async function webhookPanel(paperAcc, host) {
       { class: "field wide ai-ips" },
       h("label", { class: "ai-switch", for: "hook-ips" }, h("span", {}, "Only accept alerts from TradingView's own addresses"), h("span", { class: "switch" }, ipSwitch, h("i"))),
       h("p", { class: "muted small" }, ipNote),
-      ipList ? h("details", { class: "ai-details" }, h("summary", {}, `TradingView's addresses, checked ${ipList.verifiedAt ?? "on an unknown date"}${ipList.edited ? " (your edited list)" : ""}`), h("p", { class: "mono small" }, ipList.ips.join("   ")), ipList.source ? h("a", { href: ipList.source, target: "_blank", rel: "noopener" }, "TradingView's own page for this list") : null) : null,
+      ipList ? h("details", { class: "ai-details" }, h("summary", {}, `TradingView's addresses, checked ${ipList.verifiedAt ?? "on an unknown date"}${ipList.edited ? " (your edited list)" : ""}`), h("p", { class: "mono small" }, ipList.ips.join("   ")), /^https:\/\//i.test(ipList.source ?? "") ? h("a", { href: ipList.source, target: "_blank", rel: "noopener noreferrer" }, "TradingView's own page for this list") : null) : null,
     ),
   ];
   const syncSource = () => {

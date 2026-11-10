@@ -3,6 +3,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { scrubOnClose } from "./app.js";
+import { createDataClient, downloadBody, recordingBody, scrubNames, stripBidi } from "./data-core.js";
+import { receiverProblem } from "./developers-core.js";
 import { createOrderKeys } from "./orders-core.js";
 
 const dir = new URL("./", import.meta.url);
@@ -104,5 +106,25 @@ describe("F12: a control's accessible name starts with its visible words (WCAG 2
     const dev = src("developers.js");
     expect(dev).not.toContain('role: "region", "aria-label": "Recent events"');
     expect(dev).toContain('h("h2", { id: "dev-ev3" }, "Recent events")');
+  });
+});
+
+describe("F14: hardening", () => {
+  const src = (f) => sources.find(([n]) => n === f)[1];
+  it("text direction controls are removed from names shown and names sent", async () => {
+    const evil = "report \u202Evsc.exe \u2066x\u2069";
+    expect(stripBidi(evil)).toBe("report vsc.exe x");
+    expect(scrubNames({ name: evil, other: evil, items: [{ label: evil, n: 1 }] })).toEqual({ name: "report vsc.exe x", other: evil, items: [{ label: "report vsc.exe x", n: 1 }] });
+    const client = createDataClient(async () => ({ data: [{ id: "a", name: evil }] }));
+    expect((await client.downloads.list()).data[0].name).toBe("report vsc.exe x");
+    expect(downloadBody({ symbols: ["NSE:INFY"], intervals: ["5m"], range: "1m", format: "csv", layout: "per-symbol", name: evil }, { from: "2026-01-01" }).name).toBe("report vsc.exe x");
+    expect(recordingBody({ kind: "quotes", source: "symbols", symbols: ["NSE:INFY"], everySec: 5, format: "csv", name: evil }, "once", {}).name).toBe("report vsc.exe x");
+  });
+  it("the receiver form does not say a plain http address works", () => {
+    expect(receiverProblem({ url: "ftp://x", topics: ["a"] })).toMatch(/must start with https:\/\/.*refused unless you allow local addresses/);
+    expect(receiverProblem({ url: "https://example.com/e", topics: ["a"] })).toBe("");
+  });
+  it("the TradingView source link is only drawn for an https address", () => {
+    expect(src("views.js")).toContain('/^https:\\/\\//i.test(ipList.source ?? "")');
   });
 });
