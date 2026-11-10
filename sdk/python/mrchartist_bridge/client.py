@@ -20,6 +20,7 @@ Behaviour that matters for trading code:
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import json
 import os
@@ -39,7 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .stream import BridgeStream
 
 DEFAULT_BASE_URL = "http://127.0.0.1:4300"
-USER_AGENT = "mrchartist-bridge-python/0.2"
+USER_AGENT = "mrchartist-bridge-python/0.3"
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
 _MAX_RETRY_WAIT_S = 30.0
 
@@ -257,9 +258,13 @@ class BridgeClient:
     def depth(self, symbol: str, *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Dict[str, Any]:
         return self._get("/v1/depth", {"symbol": symbol, "account": account, "maxAgeMs": max_age_ms})
 
-    def history(self, symbol: str, interval: str, *, from_: Optional[Union[str, int]] = None, to: Optional[Union[str, int]] = None, countback: Optional[int] = None, account: Optional[str] = None, format: Optional[str] = None) -> Any:  # noqa: A002
-        """Candles. ``format="csv"`` returns the CSV text instead of the envelope."""
-        return self._get("/v1/history", {"symbol": symbol, "interval": interval, "from": from_, "to": to, "countback": countback, "account": account, "format": format})
+    def history(self, symbol: str, interval: str, *, from_: Optional[Union[str, int]] = None, to: Optional[Union[str, int]] = None, countback: Optional[int] = None, account: Optional[str] = None, format: Optional[str] = None,  # noqa: A002
+                local_first: Optional[bool] = None, dataset: Optional[str] = None, backup: Optional[bool] = None) -> Any:
+        """Candles. ``format="csv"`` returns the CSV text instead of the envelope. ``local_first=True`` lets the Bridge
+        serve bars it already stored (``dataset="name"`` picks a dataset) and fetch only what is missing from the broker;
+        ``meta.source`` says ``local`` for bars read from disk."""
+        return self._get("/v1/history", {"symbol": symbol, "interval": interval, "from": from_, "to": to, "countback": countback, "account": account, "format": format,
+                                         "localFirst": local_first, "dataset": dataset, "backup": backup})
 
     def expiries(self, underlying: str, *, exchange: Optional[str] = None, account: Optional[str] = None) -> Dict[str, Any]:
         return self._get("/v1/expiries", {"underlying": underlying, "exchange": exchange, "account": account})
@@ -323,6 +328,246 @@ class BridgeClient:
     def engage_kill_switch(self, reason: str, *, cancel_open_orders: bool = False) -> Dict[str, Any]:
         """Stop all orders now. Any key may engage the kill switch; releasing it is deliberately not in the SDK."""
         return self._post("/v1/safety/kill-switch", {"reason": reason, "cancelOpenOrders": cancel_open_orders})
+
+    # ── streamed replies: files and event streams ──
+    def open_stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        query: Optional[Mapping[str, Any]] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        timeout: Optional[float] = None,
+        accept: str = "*/*",
+    ) -> Any:
+        """Open a reply that is read piece by piece (a file, or a Server-Sent Events stream). Returns the open response
+        (``read``, ``readline``, ``close``; a context manager) after checking the status: a problem reply raises the
+        usual typed error. A retryable problem (rate limit) is retried like ``request()``; an unreachable Bridge raises
+        ``BridgeNotRunning`` or ``BridgeConnectionError``. ``timeout`` is the longest silence between two reads."""
+        method = method.upper()
+        url = self.base_url + path + to_query(query)
+        h = {"Accept": accept, "User-Agent": self.user_agent}
+        h.update(headers or {})
+        if self.__api_key:
+            h["Authorization"] = "Bearer " + self.__api_key
+        attempt = 0
+        while True:
+            req = urllib.request.Request(url, headers=h, method=method)
+            try:
+                return self._opener.open(req, timeout=timeout or self.timeout)
+            except urllib.error.HTTPError as e:
+                status, rheaders = e.code, e.headers
+                try:
+                    raw = e.read()
+                except Exception:  # noqa: BLE001
+                    raw = b""
+                finally:
+                    e.close()
+                parsed = _parse_body(raw, rheaders.get("Content-Type", ""))
+                problem = _to_problem(status, rheaders, parsed)
+                err = error_from_problem(problem)
+                if err.retryable and attempt < self.max_retries:
+                    wait = problem.get("retryAfterMs")
+                    self._sleep(min(_MAX_RETRY_WAIT_S, wait / 1000.0) if wait is not None else self._backoff(attempt))
+                    attempt += 1
+                    continue
+                raise self._explain(err, method, path)
+            except (urllib.error.URLError, socket.timeout, ConnectionError, http.client.HTTPException, OSError) as e:
+                reason = getattr(e, "reason", e)
+                timed_out = isinstance(reason, socket.timeout) or isinstance(e, socket.timeout) or "timed out" in str(reason)
+                refused = isinstance(reason, ConnectionRefusedError) or isinstance(e, ConnectionRefusedError)
+                if attempt < self.max_retries:
+                    self._sleep(self._backoff(attempt))
+                    attempt += 1
+                    continue
+                if refused:
+                    raise BridgeNotRunning("Nothing is listening at %s (connection refused). %s" % (self.base_url, BridgeNotRunning.hint), method=method, path=path, outcome_unknown=False) from e
+                raise BridgeConnectionError("Could not reach the Bridge at %s (%s)." % (self.base_url, "timed out" if timed_out else reason), method=method, path=path, outcome_unknown=False, timed_out=timed_out) from e
+
+    def download_to(
+        self,
+        path: str,
+        dest: str,
+        *,
+        query: Optional[Mapping[str, Any]] = None,
+        expect_sha256: Optional[str] = None,
+        chunk_size: int = 1 << 16,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Stream a GET reply into the file ``dest`` (written as ``dest + ".part"`` and renamed when complete, so a
+        broken transfer never leaves a half file under the real name). Returns ``{"path", "bytes", "sha256"}``. With
+        ``expect_sha256`` a different checksum raises ``ChecksumMismatch`` and the file is removed."""
+        from .errors import ChecksumMismatch
+
+        part = dest + ".part"
+        digest = hashlib.sha256()
+        size = 0
+        with self.open_stream("GET", path, query=query, timeout=timeout) as res:
+            try:
+                with open(part, "wb") as f:
+                    while True:
+                        try:
+                            block = res.read(chunk_size)
+                        except (socket.timeout, ConnectionError, http.client.HTTPException, OSError) as e:
+                            raise BridgeConnectionError("The transfer from %s broke off after %d bytes (%s)." % (self.base_url, size, e), method="GET", path=path, outcome_unknown=False) from e
+                        if not block:
+                            break
+                        f.write(block)
+                        digest.update(block)
+                        size += len(block)
+            except BaseException:
+                try:
+                    os.remove(part)
+                except OSError:
+                    pass
+                raise
+        actual = digest.hexdigest()
+        if expect_sha256 and actual.lower() != expect_sha256.lower():
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            raise ChecksumMismatch("%s does not match its manifest (expected sha256 %s, got %s). It was not kept." % (os.path.basename(dest), expect_sha256, actual), expected=expect_sha256, actual=actual)
+        os.replace(part, dest)
+        return {"path": dest, "bytes": size, "sha256": actual}
+
+    # ── data: downloads, datasets, recordings, collections, subscriptions ──
+    def create_download(self, request: Mapping[str, Any]) -> Dict[str, Any]:
+        """``POST /v1/downloads``: queue a download job (202 with the job)."""
+        return self._post("/v1/downloads", dict(request))
+
+    def downloads(self, *, status: Optional[str] = None, limit: Optional[int] = None, cursor: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/downloads", {"status": status, "limit": limit, "cursor": cursor})
+
+    def download(self, job_id: str) -> Dict[str, Any]:
+        return self._get("/v1/downloads/" + _seg(job_id))
+
+    def pause_download(self, job_id: str) -> Dict[str, Any]:
+        return self._post("/v1/downloads/%s/pause" % _seg(job_id))
+
+    def resume_download(self, job_id: str) -> Dict[str, Any]:
+        return self._post("/v1/downloads/%s/resume" % _seg(job_id))
+
+    def cancel_download(self, job_id: str) -> Dict[str, Any]:
+        return self._post("/v1/downloads/%s/cancel" % _seg(job_id))
+
+    def delete_download(self, job_id: str) -> Any:
+        """Remove the job and its files from the Bridge's disk."""
+        return self.request("DELETE", "/v1/downloads/" + _seg(job_id)).body
+
+    def edit_download(self, job_id: str, changes: Mapping[str, Any]) -> Dict[str, Any]:
+        """Rename a job or change its tags (``PATCH /v1/downloads/{id}``)."""
+        return self.request("PATCH", "/v1/downloads/" + _seg(job_id), body=dict(changes)).body
+
+    def download_files(self, job_id: str) -> Dict[str, Any]:
+        return self._get("/v1/downloads/%s/files" % _seg(job_id))
+
+    def datasets(self, *, tag: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/datasets", {"tag": tag})
+
+    def dataset(self, name: str) -> Dict[str, Any]:
+        return self._get("/v1/datasets/" + _seg(name))
+
+    def update_dataset(self, name: str, body: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+        """``POST /v1/datasets/{name}/update``: fetch only the bars after the dataset's last one (202 with a job)."""
+        return self._post("/v1/datasets/%s/update" % _seg(name), dict(body or {}))
+
+    def edit_dataset(self, name: str, changes: Mapping[str, Any]) -> Dict[str, Any]:
+        """Rename a dataset or change its tags or description (``PATCH /v1/datasets/{name}``)."""
+        return self.request("PATCH", "/v1/datasets/" + _seg(name), body=dict(changes)).body
+
+    def recordings(self, *, status: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/recordings", {"status": status})
+
+    def create_recording(self, request: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/recordings", dict(request))
+
+    def recording(self, recording_id: str) -> Dict[str, Any]:
+        return self._get("/v1/recordings/" + _seg(recording_id))
+
+    def pause_recording(self, recording_id: str) -> Dict[str, Any]:
+        return self._post("/v1/recordings/%s/pause" % _seg(recording_id))
+
+    def resume_recording(self, recording_id: str) -> Dict[str, Any]:
+        return self._post("/v1/recordings/%s/resume" % _seg(recording_id))
+
+    def stop_recording(self, recording_id: str) -> Dict[str, Any]:
+        return self._post("/v1/recordings/%s/stop" % _seg(recording_id))
+
+    def delete_recording(self, recording_id: str) -> Any:
+        return self.request("DELETE", "/v1/recordings/" + _seg(recording_id)).body
+
+    def recording_files(self, recording_id: str) -> Dict[str, Any]:
+        return self._get("/v1/recordings/%s/files" % _seg(recording_id))
+
+    def recording_rules(self) -> Dict[str, Any]:
+        return self._get("/v1/recordings/rules")
+
+    def create_recording_rule(self, rule: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/recordings/rules", dict(rule))
+
+    def update_recording_rule(self, rule_id: str, changes: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.request("PATCH", "/v1/recordings/rules/" + _seg(rule_id), body=dict(changes)).body
+
+    def delete_recording_rule(self, rule_id: str) -> Any:
+        return self.request("DELETE", "/v1/recordings/rules/" + _seg(rule_id)).body
+
+    def collections(self, *, tag: Optional[str] = None, kind: Optional[str] = None) -> Dict[str, Any]:
+        return self._get("/v1/collections", {"tag": tag, "kind": kind})
+
+    def collection(self, name: str) -> Dict[str, Any]:
+        return self._get("/v1/collections/" + _seg(name))
+
+    def create_collection(self, collection: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/collections", dict(collection))
+
+    def update_collection(self, name: str, changes: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.request("PATCH", "/v1/collections/" + _seg(name), body=dict(changes)).body
+
+    def delete_collection(self, name: str) -> Any:
+        return self.request("DELETE", "/v1/collections/" + _seg(name)).body
+
+    def resolve_collection(self, name: str, *, allow_stale: Optional[bool] = None) -> Dict[str, Any]:
+        """The concrete symbols of a collection right now (an option universe is recomputed on each call). A delayed or
+        end-of-day ATM price is refused (422) and a stale one too (503) unless ``allow_stale=True`` (then labelled)."""
+        return self._get("/v1/collections/%s/resolve" % _seg(name), {"allowStale": 1 if allow_stale else None})
+
+    def collection_usage(self, name: str) -> Dict[str, Any]:
+        return self._get("/v1/collections/%s/usage" % _seg(name))
+
+    def collection_estimate(self, name: str, *, intervals: Union[str, Sequence[str], None] = None, days: Optional[int] = None) -> Dict[str, Any]:
+        return self._get("/v1/collections/%s/estimate" % _seg(name), {"intervals": _list(intervals) if intervals else None, "days": days})
+
+    def subscriptions(self) -> Dict[str, Any]:
+        return self._get("/v1/subscriptions")
+
+    def create_subscription(self, subscription: Mapping[str, Any]) -> Dict[str, Any]:
+        return self._post("/v1/subscriptions", dict(subscription))
+
+    def update_subscription(self, subscription_id: str, changes: Mapping[str, Any]) -> Dict[str, Any]:
+        return self.request("PATCH", "/v1/subscriptions/" + _seg(subscription_id), body=dict(changes)).body
+
+    def delete_subscription(self, subscription_id: str) -> Any:
+        return self.request("DELETE", "/v1/subscriptions/" + _seg(subscription_id)).body
+
+    def test_subscription(self, subscription_id: str) -> Dict[str, Any]:
+        return self._post("/v1/subscriptions/%s/test" % _seg(subscription_id))
+
+    def subscription(self, subscription_id: str) -> Dict[str, Any]:
+        return self._get("/v1/subscriptions/" + _seg(subscription_id))
+
+    def subscription_deliveries(self, subscription_id: str, *, limit: Optional[int] = None, outcome: Optional[str] = None) -> Dict[str, Any]:
+        """Every delivery attempt, newest first. ``outcome`` is delivered, retry, dead or failed."""
+        return self._get("/v1/subscriptions/%s/deliveries" % _seg(subscription_id), {"limit": limit, "outcome": outcome})
+
+    def subscription_dead_letters(self, subscription_id: str) -> Dict[str, Any]:
+        return self._get("/v1/subscriptions/%s/dead-letters" % _seg(subscription_id))
+
+    def retry_dead_letter(self, subscription_id: str, delivery_id: str) -> Dict[str, Any]:
+        return self._post("/v1/subscriptions/%s/dead-letters/%s/retry" % (_seg(subscription_id), _seg(delivery_id)))
+
+    def clear_dead_letters(self, subscription_id: str) -> Dict[str, Any]:
+        return self.request("DELETE", "/v1/subscriptions/%s/dead-letters" % _seg(subscription_id)).body
 
     def paginate(self, fn: Callable[..., Dict[str, Any]], **params: Any) -> Iterator[Any]:
         """Yield every item of a paginated list, e.g. ``for o in bridge.paginate(bridge.orders, account="x")``."""

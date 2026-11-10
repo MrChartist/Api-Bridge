@@ -106,6 +106,79 @@ frames.to_csv(bridge.history("NSE:RELIANCE", "5m", countback=300), "reliance.csv
 print(bridge.xl.formula("ltp"))                                          # an Excel =WEBSERVICE(...) formula, key left as a placeholder
 ```
 
+## Downloads, datasets and recordings
+
+The Bridge can fetch history for many symbols in the background and keep it as files, and can record what brokers do not
+give you (option chains, open-interest snapshots) going forward from its own live data. The library drives both.
+
+```python
+job = bridge.downloads.create(["NSE:RELIANCE", "NSE:TCS"], "5m", from_="2024-01-01", dataset="large-caps-5m")
+job = bridge.downloads.wait(job, on_progress=lambda j: print(j.status, j.progress.done, "of", j.progress.total))
+bridge.downloads.save(job, "data/")          # checks each file's SHA-256, writes manifest.json, skips files already there
+rows = bridge.downloads.read(job)            # list of dicts (as_dataframe=True for pandas)
+bridge.datasets.update("large-caps-5m", wait=True)      # later: only the bars after the last stored one
+```
+
+- A job runs at the lowest priority on the Bridge, so it never slows live reads or orders, survives a restart, and stops with
+  a stated reason (`job.reason`) on a kill switch or a lost login. `wait` raises `DownloadFailed` with that reason, or
+  `WaitTimeout` (the job carries on; look again with `downloads.get(id)`).
+- Every job, dataset and recording says its data class, source and delay (`job.data_class`, `job.label`) and `save()` keeps
+  that in `manifest.json`. `backup=True` lets a free source serve a job; its files are then `delayed` or `eod`, for analysis
+  only, never for orders, risk checks, paper fills or alerts.
+- `bridge.recordings.create("chain", underlying="NIFTY", expiry="2026-11-12", every_sec=30)` records chains (at least 15 s
+  apart) and `create("quotes", symbols, every_sec=1)` quotes. The Bridge records real-time data only. For recording without
+  pressing start, `bridge.recordings.rules.create("Index chains", "chain", every_sec=30, collection="index-options")`: the Bridge
+  starts and stops it at each trading session, resumes after a restart and notes a gap when the feed was missing.
+- A collection is a named, tagged list that downloads, recordings and sheets share: `bridge.collections.create("w", symbols)`
+  or `create("nifty-near", universe=option_universe("NIFTY", "current-weekly", count=10))`. `resolve(name)` gives the symbols
+  now; for an option universe it recomputes the ATM and the rolling expiry each time and puts a note in `warnings` when
+  the price was stale. The Bridge refuses an ATM from a delayed or end-of-day price (422) and from a stale one (503) unless you
+  pass `allow_stale=True`, and then labels the answer (`warnings`, `atm_source`). Reading collections needs a `read` key; changing
+  them needs the `paper` scope. `export`/`import_` move a collection as CSV or JSON.
+
+## Candles over any range, and saving API calls
+
+```python
+candles = bridge.history_all("NSE:RELIANCE", "5m", "2024-01-01", "2024-12-31", local_first=True)
+for c in candles:                  # typed Candle objects, oldest first, no duplicates
+    ...
+df = candles.to_dataframe()        # also .records(), .to_csv(path), .to_history(); freshness columns stay on
+print(candles.freshness, candles.local_windows, candles.broker_windows, candles.gaps)
+```
+
+One `GET /v1/history` call covers only so much; `history_all` asks for windows that fit (and halves any the Bridge reports as
+`partial`). With `local_first=True` the Bridge answers from data it already stored (real-time class, no gaps) and asks the
+broker only for what is missing; `local_windows` and `broker_windows` show the split. Parquet is written only when `pyarrow`
+is installed: `candles.to_parquet("x.parquet")` or `frames.csv_to_parquet("x.csv")` (the label goes in the file metadata).
+
+## Events and webhooks
+
+```python
+for ev in bridge.events.subscribe(["download.*", "recording.gap"], since=saved_cursor):
+    print(ev.cursor, ev.topic, ev.data)       # reconnects by itself; asks for events after the last cursor
+```
+
+`subscribe` reads `GET /v1/events/stream`, reconnects with growing waits and resumes from the last cursor, so a restart loses
+nothing the Bridge still keeps. If the cursor you ask for is older than what the Bridge kept (or newer than it has), `sub.gap`
+is true (`sub.gap_reason` is `retention` or `cursor_ahead`; `sub.on_gap` is called): read the current state from the API
+again, then carry on. `bridge.events.poll(since=cursor)` is the same as one JSON answer for a script that runs now and then, and
+`bridge.events.topics()` lists what your key may receive.
+
+For a URL on your own server use `bridge.subscriptions.create(url, topics, secret=...)` (admin key, from the Bridge's
+computer) and check every delivery before you trust it:
+
+```python
+from mrchartist_bridge import verify_signature
+ok = verify_signature(SECRET, raw_body_bytes, request.headers)        # False: answer 401 and do not process it
+```
+
+The Bridge sends `X-Bridge-Signature: v1=<hex>` and `X-Bridge-Timestamp: <unix seconds>` (and `X-Bridge-Event-Id`,
+`X-Bridge-Delivery`, `X-Bridge-Attempt`). The hex is the HMAC-SHA256 of `"<timestamp>." + the exact raw body`; a timestamp more
+than 5 minutes off fails. Use the raw bytes as received. Delivery is at least once: de-duplicate on `X-Bridge-Event-Id`.
+`raise_on_fail=True` raises `SignatureInvalid` with a `reason`. A delivery that keeps failing becomes a dead letter:
+`bridge.subscriptions.dead_letters(id)`, `retry_dead_letter(id, letter)`, `retry_all_dead_letters(id)`, `clear_dead_letters(id)`;
+`deliveries(id, outcome="dead")` is the attempt log.
+
 ## Rate limits and many symbols
 
 `bridge.ltp_many(symbols)` and `quotes_many` split into requests the Bridge accepts and wait when throttled.

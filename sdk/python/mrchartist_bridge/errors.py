@@ -35,7 +35,10 @@ Everything derives from ``BridgeError``. The tree, in the order you usually catc
     ├── FeatureUnavailable             this Bridge does not have the route you need (an older Bridge)
     ├── ConfigurationError             no key / bad URL found by ``Bridge()``
     ├── OrderNotFilled                 an order ended rejected, cancelled or expired (``order``)
-    └── WaitTimeout                    ``wait_for_fill`` or ``tickets.wait`` ran out of time (the order may still fill)
+    ├── WaitTimeout                    ``wait_for_fill``, ``tickets.wait`` or ``downloads.wait`` ran out of time (the thing may still finish)
+    ├── DownloadFailed                 a download job ended failed or cancelled (``job``, with the reason the Bridge gave)
+    ├── ChecksumMismatch               a downloaded file does not match the checksum in its manifest (the file is removed)
+    └── SignatureInvalid               a webhook delivery's signature, timestamp or replay check failed (``reason``)
 
 Unknown codes (the list is open) become a plain ``BridgeApiError`` with ``code`` set, so new server codes never break
 old code. Every error has ``hint``: one plain sentence on how to fix it. ``str(error)`` includes it.
@@ -329,6 +332,33 @@ class WaitTimeout(BridgeError):
     def __init__(self, message: str, last: Any = None) -> None:
         super().__init__(message)
         self.last = last
+
+
+class DownloadFailed(BridgeError):
+    """A download job ended ``failed`` or ``cancelled``. ``job`` is its final state (``job.reason`` says why, for example
+    the kill switch, a lost broker login or a full disk)."""
+
+    def __init__(self, message: str, job: Any = None) -> None:
+        super().__init__(message)
+        self.job = job
+
+
+class ChecksumMismatch(BridgeError):
+    """A downloaded file's SHA-256 is not the one in the job's manifest. The partial file is deleted."""
+
+    def __init__(self, message: str, *, expected: str = "", actual: str = "") -> None:
+        super().__init__(message)
+        self.expected = expected
+        self.actual = actual
+
+
+class SignatureInvalid(BridgeError):
+    """A signed delivery failed verification. ``reason`` is one of ``missing_header``, ``malformed_header``,
+    ``timestamp_out_of_range`` or ``signature_mismatch``. Answer 401 and do not process the body."""
+
+    def __init__(self, message: str, reason: str = "signature_mismatch") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 #: problem ``code`` -> class. Anything not listed becomes a plain BridgeApiError.

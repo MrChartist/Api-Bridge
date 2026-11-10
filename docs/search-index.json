@@ -2438,6 +2438,9 @@
         "Streams",
         "asyncio",
         "pandas, CSV and spreadsheets",
+        "Downloads, datasets and recordings",
+        "Candles over any range, and saving API calls",
+        "Events and webhooks",
         "Rate limits and many symbols",
         "Alerts",
         "The original client and strategies"
@@ -2582,6 +2585,7 @@
     },
     {
       "headings": [
+        "Downloads, recordings, collections, history and events",
         "Browser apps"
       ],
       "kind": "guide",

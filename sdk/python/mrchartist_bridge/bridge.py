@@ -31,6 +31,9 @@ from .errors import (
     Unauthenticated,
     error_from_problem,
 )
+from .data import Collections, Datasets, Downloads, Recordings, Subscriptions
+from .events import Events
+from .longhistory import HistoryIter
 from .namespaces import Calendar, Hooks, Symbols, Xl
 from .orders import Orders, Tickets
 from .records import (
@@ -149,6 +152,12 @@ class Bridge:
         self.calendar = Calendar(self)
         self.hooks = Hooks(self)
         self.xl = Xl(self)
+        self.downloads = Downloads(self)
+        self.datasets = Datasets(self)
+        self.recordings = Recordings(self)
+        self.collections = Collections(self)
+        self.subscriptions = Subscriptions(self)
+        self.events = Events(self)
 
     # ── construction helpers ──
 
@@ -310,11 +319,21 @@ class Bridge:
     def depth(self, symbol: str, *, account: Optional[str] = None, max_age_ms: Optional[int] = None) -> Depth:
         return Depth.from_dict(self.client.depth(symbol, account=account, max_age_ms=max_age_ms)["data"])
 
-    def history(self, symbol: str, interval: str, *, countback: Optional[int] = None, from_: Optional[Union[str, int]] = None, to: Optional[Union[str, int]] = None, account: Optional[str] = None) -> History:
+    def history(self, symbol: str, interval: str, *, countback: Optional[int] = None, from_: Optional[Union[str, int]] = None, to: Optional[Union[str, int]] = None, account: Optional[str] = None,
+                local_first: Optional[bool] = None, dataset: Optional[str] = None) -> History:
         """Candles (ascending) with their label. Needs ``countback``, or ``from_`` and ``to``. The data may be delayed or
-        end-of-day when a free source served it: read ``history.freshness`` before using it for anything but analysis."""
-        r = self.client.history(symbol, interval, from_=from_, to=to, countback=countback, account=account)
+        end-of-day when a free source served it: read ``history.freshness`` before using it for anything but analysis.
+        ``local_first=True`` serves bars the Bridge already stored (``dataset="name"`` for one dataset) and asks the broker only for the rest."""
+        r = self.client.history(symbol, interval, from_=from_, to=to, countback=countback, account=account, local_first=local_first, dataset=dataset)
         return History.from_dict(r["data"])
+
+    def history_all(self, symbol: str, interval: str, from_: Any, to: Any = None, *, chunk_days: Optional[int] = None, local_first: bool = False, dataset: Optional[str] = None,
+                    account: Optional[str] = None, backup: Optional[bool] = None) -> HistoryIter:
+        """Candles over any length of time: iterate for typed ``Candle`` objects (oldest first, no duplicates), or call
+        ``.to_dataframe()``, ``.to_history()``, ``.to_csv(path)``, ``.to_parquet(path)``. Windows that fit the Bridge's
+        per-call limit are fetched one after another (nothing is fetched until you iterate). ``local_first=True`` reads
+        what the Bridge already stored and fetches only the missing part, saving API calls. See ``mrchartist_bridge.longhistory``."""
+        return HistoryIter(self, symbol, interval, from_, to, chunk_days=chunk_days, local_first=local_first, dataset=dataset, account=account, backup=backup)
 
     def expiries(self, underlying: str, *, exchange: Optional[str] = None, account: Optional[str] = None) -> List[str]:
         d = self.client.expiries(underlying, exchange=exchange, account=account).get("data") or {}

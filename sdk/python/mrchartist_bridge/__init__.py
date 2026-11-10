@@ -24,7 +24,12 @@ What is here (names importable from this package):
 * Errors: ``BridgeError`` and a typed tree (``RateLimited``, ``OutcomeUnknown``, ``ScopeRequired`` ...): see ``errors``.
 * Streams: ``bridge.stream(...)`` (sync iterator with reconnect, gap detection and typed events) and
   ``AsyncBridge().stream(...)``.
-* Helpers: ``frames`` (DataFrames, CSV), ``batching`` (retry that honours Retry-After, many-symbol fetches), ``alerts``
+* Data you keep: ``bridge.downloads`` (create, wait, save, read), ``bridge.datasets`` (incremental update, read),
+  ``bridge.recordings`` (+ ``.rules`` for auto-record), ``bridge.collections`` (named symbol lists and option universes),
+  ``bridge.history_all(...)`` (candles over any range, ``local_first=True`` to save API calls): see ``data`` and ``longhistory``.
+* Events out: ``bridge.events.subscribe(...)`` (reconnects, resumes from a cursor), ``bridge.subscriptions`` (signed webhooks)
+  and ``verify_signature`` for receivers: see ``events``.
+* Helpers: ``frames`` (DataFrames, CSV, optional Parquet), ``batching`` (retry that honours Retry-After, many-symbol fetches), ``alerts``
   (alert messages for hooks, provisional).
 
 Data is for personal use: broker data terms generally forbid passing market data to other people.
@@ -33,6 +38,26 @@ Data is for personal use: broker data terms generally forbid passing market data
 from .aio import AsyncBridge, AsyncStream
 from .bridge import Bridge, Features
 from .client import DEFAULT_BASE_URL, BridgeClient, Response, new_idempotency_key, to_query
+from .data import (
+    Collection,
+    Collections,
+    DataFile,
+    Dataset,
+    Datasets,
+    DownloadItem,
+    DownloadJob,
+    DownloadProgress,
+    Downloads,
+    Recording,
+    RecordingRule,
+    RecordingRules,
+    Recordings,
+    Resolution,
+    SavedFile,
+    Subscription,
+    Subscriptions,
+    option_universe,
+)
 from .discovery import Settings, discover, save_credentials
 from .errors import (
     AccountForbidden,
@@ -43,9 +68,11 @@ from .errors import (
     BridgeNotRunning,
     CannotTrade,
     CapabilityUnsupported,
+    ChecksumMismatch,
     ConfigurationError,
     ConfirmationRequired,
     DailyLimitReached,
+    DownloadFailed,
     FeatureUnavailable,
     IdempotencyConflict,
     InvalidOrder,
@@ -66,6 +93,7 @@ from .errors import (
     ScopeRequired,
     ServerError,
     SessionExpired,
+    SignatureInvalid,
     StateConflict,
     SymbolNotFound,
     Unauthenticated,
@@ -74,6 +102,8 @@ from .errors import (
     WaitTimeout,
     error_from_problem,
 )
+from .events import Event, EventPage, EventSubscription, Events, sign_payload, verify_request, verify_signature
+from .longhistory import HistoryIter
 from .orders import BatchItem, BatchResult, Orders, TargetResult, Tickets
 from .records import (
     IST,
@@ -104,6 +134,9 @@ from .records import (
 from .stream import BridgeStream, FeedStatus, GoAway, Heartbeat, OrderUpdate, Snapshot, StreamEvent, Tick, WebSocket, WebSocketClosed, parse_event
 
 __all__ = [
+    "ChecksumMismatch", "Collection", "Collections", "DataFile", "Dataset", "Datasets", "DownloadFailed", "DownloadItem", "DownloadJob", "DownloadProgress", "Downloads", "Event", "EventSubscription",
+    "EventPage", "Events", "HistoryIter", "Recording", "RecordingRule", "RecordingRules", "Recordings", "Resolution", "SavedFile", "SignatureInvalid", "Subscription", "Subscriptions", "option_universe",
+    "sign_payload", "verify_request", "verify_signature",
     "Account", "AccountForbidden", "AccountNotFound", "AsyncBridge", "AsyncStream", "BatchItem", "BatchResult", "Bridge", "BridgeApiError", "BridgeClient", "BridgeConnectionError",
     "BridgeError", "BridgeNotRunning", "BridgeStream", "Candle", "CannotTrade", "CapabilityUnsupported", "Check", "ConfigurationError", "ConfirmationRequired", "DEFAULT_BASE_URL",
     "DailyLimitReached", "Depth", "DepthLevel", "FeatureUnavailable", "Features", "FeedStatus", "Freshness", "Funds", "GoAway", "Health", "Heartbeat", "History", "Holding", "IST",
@@ -114,4 +147,4 @@ __all__ = [
     "WebSocketClosed", "discover", "error_from_problem", "new_idempotency_key", "parse_event", "save_credentials", "to_query",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

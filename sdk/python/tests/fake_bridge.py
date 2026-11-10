@@ -18,6 +18,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional
 
+from fake_data import DataRoutes, Frames, Raw
+
 KEY = "mcb_test_strategy_key"
 EXPIRY = "2026-11-03"
 
@@ -64,6 +66,7 @@ class FakeBridge:
         self.has_to_target = False
         self.has_batch = False
         self.has_calendar = False
+        self.data = DataRoutes(self)
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -99,7 +102,28 @@ class FakeBridge:
                 if u.path != "/v1/health" and self.headers.get("Authorization") != "Bearer " + KEY:
                     return self._send(401, {"code": "UNAUTHENTICATED", "status": 401, "retryable": False})
                 fake._tl.idem = self.headers.get("Idempotency-Key")
+                fake._tl.headers = self.headers
                 status, out = fake.route(method, u.path, q, body)
+                if isinstance(out, Raw):
+                    self.send_response(out.status)
+                    self.send_header("Content-Type", out.content_type)
+                    self.send_header("Content-Length", str(len(out.body)))
+                    self.end_headers()
+                    self.wfile.write(out.body)
+                    return
+                if isinstance(out, Frames):
+                    self.send_response(status)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    try:
+                        for fr in out.frames:
+                            self.wfile.write(fr)
+                            self.wfile.flush()
+                    except OSError:
+                        pass
+                    self.close_connection = True
+                    return
                 extra = {"Idempotency-Replayed": "true"} if isinstance(out, dict) and out.pop("_replayed", False) else None
                 self._send(status, out, extra)
 
@@ -176,6 +200,9 @@ class FakeBridge:
     def route(self, method: str, path: str, q: Dict[str, str], body: Any) -> Any:
         idem = getattr(self._tl, "idem", None)
         with self._lock:
+            routed = self.data.route(method, path, q, body, getattr(self._tl, "headers", None))
+            if routed is not None:
+                return routed
             if method == "GET" and path == "/v1/health":
                 return 200, {"status": "ok", "version": "2.0.0", "apiVersion": "v1", "demo": True, "uptimeSeconds": 5}
             if method == "GET" and path == "/v1/meta":

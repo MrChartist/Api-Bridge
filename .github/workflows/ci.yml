@@ -61,7 +61,7 @@ jobs:
         env:
           TZ: UTC
       - name: Node SDK tests
-        run: node --test sdk/node/test/client.test.mjs
+        run: node --test sdk/node/test/client.test.mjs sdk/node/test/data.test.mjs sdk/node/test/events.test.mjs sdk/node/test/examples.test.mjs
       - name: Smoke test (start, /v1/health, stop)
         run: |
           mkdir -p "$RUNNER_TEMP/smoke"

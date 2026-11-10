@@ -9,13 +9,22 @@ export type Product = "CNC" | "INTRADAY" | "MARGIN" | "MTF";
 export type OrderType = "LIMIT" | "MARKET" | "SL" | "SL-M";
 export type OrderStatus = "pending" | "open" | "trigger_pending" | "partially_filled" | "filled" | "cancelled" | "rejected" | "expired" | "outcome_unknown";
 
+export type DataClass = "realtime" | "delayed" | "eod";
 export interface Freshness {
-  source: "stream" | "cache" | "broker" | "paper";
+  /** "local" and "backup" appear on history read from the Bridge's own disk or from a free source. */
+  source: "stream" | "cache" | "broker" | "paper" | "local" | "backup" | (string & {});
   asOf: string;
   ageMs: number;
   stale: boolean;
   accountId?: string | null;
   broker?: string | null;
+  /** Absent on older Bridges: treat as "realtime" only for stream, cache, broker and paper. */
+  class?: DataClass;
+  delaySec?: number;
+  official?: boolean;
+  provider?: string | null;
+  confidence?: "high" | "medium" | "low";
+  flags?: string[];
 }
 export interface Meta {
   requestId: string;
@@ -269,6 +278,10 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   WebSocket?: unknown;
   userAgent?: string;
+  /** Waits between retries and polls (tests pass a fake). */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Clock in epoch milliseconds, used by `downloads.wait` timeouts (default Date.now). */
+  now?: () => number;
 }
 export interface ReadOpts {
   account?: string;
@@ -306,6 +319,443 @@ export declare class BridgeConnectionError extends BridgeError {
   timedOut: boolean;
   idempotencyKey?: string;
 }
+
+export declare class DownloadFailedError extends BridgeError {
+  /** The job's final state; `job.reason` says why it stopped. */
+  job: DownloadJob;
+}
+export declare class WaitTimeoutError extends BridgeError {
+  /** The last known state: the thing waited for keeps going in the Bridge. */
+  last: unknown;
+}
+export declare class ChecksumMismatchError extends BridgeError {
+  expected: string;
+  actual: string;
+}
+export declare class SignatureInvalidError extends BridgeError {
+  reason: SignatureFailure;
+}
+
+// ── Data you keep: downloads, datasets, recordings, collections, subscriptions, events ──
+
+export type JobStatus = "queued" | "running" | "paused" | "done" | "failed" | "cancelled";
+export type DownloadFormat = "csv" | "jsonl" | "amibroker";
+export interface DataFile {
+  name: string;
+  symbol?: string;
+  interval?: string;
+  rows?: number;
+  bytes?: number;
+  firstBar?: string;
+  lastBar?: string;
+  sha256?: string;
+  /** Recording day files. */
+  day?: string;
+}
+export interface DownloadRequest {
+  /** Canonical symbols, up to 500. Give this or `collection`. */
+  symbols?: string | string[];
+  collection?: string;
+  intervals: string | string[];
+  /** Required unless `dataset` continues an existing dataset. */
+  from?: string | Date;
+  to?: string | Date;
+  name?: string;
+  format?: DownloadFormat;
+  layout?: "per-symbol" | "combined";
+  dataset?: string;
+  account?: string;
+  /** Let a free source serve it (labelled delayed or end-of-day). */
+  backup?: boolean;
+  tags?: string[];
+}
+export interface DownloadJob {
+  id: string;
+  name: string;
+  status: JobStatus;
+  progress: { total: number; done: number; failed: number; rows: number; bytes: number; etaSec: number | null; current: { symbol: string; interval: string } | null };
+  items: Array<{ symbol: string; interval: string; status: string; rows: number; error?: string }>;
+  request: Record<string, unknown>;
+  dataClass: DataClass;
+  source: string | null;
+  official?: boolean;
+  delaySec?: number;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  manifestUrl: string;
+  /** Why a job stopped when it did not finish on its own (kill switch, login lost, disk full ...). */
+  reason?: string;
+  /** Present once the job is done. */
+  files?: DataFile[];
+  tags?: string[];
+  notes?: string[];
+}
+export interface SavedFile {
+  name: string;
+  path: string;
+  bytes: number;
+  sha256: string;
+  /** true when an identical file was already there. */
+  skipped: boolean;
+}
+export interface SaveOptions {
+  names?: string[];
+  overwrite?: boolean;
+  verify?: boolean;
+  signal?: AbortSignal;
+}
+export interface Dataset {
+  name: string;
+  description: string | null;
+  tags: string[];
+  dataClass: DataClass;
+  source: string | null;
+  official?: boolean;
+  delaySec?: number;
+  symbols?: string[];
+  intervals?: string[];
+  rows?: number;
+  bytes?: number;
+  firstBar?: string;
+  lastBar?: string;
+  updatedAt?: string;
+  files: DataFile[];
+  collection?: string | null;
+}
+export interface Recording {
+  id: string;
+  name: string;
+  kind: "quotes" | "chain";
+  status: string;
+  symbols: string[];
+  underlying?: string | null;
+  expiry?: string | null;
+  everySec: number;
+  sessionOnly: boolean;
+  format: "csv" | "jsonl";
+  rows: number;
+  bytes: number;
+  lastWriteAt: string | null;
+  /** Times the feed was silent while the recording was due to write. */
+  gaps: Array<Record<string, unknown>>;
+  diskBytes?: number;
+  dataClass: DataClass;
+  source: string | null;
+  ruleId?: string;
+  collection?: string | null;
+  files?: DataFile[];
+}
+export interface RecordingRequest {
+  kind: "quotes" | "chain";
+  /** quotes: symbols or collection (at least 1 s apart); chain: underlying (+ expiry) or collection (at least 15 s apart). */
+  symbols?: string | string[];
+  collection?: string;
+  underlying?: string;
+  expiry?: string;
+  everySec: number;
+  /** Default true: only inside market hours. */
+  sessionOnly?: boolean;
+  format?: "csv" | "jsonl";
+  name?: string;
+}
+export type RecordingSchedule = "market-hours" | { days: string[]; start: string; end: string };
+export interface RecordingRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  kind: "quotes" | "chain";
+  everySec: number;
+  schedule: RecordingSchedule;
+  collection?: string;
+  symbols?: string[];
+  underlying?: string;
+  universe?: OptionUniverse;
+  keepDays?: number;
+  format?: "csv" | "jsonl";
+}
+export interface RecordingRuleInput {
+  name: string;
+  kind: "quotes" | "chain";
+  everySec: number;
+  /** Exactly one of collection, symbols or underlying (with universe). */
+  collection?: string;
+  symbols?: string[];
+  underlying?: string;
+  universe?: OptionUniverse;
+  schedule?: RecordingSchedule;
+  enabled?: boolean;
+  keepDays?: number;
+  format?: "csv" | "jsonl";
+}
+export interface OptionUniverse {
+  underlying: string;
+  expiries: "current-weekly" | "next-weekly" | "current-monthly" | "all-weekly" | string[];
+  strikes: { around: "atm"; count: number } | { from: number; to: number };
+  sides: Array<"CE" | "PE">;
+  includeUnderlying: boolean;
+  includeFuture: boolean;
+}
+export interface OptionUniverseParams {
+  underlying: string;
+  expiries?: OptionUniverse["expiries"];
+  /** Strikes either side of ATM (default 10). */
+  count?: number;
+  fromStrike?: number;
+  toStrike?: number;
+  sides?: Array<"CE" | "PE">;
+  includeUnderlying?: boolean;
+  includeFuture?: boolean;
+}
+export interface Collection {
+  /** Stable `col_` id: a renamed collection keeps it. */
+  id?: string;
+  name: string;
+  description: string | null;
+  tags: string[];
+  kind: "static" | "option-universe";
+  symbols: string[];
+  universe: OptionUniverse | null;
+  updatedAt?: string;
+}
+export interface Resolution {
+  name: string;
+  symbols: string[];
+  resolvedAt?: string;
+  /** How an option universe was worked out (expiry, ATM strike and the price it came from). */
+  rule?: unknown;
+  atm?: number;
+  /** Where the price behind the ATM came from. */
+  atmSource?: unknown;
+  freshness?: Freshness;
+  /** Non-empty when the price behind the ATM was delayed or unavailable: never use such a resolution silently. */
+  warnings: string[];
+}
+export interface Subscription {
+  id: string;
+  /** The target as the Bridge shows it (without its path). */
+  url?: string;
+  host?: string;
+  label?: string | null;
+  topics: string[];
+  active: boolean;
+  /** ok, unverified, failing, paused or needs-secret. */
+  state?: string;
+}
+export interface DeadLetter {
+  id: string;
+  eventId?: string;
+  topic?: string;
+  reason?: string;
+  [k: string]: unknown;
+}
+export type SignatureFailure = "missing_header" | "malformed_header" | "timestamp_out_of_range" | "signature_mismatch";
+export interface BridgeEvent {
+  topic: string;
+  data: Record<string, any>;
+  /** The position to resume from: pass it as `since` after a restart of your own program. */
+  cursor?: string;
+  time?: string;
+  raw: unknown;
+}
+export interface SubscribeOptions {
+  /** "download.*", ["recording.gap", "order.*"]; none means every topic the key may see. */
+  topics?: string | string[];
+  since?: string;
+  reconnect?: boolean;
+  maxBackoffMs?: number;
+  idleTimeoutMs?: number;
+  maxReconnects?: number;
+  /** Called when the Bridge says events were lost between your cursor and what it still keeps. */
+  onGap?: (reason?: string) => void;
+}
+export declare class EventSubscription implements AsyncIterable<BridgeEvent> {
+  cursor?: string;
+  reconnects: number;
+  connected: boolean;
+  closed: boolean;
+  /** The Bridge's last `ready` message (cursor, oldest, replayed, gap, gapReason, topics). */
+  ready?: { cursor: string; oldest: string | null; replayed: number; gap: boolean; gapReason: string | null; topics: string[] };
+  /** true when events were lost: read the current state from the API again, then carry on. */
+  gap: boolean;
+  gapReason?: string;
+  close(): void;
+  [Symbol.asyncIterator](): AsyncIterator<BridgeEvent>;
+}
+export interface VerifyOptions {
+  /** Default 300. */
+  toleranceSec?: number;
+  /** Epoch seconds (tests). */
+  now?: number;
+  throwOnFail?: boolean;
+}
+type Bytes = string | Uint8Array;
+/** The request headers of a delivery (plain object or Headers), or the two values themselves. */
+type SignedHeaders = Headers | Record<string, string | string[] | undefined> | { timestamp?: string | number; signature?: string };
+export declare const SIGNATURE_HEADER: "X-Bridge-Signature";
+export declare const TIMESTAMP_HEADER: "X-Bridge-Timestamp";
+export declare const EVENT_ID_HEADER: "X-Bridge-Event-Id";
+export declare const EVENT_TOPIC_HEADER: "X-Bridge-Event-Topic";
+export declare const DELIVERY_HEADER: "X-Bridge-Delivery";
+export declare const ATTEMPT_HEADER: "X-Bridge-Attempt";
+export declare function computeSignature(secret: Bytes, timestamp: number, body: Bytes): string;
+/** The two headers the Bridge sends with a delivery, for sending your own test deliveries to a receiver. */
+export declare function signPayload(secret: Bytes, body: Bytes, timestamp?: number): { "X-Bridge-Timestamp": string; "X-Bridge-Signature": string };
+export declare function explainSignature(secret: Bytes | Bytes[], body: Bytes, headers: SignedHeaders, o?: { toleranceSec?: number; now?: number }): { ok: boolean; reason: "ok" | SignatureFailure };
+/** True when X-Bridge-Signature (`v1=<hex>`) is the HMAC-SHA256 of `"<X-Bridge-Timestamp>." + the exact raw body`, within the replay window. */
+export declare function verifySignature(secret: Bytes | Bytes[], body: Bytes, headers: SignedHeaders, o?: VerifyOptions): boolean;
+export declare function verifyRequest(secret: Bytes | Bytes[], headers: SignedHeaders, body: Bytes, o?: VerifyOptions): boolean;
+export declare function topicMatches(pattern: string, topic: string): boolean;
+export declare function eventFrom(sseId: string | undefined, sseEvent: string | undefined, payload: string): BridgeEvent;
+export declare function parseSse(chunks: AsyncIterable<string>): AsyncGenerator<{ id?: string; event?: string; data: string; retry?: number }>;
+export declare function describeDataClass(x: { dataClass?: DataClass; source?: string | null; delaySec?: number }): string;
+export declare function optionUniverse(p: OptionUniverseParams): OptionUniverse;
+export declare function parseTable(text: string, fmt?: "csv" | "jsonl"): Array<Record<string, any>>;
+export declare function toCsv(rows: Array<Record<string, any>>, columns?: string[]): string;
+
+export interface WaitOptions {
+  timeoutMs?: number;
+  pollMs?: number;
+  onProgress?: (job: DownloadJob) => void;
+  /** Default true: a failed or cancelled job throws DownloadFailedError. */
+  throwOnFailure?: boolean;
+  signal?: AbortSignal;
+}
+type JobRef = string | { id: string };
+export declare class Downloads {
+  create(p: DownloadRequest): Promise<DownloadJob>;
+  get(job: JobRef): Promise<DownloadJob>;
+  list(o?: { status?: JobStatus; limit?: number; cursor?: string }): Promise<DownloadJob[]>;
+  pause(job: JobRef): Promise<DownloadJob>;
+  resume(job: JobRef): Promise<DownloadJob>;
+  cancel(job: JobRef): Promise<DownloadJob>;
+  delete(job: JobRef): Promise<void>;
+  rename(job: JobRef, p: { name?: string; tags?: string[] }): Promise<DownloadJob>;
+  wait(job: JobRef, o?: WaitOptions): Promise<DownloadJob>;
+  files(job: JobRef): Promise<DataFile[]>;
+  manifest(job: JobRef): Promise<Record<string, unknown> & { files: DataFile[] }>;
+  save(job: JobRef, directory: string, o?: SaveOptions): Promise<SavedFile[]>;
+  read(job: JobRef, name?: string): Promise<Array<Record<string, any>>>;
+  exportInstruments(o?: { dest?: string; exchange?: string; kind?: string; format?: "csv" | "jsonl" }): Promise<string>;
+}
+export declare class Datasets {
+  list(o?: { tag?: string }): Promise<Dataset[]>;
+  get(name: string): Promise<Dataset>;
+  update(name: string, o?: { wait?: boolean } & WaitOptions): Promise<DownloadJob>;
+  edit(name: string, p: { newName?: string; tags?: string[]; description?: string }): Promise<Dataset>;
+  read(name: string, o?: { symbol?: string; interval?: string; from?: string | number | Date; to?: string | number | Date; account?: string }): Promise<HistoryAllResult>;
+  readAll(name: string, o?: { from?: string | number | Date; to?: string | number | Date }): Promise<HistoryAllResult[]>;
+}
+export declare class RecordingRules {
+  list(): Promise<RecordingRule[]>;
+  get(idOrName: string): Promise<RecordingRule>;
+  create(r: RecordingRuleInput): Promise<RecordingRule>;
+  update(id: string, changes: Partial<Omit<RecordingRuleInput, "name">> & { name?: string }): Promise<RecordingRule>;
+  enable(id: string): Promise<RecordingRule>;
+  disable(id: string): Promise<RecordingRule>;
+  delete(id: string): Promise<void>;
+}
+export declare class Recordings {
+  readonly rules: RecordingRules;
+  create(p: RecordingRequest): Promise<Recording>;
+  get(rec: JobRef): Promise<Recording>;
+  list(o?: { status?: string }): Promise<Recording[]>;
+  pause(rec: JobRef): Promise<Recording>;
+  resume(rec: JobRef): Promise<Recording>;
+  stop(rec: JobRef): Promise<Recording>;
+  delete(rec: JobRef): Promise<void>;
+  files(rec: JobRef): Promise<DataFile[]>;
+  save(rec: JobRef, directory: string, o?: SaveOptions): Promise<SavedFile[]>;
+  read(rec: JobRef, name?: string): Promise<Array<Record<string, any>>>;
+}
+export declare class Collections {
+  list(o?: { tag?: string; kind?: "static" | "option-universe" }): Promise<Collection[]>;
+  get(name: string): Promise<Collection>;
+  create(name: string, p?: { symbols?: string[]; universe?: OptionUniverse; description?: string; tags?: string[] }): Promise<Collection>;
+  update(name: string, p: { symbols?: string[]; universe?: OptionUniverse; description?: string; tags?: string[]; newName?: string }): Promise<Collection>;
+  rename(name: string, newName: string): Promise<Collection>;
+  tag(name: string, tags?: string[], o?: { remove?: string[] }): Promise<Collection>;
+  duplicate(name: string, newName: string): Promise<Collection>;
+  delete(name: string): Promise<void>;
+  /** A delayed or end-of-day ATM price is refused (422) and a stale one (503) unless `allowStale` (then labelled). */
+  resolve(name: string, o?: { allowStale?: boolean }): Promise<Resolution>;
+  isReliable(resolution: Resolution): boolean;
+  symbols(name: string, o?: { allowStale?: boolean }): Promise<string[]>;
+  usage(name: string): Promise<{ downloads?: string[]; recordings?: string[]; datasets?: string[]; [k: string]: unknown }>;
+  estimate(name: string, o?: { intervals?: string | string[]; days?: number }): Promise<Record<string, unknown>>;
+  export(name: string, o?: { format?: "json" | "csv"; path?: string }): Promise<string>;
+  importFrom(source: string, o?: { name?: string; format?: "json" | "csv"; tags?: string[]; description?: string }): Promise<Collection>;
+}
+export declare class Subscriptions {
+  list(): Promise<Subscription[]>;
+  get(id: string): Promise<Subscription>;
+  create(p: { url: string; topics: string[]; secret: string; active?: boolean; label?: string; accounts?: string | string[] }): Promise<Subscription>;
+  update(id: string, p: { url?: string; topics?: string[]; secret?: string; active?: boolean; label?: string }): Promise<Subscription>;
+  delete(id: string): Promise<void>;
+  test(id: string): Promise<Record<string, unknown>>;
+  deliveries(id: string, o?: { limit?: number; outcome?: "delivered" | "retry" | "dead" | "failed" }): Promise<Array<Record<string, unknown>>>;
+  deadLetters(id: string): Promise<DeadLetter[]>;
+  retryDeadLetter(id: string, letter: string | DeadLetter): Promise<Record<string, unknown>>;
+  retryAllDeadLetters(id: string): Promise<Array<Record<string, unknown>>>;
+  /** Returns how many were removed. */
+  clearDeadLetters(id: string): Promise<number>;
+}
+export declare class Events {
+  subscribe(o?: SubscribeOptions): EventSubscription;
+  topics(): Promise<Array<{ topic: string; scope: string; accountScoped: boolean; description: string }>>;
+  poll(o?: { since?: string; topics?: string | string[]; limit?: number }): Promise<{ events: BridgeEvent[]; cursor?: string; gap: boolean; gapReason?: string; hasMore: boolean }>;
+  waitFor(topic: string, predicate?: (ev: BridgeEvent) => boolean, o?: { timeoutMs?: number; since?: string }): Promise<BridgeEvent | undefined>;
+  verifySignature: typeof verifySignature;
+  signPayload: typeof signPayload;
+}
+
+export interface HistoryAllParams {
+  symbol: string;
+  interval: Interval;
+  from: string | number | Date;
+  to?: string | number | Date;
+  /** Window size per call (default 120 for intraday, 1500 for daily and longer). */
+  chunkDays?: number;
+  /** Serve bars the Bridge already stored and fetch only the rest (saves API calls). */
+  localFirst?: boolean;
+  dataset?: string;
+  account?: string;
+  /** Let a free source serve it (the result is labelled delayed or end-of-day). */
+  backup?: boolean;
+}
+export interface HistoryAllResult {
+  symbol: string;
+  interval: string;
+  candles: Candle[];
+  /** The least current label of all windows. */
+  freshness: Freshness;
+  partial: boolean;
+  windows: number;
+  sources: Record<string, number>;
+  gaps: Array<[string, string]>;
+}
+export declare class HistoryAll implements AsyncIterable<Candle> {
+  constructor(client: BridgeClient, p: HistoryAllParams);
+  readonly calls: number;
+  readonly localWindows: number;
+  readonly brokerWindows: number;
+  readonly sources: Record<string, number>;
+  readonly gaps: Array<[number, number]>;
+  readonly partial: boolean;
+  readonly count: number;
+  readonly chunkDays: number;
+  readonly freshness: Freshness | undefined;
+  [Symbol.asyncIterator](): AsyncIterator<Candle>;
+  toHistory(): Promise<HistoryAllResult>;
+  toArray(): Promise<Candle[]>;
+  records(o?: { freshness?: boolean }): Promise<Array<Record<string, any>>>;
+  toCsv(o?: { file?: string; freshness?: boolean }): Promise<string>;
+  /** Throws unless every window was real-time. */
+  requireRealtime(): this;
+}
+export declare function toEpochSeconds(v: string | number | Date | undefined, o?: { end?: boolean; now?: number }): number;
+export declare function istIso(sec: number): string;
+export declare function leastCurrent(labels: Freshness[]): Freshness | undefined;
 
 export type StreamMessage =
   | { type: "heartbeat"; seq: number; time: number; conflated?: number; clientId?: string; heartbeatMs?: number; id?: string | number }
@@ -363,8 +813,10 @@ export declare class BridgeClient {
   ltp(symbols: string | string[], o?: ReadOpts): Promise<Envelope<LtpItem[]>>;
   quotes(symbols: string | string[], o?: ReadOpts): Promise<Envelope<QuoteItem[]>>;
   depth(symbol: string, o?: ReadOpts): Promise<Envelope<DepthItem>>;
-  history(p: { symbol: string; interval: Interval; from?: string | number; to?: string | number; countback?: number; account?: string }): Promise<Envelope<HistoryResult>>;
+  history(p: { symbol: string; interval: Interval; from?: string | number; to?: string | number; countback?: number; account?: string; localFirst?: boolean; dataset?: string; backup?: boolean }): Promise<Envelope<HistoryResult>>;
   history(p: { symbol: string; interval: Interval; from?: string | number; to?: string | number; countback?: number; account?: string; format: "csv" }): Promise<string>;
+  /** Candles over any length of time: `for await (const c of bridge.historyAll({ symbol, interval, from, to }))`. */
+  historyAll(p: HistoryAllParams): HistoryAll;
   expiries(underlying: string, o?: { exchange?: Exchange; account?: string }): Promise<Envelope<{ underlying: string; expiries: string[]; freshness: Freshness }>>;
   optionChain(p: { underlying: string; expiry: string; strikes?: number; greeks?: boolean } & ReadOpts): Promise<Envelope<OptionChain>>;
   streamStats(): Promise<Envelope<Record<string, unknown>>>;
@@ -393,4 +845,59 @@ export declare class BridgeClient {
   streamToken(): Promise<{ token: string; expiresAt: string }>;
   streamUrl(): Promise<string>;
   stream(opts?: StreamOptions): BridgeStream;
+
+  /** Open a reply that is read piece by piece (a file or an event stream); a problem reply throws BridgeApiError. */
+  openStream(method: string, path: string, o?: { query?: Record<string, unknown>; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number; accept?: string }): Promise<Response>;
+
+  // Friendly groups (they return the reply's `data`; the calls below return the whole envelope).
+  readonly downloads: Downloads;
+  readonly datasets: Datasets;
+  readonly recordings: Recordings;
+  readonly collections: Collections;
+  readonly subscriptions: Subscriptions;
+  readonly events: Events;
+
+  createDownload(request: DownloadRequest): Promise<Envelope<DownloadJob>>;
+  listDownloads(p?: { status?: JobStatus; limit?: number; cursor?: string }): Promise<Envelope<DownloadJob[]>>;
+  download(id: string): Promise<Envelope<DownloadJob>>;
+  pauseDownload(id: string): Promise<Envelope<DownloadJob>>;
+  resumeDownload(id: string): Promise<Envelope<DownloadJob>>;
+  cancelDownload(id: string): Promise<Envelope<DownloadJob>>;
+  deleteDownload(id: string): Promise<unknown>;
+  editDownload(id: string, changes: { name?: string; tags?: string[] }): Promise<Envelope<DownloadJob>>;
+  downloadFiles(id: string): Promise<Envelope<DataFile[]>>;
+  listDatasets(p?: { tag?: string }): Promise<Envelope<Dataset[]>>;
+  dataset(name: string): Promise<Envelope<Dataset>>;
+  updateDataset(name: string, body?: Record<string, unknown>): Promise<Envelope<DownloadJob>>;
+  editDataset(name: string, changes: { name?: string; tags?: string[]; description?: string }): Promise<Envelope<Dataset>>;
+  listRecordings(p?: { status?: string }): Promise<Envelope<Recording[]>>;
+  createRecording(request: RecordingRequest): Promise<Envelope<Recording>>;
+  recording(id: string): Promise<Envelope<Recording>>;
+  pauseRecording(id: string): Promise<Envelope<Recording>>;
+  resumeRecording(id: string): Promise<Envelope<Recording>>;
+  stopRecording(id: string): Promise<Envelope<Recording>>;
+  deleteRecording(id: string): Promise<unknown>;
+  recordingFiles(id: string): Promise<Envelope<DataFile[]>>;
+  recordingRules(): Promise<Envelope<RecordingRule[]>>;
+  createRecordingRule(rule: RecordingRuleInput): Promise<Envelope<RecordingRule>>;
+  updateRecordingRule(id: string, changes: Record<string, unknown>): Promise<Envelope<RecordingRule>>;
+  deleteRecordingRule(id: string): Promise<unknown>;
+  listCollections(p?: { tag?: string; kind?: string }): Promise<Envelope<Collection[]>>;
+  collection(name: string): Promise<Envelope<Collection>>;
+  createCollection(collection: Record<string, unknown>): Promise<Envelope<Collection>>;
+  updateCollection(name: string, changes: Record<string, unknown>): Promise<Envelope<Collection>>;
+  deleteCollection(name: string): Promise<unknown>;
+  resolveCollection(name: string, o?: { allowStale?: boolean }): Promise<Envelope<Resolution>>;
+  collectionUsage(name: string): Promise<Envelope<Record<string, unknown>>>;
+  collectionEstimate(name: string, o?: { intervals?: string | string[]; days?: number }): Promise<Envelope<Record<string, unknown>>>;
+  listSubscriptions(): Promise<Envelope<Subscription[]>>;
+  createSubscription(subscription: { url: string; topics: string[]; secret: string; active?: boolean; label?: string; accounts?: string | string[] }): Promise<Envelope<Subscription>>;
+  updateSubscription(id: string, changes: Record<string, unknown>): Promise<Envelope<Subscription>>;
+  deleteSubscription(id: string): Promise<unknown>;
+  testSubscription(id: string): Promise<Envelope<Record<string, unknown>>>;
+  subscription(id: string): Promise<Envelope<Subscription>>;
+  subscriptionDeliveries(id: string, o?: { limit?: number; outcome?: string }): Promise<Envelope<Array<Record<string, unknown>>>>;
+  subscriptionDeadLetters(id: string): Promise<Envelope<DeadLetter[]>>;
+  retryDeadLetter(id: string, deliveryId: string): Promise<Envelope<Record<string, unknown>>>;
+  clearDeadLetters(id: string): Promise<Envelope<{ removed: number }>>;
 }

@@ -363,6 +363,6 @@ def test_cli_usage_and_version_and_strategy_entry_kept(capsys, monkeypatch):
     code, out, err = run_cli([], capsys, monkeypatch)
     assert code == 2 and "strategy describe|run" in err
     code, out, err = run_cli(["version"], capsys, monkeypatch)
-    assert code == 0 and out.strip() == "0.2.0"
+    assert code == 0 and out.strip() == "0.3.0"
     code, out, err = run_cli(["bogus"], capsys, monkeypatch)
     assert code == 2
