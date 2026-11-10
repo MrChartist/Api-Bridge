@@ -182,7 +182,7 @@ drawTabs.n = 0;
 
 /** The Integrations tab's tools (its inner segmented control; each is also a Ctrl K destination). */
 const INTEGRATION_TOOLS = [
-  ["webhooks", "Webhooks"],
+  ["webhooks", "Alert webhooks"],
   ["python", "Python"],
   ["node", "Node"],
   ["excel", "Excel and Sheets"],
@@ -237,7 +237,7 @@ export const PAGES = [
       { id: "keys", label: "Keys", page: "keys", sub: "One key per tool, with only the access it needs", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
       {
         id: "integrations", label: "Integrations", page: "integrations", sub: "Connect Excel, a script, an AI assistant or a webhook", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
-        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert tradingview chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
+        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Alert webhooks (TradingView, ChartInk)" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert alerts incoming tradingview chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
       },
       { id: "console", label: "Test console", page: "console", sub: "Try any call and see what a script would get back", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
       {
