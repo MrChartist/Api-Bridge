@@ -229,8 +229,9 @@ class BridgeClient:
     def test_account(self, account_id: str) -> Dict[str, Any]:
         return self._post("/v1/accounts/%s/test" % _seg(account_id))
 
-    def limits(self, account: Optional[str] = None) -> Dict[str, Any]:
-        return self._get("/v1/limits", {"account": account})
+    def limits(self, account: Optional[str] = None, *, explain: bool = False) -> Dict[str, Any]:
+        """``GET /v1/limits``. ``explain=True`` adds the budget pools, the competing clients and ``savedCalls``."""
+        return self._get("/v1/limits", {"account": account, "explain": True if explain else None})
 
     def usage(self) -> Dict[str, Any]:
         return self._get("/v1/usage")
@@ -432,9 +433,17 @@ class BridgeClient:
         return {"path": dest, "bytes": size, "sha256": actual}
 
     # ── data: downloads, datasets, recordings, collections, subscriptions ──
-    def create_download(self, request: Mapping[str, Any]) -> Dict[str, Any]:
-        """``POST /v1/downloads``: queue a download job (202 with the job)."""
-        return self._post("/v1/downloads", dict(request))
+    def create_download(self, request: Mapping[str, Any], *, dry_run: bool = False) -> Dict[str, Any]:
+        """``POST /v1/downloads``: queue a download job (202 with the job). ``dry_run=True`` starts nothing and returns the estimate."""
+        return self.request("POST", "/v1/downloads", query={"dryRun": True} if dry_run else None, body=dict(request)).body
+
+    def download_settings(self) -> Dict[str, Any]:
+        """``GET /v1/downloads/settings``: the budget share and the after-hours switch in force."""
+        return self._get("/v1/downloads/settings")
+
+    def set_download_settings(self, changes: Mapping[str, Any]) -> Dict[str, Any]:
+        """``PATCH /v1/downloads/settings`` (an admin key from this computer)."""
+        return self.request("PATCH", "/v1/downloads/settings", body=dict(changes)).body
 
     def downloads(self, *, status: Optional[str] = None, limit: Optional[int] = None, cursor: Optional[str] = None) -> Dict[str, Any]:
         return self._get("/v1/downloads", {"status": status, "limit": limit, "cursor": cursor})
@@ -478,6 +487,25 @@ class BridgeClient:
 
     def recordings(self, *, status: Optional[str] = None) -> Dict[str, Any]:
         return self._get("/v1/recordings", {"status": status})
+
+    def recording_status(self) -> Dict[str, Any]:
+        """``GET /v1/recordings/status``: one plain line about today's recording and the numbers behind it."""
+        return self._get("/v1/recordings/status")
+
+    def recording_settings(self) -> Dict[str, Any]:
+        """``GET /v1/recordings/settings``: the budget share recordings may use."""
+        return self._get("/v1/recordings/settings")
+
+    def set_recording_settings(self, changes: Mapping[str, Any]) -> Dict[str, Any]:
+        """``PATCH /v1/recordings/settings`` (an admin key from this computer)."""
+        return self.request("PATCH", "/v1/recordings/settings", body=dict(changes)).body
+
+    def recording_presets(self) -> Dict[str, Any]:
+        return self._get("/v1/recordings/presets")
+
+    def apply_recording_preset(self, preset_id: str, body: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+        """``POST /v1/recordings/presets/{id}/apply`` (admin key from this computer): makes the rule and turns auto-record on."""
+        return self.request("POST", "/v1/recordings/presets/%s/apply" % _seg(preset_id), body=dict(body or {})).body
 
     def create_recording(self, request: Mapping[str, Any]) -> Dict[str, Any]:
         return self._post("/v1/recordings", dict(request))

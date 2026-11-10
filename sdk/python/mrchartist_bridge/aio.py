@@ -180,6 +180,9 @@ class AsyncBridge:
     async def health(self) -> Any:
         return await self._call(self.sync.health)
 
+    async def saved_calls(self) -> Any:
+        return await self._call(self.sync.saved_calls)
+
     async def ping(self, **kw: Any) -> Ping:
         return await self._call(self.sync.ping, **kw)
 

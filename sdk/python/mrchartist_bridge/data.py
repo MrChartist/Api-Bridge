@@ -385,6 +385,137 @@ class RecordingRule:
 
 
 @dataclass(frozen=True)
+class DownloadEstimate:
+    """What a download would cost, before it starts (``downloads.estimate``): nothing is queued."""
+
+    symbols: int
+    intervals: int
+    items: int
+    broker_calls: int
+    calls_saved: int
+    rows: int
+    rows_to_fetch: int
+    bytes: int
+    eta_sec: Optional[float]
+    budget_share: Optional[float]
+    account: Optional[str]
+    already_stored: bool
+    fits_disk: bool
+    notes: Tuple[str, ...]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "DownloadEstimate":
+        disk = d.get("disk") if isinstance(d.get("disk"), Mapping) else {}
+        return cls(_int(d.get("symbols")) or 0, _int(d.get("intervals")) or 0, _int(d.get("items")) or 0, _int(d.get("brokerCalls")) or 0, _int(d.get("callsSaved")) or 0, _int(d.get("rows")) or 0,
+                   _int(d.get("rowsToFetch")) or 0, _int(d.get("bytes")) or 0, _num(d.get("etaSec")), _num(d.get("budgetShare")), d.get("account"), bool(d.get("alreadyStored")),
+                   not bool(disk.get("wouldExceed")), tuple(str(n) for n in d.get("notes") or ()), dict(d))
+
+
+@dataclass(frozen=True)
+class BudgetSettings:
+    """The share of an account's spare API budget background work may use, as the Bridge applies it now.
+
+    ``after_hours_only`` is for downloads; recordings have no such switch (it is ``None`` there). ``defaults`` are the
+    values in ``bridge.config.json``; ``changed`` lists what was changed at run time."""
+
+    max_budget_share: float
+    after_hours_only: Optional[bool]
+    default_share: Optional[float]
+    min_share: float
+    max_share: float
+    changed: Tuple[str, ...]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "BudgetSettings":
+        lim = d.get("limits") if isinstance(d.get("limits"), Mapping) else {}
+        dfl = d.get("defaults") if isinstance(d.get("defaults"), Mapping) else {}
+        after = d.get("afterHoursOnly")
+        return cls(_num(d.get("maxBudgetShare")) or 0.0, None if after is None else bool(after), _num(dfl.get("maxBudgetShare")), _num(lim.get("minBudgetShare")) or 0.05, _num(lim.get("maxBudgetShare")) or 0.8,
+                   tuple(str(c) for c in d.get("changed") or ()), dict(d))
+
+
+@dataclass(frozen=True)
+class RecordingStatus:
+    """``recordings.status()``: one plain line about today's recording ("Recording today: 3 rules, 41 symbols, ...")."""
+
+    line: str
+    enabled: bool
+    auto_enabled: bool
+    rows_today: int
+    bytes_today: int
+    symbols_today: int
+    gaps_today: int
+    last_write_at: Optional[str]
+    disk_used_bytes: Optional[int]
+    budget_share: Optional[float]
+    calls_made: int
+    calls_saved: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "RecordingStatus":
+        today = d.get("today") if isinstance(d.get("today"), Mapping) else {}
+        disk = d.get("disk") if isinstance(d.get("disk"), Mapping) else {}
+        auto = d.get("auto") if isinstance(d.get("auto"), Mapping) else {}
+        api = d.get("apiCalls") if isinstance(d.get("apiCalls"), Mapping) else {}
+        return cls(str(d.get("line") or ""), bool(d.get("enabled", True)), bool(auto.get("enabled")), _int(today.get("rows")) or 0, _int(today.get("bytes")) or 0, _int(today.get("symbols")) or 0,
+                   _int(today.get("gaps")) or 0, today.get("lastWriteAt"), _int(disk.get("usedBytes")), _num(d.get("budgetShare")), _int(api.get("made")) or 0, _int(api.get("saved")) or 0, dict(d))
+
+
+@dataclass(frozen=True)
+class RecordingPreset:
+    """A ready-made auto-record rule ("Record index option chains", "Record my watchlist")."""
+
+    id: str
+    title: str
+    about: str
+    needs: Optional[str]
+    rule: Mapping[str, Any]
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "RecordingPreset":
+        return cls(str(d.get("id")), str(d.get("title") or d.get("id")), str(d.get("about") or ""), d.get("needs"), dict(d.get("rule") or {}))
+
+
+@dataclass(frozen=True)
+class PresetResult:
+    """What applying a preset did: the rule (new, or the one already there) and whether auto-record is now on."""
+
+    preset: str
+    created: bool
+    rule: RecordingRule
+    auto_enabled: bool
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, Any]) -> "PresetResult":
+        auto = d.get("auto") if isinstance(d.get("auto"), Mapping) else {}
+        return cls(str(d.get("preset")), bool(d.get("created")), RecordingRule.from_dict(d.get("rule") or {}), bool(auto.get("enabled")))
+
+
+@dataclass(frozen=True)
+class SavedCalls:
+    """Broker calls this Bridge did not make today because the data was already on disk, in the stream, in the cache or shared
+    (``bridge.saved_calls()``, from ``GET /v1/limits?explain=1``)."""
+
+    day: Optional[str]
+    total: int
+    by_reason: Mapping[str, int]
+    scheduler: Mapping[str, int]
+    total_today: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_dict(cls, d: Optional[Mapping[str, Any]]) -> "SavedCalls":
+        d = d if isinstance(d, Mapping) else {}
+        by = {str(k): _int(v) or 0 for k, v in (d.get("byReason") or {}).items()}
+        sch = {str(k): _int(v) or 0 for k, v in (d.get("scheduler") or {}).items()}
+        total = _int(d.get("total")) or 0
+        return cls(d.get("day"), total, by, sch, _int(d.get("totalToday")) if d.get("totalToday") is not None else total + sum(sch.values()), dict(d))
+
+
+@dataclass(frozen=True)
 class Collection:
     """A named, tagged list of instruments. ``kind`` is ``static`` (a list of symbols) or ``option-universe`` (a rule
     that is resolved to symbols each time it is used)."""
@@ -596,6 +727,44 @@ class Downloads(_Ns, _Files):
 
     _files_path = "/v1/downloads/{}/files"
 
+    def _body(
+        self,
+        symbols: Union[str, Sequence[str], None] = None,
+        intervals: Union[str, Sequence[str], None] = None,
+        from_: Union[str, date, datetime, None] = None,
+        to: Union[str, date, datetime, None] = None,
+        *,
+        name: Optional[str] = None,
+        format: Optional[str] = None,  # noqa: A002
+        layout: Optional[str] = None,
+        dataset: Optional[str] = None,
+        collection: Optional[str] = None,
+        account: Optional[str] = None,
+        backup: Optional[bool] = None,
+        tags: Optional[Sequence[str]] = None,
+    ) -> Dict[str, Any]:
+        """The request body for a download (shared by ``create`` and ``estimate``).
+
+        Give ``symbols`` (canonical, up to 500) or the name of a ``collection``; ``intervals`` (``"5m"`` or a list);
+        ``from_`` (and ``to``, default now). With ``dataset="name"`` the job continues that dataset from its last stored
+        bar. ``format`` is ``csv`` (default), ``jsonl`` or ``amibroker``; ``layout`` ``per-symbol`` or ``combined``.
+        ``backup=True`` lets a free source serve it (labelled delayed or end-of-day on the job and in every file).
+        """
+        syms, ivs = _list(symbols), _list(intervals)
+        if bool(syms) == bool(collection):
+            raise ValueError("give either symbols or collection=<name>, not both and not neither")
+        if not ivs:
+            raise ValueError("intervals is required, for example \"5m\" or [\"5m\", \"1d\"]")
+        if from_ is None and not dataset:
+            raise ValueError("from_ is required (an ISO date such as \"2024-01-01\"), unless dataset=<name> continues an existing dataset")
+        if format is not None and format not in DOWNLOAD_FORMATS:
+            raise ValueError("format must be one of %s" % ", ".join(DOWNLOAD_FORMATS))
+        if layout is not None and layout not in DOWNLOAD_LAYOUTS:
+            raise ValueError("layout must be one of %s" % ", ".join(DOWNLOAD_LAYOUTS))
+        body: Dict[str, Any] = {"name": name, "symbols": syms or None, "collection": collection, "intervals": ivs, "from": iso(from_), "to": iso(to), "format": format, "layout": layout,
+                                "dataset": dataset, "account": account, "backup": backup, "tags": list(tags) if tags else None}
+        return {k: v for k, v in body.items() if v is not None}
+
     def create(
         self,
         symbols: Union[str, Sequence[str], None] = None,
@@ -618,21 +787,42 @@ class Downloads(_Ns, _Files):
         ``from_`` (and ``to``, default now). With ``dataset="name"`` the job continues that dataset from its last stored
         bar. ``format`` is ``csv`` (default), ``jsonl`` or ``amibroker``; ``layout`` ``per-symbol`` or ``combined``.
         ``backup=True`` lets a free source serve it (labelled delayed or end-of-day on the job and in every file).
+        Use ``estimate`` with the same arguments first to see the cost.
         """
-        syms, ivs = _list(symbols), _list(intervals)
-        if bool(syms) == bool(collection):
-            raise ValueError("give either symbols or collection=<name>, not both and not neither")
-        if not ivs:
-            raise ValueError("intervals is required, for example \"5m\" or [\"5m\", \"1d\"]")
-        if from_ is None and not dataset:
-            raise ValueError("from_ is required (an ISO date such as \"2024-01-01\"), unless dataset=<name> continues an existing dataset")
-        if format is not None and format not in DOWNLOAD_FORMATS:
-            raise ValueError("format must be one of %s" % ", ".join(DOWNLOAD_FORMATS))
-        if layout is not None and layout not in DOWNLOAD_LAYOUTS:
-            raise ValueError("layout must be one of %s" % ", ".join(DOWNLOAD_LAYOUTS))
-        body: Dict[str, Any] = {"name": name, "symbols": syms or None, "collection": collection, "intervals": ivs, "from": iso(from_), "to": iso(to), "format": format, "layout": layout,
-                                "dataset": dataset, "account": account, "backup": backup, "tags": list(tags) if tags else None}
-        return DownloadJob.from_dict(_data(self._c.create_download({k: v for k, v in body.items() if v is not None})))
+        return DownloadJob.from_dict(_data(self._c.create_download(self._body(symbols, intervals, from_, to, name=name, format=format, layout=layout, dataset=dataset, collection=collection, account=account, backup=backup, tags=tags))))
+
+    def estimate(
+        self,
+        symbols: Union[str, Sequence[str], None] = None,
+        intervals: Union[str, Sequence[str], None] = None,
+        from_: Union[str, date, datetime, None] = None,
+        to: Union[str, date, datetime, None] = None,
+        *,
+        name: Optional[str] = None,
+        format: Optional[str] = None,  # noqa: A002
+        layout: Optional[str] = None,
+        dataset: Optional[str] = None,
+        collection: Optional[str] = None,
+        account: Optional[str] = None,
+        backup: Optional[bool] = None,
+        tags: Optional[Sequence[str]] = None,
+    ) -> DownloadEstimate:
+        """What this download would cost, without starting it (``POST /v1/downloads?dryRun=1``): broker calls, calls saved
+        by data already stored on this computer, rows, bytes, the time at your budget share and whether it fits the disk.
+        Takes the same arguments as ``create``."""
+        return DownloadEstimate.from_dict(_data(self._c.create_download(self._body(symbols, intervals, from_, to, name=name, format=format, layout=layout, dataset=dataset, collection=collection, account=account, backup=backup, tags=tags), dry_run=True)))
+
+    def settings(self) -> BudgetSettings:
+        """The budget share and after-hours switch downloads use now (``GET /v1/downloads/settings``)."""
+        return BudgetSettings.from_dict(_data(self._c.download_settings()))
+
+    def set_settings(self, *, max_budget_share: Optional[float] = None, after_hours_only: Optional[bool] = None) -> BudgetSettings:
+        """Change them while the Bridge runs (an admin key from this computer). The share is 0.05 to 0.8; it applies at once
+        to running jobs and is kept across restarts."""
+        body = _wire({"max_budget_share": max_budget_share, "after_hours_only": after_hours_only})
+        if not body:
+            raise ValueError("give max_budget_share and/or after_hours_only")
+        return BudgetSettings.from_dict(_data(self._c.set_download_settings(body)))
 
     def get(self, job: Union[str, DownloadJob]) -> DownloadJob:
         return DownloadJob.from_dict(_data(self._c.download(_id_of(job))))
@@ -883,6 +1073,28 @@ class Recordings(_Ns, _Files):
 
     def get(self, recording: Union[str, Recording]) -> Recording:
         return Recording.from_dict(_data(self._c.recording(_id_of(recording))))
+
+    def status(self) -> RecordingStatus:
+        """One plain line about today's recording and the numbers behind it (``GET /v1/recordings/status``)."""
+        return RecordingStatus.from_dict(_data(self._c.recording_status()))
+
+    def settings(self) -> BudgetSettings:
+        """The budget share recordings may use now (``GET /v1/recordings/settings``). Recordings have no after-hours switch."""
+        return BudgetSettings.from_dict(_data(self._c.recording_settings()))
+
+    def set_settings(self, *, max_budget_share: float) -> BudgetSettings:
+        """Change the share while the Bridge runs (an admin key from this computer; 0.05 to 0.8)."""
+        return BudgetSettings.from_dict(_data(self._c.set_recording_settings({"maxBudgetShare": max_budget_share})))
+
+    def presets(self) -> List[RecordingPreset]:
+        """The one-click rules: ``index-option-chains`` and ``my-watchlist``."""
+        return [RecordingPreset.from_dict(p) for p in _rows(self._c.recording_presets(), "data")]
+
+    def apply_preset(self, preset: Union[str, RecordingPreset], *, collection: Optional[str] = None) -> PresetResult:
+        """Make the preset's rule (once) and turn auto-record on (an admin key from this computer).
+        ``collection`` picks the collection for ``my-watchlist`` (default ``watchlist``)."""
+        body = {"collection": collection} if collection else {}
+        return PresetResult.from_dict(_data(self._c.apply_recording_preset(_id_of(preset), body)))
 
     def list(self, *, status: Optional[str] = None) -> Result[Recording]:
         return _result(self._c.recordings(status=status), Recording.from_dict)

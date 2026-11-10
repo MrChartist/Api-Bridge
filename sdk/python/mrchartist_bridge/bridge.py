@@ -31,7 +31,7 @@ from .errors import (
     Unauthenticated,
     error_from_problem,
 )
-from .data import Collections, Datasets, Downloads, Recordings, Subscriptions
+from .data import Collections, Datasets, Downloads, Recordings, SavedCalls, Subscriptions
 from .events import Events
 from .longhistory import HistoryIter
 from .namespaces import Calendar, Hooks, Symbols, Xl
@@ -223,6 +223,14 @@ class Bridge:
     def health(self) -> Health:
         """``GET /v1/health``: needs no key."""
         return Health.from_dict(self.client.health())
+
+    def saved_calls(self) -> SavedCalls:
+        """Broker calls the Bridge did not make today because the data was already stored, streamed, cached or shared
+        (``GET /v1/limits?explain=1``, ``savedCalls``). ``total`` counts reads served from datasets and recordings;
+        ``total_today`` adds the scheduler's own savings (stream, cache, shared calls)."""
+        r = self.client.limits(explain=True)
+        d = r.get("data") if isinstance(r, dict) and "data" in r else r
+        return SavedCalls.from_dict(d.get("savedCalls") if isinstance(d, dict) else None)
 
     def ping(self, *, check_key: bool = True) -> Ping:
         """Is the Bridge up, how fast, and (with ``check_key``) does it accept the key? Raises a typed error with a fix."""

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Python and Node clients: `downloads.estimate`, `downloads.settings/set_settings`, `recordings.status/settings/presets/apply_preset`
+  and `saved_calls()` / `savedCalls()` (from `GET /v1/limits?explain=1`).
 - `GET/PATCH /v1/downloads/settings` and `/v1/recordings/settings`: change the background budget share (0.05 to 0.8) and the
   downloads after-hours switch while the Bridge runs; kept in a small file in the data folder, applied without a restart. The
   scheduler's background share ceiling is now 0.8 (default for other jobs stays 0.5).

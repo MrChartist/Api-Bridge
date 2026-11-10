@@ -129,6 +129,16 @@ bridge.datasets.update("large-caps-5m", wait=True)      # later: only the bars a
   apart) and `create("quotes", symbols, every_sec=1)` quotes. The Bridge records real-time data only. For recording without
   pressing start, `bridge.recordings.rules.create("Index chains", "chain", every_sec=30, collection="index-options")`: the Bridge
   starts and stops it at each trading session, resumes after a restart and notes a gap when the feed was missing.
+- Look before you start: `bridge.downloads.estimate(symbols, "5m", from_=...)` takes the same arguments as `create`, starts
+  nothing and returns a `DownloadEstimate` (`broker_calls`, `calls_saved` by data already stored, `rows`, `bytes`, `eta_sec` at
+  your budget share, `fits_disk`). `bridge.saved_calls()` says how many broker calls the Bridge did not make today
+  (`total`, `by_reason`, and `total_today` with the stream, cache and shared calls added).
+- How much of the broker's budget background work may use: `bridge.downloads.settings()` and `bridge.recordings.settings()`
+  (`max_budget_share`, 0.05 to 0.8). `set_settings(max_budget_share=0.5)` changes it while the Bridge runs and needs an admin
+  key from the Bridge's computer; downloads also have `after_hours_only`, recordings do not (they record in market hours).
+- `bridge.recordings.status().line` is the plain sentence ("Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02").
+  `bridge.recordings.presets()` lists the one-click rules and `apply_preset("index-option-chains")` makes the rule once and
+  turns auto-record on (admin key from this computer; `apply_preset("my-watchlist", collection="mine")` picks the list).
 - A collection is a named, tagged list that downloads, recordings and sheets share: `bridge.collections.create("w", symbols)`
   or `create("nifty-near", universe=option_universe("NIFTY", "current-weekly", count=10))`. `resolve(name)` gives the symbols
   now; for an option universe it recomputes the ATM and the rolling expiry each time and puts a note in `warnings` when

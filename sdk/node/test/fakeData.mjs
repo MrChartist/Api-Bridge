@@ -27,6 +27,9 @@ export function createDataRoutes(problem) {
       jobs: new Map(), jobFiles: new Map(), jobGets: new Map(), datasets: new Map(), recordings: new Map(), rules: new Map(), collections: new Map(), subs: new Map(),
       events: [], eventsOldest: 1, dead: new Map(), seq: 0, jobPolls: 2, jobFail: null, tamper: new Map(), sseDropAfter: null, sseFailFirst: 0, historySeries: new Map(), historyMaxDays: null, localRange: null,
       historyLog: [], atmDelayed: false,
+      dlSettings: { maxBudgetShare: 0.3, afterHoursOnly: false }, recSettings: { maxBudgetShare: 0.3 }, autoOn: false,
+      savedCalls: { day: "2026-11-09", total: 120, byReason: { "dataset-incremental": 100, "local-history": 20 } },
+      savedScheduler: { servedFromStream: 5, servedFromCache: 3, coalesced: 2, batched: 0 },
     });
   };
   d.reset();
@@ -116,13 +119,34 @@ export function createDataRoutes(problem) {
   };
   const queuedView = (job) => ({ ...job, progress: { total: job.items.length, done: 0, failed: 0, rows: 0, bytes: 0, etaSec: null, current: null } });
 
+  // The settings routes, in the real shapes: the values in force, the config defaults, the allowed range.
+  const settingsView = (current) => ({ ...current, defaults: { maxBudgetShare: 0.3 }, limits: { minBudgetShare: 0.05, maxBudgetShare: 0.8 }, changed: [] });
+  function settingsRoute(method, current, body, allowed) {
+    if (method === "GET") return ok(settingsView(current));
+    const keys = Object.keys(body ?? {});
+    if (!keys.length || keys.some((k) => !allowed.includes(k))) return pr(400, "VALIDATION_FAILED", `Send ${allowed.join(" and/or ")}.`);
+    const share = body.maxBudgetShare;
+    if (share !== undefined && !(typeof share === "number" && share >= 0.05 && share <= 0.8)) return pr(400, "VALIDATION_FAILED", "maxBudgetShare must be from 0.05 to 0.8.");
+    Object.assign(current, body);
+    return ok(settingsView(current));
+  }
+  function estimate(req, syms, q) {
+    const rows = syms.length * req.intervals.length * 3 * 75;
+    const stored = d.datasets.has(req.dataset) ? 40 : 0;
+    const calls = Math.max(0, syms.length * req.intervals.length - stored);
+    return ok({ symbols: syms.length, intervals: req.intervals.length, items: syms.length * req.intervals.length, brokerCalls: calls, callsSaved: stored, rows, rowsToFetch: rows, bytes: rows * 62, bytesPerRow: 62,
+      etaSec: calls * 4, budgetShare: d.dlSettings.maxBudgetShare, account: "paper", alreadyStored: false, disk: { usedBytes: 0, maxBytes: 5000 * 1024 * 1024, wouldExceed: false }, notes: ["Rows assume every trading minute has a bar."] }, 200, { dryRun: true });
+  }
+
   function downloads(method, parts, q, body) {
+    if (parts.length === 1 && parts[0] === "settings") return settingsRoute(method, d.dlSettings, body, ["maxBudgetShare", "afterHoursOnly"]);
     if (!parts.length) {
       if (method === "POST") {
         const req = { ...body };
         const syms = req.symbols ?? (d.collections.has(req.collection) ? resolveSymbols(req.collection)[0] : null);
         if (!syms || !req.intervals) return pr(400, "VALIDATION_FAILED", "symbols (or collection) and intervals are required");
         if (syms.length > 500) return pr(400, "VALIDATION_FAILED", "at most 500 symbols");
+        if (q.dryRun === "1" || q.dryRun === "true") return estimate(req, syms, q);
         return ok(queuedView(newJob(req)), 202);
       }
       return ok([...d.jobs.values()].reverse().filter((j) => !q.status || j.status === q.status).map(jobView), 200, { nextCursor: null });
@@ -201,8 +225,37 @@ export function createDataRoutes(problem) {
     return ok(rule);
   }
 
+  const PRESETS = [
+    { id: "index-option-chains", title: "Record index option chains", about: "NIFTY and BANKNIFTY option chains.", needs: "a connected broker login", rule: { name: "Index option chains", kind: "chain", underlying: ["NIFTY", "BANKNIFTY"], everySec: 30, schedule: "market-hours", format: "csv" } },
+    { id: "my-watchlist", title: "Record my watchlist", about: "Every symbol of your watchlist.", needs: "a collection called watchlist", rule: { name: "My watchlist", kind: "quotes", collection: "watchlist", everySec: 1, schedule: "market-hours", format: "csv" } },
+  ];
+  function recordingExtras(method, parts, body) {
+    if (parts[0] === "settings") return settingsRoute(method, d.recSettings, body, ["maxBudgetShare"]);
+    if (parts[0] === "status" && method === "GET") {
+      const running = [...d.recordings.values()].filter((r) => r.status === "running");
+      const rows = [...d.recordings.values()].reduce((n, r) => n + r.rows, 0);
+      return ok({ line: running.length ? `Recording today: ${running.length} recordings, ${rows} rows.` : "Recording is off. Nothing is being saved.", enabled: true,
+        auto: { enabled: d.autoOn, rules: d.rules.size, activeRules: d.autoOn ? d.rules.size : 0 },
+        today: { date: "2026-11-09", recordings: running.length, symbols: 0, rows, bytes: rows * 40, lastWriteAt: null, gaps: 0, openGaps: 0 }, disk: { usedBytes: rows * 40, limitMb: 5000 },
+        apiCalls: { made: 0, saved: 7 }, budgetShare: d.recSettings.maxBudgetShare, dataClass: "realtime" });
+    }
+    if (parts[0] === "presets" && parts.length === 1 && method === "GET") return ok(PRESETS);
+    if (parts[0] === "presets" && parts[2] === "apply" && method === "POST") {
+      const preset = PRESETS.find((p) => p.id === parts[1]);
+      if (!preset) return pr(404, "NOT_FOUND", `No preset named ${parts[1]}.`);
+      const existing = [...d.rules.values()].find((r) => r.preset === preset.id);
+      const rule = existing ?? { ...preset.rule, id: nextId("rule"), enabled: true, preset: preset.id, ...(preset.id === "my-watchlist" && body?.collection ? { collection: body.collection } : {}) };
+      d.rules.set(rule.id, rule);
+      d.autoOn = true;
+      return ok({ preset: preset.id, created: !existing, rule, auto: { enabled: true, rules: d.rules.size, activeRules: d.rules.size } }, existing ? 200 : 201);
+    }
+    return null;
+  }
+
   function recordings(method, parts, q, body) {
     if (parts[0] === "rules") return rules(method, parts.slice(1), body);
+    const extra = recordingExtras(method, parts, body);
+    if (extra) return extra;
     if (!parts.length) {
       if (method === "POST") {
         if ((body.everySec ?? 0) < (body.kind === "chain" ? 15 : 1)) return pr(400, "VALIDATION_FAILED", "everySec is too small");
@@ -394,6 +447,15 @@ export function createDataRoutes(problem) {
   d.route = (method, path, q, body, headers) => {
     if (!path.startsWith("/v1/")) return null;
     const parts = path.split("/").slice(2).map(decodeURIComponent);
+    if (path === "/v1/limits" && method === "GET") {
+      const data = { safety: {}, brokers: {}, client: { perSecond: 10, burst: 20, remaining: 20 }, accounts: [] };
+      if (q.explain === "1" || q.explain === "true") {
+        data.pools = [];
+        data.consumers = [];
+        data.savedCalls = { ...d.savedCalls, scheduler: { ...d.savedScheduler }, totalToday: d.savedCalls.total + Object.values(d.savedScheduler).reduce((a, n) => a + n, 0) };
+      }
+      return ok(data);
+    }
     switch (parts[0]) {
       case "downloads": return downloads(method, parts.slice(1), q, body);
       case "datasets": return datasets(method, parts.slice(1), q, body);
