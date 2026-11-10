@@ -119,6 +119,7 @@
         "Accounts",
         "Keys",
         "Instruments",
+        "Collections",
         "Market data",
         "Streaming",
         "Events",
@@ -132,6 +133,7 @@
         "Notifications",
         "Safety",
         "Readiness",
+        "Data downloads",
         "Backup",
         "Spreadsheets",
         "Webhooks",
@@ -140,7 +142,7 @@
       ],
       "kind": "doc",
       "path": "docs/api/README.md",
-      "text": "165 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "text": "192 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
       "title": "API reference: one page per endpoint"
     },
     {
@@ -241,6 +243,105 @@
       "path": "docs/api/backup/getBackup.md",
       "text": "GET /v1/backup. This computer only, admin key.",
       "title": "The last backup, the schedule and the copies kept on this computer"
+    },
+    {
+      "headings": [
+        "POST /v1/collections"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/createCollection.md",
+      "text": "POST /v1/collections. A static collection holds a list of symbols.",
+      "title": "Create a collection"
+    },
+    {
+      "headings": [
+        "DELETE /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/deleteCollection.md",
+      "text": "DELETE /v1/collections/{name}. Refused with 409 while a download, recording or rule that is running uses it, unless force=true.",
+      "title": "Delete a collection"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/{name}/duplicate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/duplicateCollection.md",
+      "text": "POST /v1/collections/{name}/duplicate. Without a name the copy is called -copy (then -copy2 ...).",
+      "title": "Copy a collection under a new name"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/estimate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/estimateCollection.md",
+      "text": "GET /v1/collections/{name}/estimate. Rows, bytes and broker calls before you start.",
+      "title": "Size of downloading a collection (symbols x intervals x days)"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/export"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/exportCollection.md",
+      "text": "GET /v1/collections/{name}/export. JSON is the definition (a universe stays a universe) and imports back with POST /v1/collections/import.",
+      "title": "A collection as a CSV or JSON file"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/getCollection.md",
+      "text": "GET /v1/collections/{name}.",
+      "title": "One collection with its symbols or universe"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/usage"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/getCollectionUsage.md",
+      "text": "GET /v1/collections/{name}/usage. The downloads, recordings, auto-record rules and datasets that use it.",
+      "title": "What is made from this collection"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/import"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/importCollections.md",
+      "text": "POST /v1/collections/import. JSON: a collection ({ name, kind, symbols | universe }), a plain list of symbols (with name in the query), a file that GET /v1/collections/{name}/export wrote, or { collections: [...] }.",
+      "title": "Make collections from CSV or JSON"
+    },
+    {
+      "headings": [
+        "GET /v1/collections"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/listCollections.md",
+      "text": "GET /v1/collections. Summaries without symbol lists, ordered by name.",
+      "title": "List collections (static lists and option universes)"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/resolve"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/resolveCollection.md",
+      "text": "GET /v1/collections/{name}/resolve. A static collection answers its list.",
+      "title": "The concrete symbols of a collection right now"
+    },
+    {
+      "headings": [
+        "PATCH /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/updateCollection.md",
+      "text": "PATCH /v1/collections/{name}. A rename keeps the collection's id and its old name keeps working.",
+      "title": "Change a collection, or rename it (send `name`)"
     },
     {
       "headings": [
@@ -511,6 +612,150 @@
       "path": "docs/api/compat-rest/compatTradebook.md",
       "text": "POST /api/v1/tradebook.",
       "title": "Trade book"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{downloadId}/cancel"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/cancelDownload.md",
+      "text": "POST /v1/downloads/{downloadId}/cancel. Files of items that were already whole are kept; half-written parts are dropped.",
+      "title": "Cancel a job"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/createDownload.md",
+      "text": "POST /v1/downloads. Saves candles to files on this computer as a background job.",
+      "title": "Start a history download, or only estimate it with dryRun=1"
+    },
+    {
+      "headings": [
+        "DELETE /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/deleteDataset.md",
+      "text": "DELETE /v1/datasets/{name}. This computer only, admin key.",
+      "title": "Delete a dataset and its files"
+    },
+    {
+      "headings": [
+        "DELETE /v1/downloads/{downloadId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/deleteDownload.md",
+      "text": "DELETE /v1/downloads/{downloadId}. This computer only, admin key.",
+      "title": "Delete a job and its files"
+    },
+    {
+      "headings": [
+        "GET /v1/instruments/export"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/exportInstruments.md",
+      "text": "GET /v1/instruments/export. Streams every instrument the connected brokers' masters hold (symbol, exchange, kind, underlying, name, expiry, strike, right, lot size, tick size, freeze quantity, ISIN), optionally for one exchange or kind.",
+      "title": "The instrument master as a CSV or JSONL file"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDataset.md",
+      "text": "GET /v1/datasets/{name}. Each file lists its coverage (the stretch already fetched and stored) and its gaps (places inside it where bars are missing; a thin stock has no bar for a minute with no trade, so a gap is reported and never filled with a made-up bar).",
+      "title": "One dataset with its files, coverage and gaps"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{downloadId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDownload.md",
+      "text": "GET /v1/downloads/{downloadId}.",
+      "title": "One download job with its progress and items"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{downloadId}/files/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDownloadFile.md",
+      "text": "GET /v1/downloads/{downloadId}/files/{name}. The file as the Bridge wrote it.",
+      "title": "Stream one file of a job (or manifest.json)"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDatasets.md",
+      "text": "GET /v1/datasets. A dataset is a named set of files (one per symbol and interval) that grows by incremental updates.",
+      "title": "Datasets stored on this computer"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{downloadId}/files"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDownloadFiles.md",
+      "text": "GET /v1/downloads/{downloadId}/files.",
+      "title": "The files of a job, as listed in its manifest"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDownloads.md",
+      "text": "GET /v1/downloads. The list leaves out each job's items unless include=items.",
+      "title": "Download jobs, newest first"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{downloadId}/pause"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/pauseDownload.md",
+      "text": "POST /v1/downloads/{downloadId}/pause. The job keeps what it has written and continues from there when resumed.",
+      "title": "Pause a queued or running job"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{downloadId}/resume"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/resumeDownload.md",
+      "text": "POST /v1/downloads/{downloadId}/resume.",
+      "title": "Resume a paused job, or retry the failed items of a failed job"
+    },
+    {
+      "headings": [
+        "POST /v1/datasets/{name}/update"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDataset.md",
+      "text": "POST /v1/datasets/{name}/update. Starts a job that continues every series of the dataset from its last stored bar.",
+      "title": "Fetch what is new since the last stored bar"
+    },
+    {
+      "headings": [
+        "PATCH /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDatasetInfo.md",
+      "text": "PATCH /v1/datasets/{name}.",
+      "title": "Rename a dataset or change its tags and title"
+    },
+    {
+      "headings": [
+        "PATCH /v1/downloads/{downloadId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDownload.md",
+      "text": "PATCH /v1/downloads/{downloadId}.",
+      "title": "Rename a job or change its tags"
     },
     {
       "headings": [],
@@ -1675,7 +1920,7 @@
       ],
       "kind": "doc",
       "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 160 requests in 22 folders (one folder per area: System, Accounts, Keys, Instruments, Market...",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 187 requests in 24 folders (one folder per area: System, Accounts, Keys, Instruments,...",
       "title": "API collections"
     },
     {
@@ -1756,6 +2001,26 @@
     },
     {
       "headings": [
+        "Five minutes",
+        "The option universe",
+        "How the expiry is chosen",
+        "How the strikes and the at-the-money strike are chosen",
+        "How honest it is about the price",
+        "Using a collection",
+        "In Excel and Google Sheets",
+        "Tags",
+        "All the operations",
+        "For other parts of the Bridge",
+        "Settings",
+        "Limits, and what is not done"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/collections.md",
+      "text": "A collection is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python library can then say collection: \"nifty-weekly\" instead of pasting the same symbols again. There are two kinds: Collections live in collections.json in your data...",
+      "title": "Collections: lists of instruments and option universes"
+    },
+    {
+      "headings": [
         "Symbols",
         "Endpoints",
         "Which account",
@@ -1814,6 +2079,25 @@
     },
     {
       "headings": [
+        "Start one",
+        "Know the cost first",
+        "Your API budget",
+        "Jobs",
+        "Files and the manifest",
+        "Datasets: update, do not download again",
+        "Stored ranges (local first)",
+        "Collections",
+        "Instrument master as a file",
+        "Limits and settings",
+        "Command line"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/downloads.md",
+      "text": "The Bridge can save history to files on this computer: candles for many symbols and intervals, as CSV, JSONL or an AmiBroker import file. A download is a background job. It runs through the same rate-limit scheduler as everything else, at the lowest priority, so it never slows a...",
+      "title": "Data downloads"
+    },
+    {
+      "headings": [
         "Listen live: SSE and WebSocket",
         "Cursors and replay",
         "Which events, and who sees them",
@@ -1834,6 +2118,7 @@
     {
       "headings": [
         "The Excel workbook",
+        "A collection instead of typed symbols",
         "The key",
         "Refreshing, and how often",
         "What a sheet costs, measured",

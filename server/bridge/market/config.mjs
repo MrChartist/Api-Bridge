@@ -102,6 +102,11 @@ export const MARKET_CONFIG_SCHEMA = z
           .prefault({}),
         /** Per-broker span per call (days). Use only figures from the broker's own documentation. */
         brokers: z.record(z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/), spanSchema).default({}),
+        /**
+         * Serve GET /v1/history ranges already stored in a dataset of this Bridge from disk and ask the broker only for the
+         * rest (market/historyLocal.mjs). Off by default; `?dataset=<name>` always reads from that dataset.
+         */
+        localFirst: z.boolean().default(false),
       })
       .strict()
       .prefault({}),

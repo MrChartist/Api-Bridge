@@ -21,6 +21,8 @@
  *   mc-bridge notify telegram setup | remove <id>, notify status | test   (Telegram alerts; the token is asked for, never an argument)
  *   mc-bridge collections list | show | create | universe | resolve | tag | rename | duplicate | delete | export | import | usage | estimate
  *   mc-bridge subscriptions list | add <https url> --topics ... | test | deliveries | dead-letters | tail   (signed webhooks out; see docs/guides/events.md)
+ *   mc-bridge download <symbols...> --interval 5m --from 2024-01-01 [--dataset <name>] [--watch] | list | show | pause | resume | cancel | files | datasets | update
+ *                                       (save history to files; see docs/guides/downloads.md)
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
  * (principal { kind: "local", id: "cli" }). Keys are printed once and never again.
@@ -69,6 +71,18 @@ const { positionals, values } = parseArgs({
     "max-age": { type: "string" },
     out: { type: "string" },
     "include-secrets": { type: "boolean" },
+    interval: { type: "string" },
+    from: { type: "string" },
+    to: { type: "string" },
+    dataset: { type: "string" },
+    layout: { type: "string" },
+    collection: { type: "string" },
+    tags: { type: "string" },
+    name: { type: "string" },
+    status: { type: "string" },
+    watch: { type: "boolean" },
+    backup: { type: "boolean" },
+    "after-hours": { type: "boolean" },
     "dry-run": { type: "boolean" },
     "skip-config": { type: "boolean" },
     // mc-bridge collections

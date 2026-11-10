@@ -1,0 +1,27 @@
+meta {
+  name: One download job with its progress and items
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/downloads/:downloadId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  downloadId: <downloadId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  One download job with its progress and items
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/data-downloads/getDownload.md in the repository.
+}

@@ -9,9 +9,12 @@
  *   consumers  who is competing for the broker queue now: { id, label, kind, weight, queued, inFlight, share } (all of
  *              them for admin keys and this computer, else only the caller's own)
  *   you        the caller's own quota: { keyId, source, perSecond, burst, perDay, weight, usage }
+ *   savedCalls broker calls not made today: { day, total, byReason } from data already on disk (market/savedCalls.mjs),
+ *              and `scheduler` (stream, cache, coalesced, batched); `totalToday` is the sum
  */
 import { effectiveAccountLimits } from "../core/config.mjs";
 import { BridgeError, NotImplementedError } from "../core/errors.mjs";
+import { snapshot as savedCallsSnapshot } from "../market/savedCalls.mjs";
 import { budgetSummary } from "./budget.mjs";
 import { DEFAULT_KIND_WEIGHTS } from "./consumer.mjs";
 
@@ -156,6 +159,10 @@ export function createLimitRoutes(deps) {
         const own = ctx.key?.id ? `key:${ctx.key.id}` : null;
         data.consumers = (typeof scheduler.consumers === "function" ? scheduler.consumers() : []).filter((x) => isAdmin(ctx) || x.id === own);
         if (ctx.key?.id && scheduler.quotas) data.you = quotaRow(ctx.key);
+        const saved = savedCallsSnapshot();
+        const s = (typeof scheduler.usage === "function" ? scheduler.usage().savings : null) ?? {};
+        const sched = { servedFromStream: s.servedFromStream ?? 0, servedFromCache: s.servedFromCache ?? 0, coalesced: s.coalesced ?? 0, batched: s.batched ?? 0 };
+        data.savedCalls = { ...saved, scheduler: sched, totalToday: saved.total + sched.servedFromStream + sched.servedFromCache + sched.coalesced + sched.batched };
       }
       return { data, meta: { requestId: ctx.requestId, accountId } };
     },

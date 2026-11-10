@@ -1,0 +1,31 @@
+meta {
+  name: Rename a job or change its tags
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/v1/downloads/:downloadId
+  body: json
+  auth: bearer
+}
+
+params:path {
+  downloadId: <downloadId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Rename a job or change its tags
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/data-downloads/updateDownload.md in the repository.
+}

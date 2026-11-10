@@ -60,6 +60,8 @@ const searchSchema = z
     cursor: z.string().max(512).optional(),
   })
   .strict();
+/** The same, with no search text: every instrument, a page at a time (the instrument export). */
+const listSchema = searchSchema.extend({ q: z.string().trim().max(64).default("") });
 
 /** Extract rows from an adapter's fetchInstruments result ({ status, data } or a bare array). */
 export function masterRows(result, brokerId) {
@@ -519,8 +521,8 @@ export function createSymbolService(deps, opts = {}) {
      * @param {{ q: string, exchange?: string, kind?: string, underlying?: string, expiry?: string, limit?: number, cursor?: string }} params
      * @returns {Promise<{ items: object[], nextCursor: string | null }>}
      */
-    async search(params) {
-      const parsed = searchSchema.safeParse(params ?? {});
+    async search(params, schema = searchSchema) {
+      const parsed = schema.safeParse(params ?? {});
       if (!parsed.success) throw fromValidation(parsed.error);
       const { limit, cursor, ...query } = parsed.data;
       await ensureLoaded();
@@ -545,6 +547,11 @@ export function createSymbolService(deps, opts = {}) {
       const page = all.slice(offset, offset + limit);
       const next = offset + limit < all.length ? encodeCursor({ v: 1, h: hash, b: store.version(), o: offset + limit }) : null;
       return { items: page.map((r) => toResolved(r, { withRefs: false })), nextCursor: next };
+    },
+
+    /** Extra (not in the contract): search() without search text, so every live instrument can be listed page by page. */
+    async list(params) {
+      return this.search(params, listSchema);
     },
 
     /**

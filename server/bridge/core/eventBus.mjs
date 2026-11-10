@@ -24,6 +24,9 @@
  *  config.warning      { message }
  *  backup.completed    { kind, at, path, bytes, files, includesSecrets }   a backup was written (no file contents)
  *  backup.failed       { kind, at, message }                               a backup could not be written
+ *  download.progress   { id, name, status, reason, total, done, failed, rows, bytes, etaSec, current, dataset }   a download job moved (throttled)
+ *  download.done       { id, name, files, rows, bytes, dataClass, source, dataset }   a download job finished
+ *  download.failed     { id, name, reason, message, failed, dataset }   a download job ended with failed items, or stopped (disk limit)
  *  key.revoked         { keyId }                    StreamHub closes WS/SSE connections opened with this key
  *  ticket.confirmed    { ticketId, accountId, principal }   a person confirmed an order ticket (no token in the payload)
  *  ticket.rejected     { ticketId, accountId, principal }   a person declined an order ticket (principal: who prepared it)
@@ -58,6 +61,9 @@ export const TOPICS = Object.freeze([
   "config.warning",
   "backup.completed",
   "backup.failed",
+  "download.progress",
+  "download.done",
+  "download.failed",
   "key.revoked",
   "ticket.confirmed",
   "ticket.rejected",
