@@ -1,8 +1,48 @@
 {
-  "version": 1,
-  "asOf": "2026-04-01",
-  "source": "Statutory charges on NSE and BSE equity derivatives and cash delivery (STT, stamp duty, exchange transaction charges, SEBI turnover fee, IPFT, GST). Rates as decimals of value; per-crore figures in rupees. Brokerage is not part of this table (it comes from config).",
+  "version": 2,
+  "asOf": "2026-02-28",
+  "source": "Statutory charges on NSE and BSE equity derivatives and cash delivery (STT, stamp duty, exchange transaction charges, SEBI turnover fee, IPFT, GST). Rates as decimals of value; per-crore figures in rupees. Brokerage is not part of this table (it comes from config). `asOf` is the date of the OLDEST group below, because the table is only as current as its stalest figure. No group was read in an exchange circular: all are verified:false.",
   "verified": false,
+  "groups": {
+    "stt": {
+      "covers": "opt.sttSell, opt.exerciseStt, fut.sttSell",
+      "asOf": "2026-04-01",
+      "verified": false,
+      "circular": "NSE/FATAX/73524 (Finance Act 2026 STT change; not opened)",
+      "source": "https://zerodha.com/marketintel/bulletin/445377/revision-in-stt-securities-transaction-tax-from-1st-april-2026",
+      "readOn": "2026-11-10",
+      "note": "Secondary source (a broker bulletin). Futures sell 0.05%, options sale 0.15% of premium, exercise 0.15% of intrinsic value, effective 2026-04-01 (earlier 0.02%, 0.1%, 0.125%)."
+    },
+    "stampSebiGst": {
+      "covers": "opt.stampBuy, fut.stampBuy, physical.stampBuy, sebiPerCrore, gst",
+      "asOf": "2026-11-10",
+      "verified": false,
+      "circular": null,
+      "source": "https://zerodha.com/charges/",
+      "readOn": "2026-11-10",
+      "note": "Secondary source (a broker charge page, undated). GST 18% applies to brokerage plus transaction charges plus the SEBI fee, not to STT or stamp duty."
+    },
+    "nseTransactionCharges": {
+      "covers": "opt.txn.NSE, fut.txn.NSE, physical.txn.NSE, ipftPerCrore",
+      "asOf": "2026-02-28",
+      "verified": false,
+      "stale": true,
+      "circular": "NSE/FA/73061 dated 2026-02-27 (not opened)",
+      "source": "https://zerodha.com/charges/",
+      "readOn": "2026-11-10",
+      "note": "The figures in this table are the rates in force until about 2026-02-28. NSE changed them with NSE/FA/73061, effective 2026-03-01 per press. A broker page read on 2026-11-10 shows futures 0.00183%, options 0.03553% of premium and cash 0.00307%, and an investor protection fund contribution of Rs 0.01 per crore; press is contradictory on that last figure. Those newer numbers are NOT applied: the circular was not read, and money maths is not changed without a primary source. The rupee effect is small (about 6 percent of the futures fee, 1.4 percent of the options fee).",
+      "pending": { "fut.txn.NSE": 0.0000183, "opt.txn.NSE": 0.0003553, "physical.txn.NSE": 0.0000307, "ipftPerCrore": null }
+    },
+    "bseTransactionCharges": {
+      "covers": "opt.txn.BSE, fut.txn.BSE, physical.txn.BSE",
+      "asOf": "2026-11-10",
+      "verified": false,
+      "circular": null,
+      "source": "https://zerodha.com/charges/",
+      "readOn": "2026-11-10",
+      "note": "Secondary source (a broker charge page, undated): options 0.0325%, futures 0, cash 0.00375% match this table."
+    }
+  },
   "opt": {
     "sttSell": 0.0015,
     "exerciseStt": 0.0015,
@@ -22,11 +62,13 @@
     "stampBuy": 0.00015,
     "txn": { "NSE": 0.0000297, "BSE": 0.0000375 },
     "verified": false,
-    "source": "Cash-segment delivery rates applied to physical settlement of stock derivatives (needs verification)"
+    "source": "Cash-segment delivery rates applied to physical settlement of stock derivatives (needs verification: whether STT on physically settled stock options is charged at 0.1% to both the exercising buyer and the delivering seller was not verified)"
   },
   "margin": {
     "expiryDayElmIndexShort": 0.02,
     "verified": false,
-    "source": "Additional expiry-day ELM on short index options (needs verification)"
+    "asOf": "2026-11-10",
+    "circular": "NSE circular dated 2024-10-21, effective 2024-11-20 (named by broker pages; not opened)",
+    "source": "Additional expiry-day ELM on short index options (corroborated by broker pages, secondary; needs verification against the circular)"
   }
 }

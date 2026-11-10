@@ -14,9 +14,12 @@
  */
 import { atmStrike, strikeStepOf } from "../market/chain.mjs";
 
-/** @param {number[]} strikes  ascending, distinct */
-export function stepOfStrikes(strikes) {
-  return strikeStepOf(strikes);
+/**
+ * @param {number[]} strikes  ascending, distinct
+ * @param {number|null} [spot]  when known, the step is read from the strikes near the money (see strikeStepOf)
+ */
+export function stepOfStrikes(strikes, spot = null) {
+  return strikeStepOf(strikes, { spot });
 }
 
 /**

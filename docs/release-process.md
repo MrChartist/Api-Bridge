@@ -21,16 +21,17 @@ No release exists yet: the first one has not been tagged. Until it is, the one-l
    ```
    The script stops with a message if the section is missing or empty, or if lines are still under "Unreleased".
 3. **Bump the number** everywhere the test lists: `package.json`, the root entry of `package-lock.json` (name and version), `info.version` in `docs/openapi.yaml` and `docs/asyncapi.yaml`, and the examples in `docs/guides/install.md` and `docs/guides/quickstart.md`. Then `npm run docs:generate` (the Postman collection quotes the OpenAPI version).
-4. **Check it all.** `TZ=UTC npx vitest run`, `npm run check:mjs`, `npm run typecheck`, `npm run docs:check`, `npm audit --omit=dev`, and the SDK tests listed in [CONTRIBUTING.md](../CONTRIBUTING.md).
-5. **Merge to `main`** by pull request as usual.
-6. **Try the build without releasing.** In GitHub: Actions, Release, Run workflow, on `main`. It builds every download, runs the installer against them, starts the Linux download, installs the Windows `.exe` on a real Windows runner, and keeps the files as a workflow artifact for 14 days. The tag-only steps (notes check, publishing) are skipped in this mode. Download the artifact and open it on at least one machine.
-7. **Tag**, only after step 6 is green:
+4. **Check the reference data.** Read the exchange circular list for new "Trading Holiday" amendments and add them; from early December make sure next year's holiday list is in; run `mc-bridge doctor` and look at the reference-data lines. See [reference-data.md](reference-data.md).
+5. **Check it all.** `TZ=UTC npx vitest run`, `npm run check:mjs`, `npm run typecheck`, `npm run docs:check`, `npm audit --omit=dev`, and the SDK tests listed in [CONTRIBUTING.md](../CONTRIBUTING.md).
+6. **Merge to `main`** by pull request as usual.
+7. **Try the build without releasing.** In GitHub: Actions, Release, Run workflow, on `main`. It builds every download, runs the installer against them, starts the Linux download, installs the Windows `.exe` on a real Windows runner, and keeps the files as a workflow artifact for 14 days. The tag-only steps (notes check, publishing) are skipped in this mode. Download the artifact and open it on at least one machine.
+8. **Tag**, only after step 7 is green:
    ```bash
    git tag -a vX.Y.Z -m "Mr. Chartist API Bridge X.Y.Z"
    git push origin vX.Y.Z
    ```
    The workflow refuses a tag that does not equal `package.json` or whose notes are missing, builds again, and creates the release with the files, `SHA256SUMS.txt` and the notes from the changelog.
-8. **Look at the release page.** The notes read well, `SHA256SUMS.txt` lists every file, `install.sh` and `install.ps1` are attached. Then run the one-line installer from [install.md](guides/install.md) on a clean machine, and remove the "no release yet" notice from that page.
+9. **Look at the release page.** The notes read well, `SHA256SUMS.txt` lists every file, `install.sh` and `install.ps1` are attached. Then run the one-line installer from [install.md](guides/install.md) on a clean machine, and remove the "no release yet" notice from that page.
 
 ## If something goes wrong
 

@@ -108,6 +108,11 @@ describe("sessions", () => {
     expect(r).toMatchObject({ isTradingDay: true, open: "14:20", close: "15:30", preOpen: { start: "14:05", end: "14:20" }, specialSession: { label: "Muhurat trading", verified: false, preOpen: "14:05" } });
     expect(r.reason).toMatch(/Muhurat trading: trades 14:20-15:30 IST \(timing not verified\)/);
     expect(r.calendar.verified).toBe(false);
+    // The session times of that day are the special session's own, with its flag: not the regular rule's verified hours.
+    expect(r.sessionTimes).toMatchObject({ open: "14:20", close: "15:30", preOpen: "14:05", verified: false, rule: { id: "special-session", readOn: "2026-11-10" } });
+    expect(r.sessionTimes.source).toBe("Muhurat trading: timing not verified");
+    // The status of a Sunday is "closed because weekend" outside the session, never a trading day without a flag.
+    expect(view.status("NSE", at("2026-11-08", "14:30"))).toMatchObject({ status: "open", reason: expect.stringMatching(/timing unverified/), sessionTimes: { verified: false } });
   });
 
   it("a date outside the list is a weekday by the calendar and is marked not covered", () => {

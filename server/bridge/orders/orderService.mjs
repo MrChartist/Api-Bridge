@@ -917,7 +917,7 @@ export function createOrderService(deps) {
     let step = null;
     try {
       const res = await deps.symbols.search({ q: resolved.underlying, underlying: resolved.underlying, exchange: resolved.exchange, kind: "OPT", expiry: resolved.expiry, limit: 500 });
-      step = strikeStepOf((res?.items ?? []).filter((r) => r.underlying === resolved.underlying).map((r) => r.strike));
+      step = strikeStepOf((res?.items ?? []).filter((r) => r.underlying === resolved.underlying).map((r) => r.strike), { spot });
     } catch {
       step = null;
     }

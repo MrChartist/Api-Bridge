@@ -2180,8 +2180,11 @@ paths:
       summary: The session of one date (trading day or not, and the times)
       description: |
         Whether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close
-        times (IST), a special session such as Muhurat trading, and the neighbouring trading days. The standard hours are
-        marked `sessionTimes.verified: false`: the Bridge has not confirmed them against a current circular.
+        times (IST), a special session such as Muhurat trading, and the neighbouring trading days. The hours come from
+        dated rules in the data shipped with the Bridge (derivatives close at 15:40 from 3 Aug 2026 and 15:45 from 7 Dec
+        2026); `sessionTimes.rule` names the rule, its circular and its source, and `sessionTimes.verified: false` says the
+        hours were not confirmed from a circular. A special session carries its own `verified` flag: while it is false the
+        timing is unconfirmed, and live orders are refused in it.
       x-module: market
       x-scope: read
       parameters:
@@ -7457,8 +7460,21 @@ components:
         open: { type: string }
         close: { type: string }
         timezone: { type: string, enum: [IST] }
-        verified: { type: boolean, description: "False: the standard hours, not confirmed against a current circular." }
+        verified: { type: boolean, description: "False: the hours were not confirmed from an exchange or SEBI circular." }
         source: { type: string }
+        expiringIndexClose: { type: string, description: "Present from 7 Dec 2026 (derivatives): an index contract expiring that day stops at this time instead of close." }
+        cas: { type: object, description: "The closing auction session of the cash segment, when the rule has one.", properties: { start: { type: string }, end: { type: string }, appliesTo: { type: string } } }
+        rule:
+          type: object
+          description: The dated rule that produced these hours.
+          properties:
+            id: { type: [string, "null"] }
+            from: { type: [string, "null"], format: date }
+            to: { type: [string, "null"], format: date }
+            circular: { type: [string, "null"] }
+            url: { type: [string, "null"] }
+            readOn: { type: [string, "null"], format: date, description: The date the circular was read. }
+            note: { type: [string, "null"] }
     CalendarHolidays:
       type: object
       required: [exchange, year, holidays, specialSessions, calendar]
@@ -7487,7 +7503,12 @@ components:
               label: { type: string }
               open: { type: [string, "null"] }
               close: { type: [string, "null"] }
-              verified: { type: boolean }
+              preOpen: { type: string }
+              cas: { type: object }
+              verified: { type: boolean, description: "False: the timing was not read in the exchange circular. Live orders are refused in the session until it is verified." }
+              source: { type: [string, "null"] }
+              readOn: { type: [string, "null"], format: date }
+              note: { type: [string, "null"] }
         calendar: { $ref: "#/components/schemas/CalendarInfo" }
     CalendarSession:
       type: object
@@ -7521,7 +7542,12 @@ components:
                 label: { type: string }
                 open: { type: [string, "null"] }
                 close: { type: [string, "null"] }
+                preOpen: { type: string }
+                cas: { type: object }
                 verified: { type: boolean }
+                source: { type: [string, "null"] }
+                readOn: { type: [string, "null"], format: date }
+                note: { type: [string, "null"] }
             - type: "null"
         sessionTimes: { $ref: "#/components/schemas/CalendarSessionTimes" }
         previousTradingDay: { type: string, format: date }
@@ -9475,6 +9501,30 @@ components:
             demoOff: { type: boolean }
             wouldHaveSent: { type: array, items: { type: string }, description: "Demo mode: the messages that would have been sent." }
         method: { type: string }
+        referenceData: { $ref: "#/components/schemas/ReferenceDataFreshness" }
+    ReferenceDataFreshness:
+      type: object
+      required: [today, level, summary, items]
+      description: >-
+        How current the reference data shipped with the Bridge is (holidays, session hours, special sessions, freeze
+        quantities, charges, delivery margin). It warns when the holiday calendar has no rows for next year or a dataset's
+        asOf is older than six months. A warning never blocks an order.
+      properties:
+        today: { type: string, format: date }
+        level: { type: string, enum: [ok, warn] }
+        summary: { type: string, examples: ["3 reference-data items are out of date"] }
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, title, level, message]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              level: { type: string, enum: [ok, warn] }
+              asOf: { type: [string, "null"], format: date }
+              message: { type: string, description: Plain words. }
+              fix: { type: string }
     ReadinessTransition:
       type: object
       required: [at, accountId, from, to, codes]

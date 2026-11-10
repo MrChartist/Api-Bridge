@@ -30,15 +30,27 @@ export function legSymbol(exchange, underlying, expiry, strike, right) {
   return formatSymbol({ exchange, underlying, expiry, strike, right, kind: "OPT" });
 }
 
+/** Strikes on each side of the one nearest to spot that decide the near-the-money step (see strikeStepOf). */
+export const NEAR_MONEY_STRIKES = 10;
+
 /**
  * Strike step: the most common positive gap between consecutive distinct listed
  * strikes of one expiry; the smaller gap wins a tie; null with fewer than 3 strikes. Inferred, so callers label it.
  * [1360, 1380, 1400, 1410, 1420, 1440, 1460] → 20 (the off-grid 1410 is typical after a corporate action).
+ *
+ * With `spot` the step is read from the strikes within `around` listed strikes of the one nearest to spot only. A ladder
+ * that is finer near the money than far out (or the other way round) then reports the step that matters for the
+ * contracts a trader is looking at, not the most common gap of the whole ladder.
  * @param {number[]} strikes
+ * @param {{ spot?: number|null, around?: number }} [o]
  */
-export function strikeStepOf(strikes) {
-  const xs = [...new Set((strikes ?? []).filter((k) => typeof k === "number" && Number.isFinite(k) && k > 0))].sort((a, b) => a - b);
+export function strikeStepOf(strikes, { spot = null, around = NEAR_MONEY_STRIKES } = {}) {
+  let xs = [...new Set((strikes ?? []).filter((k) => typeof k === "number" && Number.isFinite(k) && k > 0))].sort((a, b) => a - b);
   if (xs.length < 3) return null;
+  if (typeof spot === "number" && spot > 0 && xs.length > 2 * around + 1) {
+    const i = xs.indexOf(atmStrike(xs, spot));
+    xs = xs.slice(Math.max(0, i - around), i + around + 1);
+  }
   const counts = new Map();
   for (let i = 1; i < xs.length; i += 1) {
     const gap = Math.round((xs[i] - xs[i - 1]) * 10_000) / 10_000;

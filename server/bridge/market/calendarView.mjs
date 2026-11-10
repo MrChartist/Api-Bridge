@@ -59,6 +59,20 @@ export function createCalendarView({ now, holidays = SHIPPED_HOLIDAYS, rows, spe
 
   function windowOf(exchange, date) {
     const w = cal.windowFor(exchange, date);
+    const sp = cal.specialOn(date, exchange);
+    // A special session (Muhurat, Budget Sunday) has its own hours and its own verified flag, not the regular rule's.
+    if (sp && sp.open && sp.close) {
+      return {
+        preOpen: sp.preOpen ?? sp.open,
+        open: sp.open,
+        close: sp.close,
+        ...(sp.cas ? { cas: sp.cas } : {}),
+        timezone: "IST",
+        verified: sp.verified,
+        source: sp.verified ? (sp.source ?? "special session") : `${sp.label}: timing not verified`,
+        rule: { id: "special-session", from: date, to: date, circular: null, url: sp.source ?? null, readOn: sp.readOn ?? null, note: sp.note ?? null },
+      };
+    }
     return {
       preOpen: w.preOpen,
       open: w.open,

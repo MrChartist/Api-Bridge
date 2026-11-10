@@ -206,7 +206,7 @@ export function createResolver({ deps, cfg, cal, now }) {
         warnings.push(`The listed options of ${U} for ${e.date} could not be read.`);
       }
       const ladder = [...table.keys()].sort((a, b) => a - b);
-      let step = ladder.length >= 3 ? stepOfStrikes(ladder) : null;
+      let step = ladder.length >= 3 ? stepOfStrikes(ladder, spot?.price ?? null) : null;
       let atm = null;
       let strikes = [];
       let source = "listed";

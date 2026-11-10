@@ -13,6 +13,7 @@ import { z } from "zod";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { accountFilter } from "../safety/routes.mjs";
 import { DEMO_SCENARIOS } from "../demo/demoReadiness.mjs";
+import { referenceFreshness } from "../reference/freshness.mjs";
 
 const ACCOUNT_ID = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const accountId = z.string().regex(ACCOUNT_ID, "2-32 lowercase letters, digits or hyphens");
@@ -50,6 +51,7 @@ function parseWith(schema, value, detail) {
  */
 export function createReadinessRoutes(deps) {
   const { readiness, config } = deps;
+  const clockNow = () => (deps.clock?.now ? deps.clock.now() : Date.now());
   const known = (id) => (config.accounts ?? []).some((a) => a.id === id);
 
   /** Visible tracked account ids for this caller, after checking any requested ids. */
@@ -63,7 +65,8 @@ export function createReadinessRoutes(deps) {
     return requested?.length ? ids.filter((id) => requested.includes(id)) : ids;
   }
 
-  const shape = (ctx, snap) => (canSeeIp(ctx) ? snap : redactSnapshot(snap));
+  /** The snapshot as this caller may see it, with the freshness of the shipped reference data (plain sentences, no I/O). */
+  const shape = (ctx, snap) => ({ ...(canSeeIp(ctx) ? snap : redactSnapshot(snap)), referenceData: referenceFreshness({ now: clockNow() }) });
 
   function readQuery(ctx, allowed) {
     for (const k of new Set([...ctx.query.keys()])) {

@@ -31,6 +31,7 @@ All guides, one line each: [guides/README.md](guides/README.md).
 - [source-contract.md](source-contract.md) and [sources-architecture.md](sources-architecture.md): writing a data source or plugin, and how routing and quotas fit together.
 - [broker-contract.md](broker-contract.md): what a broker adapter must provide.
 - [API-DEPRECATIONS.md](API-DEPRECATIONS.md): API changes that need a migration window. Release notes are in the [main changelog](../CHANGELOG.md).
+- [reference-data.md](reference-data.md): the market tables shipped with the Bridge (holidays, trading hours, special sessions, freeze quantities, charges), where each comes from, what `verified` means and how to update them.
 - [release-process.md](release-process.md): for maintainers, how a version is numbered, checked, tagged and published.
 - [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md): licences of the packages that ship with the Bridge, and the broker names and logos that are not MIT.
 

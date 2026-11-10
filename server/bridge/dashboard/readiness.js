@@ -735,6 +735,24 @@ export async function loadReadiness() {
 }
 
 /**
+ * How current the market reference data (holidays, session hours, freeze quantities, charges) is, in plain words, from the
+ * `referenceData` part of /v1/readiness. Pure. Null when the Bridge did not send it. It never blocks an order: it says what is
+ * old so the person can check the exchange circular.
+ * @returns {{ tone: "ok"|"warn", title: string, summary: string, lines: Array<{ text: string, fix: string|null }> } | null}
+ */
+export function referenceDataModel(snapshot) {
+  const r = snapshot?.referenceData;
+  if (!r || !Array.isArray(r.items)) return null;
+  const warns = r.items.filter((i) => i.level === "warn");
+  return {
+    tone: warns.length ? "warn" : "ok",
+    title: "Market reference data",
+    summary: warns.length ? `${warns.length} ${warns.length === 1 ? "thing needs" : "things need"} a check` : "Up to date",
+    lines: warns.map((i) => ({ text: i.message, fix: i.fix ?? null })),
+  };
+}
+
+/**
  * The readiness part of the Safety page. Returns { main, demo }: `main` is the "Trading readiness" section (the
  * checklist per account on the left, Recent changes and How this is checked beside it); `demo` is the demo-only
  * simulation tools (null outside the demo). Both redraw on every new reading while they are on screen, and "Last
@@ -795,7 +813,7 @@ export function readinessSection({ demo = false, initial = { snap: null, history
     const rows = rowsModel(snap, { canSeeIp: canSeeIp() });
     const labels = Object.fromEntries((snap.accounts ?? []).map((a) => [a.accountId, accountName(a)]));
     checks.replaceChildren(...(rows.length ? rows.map((r) => accountBlock(r, { expandable: true })) : [h("p", { class: "sf-card sf-note" }, "No live account is set up, so there is nothing to check. Paper orders do not need a broker session or a static IP.")]));
-    aside.replaceChildren(timeline(history, labels), howChecked(snap));
+    aside.replaceChildren(timeline(history, labels), referenceCard(snap), howChecked(snap));
     if (demoSlot) demoSlot.replaceChildren(demoTools(snap));
   }
   async function reload() {
@@ -815,6 +833,19 @@ export function readinessSection({ demo = false, initial = { snap: null, history
         )
       : h("p", { class: "sf-note" }, "Nothing yet. A change is recorded when an account moves between Ready, Check and Cannot trade.");
     return h("section", { class: "group", "aria-labelledby": "sf-hist-h" }, h("h3", { class: "group-title", id: "sf-hist-h" }, "Recent changes"), h("div", { class: "sf-card" }, body));
+  }
+  function referenceCard(snap) {
+    const m = referenceDataModel(snap);
+    if (!m) return null;
+    const body = m.lines.length
+      ? h("ul", { class: "sf-note" }, m.lines.map((l) => h("li", {}, l.text)))
+      : h("p", { class: "sf-note" }, "The holiday calendar, session hours and charge tables are within their expected age.");
+    return h(
+      "section",
+      { class: "group", "aria-labelledby": "sf-refdata-h" },
+      h("h3", { class: "group-title", id: "sf-refdata-h" }, m.title),
+      h("div", { class: "sf-card" }, h("p", {}, pill(m.summary, m.tone === "warn" ? "warn" : "ok")), body, m.lines.length ? h("p", { class: "sf-note" }, "This never stops an order. Check the exchange circular before relying on an old figure.") : null),
+    );
   }
   function howChecked(snap) {
     const eg = egressModel(snap);

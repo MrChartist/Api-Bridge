@@ -50,6 +50,7 @@ One state per account (ready, warn, cannot_trade, paper_only, unknown) with plai
 | `automations` | object | no |  |
 | `notifications` | object | no |  |
 | `method` | string | yes |  |
+| `referenceData` | `ReferenceDataFreshness` | no | How current the reference data shipped with the Bridge is (holidays, session hours, special sessions, freeze quantities, charges, delivery margin). It warns when the holiday calendar has no rows for next year or a dataset's asOf is older than six months. A warning never blocks an order. |
 
 ## Errors
 

@@ -15,12 +15,14 @@ const deepFreeze = (o) => {
   return o;
 };
 
-/** { version, asOf, source, years: { "2026": [{ date, label, exchanges, verified }] }, special: [...] } */
+/** { version, asOf, source, sources, amendments, years: { "2026": [{ date, label, exchanges, verified }] } } */
 export const SHIPPED_HOLIDAYS = deepFreeze(load("holidays.json"));
 /** { version, asOf, source, verified, appliesTo, schedule: [{ day: "E-4", pct }] } */
 export const SHIPPED_DELIVERY_MARGIN = deepFreeze(load("delivery-margin.json"));
 /** Statutory charges (the shape of the dashboard's CHARGE_RATES, without brokerage). */
 export const SHIPPED_CHARGES = deepFreeze(load("charges.json"));
+/** { version, note, entries: { "NFO:NIFTY": { freezeQty, lotWiseQty, verified, asOf, source, circular, readOn, note } } } */
+export const SHIPPED_FREEZE = deepFreeze(load("freeze-quantities.json"));
 /** { version, asOf, source, items: [CorporateAction without factor/origin] } */
 export const SHIPPED_CORPORATE_ACTIONS = deepFreeze(load("corporate-actions.json"));
 
