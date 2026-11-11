@@ -107,3 +107,15 @@ input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible, sele
 
 /* ── Pills sit a little rounder and calmer ── */
 .pill { font-weight: 500; }
+
+/* Compact density keeps a title that still reads as a large title. */
+:root[data-density="compact"] .page-head h1.large-title { font-size: clamp(1.9rem, 3vw, 2.3rem); }
+
+/* ── Sign in: the app's icon on top, everything centred, as on a first-run screen ── */
+.login-card { border-radius: var(--r-xl); box-shadow: var(--edge-1), var(--shadow-3); }
+.login-card > .lockup { flex-direction: column; align-self: center; gap: 12px; text-align: center; }
+.login-card > .lockup .lockup-symbol { width: 76px; height: 76px; padding: 15px; box-sizing: border-box; border-radius: 21px; fill: #fff; background: linear-gradient(160deg, hsl(220 14% 28%), hsl(230 18% 8%)); box-shadow: inset 0 0.5px 0 hsl(0 0% 100% / 0.3), 0 10px 24px hsl(230 30% 10% / 0.3); }
+.login-card > .lockup .lockup-text { align-items: center; }
+.login-card > .lockup .lockup-name { font-size: 20px; }
+.login-head { align-items: center; text-align: center; }
+.login-head p { max-width: 44ch; }
