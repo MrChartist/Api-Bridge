@@ -16,8 +16,8 @@
  *
  * Creating a LIVE hook (POST /v1/hooks with mode "live") needs, besides admin: the "live" scope on the creating key
  * (admin does not imply live; the local CLI is exempt), access to the hook's account, live enabled for that account
- * in the config with "webhook" in live.allowedSources, and, for sources that cannot sign their alerts (ChartInk,
- * GoCharting: the URL token is the only credential), at least one of allowSourceIps, requireConfirmation:
+ * in the config with "webhook" in live.allowedSources, and, for sources that cannot sign their alerts (TradingView,
+ * ChartInk, GoCharting: the URL token is the only credential), at least one of allowSourceIps, requireConfirmation:
  * true, or an explicit acknowledgeUnsignedLive: true (audited and shown on the hook). The creating key id is kept on
  * the hook; when that key is revoked, the live hook stops accepting alerts.
  */
@@ -34,6 +34,7 @@ import { HOOK_SOURCES, publicHook } from "./hookStore.mjs";
 import { parseChartInk } from "./receivers/chartink.mjs";
 import { parseGeneric } from "./receivers/generic.mjs";
 import { parseGoCharting } from "./receivers/gocharting.mjs";
+import { parseTradingView } from "./receivers/tradingview.mjs";
 import { alertTemplates } from "./templates.mjs";
 
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
@@ -42,6 +43,7 @@ const istDate = (ms) => new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
 const HOOK_ID_RE = /^hk_[a-z2-7]{12}$/;
 
 const PARSERS = Object.freeze({
+  tradingview: (body) => parseTradingView(body),
   chartink: (body, meta) => parseChartInk(body, meta),
   gocharting: (body) => parseGoCharting(body),
   generic: (body) => parseGeneric(body),
@@ -311,6 +313,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
     }
     warnings.push(...expiryWarnings(hook));
     if (hook.source === "chartink" && !hook.side) warnings.push("ChartInk alerts carry no side: set side (BUY or SELL) on this hook, or every alert will be refused.");
+    if (hook.source === "tradingview") warnings.push("TradingView posts from the internet to HTTPS on port 443 only: give it the public address of your tunnel or reverse proxy in place of the address above, and keep the /hooks/tradingview/... path.");
     if (hook.orderType === "MARKET") warnings.push("MARKET orders are sent with market protection (safety.marketProtectionPct); LIMIT is safer for alerts.");
     const host = typeof ctx.req?.headers?.host === "string" ? ctx.req.headers.host : `127.0.0.1:${deps.config?.server?.port ?? 4300}`;
     const path = `/hooks/${hook.source}/${token}`;

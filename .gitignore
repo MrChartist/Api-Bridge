@@ -89,6 +89,5 @@ venv/
 *.orig
 
 # v2
-data/
 .codegraph/
 .claude/

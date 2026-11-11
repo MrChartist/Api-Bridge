@@ -38,6 +38,11 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
   const host = base.replace(/\/$/, "");
   return {
     webhooks: [
+      {
+        title: "TradingView strategy alert (paste into the alert's Message box)",
+        lang: "json",
+        code: JSON.stringify({ symbol: "{{exchange}}:{{ticker}}", side: "{{strategy.order.action}}", quantity: "{{strategy.order.contracts}}", price: "{{strategy.order.price}}", id: "{{strategy.order.id}}", time: "{{timenow}}" }, null, 2),
+      },
       { title: "Generic alert body (JSON)", lang: "json", code: genericAlert() },
       {
         title: "Send a signed generic alert (bash + openssl)",

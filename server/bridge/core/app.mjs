@@ -77,6 +77,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "index.html": "text/html; charset=utf-8",
   "app.js": "text/javascript; charset=utf-8",
   "views.js": "text/javascript; charset=utf-8",
+  "home.js": "text/javascript; charset=utf-8",
   "chart-lite.js": "text/javascript; charset=utf-8",
   "chart-lite-core.js": "text/javascript; charset=utf-8",
   "chart-specs.js": "text/javascript; charset=utf-8",
@@ -120,6 +121,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "budget.js": "text/javascript; charset=utf-8",
   "motion.min.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
+  "home.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",
   "logo.svg": "image/svg+xml",
 });

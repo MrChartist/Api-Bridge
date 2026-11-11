@@ -28,6 +28,32 @@ export function alertTemplates(hook) {
           notes: [hook.side ? `Every stock in the scan becomes one ${hook.side} order.` : "Set a side (BUY or SELL) on the hook: ChartInk alerts do not carry one.", "Trigger prices become the LIMIT price.", lotsNote, productNote],
         },
       ];
+    case "tradingview": {
+      // TradingView fills the {{placeholders}} when the alert fires. Numbers travel as text; the receiver reads both.
+      const strategy = { symbol: "{{exchange}}:{{ticker}}", side: hook.side ?? "{{strategy.order.action}}", quantity: "{{strategy.order.contracts}}" };
+      if (hook.orderType === "LIMIT") strategy.price = "{{strategy.order.price}}";
+      if (!hook.product) strategy.product = "INTRADAY";
+      strategy.id = "{{strategy.order.id}}";
+      strategy.time = "{{timenow}}";
+      const indicator = { symbol: "{{exchange}}:{{ticker}}", side: hook.side ?? "BUY", quantity: 1 };
+      if (hook.orderType === "LIMIT") indicator.price = "{{close}}";
+      if (!hook.product) indicator.product = "INTRADAY";
+      const setup = "In the alert: tick Webhook URL under Notifications, paste the hook URL, and paste this into Message.";
+      return [
+        {
+          name: "TradingView strategy alert",
+          contentType: "application/json",
+          message: json(strategy),
+          notes: [setup, "For a strategy's order fills. The order id and time identify each alert, so a resend never places a second order that day.", priceNote, lotsNote, productNote],
+        },
+        {
+          name: "TradingView indicator or price alert",
+          contentType: "application/json",
+          message: json(indicator),
+          notes: [setup, hook.side ? `Every alert becomes one ${hook.side} order.` : "An indicator alert has no order of its own: write the side (BUY or SELL) and the quantity yourself, one alert per side.", priceNote, lotsNote],
+        },
+      ];
+    }
     case "gocharting":
       return [
         {

@@ -1,19 +1,21 @@
-# Alerts: signed generic hooks, ChartInk and GoCharting
+# Alerts: TradingView, ChartInk, GoCharting and signed generic hooks
 
 An alert from your own code or a charting site becomes an order through a **hook**: a URL with a secret token, tied
 to one account and a set of limits. Every signal goes through the same safety checks, rate limits, idempotency and
 audit log as an order sent from a script. Hooks are **paper** by default.
 
-Three sources are supported:
+Four sources are supported:
 
 | Source | Sender | Credential |
 |---|---|---|
 | `generic` | Your own scripts, bots and services | URL token **plus** an HMAC signature on every request |
+| `tradingview` | TradingView strategy, indicator and price alerts | URL token only (TradingView cannot sign) |
 | `chartink` | ChartInk scan alerts | URL token only (ChartInk cannot sign) |
 | `gocharting` | GoCharting alerts | URL token only (GoCharting cannot sign) |
 
-The dashboard does the same as the API below: **Integrations → Webhooks → Create webhook** (choose the source there;
-it defaults to `generic`).
+The dashboard does the same as the API below: **API → Integrations → TradingView and webhooks → Create webhook**
+(choose the source there; it defaults to TradingView). Home shows every source on its map, and **Latest alerts** there
+says what became of each alert: placed, or refused and why.
 
 ## 1. Create a hook
 
@@ -99,6 +101,43 @@ read. `{ "signals": [...], "id": "batch-7" }` sends several at once.
 The body accepts `symbol` (any symbol the Bridge understands, canonical preferred), `side`, `quantity` or `lots`,
 `price` (required for `LIMIT` hooks), `orderType`, `product`, and `id` (+ optional `time`). Reusing an `id` the same
 day never creates a second order.
+
+### TradingView
+
+Create the hook with `"source": "tradingview"`. In the TradingView alert, tick **Webhook URL** under Notifications,
+paste the hook's public URL, and paste one of these into **Message** (the dashboard and `GET /v1/hooks` give you the
+exact text for your hook under `templates`). TradingView fills in the `{{placeholders}}` when the alert fires.
+
+A strategy alert (one order per strategy fill):
+
+```json
+{
+  "symbol": "{{exchange}}:{{ticker}}",
+  "side": "{{strategy.order.action}}",
+  "quantity": "{{strategy.order.contracts}}",
+  "price": "{{strategy.order.price}}",
+  "id": "{{strategy.order.id}}",
+  "time": "{{timenow}}"
+}
+```
+
+An indicator or price alert has no order of its own, so write the side and quantity yourself, one alert per side:
+
+```json
+{ "symbol": "{{exchange}}:{{ticker}}", "side": "BUY", "quantity": 1, "price": "{{close}}" }
+```
+
+- Leave `price` out on a `MARKET` hook. Numbers may arrive as text (`"10"`); both are read.
+- With `id` and `time` (the strategy template) a resend never places a second order that day. Without them,
+  identical messages inside `hooks.dedupeWindowMs` count as one.
+- A placeholder TradingView did not fill, or a side other than buy or sell, refuses the alert instead of guessing.
+- A plain-text message works too, in the grammar GoCharting uses below: `BUY NSE:RELIANCE 10 @ 1402.5`.
+- `{{exchange}}:{{ticker}}` gives the Bridge's symbol for cash (`NSE:RELIANCE`). A chart on a continuous future
+  (`NIFTY1!`) sends a symbol no broker knows, and the alert is refused: for derivatives write the Bridge symbol in
+  the message yourself (`NFO:NIFTY-2026-11-24-FUT`) and list it in `allowedSymbols`.
+- TradingView posts from the internet, to HTTPS on port 443 only, and gives up on a slow answer, so it needs the
+  public address of your tunnel or reverse proxy (section 2). It cannot sign, so the URL is the credential: for a
+  live hook set `allowSourceIps` to the addresses TradingView publishes for its webhooks, or `requireConfirmation`.
 
 ### ChartInk
 

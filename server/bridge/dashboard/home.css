@@ -1,0 +1,121 @@
+/* Home (home.js): the status card, the map of sources, the Bridge and brokers, the API budget, setup steps and the
+   latest calls. Every colour, radius, type step and duration is a token from app.css; nothing here names a family, a
+   weight above 600 or a size below 12px (TYPE-SYSTEM.md). No button is styled here (BUTTON-SYSTEM.md). */
+
+/* ── Status ── */
+.hm-status { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px 32px; align-items: center; padding: clamp(20px, 2.6vw, 30px); }
+.hm-state { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.hm-state h2 { font: var(--t-title-2); letter-spacing: var(--tk-title-2); overflow-wrap: anywhere; }
+.hm-dot { width: 12px; height: 12px; border-radius: 99px; flex: none; background: hsl(var(--ios-green)); }
+.hm-dot.warn { background: hsl(var(--ios-orange)); }
+.hm-dot.bad { background: hsl(var(--ios-red)); }
+.hm-status-main > p { margin: 8px 0 0; max-width: 58ch; font: var(--t-small); color: hsl(var(--foreground) / var(--a-label)); }
+.hm-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 16px; font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+.hm-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hm-fig { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 4px 0 4px 18px; box-shadow: inset var(--hl) 0 0 var(--mat-separator); }
+.hm-fig .label { font: var(--t-label); color: hsl(var(--foreground) / var(--a-label)); }
+.hm-fig .value { font: 600 clamp(26px, 2.6vw, 34px)/1.05 var(--font-numeric); letter-spacing: -0.026em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.hm-fig .sub { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+
+/* ── The map: sources, the Bridge, brokers ── */
+.hm-map { --hm-stacked: 0; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(184px, 216px) minmax(0, 1fr); column-gap: clamp(44px, 7vw, 112px); align-items: center; }
+.hm-links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.hm-links path { fill: none; stroke: hsl(var(--foreground) / 0.11); stroke-width: 1.5; stroke-linecap: round; }
+.hm-links path.on { stroke: hsl(var(--ios-green)); stroke-width: 2; }
+/* Connected links draw themselves in once, when the page opens (pathLength is 1). */
+.hm-map:not(.drawn) .hm-links path.on { stroke-dasharray: 1; animation: hm-draw var(--dur-4) var(--ease-out) both; }
+@keyframes hm-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.hm-col { position: relative; min-width: 0; }
+.hm-col-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 4px 8px; }
+.hm-col-head h3 { font: 600 15px/1.3 var(--font-display); letter-spacing: -0.012em; }
+.hm-col-head span { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); text-align: right; }
+.hm-rows { border-radius: var(--r-md); background: var(--mat-fill-1); overflow: clip; }
+.hm-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 9px 12px; color: hsl(var(--foreground)); text-decoration: none; font: var(--t-ui); }
+.hm-row:hover { text-decoration: none; }
+@media (hover: hover) { .hm-row:hover { background: var(--mat-fill-1); } }
+.hm-row:focus-visible { outline: var(--focus-ring); outline-offset: -2px; border-radius: var(--r-sm); }
+.hm-row + .hm-row::before { content: ""; position: absolute; left: 56px; right: 0; top: 0; height: var(--hl); background: var(--mat-separator); }
+.hm-row .names { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hm-row .nm { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-row .sub { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-row > svg.chev { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.35; }
+.hm-row[data-on="0"] .icon-tile { opacity: 0.5; }
+.hm-row[data-on="0"] .nm { color: hsl(var(--foreground) / 0.78); }
+.hm-add { flex: none; font: var(--t-label); color: hsl(var(--ios-blue-ink)); }
+.hm-mid { position: relative; display: flex; justify-content: center; min-width: 0; }
+.hm-hub { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 14px 14px; text-align: center; border-radius: var(--r-xl); background: var(--surface-raised); box-shadow: var(--edge-1), var(--shadow-2); }
+.hm-hub[data-kill="1"] { box-shadow: 0 0 0 2px hsl(var(--ios-red) / 0.55), var(--shadow-2); }
+.hm-mark { width: 64px; height: 64px; margin-bottom: 8px; display: grid; place-items: center; border-radius: 18px; background: hsl(var(--foreground)); color: hsl(var(--background)); box-shadow: var(--shadow-2); }
+.hm-mark svg { width: 40px; height: 40px; fill: currentColor; }
+.hm-hub strong { font: 600 17px/1.25 var(--font-display); letter-spacing: -0.016em; }
+.hm-ver { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+.hm-gates { width: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.hm-gate { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 10px; border-radius: 10px; background: var(--mat-fill-1); color: hsl(var(--foreground) / 0.86); font: var(--t-label); text-align: left; text-decoration: none; }
+.hm-gate:hover { text-decoration: none; }
+@media (hover: hover) { .hm-gate:hover { background: var(--mat-fill-2); } }
+.hm-gate:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.hm-gate svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hm-gate span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hm-gate.ok svg { color: hsl(var(--ios-green-ink)); }
+.hm-gate.warn { background: hsl(var(--ios-orange) / var(--chip-tint)); color: hsl(var(--ios-orange-ink)); }
+.hm-gate.bad { background: hsl(var(--ios-red) / var(--chip-tint)); color: hsl(var(--ios-red-ink)); }
+
+/* Narrow screens: the three parts stack, joined by a short stem above and below the Bridge. */
+@media (max-width: 899px) {
+  .hm-status { grid-template-columns: minmax(0, 1fr); }
+  .hm-fig:first-child { padding-left: 0; box-shadow: none; }
+  .hm-map { --hm-stacked: 1; grid-template-columns: minmax(0, 1fr); row-gap: 44px; }
+  .hm-links { display: none; }
+  .hm-mid::before, .hm-mid::after { content: ""; position: absolute; left: 50%; width: 2px; height: 28px; margin-left: -1px; border-radius: 2px; background: hsl(var(--ios-green) / 0.7); }
+  .hm-mid::before { top: -36px; }
+  .hm-mid::after { bottom: -36px; }
+  .hm-hub { max-width: 360px; }
+}
+@media (max-width: 519px) {
+  .hm-fig { padding-left: 12px; }
+  .hm-fig .sub { display: none; }
+}
+
+/* ── Budget, setup, traffic ── */
+/* Cards of unequal height: columns pack them without the holes a grid row leaves under a short card. */
+.hm-grid { columns: 3 340px; column-gap: var(--panel-gap); }
+.hm-grid > .card { break-inside: avoid; margin: 0 0 var(--panel-gap); }
+.hm-grid > .card:last-child { margin-bottom: 0; }
+.hm-acct + .hm-acct { margin-top: 14px; padding-top: 14px; box-shadow: inset 0 var(--hl) 0 var(--mat-separator); }
+.hm-acct-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 6px; }
+.hm-acct-head strong { font: 500 15px/1.3 var(--font-body); overflow-wrap: anywhere; }
+.hm-acct-head .muted { margin-left: auto; }
+.hm-meter { display: grid; grid-template-columns: 92px minmax(0, 1fr) 64px; gap: 12px; align-items: center; padding: 5px 0; font: var(--t-label); }
+.hm-meter .lbl { color: hsl(var(--foreground) / var(--a-label)); }
+.hm-meter .val { text-align: right; font-variant-numeric: tabular-nums; color: hsl(var(--foreground) / 0.86); }
+.hm-meter .track { height: 6px; border-radius: 99px; background: var(--mat-fill-2); overflow: hidden; }
+.hm-meter .fill { display: block; height: 100%; width: calc(var(--share, 0) * 100%); border-radius: inherit; background: hsl(var(--ios-green)); transition: width var(--dur-3) var(--ease-out); }
+.hm-meter .fill.warn { background: hsl(var(--ios-orange)); }
+.hm-meter .fill.bad { background: hsl(var(--ios-red)); }
+
+.hm-steps, .hm-reqs { list-style: none; margin: 0; padding: 0; }
+.hm-steps li, .hm-reqs li { position: relative; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px var(--card-pad); }
+.hm-steps li + li::before, .hm-reqs li + li::before { content: ""; position: absolute; left: var(--card-pad); right: 0; top: 0; height: var(--hl); background: var(--mat-separator); }
+.hm-steps .names, .hm-reqs .names { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hm-steps .nm, .hm-reqs .nm { font: 500 15px/1.3 var(--font-body); overflow-wrap: anywhere; }
+.hm-steps .sub, .hm-reqs .sub { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); overflow-wrap: anywhere; }
+.hm-steps .tick { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 99px; box-shadow: inset 0 0 0 1.5px hsl(var(--foreground) / 0.22); }
+.hm-steps li.next .tick { box-shadow: inset 0 0 0 2px hsl(var(--ios-blue)); }
+.hm-steps li.done .tick { background: hsl(var(--ios-green)); box-shadow: none; color: hsl(var(--ios-on-fill)); }
+.hm-steps .tick svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.hm-steps li.done .nm { color: hsl(var(--foreground) / var(--a-label)); }
+.hm-reqs .nm { font-variant-numeric: tabular-nums; }
+.hm-code { flex: none; min-width: 42px; padding: 4px 6px; border-radius: 8px; text-align: center; font: 500 12.5px/1.2 var(--font-numeric); font-variant-numeric: tabular-nums; color: hsl(var(--ios-green-ink)); background: hsl(var(--ios-green) / var(--chip-tint)); }
+.hm-code.wide { min-width: 68px; }
+.hm-code.quiet { color: hsl(var(--foreground) / var(--a-label)); background: var(--mat-fill-2); }
+.hm-code.warn { color: hsl(var(--ios-orange-ink)); background: hsl(var(--ios-orange) / var(--chip-tint)); }
+.hm-code.bad { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / var(--chip-tint)); }
+.hm-empty { margin: 0; padding: 6px var(--card-pad) var(--card-pad); }
+
+/* A webhook's alert template notes (views.js webhookPanel). */
+.hook-notes { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hm-map:not(.drawn) .hm-links path.on { animation: none; stroke-dasharray: none; }
+  .hm-meter .fill { transition: none; }
+}

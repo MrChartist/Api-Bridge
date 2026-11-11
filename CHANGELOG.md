@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- TradingView is a webhook source (`"source": "tradingview"`): strategy, indicator and price alerts, JSON or text, with ready alert messages for each hook.
+- Dashboard: a Home page with the map of sources, the Bridge and brokers, the live broker API budget, setup steps, the latest alerts (placed or refused, with the reason) and the latest calls from other tools.
+- Dashboard: Home, Accounts, API and Orders are in the phone tab bar; shortcuts are 1 to 5 in the order of the sidebar.
+- Dashboard: Orders no longer shows a Triggers card or links to the option chain (neither is part of v2).
+- Fixed: the Bridge did not start from a fresh clone, because `server/bridge/reference/data/` was ignored by git. The four data files are back (rebuilt, marked unverified where they could not be checked) and the ignore rule is gone.
+
 ## 2.0.0
 
 Cut from MrChartist/api-bridge: the API connection layer only (broker adapters, accounts, auth, API keys, rate limits, symbols, market data, stream, orders, paper trading, safety, readiness, webhooks, MCP, compat API, SDKs, integrations) and a minimal dashboard (Accounts, API, Orders, Safety).

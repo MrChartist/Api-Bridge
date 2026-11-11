@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "asOf": "2026-04-01",
+  "source": "Statutory rates as published by the exchanges, SEBI and the Finance Act; check the current circulars",
+  "verified": false,
+  "opt": {
+    "sttSell": 0.0015,
+    "exerciseStt": 0.0015,
+    "stampBuy": 0.00003,
+    "txn": {
+      "NSE": 0.0003503,
+      "BSE": 0.000325
+    }
+  },
+  "fut": {
+    "sttSell": 0.0005,
+    "stampBuy": 0.00002,
+    "txn": {
+      "NSE": 0.0000173,
+      "BSE": 0
+    }
+  },
+  "sebiPerCrore": 10,
+  "ipftPerCrore": 0,
+  "gst": 0.18,
+  "physical": {
+    "sttDelivery": 0.001,
+    "stampBuy": 0.00015,
+    "txn": {
+      "NSE": 0.0000297,
+      "BSE": 0.0000375
+    },
+    "verified": false,
+    "source": "Delivery rates for physically settled stock derivatives; check the current circulars"
+  },
+  "margin": {
+    "expiryDayElmIndexShort": 0.02,
+    "verified": false,
+    "source": "Expiry-day extra ELM on short index options; check the current circular"
+  }
+}

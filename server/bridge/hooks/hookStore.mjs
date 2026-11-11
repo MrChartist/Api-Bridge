@@ -20,7 +20,7 @@ import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { ipEntrySchema } from "./config.mjs";
 
-export const HOOK_SOURCES = Object.freeze(["generic", "chartink", "gocharting"]);
+export const HOOK_SOURCES = Object.freeze(["generic", "tradingview", "chartink", "gocharting"]);
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const HOOK_ID_RE = /^hk_[a-z2-7]{12}$/;
 const B32 = "abcdefghijklmnopqrstuvwxyz234567";
@@ -51,7 +51,7 @@ export const hookCreateSchema = z
   .strict();
 
 /**
- * @typedef {{ id: string, source: "generic"|"chartink"|"gocharting", label: string, account: string,
+ * @typedef {{ id: string, source: "generic"|"tradingview"|"chartink"|"gocharting", label: string, account: string,
  *   mode: "paper"|"live", requireConfirmation: boolean, allowedSymbols: string[], maxLotsPerSignal: number,
  *   product: "CNC"|"INTRADAY"|"MARGIN"|null, orderType: "LIMIT"|"MARKET", allowSourceIps: string[], side: "BUY"|"SELL"|null,
  *   tokenHash: string, createdAt: string, lastSignalAt: string | null }} HookRecord

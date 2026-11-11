@@ -5,7 +5,7 @@ info:
   summary: One local API for all your Indian broker accounts.
   description: |
     The Bridge runs on your own computer (default `http://127.0.0.1:4300`) and holds your connections to several
-    brokers and accounts at once. Web apps, webhook alerts (ChartInk, GoCharting, signed scripts), Python and Node scripts, Excel,
+    brokers and accounts at once. Web apps, webhook alerts (TradingView, ChartInk, GoCharting, signed scripts), Python and Node scripts, Excel,
     Google Sheets and AI assistants all share those connections through this API, so the broker sees one well-behaved
     client instead of many.
 
@@ -120,7 +120,7 @@ tags:
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
-    description: Inbound alerts from ChartInk, GoCharting and signed senders.
+    description: Inbound alerts from TradingView, ChartInk, GoCharting and signed senders.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
   - name: Events
@@ -2181,16 +2181,16 @@ paths:
       - name: source
         in: path
         required: true
-        schema: { type: string, enum: [generic, chartink, gocharting] }
+        schema: { type: string, enum: [generic, tradingview, chartink, gocharting] }
       - name: token
         in: path
         required: true
-        description: The hook's secret token (shown once when the hook is created). It is the only credential ChartInk and GoCharting can carry, since they cannot sign requests.
+        description: The hook's secret token (shown once when the hook is created). It is the only credential TradingView, ChartInk and GoCharting can carry, since they cannot sign requests.
         schema: { type: string, minLength: 32, maxLength: 128 }
     post:
       tags: [Webhooks]
       operationId: receiveHook
-      summary: Inbound alert (signed generic, ChartInk or GoCharting)
+      summary: Inbound alert (signed generic, TradingView, ChartInk or GoCharting)
       description: |
         Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,
         through the same preview and safety checks as any order. The hook decides what an alert may do (account,
@@ -5288,7 +5288,7 @@ components:
       required: [id, source, label, account, mode, createdAt]
       properties:
         id: { type: string }
-        source: { type: string, enum: [generic, chartink, gocharting] }
+        source: { type: string, enum: [generic, tradingview, chartink, gocharting] }
         label: { type: string }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live] }
@@ -5311,7 +5311,7 @@ components:
       required: [source, label, account]
       additionalProperties: false
       properties:
-        source: { type: string, enum: [generic, chartink, gocharting] }
+        source: { type: string, enum: [generic, tradingview, chartink, gocharting] }
         label: { type: string, minLength: 1, maxLength: 60 }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live], default: paper }
@@ -5322,7 +5322,7 @@ components:
         orderType: { type: string, enum: [LIMIT, MARKET], default: LIMIT }
         side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
         allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist of sender IP addresses or IPv4 CIDR blocks." }
-        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
+        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (tradingview, chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
     RefMeta:
       type: object
       properties:

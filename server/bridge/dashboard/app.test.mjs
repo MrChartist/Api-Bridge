@@ -240,21 +240,22 @@ describe("dashboard broker login form", async () => {
   });
 });
 
-describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, Safety)", async () => {
+describe("the menu and the tabbed pages (API Bridge v2: Home, Accounts, API, Orders, Safety)", async () => {
   const { PAGES, LEGACY, resolveRoute } = await import("./views.js");
   const { fuzzyScore, pageCommands, rank } = await import("./palette.js");
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
-  it("has 4 pages in two groups, in the order of the sidebar", () => {
-    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "api", "orders", "safety"]);
-    expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["Bridge", "Trade"]);
-    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["orders"]);
+  it("has 5 pages, Home first and unlabelled, then two groups, in the order of the sidebar", () => {
+    expect(PAGES.map((p) => p.id)).toEqual(["home", "accounts", "api", "orders", "safety"]);
+    expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["", "Bridge", "Trade"]);
+    // The phone tab bar: four pages and More (Safety, appearance and the key).
+    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["home", "accounts", "api", "orders"]);
     expect(PAGES.find((p) => p.id === "orders").title).toBe("Orders");
   });
 
   it("curates the shortcuts", () => {
     const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
-    expect(keys).toEqual({ 5: "orders", 6: "safety", 9: "api" });
+    expect(keys).toEqual({ 1: "home", 2: "accounts", 3: "api", 4: "orders", 5: "safety" });
   });
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
@@ -294,10 +295,10 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
     expect(route("#/accounts?add=1")).toMatchObject({ view: "accounts", query: "add=1" });
   });
 
-  it("an unknown page is Accounts (the first page); an unknown or missing tab is the last tab used, then the default", () => {
-    expect(route("#/nowhere").page.id).toBe("accounts");
-    expect(route("").page.id).toBe("accounts");
-    expect(route("#signin=abc").page.id).toBe("accounts");
+  it("an unknown page is Home (the first page); an unknown or missing tab is the last tab used, then the default", () => {
+    expect(route("#/nowhere").page.id).toBe("home");
+    expect(route("").page.id).toBe("home");
+    expect(route("#signin=abc").page.id).toBe("home");
     expect(route("#/api").tab.id).toBe("keys");
     expect(route("#/api/nope").tab.id).toBe("keys");
     expect(route("#/api/nope").redirect).toBe("#/api/keys");
@@ -309,11 +310,12 @@ describe("the menu and the tabbed pages (API Bridge v2: Accounts, API, Orders, S
   it("the palette has one command per tab, the tools as search-only destinations, and ranks prefixes first", () => {
     const cmds = pageCommands(PAGES, "Ctrl");
     const byLabel = Object.fromEntries(cmds.map((c) => [c.label, c]));
-    for (const l of ["API keys", "Integrations", "Test console", "Rate limits", "Activity", "Trade book", "Python snippet", "Webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
-    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "9"] });
+    for (const l of ["API keys", "Integrations", "Test console", "Rate limits", "Activity", "Trade book", "Python snippet", "TradingView and webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
+    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "3"] });
     expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
     expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
-    expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Bridge", "Trade"]);
+    expect(byLabel["TradingView and webhooks"].route).toBe("api/integrations?tool=webhooks");
+    expect(rank(cmds, "tradingview")[0].label).toBe("TradingView and webhooks");
     expect(rank(cmds, "rate")[0].label).toBe("Rate limits");
     expect(rank(cmds, "console")[0].label).toBe("Test console");
     // A scattered in-order match is not enough: three points per query character.
