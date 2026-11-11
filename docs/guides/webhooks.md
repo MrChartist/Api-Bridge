@@ -41,7 +41,7 @@ stops a URL at once.
 
 | Field | Meaning |
 |---|---|
-| `source` | `generic`, `chartink` or `gocharting` |
+| `source` | `tradingview`, `chartink`, `gocharting` or `generic` |
 | `account` | The account orders go to |
 | `mode` | `paper` (default) or `live`. Creating a live hook is refused unless the creating key has the `live` scope as well as `admin`, the account has `live.enabled` and `"webhook"` in its `live.allowedSources`, `safety.liveTrading` is on, and (for unsigned sources, see below) one of `allowSourceIps`, `requireConfirmation` or `acknowledgeUnsignedLive` is set |
 | `side` | Fix the side (`BUY`/`SELL`). Required for ChartInk, whose alerts carry none; otherwise an alert asking for the other side is refused |
@@ -132,9 +132,10 @@ An indicator or price alert has no order of its own, so write the side and quant
   identical messages inside `hooks.dedupeWindowMs` count as one.
 - A placeholder TradingView did not fill, or a side other than buy or sell, refuses the alert instead of guessing.
 - A plain-text message works too, in the grammar GoCharting uses below: `BUY NSE:RELIANCE 10 @ 1402.5`.
-- `{{exchange}}:{{ticker}}` gives the Bridge's symbol for cash (`NSE:RELIANCE`). A chart on a continuous future
-  (`NIFTY1!`) sends a symbol no broker knows, and the alert is refused: for derivatives write the Bridge symbol in
-  the message yourself (`NFO:NIFTY-2026-11-24-FUT`) and list it in `allowedSymbols`.
+- `{{exchange}}:{{ticker}}` gives the Bridge's symbol for cash (`NSE:RELIANCE`). Chart tickers are understood too:
+  a chart on a continuous future (`NSE:NIFTY1!`) is resolved to the current front-month contract. For derivatives
+  the quantity must be a multiple of the lot size (or send `lots`), and a hook with `allowedSymbols` lists the dated
+  contract (`NFO:NIFTY-2026-11-24-FUT`), so update it after each expiry.
 - TradingView posts from the internet, to HTTPS on port 443 only, and gives up on a slow answer, so it needs the
   public address of your tunnel or reverse proxy (section 2). It cannot sign, so the URL is the credential: for a
   live hook set `allowSourceIps` to the addresses TradingView publishes for its webhooks, or `requireConfirmation`.
