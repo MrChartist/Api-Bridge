@@ -2,26 +2,34 @@
    latest calls. Every colour, radius, type step and duration is a token from app.css; nothing here names a family, a
    weight above 600 or a size below 12px (TYPE-SYSTEM.md). No button is styled here (BUTTON-SYSTEM.md). */
 
-/* ── Status ── */
-.hm-status { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px 32px; align-items: center; padding: clamp(20px, 2.6vw, 30px); }
+/* ── Status: one bold widget. Its colour is its state: blue when running, orange when it needs you, red when stopped ── */
+.hm-status { --hm-a: 211 100% 50%; --hm-b: 243 75% 59%; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px 32px; align-items: center; padding: clamp(20px, 2.4vw, 28px); border-radius: var(--r-xl); color: #fff; background: linear-gradient(135deg, hsl(var(--hm-a)), hsl(var(--hm-b))); box-shadow: 0 1px 2px hsl(var(--hm-b) / 0.2), 0 14px 36px hsl(var(--hm-b) / 0.28); overflow: clip; }
+.hm-status.warn { --hm-a: 36 100% 50%; --hm-b: 14 96% 54%; }
+.hm-status.bad { --hm-a: 3 92% 56%; --hm-b: 338 78% 44%; }
+/* A soft highlight in the corner, the way a widget catches light. */
+.hm-status::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(70% 90% at 100% 0%, hsl(0 0% 100% / 0.22), transparent 60%); }
+.hm-status > * { position: relative; }
 .hm-state { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.hm-state h2 { font: var(--t-title-2); letter-spacing: var(--tk-title-2); overflow-wrap: anywhere; }
-.hm-dot { width: 12px; height: 12px; border-radius: 99px; flex: none; background: hsl(var(--ios-green)); }
-.hm-dot.warn { background: hsl(var(--ios-orange)); }
-.hm-dot.bad { background: hsl(var(--ios-red)); }
-.hm-status-main > p { margin: 8px 0 0; max-width: 58ch; font: var(--t-small); color: hsl(var(--foreground) / var(--a-label)); }
-.hm-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 16px; font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
-.hm-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.hm-fig { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 4px 0 4px 18px; box-shadow: inset var(--hl) 0 0 var(--mat-separator); }
-.hm-fig .label { font: var(--t-label); color: hsl(var(--foreground) / var(--a-label)); }
-.hm-fig .value { font: 600 clamp(26px, 2.6vw, 34px)/1.05 var(--font-numeric); letter-spacing: -0.026em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.hm-fig .sub { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+.hm-state h2 { font: var(--fw-heading) clamp(26px, 3vw, 34px)/1.12 var(--font-display); letter-spacing: -0.03em; overflow-wrap: anywhere; }
+.hm-dot { width: 12px; height: 12px; border-radius: 99px; flex: none; background: hsl(135 80% 68%); box-shadow: 0 0 0 4px hsl(0 0% 100% / 0.22); }
+.hm-dot.warn, .hm-dot.bad { background: #fff; }
+.hm-status-main > p { margin: 10px 0 0; max-width: 56ch; font: var(--t-small); font-size: 16px; color: hsl(0 0% 100% / 0.88); }
+.hm-status-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin-top: 18px; font: var(--t-label); color: hsl(0 0% 100% / 0.8); }
+.hm-status-meta .pill { color: #fff; background: hsl(0 0% 100% / 0.2); box-shadow: none; }
+.hm-status-meta button.primary { --btn-bg: #fff; --btn-fg: hsl(var(--hm-b)); }
+.hm-status-meta button.primary:hover:not(:disabled) { --btn-bg: hsl(0 0% 100% / 0.9); }
+.hm-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.hm-fig { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 12px 14px 13px; border-radius: 18px; background: hsl(0 0% 100% / 0.16); box-shadow: inset 0 0.5px 0 hsl(0 0% 100% / 0.3); }
+.hm-fig .label { font: var(--t-label); color: hsl(0 0% 100% / 0.84); }
+.hm-fig .value { font: 600 clamp(28px, 2.8vw, 38px)/1.05 var(--font-numeric); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.hm-fig .sub { font: var(--t-caption); color: hsl(0 0% 100% / 0.78); }
 
 /* ── The map: sources, the Bridge, brokers ── */
 .hm-map { --hm-stacked: 0; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(184px, 216px) minmax(0, 1fr); column-gap: clamp(44px, 7vw, 112px); align-items: center; }
 .hm-links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .hm-links path { fill: none; stroke: hsl(var(--foreground) / 0.11); stroke-width: 1.5; stroke-linecap: round; }
-.hm-links path.on { stroke: hsl(var(--ios-green)); stroke-width: 2; }
+.hm-links path { stroke-dasharray: 0.012 0.02; }
+.hm-links path.on { stroke: hsl(var(--ios-green)); stroke-width: 2.5; stroke-dasharray: none; }
 /* Connected links draw themselves in once, when the page opens (pathLength is 1). */
 .hm-map:not(.drawn) .hm-links path.on { stroke-dasharray: 1; animation: hm-draw var(--dur-4) var(--ease-out) both; }
 @keyframes hm-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
@@ -29,7 +37,7 @@
 .hm-col-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 4px 8px; }
 .hm-col-head h3 { font: 600 15px/1.3 var(--font-display); letter-spacing: -0.012em; }
 .hm-col-head span { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); text-align: right; }
-.hm-rows { border-radius: var(--r-md); background: var(--mat-fill-1); overflow: clip; }
+.hm-rows { border-radius: var(--r-lg); background: var(--mat-fill-1); overflow: clip; }
 .hm-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 9px 12px; color: hsl(var(--foreground)); text-decoration: none; font: var(--t-ui); }
 .hm-row:hover { text-decoration: none; }
 @media (hover: hover) { .hm-row:hover { background: var(--mat-fill-1); } }
@@ -39,14 +47,25 @@
 .hm-row .nm { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-row .sub { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-row > svg.chev { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.35; }
-.hm-row[data-on="0"] .icon-tile { opacity: 0.5; }
 .hm-row[data-on="0"] .nm { color: hsl(var(--foreground) / 0.78); }
-.hm-add { flex: none; font: var(--t-label); color: hsl(var(--ios-blue-ink)); }
+.hm-slot .nm { color: hsl(var(--foreground) / var(--a-label)); }
+/* Sources that are not set up: a grid of icons to pick from, as on a home screen. */
+.hm-pick { margin-top: 18px; }
+.hm-pick-label { display: block; margin: 0 4px 10px; font: var(--t-label); color: hsl(var(--foreground) / var(--a-quiet)); }
+.hm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 14px 6px; }
+.hm-tile { display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0; padding: 8px 2px; border-radius: var(--r-md); color: hsl(var(--foreground) / 0.86); text-align: center; text-decoration: none; font: var(--t-caption); transition: scale var(--dur-spring) var(--ease-press), background-color var(--dur-hover) var(--ease-out); }
+.hm-tile:hover { text-decoration: none; }
+@media (hover: hover) { .hm-tile:hover { background: var(--mat-fill-1); } }
+.hm-tile:active { scale: 0.94; }
+.hm-tile:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.hm-tile .icon-tile { width: 52px; height: 52px; border-radius: 14px; }
+.hm-tile .icon-tile svg { width: 26px; height: 26px; }
+.hm-tile span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-mid { position: relative; display: flex; justify-content: center; min-width: 0; }
 .hm-hub { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 22px 14px 14px; text-align: center; border-radius: var(--r-xl); background: var(--surface-raised); box-shadow: var(--edge-1), var(--shadow-2); }
 .hm-hub[data-kill="1"] { box-shadow: 0 0 0 2px hsl(var(--ios-red) / 0.55), var(--shadow-2); }
-.hm-mark { width: 64px; height: 64px; margin-bottom: 8px; display: grid; place-items: center; border-radius: 18px; background: hsl(var(--foreground)); color: hsl(var(--background)); box-shadow: var(--shadow-2); }
-.hm-mark svg { width: 40px; height: 40px; fill: currentColor; }
+.hm-mark { width: 72px; height: 72px; margin-bottom: 10px; display: grid; place-items: center; border-radius: 20px; color: #fff; background: linear-gradient(160deg, hsl(220 14% 28%), hsl(230 18% 8%)); box-shadow: inset 0 0.5px 0 hsl(0 0% 100% / 0.3), 0 8px 20px hsl(230 30% 10% / 0.28); }
+.hm-mark svg { width: 44px; height: 44px; fill: currentColor; }
 .hm-hub strong { font: 600 17px/1.25 var(--font-display); letter-spacing: -0.016em; }
 .hm-ver { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
 .hm-gates { width: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
@@ -63,7 +82,6 @@
 /* Narrow screens: the three parts stack, joined by a short stem above and below the Bridge. */
 @media (max-width: 899px) {
   .hm-status { grid-template-columns: minmax(0, 1fr); }
-  .hm-fig:first-child { padding-left: 0; box-shadow: none; }
   .hm-map { --hm-stacked: 1; grid-template-columns: minmax(0, 1fr); row-gap: 44px; }
   .hm-links { display: none; }
   .hm-mid::before, .hm-mid::after { content: ""; position: absolute; left: 50%; width: 2px; height: 28px; margin-left: -1px; border-radius: 2px; background: hsl(var(--ios-green) / 0.7); }
@@ -72,7 +90,7 @@
   .hm-hub { max-width: 360px; }
 }
 @media (max-width: 519px) {
-  .hm-fig { padding-left: 12px; }
+  .hm-fig { padding: 12px; }
   .hm-fig .sub { display: none; }
 }
 

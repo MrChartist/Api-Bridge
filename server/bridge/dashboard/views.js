@@ -2310,7 +2310,7 @@ async function renderSafety() {
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
     iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
     h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."])),
-    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
+    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", "data-destructive": "", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
     glyph: "bolt",

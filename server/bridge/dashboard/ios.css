@@ -1,0 +1,109 @@
+/* The iOS finish. Loaded after app.css and palette.css, it changes how the whole dashboard looks without touching how
+   it is laid out: one accent (system blue) for actions and the current place, iOS selection controls (a light thumb
+   in a segmented control, a green switch, a blue tick), panels that float on soft depth instead of an outline, icon
+   tiles with the top-lit gradient of an app icon, and a quiet wash of colour behind the glass.
+
+   It works through the tokens app.css already defines, scoped to the component that should change, so every page
+   picks it up. Type stays on the scale in app.css (TYPE-SYSTEM.md): no family is named here, nothing is heavier
+   than 600 or smaller than 12px. This file supersedes BUTTON-SYSTEM.md §2 on one point: the primary action is
+   filled with the accent, not the ink. */
+
+:root {
+  --accent: var(--ios-blue);
+  --accent-ink: var(--ios-blue-ink);
+  --accent-fill: var(--ios-blue-fill);
+  --accent-fill-hover: var(--ios-blue-fill-hover);
+  --accent-tint: hsl(var(--ios-blue) / 0.13);
+  --seg-thumb: 0 0% 100%;
+  --seg-thumb-fg: 0 0% 0%;
+  --seg-thumb-shadow: 0 1px 3px hsl(240 10% 10% / 0.14), 0 1px 1px hsl(240 10% 10% / 0.06);
+  --seg-track: hsl(240 6% 10% / 0.075);
+  /* Panels: a breath of an edge and soft depth. */
+  --edge-1: 0 0 0 var(--hl) hsl(240 6% 10% / 0.05), 0 1px 2px hsl(240 10% 10% / 0.04), 0 8px 24px hsl(240 10% 10% / 0.05);
+  --panel-shadow: var(--edge-1);
+  --r-panel: 22px;
+  --wall-a: hsl(211 100% 60% / 0.13);
+  --wall-b: hsl(280 90% 64% / 0.09);
+  --tile-lit: 26%;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --accent-tint: hsl(var(--ios-blue) / 0.22);
+    --seg-thumb: 240 2% 39%;
+    --seg-thumb-fg: 0 0% 100%;
+    --seg-thumb-shadow: 0 1px 3px hsl(0 0% 0% / 0.4);
+    --seg-track: hsl(0 0% 100% / 0.09);
+    --edge-1: 0 0 0 var(--hl) hsl(0 0% 100% / 0.09);
+    --wall-a: hsl(221 100% 56% / 0.2);
+    --wall-b: hsl(280 90% 56% / 0.13);
+    --tile-lit: 18%;
+  }
+}
+:root[data-theme="dark"] {
+  --accent-tint: hsl(var(--ios-blue) / 0.22);
+  --seg-thumb: 240 2% 39%;
+  --seg-thumb-fg: 0 0% 100%;
+  --seg-thumb-shadow: 0 1px 3px hsl(0 0% 0% / 0.4);
+  --seg-track: hsl(0 0% 100% / 0.09);
+  --edge-1: 0 0 0 var(--hl) hsl(0 0% 100% / 0.09);
+  --wall-a: hsl(221 100% 56% / 0.2);
+  --wall-b: hsl(280 90% 56% / 0.13);
+  --tile-lit: 18%;
+}
+
+/* ── The wash behind the glass: two soft lights at the top of the page, fixed, never a pattern ── */
+body::before {
+  inset: 0;
+  background:
+    radial-gradient(60% 46% at 12% -6%, var(--wall-a), transparent 72%),
+    radial-gradient(52% 40% at 96% -10%, var(--wall-b), transparent 70%);
+}
+
+/* ── Actions: the primary button is the accent ── */
+button.primary, .btn.primary { --btn-bg: hsl(var(--accent-fill)); --btn-fg: hsl(var(--ios-on-fill)); }
+@media (hover: hover) {
+  button.primary:hover:not(:disabled), .btn.primary:hover:not(:disabled) { --btn-bg: hsl(var(--accent-fill-hover)); }
+}
+button.primary:is(:disabled, [aria-disabled="true"], .blocked), .btn.primary:is(:disabled, [aria-disabled="true"], .blocked) { --btn-bg: hsl(var(--accent-fill) / 0.42); --btn-fg: hsl(var(--ios-on-fill) / 0.85); }
+button.primary:focus-visible, .btn.primary:focus-visible { outline-color: hsl(var(--ios-on-fill)); }
+/* An action that stops or removes something is red (the kill switch). */
+button.primary[data-destructive] { --btn-bg: hsl(var(--ios-red-fill)); }
+@media (hover: hover) { button.primary[data-destructive]:hover:not(:disabled) { --btn-bg: hsl(var(--ios-red-fill) / 0.88); } }
+/* A quiet text action reads as a link. */
+button:is(.quiet, .plain):not(.icon-btn) { --btn-fg: hsl(var(--accent-ink)); }
+
+/* ── Selection controls ── */
+/* Segmented controls and tab strips: a light thumb that lifts off the track. */
+.segmented, .tabs, .scr-tabs { --sel-bg: var(--seg-thumb); --sel-fg: var(--seg-thumb-fg); }
+.segmented.has-thumb::before { box-shadow: var(--seg-thumb-shadow); }
+.segmented:not(.has-thumb) button[aria-pressed="true"], .tabs.tabs button[aria-selected="true"] { box-shadow: var(--seg-thumb-shadow); }
+.segmented button, .tabs button { font-weight: 500; }
+/* Switches are green when on; ticks and radio dots are the accent. */
+.switch { --sel-bg: var(--ios-green); --sel-fg: 0 0% 100%; }
+input[type="checkbox"], input[type="radio"] { --sel-bg: var(--accent-fill); --sel-fg: 0 0% 100%; }
+/* The command palette's current row, as in Spotlight. */
+.palette-option { --sel-bg: var(--accent-fill); --sel-fg: 0 0% 100%; }
+.list-row > svg.check { stroke: hsl(var(--accent)); }
+
+/* ── The current place: the sidebar row and the phone tab take the accent ── */
+.nav a[aria-current="page"] { background: var(--accent-tint); color: hsl(var(--accent-ink)); }
+.nav a[aria-current="page"] svg { stroke: hsl(var(--accent-ink)); }
+.tab[aria-current="page"], .tab[aria-expanded="true"] { color: hsl(var(--accent-ink)); }
+.tab[aria-current="page"] svg, .tab[aria-expanded="true"] svg { background: var(--accent-tint); color: hsl(var(--accent-ink)); }
+
+/* ── Titles: a larger large title, as on an iPhone ── */
+.page-head h1.large-title { font-size: clamp(2.1rem, 3.8vw, 2.75rem); letter-spacing: -0.038em; }
+.page-sub { font: var(--t-lead); font-size: 17px; color: hsl(var(--foreground) / var(--a-label)); }
+.card-titles h2 { font-size: 19px; letter-spacing: -0.02em; }
+
+/* ── Icon tiles: lit from the top, like an app icon ── */
+.icon-tile {
+  background: linear-gradient(180deg, color-mix(in srgb, hsl(var(--tint)), #fff var(--tile-lit)), hsl(var(--tint)));
+  box-shadow: inset 0 0.5px 0 hsl(0 0% 100% / 0.35), 0 1px 2px hsl(var(--tint) / 0.28);
+}
+
+/* ── Inputs: filled fields with an accent ring on focus ── */
+input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid hsl(var(--accent) / 0.55); outline-offset: 0; }
+
+/* ── Pills sit a little rounder and calmer ── */
+.pill { font-weight: 500; }

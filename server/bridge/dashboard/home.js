@@ -14,18 +14,18 @@ import * as live from "./live.js";
 
 /** Alert services that post to a hook URL (hooks/receivers/*.mjs), in the order of the map. */
 export const HOOK_SOURCES = Object.freeze([
-  { id: "tradingview", name: "TradingView", icon: "chart", tint: "blue", hint: "Strategy and indicator alerts" },
-  { id: "chartink", name: "ChartInk", icon: "scan", tint: "orange", hint: "Scan alerts" },
-  { id: "gocharting", name: "GoCharting", icon: "wave", tint: "teal", hint: "Chart alerts" },
-  { id: "generic", name: "Signed webhooks", icon: "bolt", tint: "purple", hint: "Your own servers and scripts" },
+  { id: "tradingview", name: "TradingView", short: "TradingView", icon: "chart", tint: "blue", hint: "Strategy and indicator alerts" },
+  { id: "chartink", name: "ChartInk", short: "ChartInk", icon: "scan", tint: "orange", hint: "Scan alerts" },
+  { id: "gocharting", name: "GoCharting", short: "GoCharting", icon: "wave", tint: "teal", hint: "Chart alerts" },
+  { id: "generic", name: "Signed webhooks", short: "Webhooks", icon: "bolt", tint: "purple", hint: "Your own servers and scripts" },
 ]);
 
 /** Tools that call the API with a key, by the key's client kind (auth/keyStore.mjs CLIENT_KINDS). */
 export const KEY_SOURCES = Object.freeze([
-  { id: "script", name: "Python and Node", icon: "console", tint: "indigo", tool: "python", hint: "SDKs, REST and WebSocket" },
-  { id: "excel", name: "Excel and Sheets", icon: "columns", tint: "green", tool: "excel", hint: "Live prices in a workbook" },
-  { id: "mcp", name: "AI assistants", icon: "radar", tint: "pink", tool: "claude", hint: "Claude and ChatGPT tools" },
-  { id: "other", name: "AmiBroker and more", icon: "bars", tint: "gray", tool: "amibroker", hint: "Anything that speaks HTTP" },
+  { id: "script", name: "Python and Node", short: "Scripts", icon: "console", tint: "indigo", tool: "python", hint: "SDKs, REST and WebSocket" },
+  { id: "excel", name: "Excel and Sheets", short: "Excel", icon: "columns", tint: "green", tool: "excel", hint: "Live prices in a workbook" },
+  { id: "mcp", name: "AI assistants", short: "AI assistants", icon: "radar", tint: "pink", tool: "claude", hint: "Claude and ChatGPT tools" },
+  { id: "other", name: "AmiBroker and more", short: "AmiBroker", icon: "bars", tint: "gray", tool: "amibroker", hint: "Anything that speaks HTTP" },
 ]);
 
 const plural = (n, one, many = `${one}s`) => `${formatInt(n)} ${n === 1 ? one : many}`;
@@ -233,6 +233,10 @@ function drawLinks(map) {
 function bridgeMap({ sources, brokers, safety, version }) {
   const colHead = (title, sub) => h("div", { class: "hm-col-head" }, h("h3", {}, title), h("span", {}, sub));
   const activeSources = sources.filter((s) => s.active).length;
+  // Connected sources are rows, each with its own link to the Bridge. The rest are a grid of icons to pick from,
+  // as on a home screen: nothing that is not set up yet takes a row or draws a line.
+  const on = sources.filter((s) => s.active);
+  const off = sources.filter((s) => !s.active);
   const inCol = h(
     "div",
     { class: "hm-col in" },
@@ -240,8 +244,18 @@ function bridgeMap({ sources, brokers, safety, version }) {
     h(
       "div",
       { class: "hm-rows" },
-      sources.map((s) => mapRow({ tile: iconTile(s.icon, s.tint), name: s.name, sub: s.active && s.lastAt ? `${s.status} · last ${istTime(s.lastAt)}` : s.status, to: s.to, on: s.active, label: `${s.name}: ${s.active ? s.status : "not set up"}`, trailing: s.active ? null : h("span", { class: "hm-add" }, "Set up") })),
+      on.length
+        ? on.map((s) => mapRow({ tile: iconTile(s.icon, s.tint), name: s.name, sub: s.lastAt ? `${s.status} · last ${istTime(s.lastAt)}` : s.status, to: s.to, on: true, label: `${s.name}: ${s.status}` }))
+        : h("div", { class: "hm-row hm-slot", "data-on": "0" }, iconTile("plus", "gray"), h("span", { class: "names" }, h("span", { class: "nm" }, "No source yet"), h("span", { class: "sub" }, "Pick one below and it appears here"))),
     ),
+    off.length
+      ? h(
+          "div",
+          { class: "hm-pick" },
+          h("span", { class: "hm-pick-label" }, on.length ? "Add another" : "Add a source"),
+          h("div", { class: "hm-tiles" }, off.map((s) => h("a", { class: "hm-tile", href: s.to, title: s.hint, "aria-label": `Set up ${s.name}: ${s.hint}` }, iconTile(s.icon, s.tint, "lg"), h("span", {}, s.short ?? s.name)))),
+        )
+      : null,
   );
   const outCol = h(
     "div",
@@ -293,9 +307,9 @@ function statusCard({ status, health, sources, brokers, demo }) {
     h(
       "div",
       { class: "hm-figs" },
-      figure("Sources", formatInt(active), active ? "sending to the Bridge" : "none connected yet"),
-      figure("Brokers", `${formatInt(ready)}/${formatInt(brokers.length)}`, "accounts ready"),
-      figure("Broker calls today", DASH, "waiting for the live count", "hm-calls"),
+      figure("Sources", formatInt(active), active ? "connected" : "none yet"),
+      figure("Accounts", `${formatInt(ready)}/${formatInt(brokers.length)}`, "ready"),
+      figure("Calls today", DASH, "counting", "hm-calls"),
     ),
   );
 }
@@ -315,7 +329,7 @@ function budgetCard(find) {
     const calls = find("hm-calls");
     if (calls) calls.textContent = formatInt(msg?.callsToday ?? 0);
     const sub = find("hm-calls-sub");
-    if (sub) sub.textContent = `${formatInt(msg?.savedToday ?? 0)} more saved by sharing`;
+    if (sub) sub.textContent = `${formatInt(msg?.savedToday ?? 0)} more saved`;
     const gate = find("hm-gate-rate");
     if (gate) {
       gate.className = `hm-gate ${view.tone === "ok" ? "ok" : view.tone}`;
@@ -389,8 +403,8 @@ function trafficCard(requests, error) {
   return card({
     glyph: "activity",
     tint: "gray",
-    title: "Latest calls from your tools",
-    sub: "What reached the Bridge from outside this dashboard.",
+    title: "Latest API calls",
+    sub: "What your tools sent to the Bridge.",
     actions: go("Activity", "#/api/activity", "small"),
     cls: "hm-traffic",
     flush: true,

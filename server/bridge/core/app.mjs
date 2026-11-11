@@ -122,6 +122,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "motion.min.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
   "home.css": "text/css; charset=utf-8",
+  "ios.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",
   "logo.svg": "image/svg+xml",
 });
