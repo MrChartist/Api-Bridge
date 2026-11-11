@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The dashboard opens without a key on the computer the Bridge runs on (`POST /v1/sign-in/local`: loopback and the Bridge's own page only). `server.keylessSignIn: false` switches it off; it is off by default with `server.localPeers` or a remote dashboard.
 - TradingView is a webhook source (`"source": "tradingview"`): strategy, indicator and price alerts, JSON or text, with ready alert messages for each hook.
 - Dashboard: a Home page with the map of sources, the Bridge and brokers, the live broker API budget, setup steps, the latest alerts (placed or refused, with the reason) and the latest calls from other tools.
 - Dashboard: an iOS finish across every page (`ios.css`): system blue for actions and the current page, iOS segmented controls, switches and ticks, panels on soft depth, lit icon tiles, a red kill switch. Home leads with a status widget whose colour is its state, and sources you have not set up are a grid of icons to pick from.

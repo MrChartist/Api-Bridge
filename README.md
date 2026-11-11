@@ -54,7 +54,7 @@ npm run doctor     # check the setup
 npm test           # run the tests
 ```
 
-The dashboard is served at `http://localhost:4300/dashboard` and the health check at `/v1/health`. Copy `bridge.config.example.json` to `bridge.config.json` to configure accounts, ports and limits.
+The dashboard is served at `http://localhost:4300/dashboard` and opens without a key on the computer the Bridge runs on (see `docs/guides/safety.md` to switch that off). The health check is at `/v1/health`. Copy `bridge.config.example.json` to `bridge.config.json` to configure accounts, ports and limits.
 
 Other commands: `npm run bridge -- <command>` (CLI), `npm run typecheck`, `npm run check:mjs`, `npm run capabilities`.
 

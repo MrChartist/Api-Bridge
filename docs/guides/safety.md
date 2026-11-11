@@ -124,3 +124,26 @@ Every key change, login, order step, confirmation, kill-switch action and webhoo
 
 One JSON line per event on stderr. Secret field names, Bridge keys, bearer tokens, JWTs and every decrypted credential
 are masked; request bodies are never logged; webhook paths are logged without their tokens.
+
+## Signing in to the dashboard
+
+On the computer the Bridge runs on, the dashboard opens without a key: the page asks the Bridge for a key of its own
+(`POST /v1/sign-in/local`) and you are in. Signing out (the account row in the sidebar) keeps that tab signed out
+until you choose **Continue on this computer**.
+
+What stands in for the key is being on this computer. The Bridge gives that key only when the request comes from a
+loopback address, is addressed to a loopback host name, carries no proxy headers, did not arrive on the public
+listener, and carries the Bridge's own `Origin`, so another web site open in your browser, a script, a tunnel or a
+reverse proxy cannot get one. The key is an admin key for 30 days; the Bridge keeps only the newest five valid and
+writes each one to the audit log.
+
+What it does not protect against: anyone who can use this computer as you can open the dashboard, and on a computer
+shared with other user accounts, so can they. It never opens live trading by itself (that still needs the opt-ins in
+`bridge.config.json` and a key with the `live` scope). To always ask for a key or a sign-in link instead:
+
+```json
+{ "server": { "keylessSignIn": false } }
+```
+
+It is off by default when `server.localPeers` is set (Docker) or the dashboard is served to other computers, because
+there "this computer" means more than loopback.

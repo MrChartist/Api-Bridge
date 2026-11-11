@@ -119,3 +119,7 @@ input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible, sele
 .login-card > .lockup .lockup-name { font-size: 20px; }
 .login-head { align-items: center; text-align: center; }
 .login-head p { max-width: 44ch; }
+
+/* "or sign in with a key": a rule on each side of the words. */
+.login-or { display: flex; align-items: center; gap: 12px; font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+.login-or::before, .login-or::after { content: ""; flex: 1; height: var(--hl); background: var(--mat-separator); }

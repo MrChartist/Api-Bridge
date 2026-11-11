@@ -103,6 +103,13 @@ export const coreSchema = z
          * broker accounts never shows its dashboard to the internet. Every API call still needs a key.
          */
         remoteDashboard: z.boolean().default(false),
+        /**
+         * Let the dashboard on this computer sign in without a key (POST /v1/sign-in/local). Unset means "on, unless
+         * something widens what this computer means": it is off by default when localPeers is set (Docker) or the
+         * dashboard is served to other computers, because then a request that looks local may not be. Set false to
+         * always ask for a key or a sign-in link; true to allow it even with localPeers.
+         */
+        keylessSignIn: z.boolean().optional(),
         localPeers: z.array(z.string().regex(/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/, "use an IPv4 address or IPv4/CIDR")).max(8).default([]),
         /** Extra Host header values to accept (DNS-rebinding guard). Loopback names are always accepted. */
         allowedHosts: z.array(z.string()).default([]),
@@ -270,6 +277,7 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
     throw new BridgeError("VALIDATION_FAILED", `server.host ${cfg.server.host} is not a loopback address. Set server.allowNonLoopback to true in the config file if you really mean it.`);
   }
   if (!isLoopbackHost(cfg.server.host)) warnings.push(`The Bridge will listen on ${cfg.server.host}, not only on this computer. Every route still needs an API key.`);
+  if (cfg.server.keylessSignIn === true && (cfg.server.localPeers.length || cfg.server.remoteDashboard)) warnings.push("server.keylessSignIn is on together with localPeers or remoteDashboard: anyone who can reach the dashboard as \"this computer\" is signed in as admin without a key.");
   if (cfg.server.localPeers.length) warnings.push(`server.localPeers treats ${cfg.server.localPeers.join(", ")} as this computer (meant for Docker). Publish the port on 127.0.0.1 only.`);
   const pi = cfg.server.publicIngress;
   if (pi.enabled && !isLoopbackHost(pi.host)) {
@@ -336,4 +344,15 @@ export function deepFreeze(o) {
     for (const v of Object.values(o)) deepFreeze(v);
   }
   return o;
+}
+
+/**
+ * May the dashboard on this computer sign in without a key? The config's answer when it gives one; otherwise yes
+ * only while "this computer" means loopback and nothing else (no localPeers, no remote dashboard).
+ * @param {{ server?: { keylessSignIn?: boolean, localPeers?: string[], remoteDashboard?: boolean } } | null | undefined} cfg
+ */
+export function keylessSignInAllowed(cfg) {
+  const s = cfg?.server ?? {};
+  if (typeof s.keylessSignIn === "boolean") return s.keylessSignIn;
+  return !(s.localPeers?.length > 0) && s.remoteDashboard !== true;
 }

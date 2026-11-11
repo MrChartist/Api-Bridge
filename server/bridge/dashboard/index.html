@@ -28,8 +28,10 @@
   </defs></svg>
   <div class="app-symbol-wrap" aria-hidden="true"><svg class="app-symbol" viewBox="0 0 1024 1024" focusable="false"><use href="#mc-symbol"/></svg></div>
 
-  <!-- Sign-in: the API key stays in this browser tab only (sessionStorage) and is never put in a URL. A one-time
-       sign-in link (#signin=..., from mc-bridge start --open or mc-bridge open) skips this screen; see app.js. -->
+  <!-- Sign-in. On this computer the dashboard signs itself in (POST /v1/sign-in/local) and this screen is not shown;
+       it appears after signing out, or when the Bridge does not allow that. A one-time sign-in link (#signin=...,
+       from mc-bridge start --open or mc-bridge open) skips it too. A key typed here stays in this browser tab only
+       (sessionStorage) and is never put in a URL; see app.js. -->
   <section id="login" class="login" hidden>
     <div class="card login-card">
       <div class="lockup">
@@ -39,14 +41,16 @@
       <div id="login-demo" class="login-demo" hidden><span class="pill demo">Demo data</span><span>This Bridge runs in demo mode: sample prices, no broker, paper orders only.</span></div>
       <div class="login-head">
         <div class="eyebrow">Local dashboard · this computer only</div>
-        <h1>Sign in with your <em class="serif">admin key</em></h1>
-        <p class="muted">The key was printed once when you ran the setup. It stays in this browser tab and is forgotten when you close it.</p>
+        <h1>Open your <em class="serif">bridge</em></h1>
+        <p class="muted">On this computer you do not need a key. A key is only for signing in as someone with less access.</p>
       </div>
+      <button type="button" id="login-local" class="primary wide">Continue on this computer</button>
+      <div class="login-or" aria-hidden="true"><span>or sign in with a key</span></div>
       <form id="login-form" class="stack">
         <label class="field">API key
           <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="mcb_…" required>
         </label>
-        <button type="submit" class="primary wide">Open dashboard</button>
+        <button type="submit" class="wide">Sign in with this key</button>
       </form>
       <div id="login-error" role="alert"></div>
       <div class="login-help-list">

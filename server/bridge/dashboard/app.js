@@ -54,6 +54,27 @@ export async function redeemSignIn(code, fetchImpl = globalThis.fetch) {
   return { error: { title: SIGN_IN_FAILED.title, detail: typeof body?.detail === "string" && body.detail ? body.detail : SIGN_IN_FAILED.detail } };
 }
 
+/** Set (for this tab) when the person chose to sign out, so the dashboard does not sign straight back in. */
+const SIGNED_OUT_SLOT = "mcb.dashboard.signedOut";
+
+/**
+ * Sign in without a key: the Bridge gives the dashboard page on this computer a key of its own (POST
+ * /v1/sign-in/local). Never throws. `off: true` when the Bridge does not allow it (switched off, or not this computer).
+ * @param {typeof fetch} [fetchImpl]
+ * @returns {Promise<{ key: string } | { error: { title: string, detail: string, off?: boolean } | { network: true } }>}
+ */
+export async function localSignIn(fetchImpl = globalThis.fetch) {
+  let res;
+  try {
+    res = await fetchImpl("/v1/sign-in/local", { method: "POST", headers: { "Content-Type": "application/json", "X-MCB-Client": "dashboard" }, body: "{}", cache: "no-store" });
+  } catch {
+    return { error: { network: true } };
+  }
+  const body = await res.json().catch(() => null);
+  if (res.ok && typeof body?.data?.key === "string") return { key: body.data.key };
+  return { error: { title: "Could not sign in on this computer", detail: typeof body?.detail === "string" && body.detail ? body.detail : "Sign in with a key, or run mc-bridge open.", off: res.status === 403 || res.status === 404 } };
+}
+
 /**
  * Take the sign-in code out of the address bar at once (history.replaceState, so it is not kept in history either)
  * and return it, or null when the page was opened without one.
@@ -1700,6 +1721,8 @@ export function chooseTheme(choice) {
 /** Forget the key in this tab and go back to the sign-in screen. */
 export function forgetKey() {
   setKey(null);
+  // Signing out stays signed out in this tab: the sign-in screen offers "Continue on this computer" instead.
+  session.set(SIGNED_OUT_SLOT, "1");
   location.hash = "";
   location.reload();
 }
@@ -1773,6 +1796,11 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     else if (t?.closest?.("[data-action=logout]")) forgetKey();
     revealInRow(t?.closest?.("button, [role=tab], [role=radio]"));
   });
+  document.getElementById("login-local")?.addEventListener("click", (e) => {
+    const b = /** @type {HTMLButtonElement} */ (e.currentTarget);
+    b.disabled = true;
+    continueHere().finally(() => (b.disabled = false));
+  });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const input = document.getElementById("key-input");
@@ -1801,7 +1829,27 @@ function revealInRow(el) {
 }
 
 /** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */
+/** "Continue on this computer" on the sign-in screen, and the automatic try when the dashboard opens with no key. */
+async function continueHere({ quiet = false } = {}) {
+  const result = await localSignIn();
+  if ("key" in result) {
+    session.set(SIGNED_OUT_SLOT, "");
+    setKey(result.key);
+    document.getElementById("login-error")?.replaceChildren();
+    return signIn();
+  }
+  const btn = document.getElementById("login-local");
+  // The Bridge does not allow it here: only the key form is offered.
+  if (btn && result.error.off) btn.hidden = true;
+  if (quiet) return signIn();
+  await signIn();
+  if (!("network" in result.error)) document.getElementById("login-error").replaceChildren(alertBox(result.error));
+  shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
+}
+
 async function boot() {
+  // No key in this tab and no sign-in link: on this computer the dashboard signs itself in (unless the person signed out).
+  if (pendingSignInCode === null && !memoryKey && session.get(SIGNED_OUT_SLOT) !== "1") return continueHere({ quiet: true });
   if (pendingSignInCode === null) return signIn();
   const result = await redeemSignIn(pendingSignInCode);
   if ("key" in result) setKey(result.key);
