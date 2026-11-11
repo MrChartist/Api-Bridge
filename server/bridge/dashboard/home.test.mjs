@@ -5,7 +5,7 @@ import { CLIENT_KINDS } from "../auth/keyStore.mjs";
 // app.js (imported by home.js) reads sessionStorage at load time.
 globalThis.sessionStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
 globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
-const { HOOK_SOURCES, KEY_SOURCES, alertRows, bridgeStatus, brokerRows, externalRequests, keyIdOf, linkPath, setupSteps, sourceRows, uptimeText } = await import("./home.js");
+const { HOOK_SOURCES, KEY_SOURCES, activityMark, alertRows, bridgeStatus, brokerRows, externalRequests, keyIdOf, linkPath, setupSteps, sourceRows, uptimeText } = await import("./home.js");
 
 const NOW = Date.parse("2026-11-11T05:00:00Z");
 const key = (o) => ({ id: "k1", label: "k", scopes: ["read"], clientKind: "script", revokedAt: null, expiresAt: null, lastUsedAt: null, ...o });
@@ -90,6 +90,20 @@ describe("what became of each alert", () => {
     ]);
     expect(alertRows(audit, [], 1)).toHaveLength(1);
     expect(alertRows()).toEqual([]);
+  });
+});
+
+describe("staying current", () => {
+  it("the mark changes when an alert arrives, a hook is added or used, a tool calls, or the kill switch flips; not otherwise", () => {
+    const base = { audit: [{ seq: 6 }], hooks: [{ id: "hk_a", lastSignalAt: "t1" }], requests: [{ requestId: "req_1" }], safety: { killSwitch: { engaged: false } } };
+    const m = activityMark(base);
+    expect(activityMark(structuredClone(base))).toBe(m);
+    expect(activityMark({ ...base, audit: [{ seq: 7 }] })).not.toBe(m);
+    expect(activityMark({ ...base, hooks: [...base.hooks, { id: "hk_b" }] })).not.toBe(m);
+    expect(activityMark({ ...base, hooks: [{ id: "hk_a", lastSignalAt: "t2" }] })).not.toBe(m);
+    expect(activityMark({ ...base, requests: [{ requestId: "req_2" }] })).not.toBe(m);
+    expect(activityMark({ ...base, safety: { killSwitch: { engaged: true } } })).not.toBe(m);
+    expect(activityMark()).toBe("|||0");
   });
 });
 

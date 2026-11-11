@@ -91,7 +91,7 @@ Other commands: `npm test`, `npm run typecheck`, `npm run check:mjs`, `npm run c
    `cloudflared tunnel --url http://127.0.0.1:4301`.
 4. In TradingView, create an alert, tick **Webhook URL**, paste `https://<tunnel host>/hooks/tradingview/<token>`,
    and paste the message.
-5. Fire the alert. Home shows it under **Latest alerts** within a second: placed, or refused with the reason.
+5. Fire the alert. Home shows it under **Latest alerts** within a few seconds: placed, or refused with the reason.
 
 Orders from a hook are paper unless you opt in to live trading. The strategy template carries `id` and `time`, so a
 resent alert never places a second order that day. An unfilled `{{placeholder}}` refuses the alert instead of

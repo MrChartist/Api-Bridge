@@ -274,8 +274,11 @@ function bridgeMap({ sources, brokers, safety, version }) {
     map.dataset.stacked = getComputedStyle(map).getPropertyValue("--hm-stacked").trim() === "1" ? "1" : "0";
     drawLinks(map);
   };
-  // The connected links draw themselves in once (home.css); later redraws (a resize) show them at rest.
-  setTimeout(() => map.classList.add("drawn"), 900);
+  // The connected links draw themselves in once, when Home first opens (home.css); a resize or a refresh after new
+  // activity shows them at rest.
+  if (mapShown) map.classList.add("drawn");
+  else setTimeout(() => map.classList.add("drawn"), 900);
+  mapShown = true;
   if (typeof ResizeObserver === "function") new ResizeObserver(redraw).observe(map);
   else setTimeout(redraw, 0);
   return map;
@@ -436,6 +439,15 @@ function alertsCard(rows) {
 }
 
 let stopBudget = null;
+/** True once the map has been drawn in this tab (its links animate in only the first time). */
+let mapShown = false;
+/** How often Home looks for new alerts, hooks and calls while it is open. */
+export const HOME_REFRESH_MS = 4000;
+
+/** What Home would look different for (pure): the newest alert, the hooks, the newest outside call, the kill switch. */
+export function activityMark({ audit = [], hooks = [], requests = [], safety = null } = {}) {
+  return [audit[0]?.seq ?? audit[0]?.at ?? "", hooks.map((x) => `${x.id}:${x.lastSignalAt ?? ""}`).join(","), requests[0]?.requestId ?? requests[0]?.at ?? "", safety?.killSwitch?.engaged ? 1 : 0].join("|");
+}
 
 /** Render Home (views.js PAGES). */
 export async function renderHome() {
@@ -481,5 +493,16 @@ export async function renderHome() {
   if (hooks.length) lower.push(alertsCard(alertRows(auditR.data?.data ?? [], hooks)));
   lower.push(trafficCard(externalRequests(requestsR.data?.data ?? [], keyIdOf(currentKey())), requestsR.error));
   nodes.push(h("div", { class: "hm-grid" }, lower));
+  // Home stays current by itself: every few seconds it reads the few things that change (alerts, hooks, calls from
+  // tools, the kill switch) and redraws only when one of them did, so an alert shows up without a reload.
+  const ownKey = keyIdOf(currentKey());
+  const mark = activityMark({ audit: auditR.data?.data ?? [], hooks, requests: externalRequests(requestsR.data?.data ?? [], ownKey, 1), safety });
+  import("./views.js").then(({ every }) =>
+    every(HOME_REFRESH_MS, async () => {
+      const [a, hk, rq, sf] = await Promise.all([optional(api("/v1/audit?limit=1&type=hook.signal")), optional(api("/v1/hooks", { fresh: true })), optional(api("/v1/requests?limit=100")), optional(api("/v1/safety"))]);
+      const now = activityMark({ audit: a.data?.data ?? [], hooks: hk.data?.data ?? [], requests: externalRequests(rq.data?.data ?? [], ownKey, 1), safety: sf.data?.data ?? null });
+      if (now !== mark && location.hash.replace(/^#\/?/, "").split(/[/?]/)[0] in { "": 1, home: 1 }) dispatchEvent(new HashChangeEvent("hashchange"));
+    }),
+  );
   return nodes;
 }
