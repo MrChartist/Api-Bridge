@@ -5,6 +5,7 @@
  */
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
@@ -296,15 +297,46 @@ export function localBaseUrl(host, port) {
  * or another program that does not speak the Bridge's health format).
  * @returns {Promise<{ status: string, version?: string, demo?: boolean } | null>}
  */
-export async function probeBridge(baseUrl) {
-  try {
-    const res = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) return null;
-    const body = await res.json();
-    return body?.status === "ok" && typeof body.apiVersion === "string" ? body : null;
-  } catch {
-    return null;
-  }
+export function probeBridge(baseUrl, { timeoutMs = 2000 } = {}) {
+  // node:http rather than fetch: it is the plainest way to ask, has no proxy or agent in between, and this answer
+  // decides whether a second window starts a second Bridge.
+  return new Promise((done) => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      done(v);
+    };
+    let req;
+    try {
+      req = http.get(`${baseUrl}/v1/health`, { timeout: timeoutMs, agent: false, headers: { connection: "close" } }, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return finish(null);
+        }
+        let raw = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => {
+          raw += c;
+          if (raw.length > 65_536) req.destroy();
+        });
+        res.on("end", () => {
+          try {
+            const body = JSON.parse(raw);
+            finish(body?.status === "ok" && typeof body.apiVersion === "string" ? body : null);
+          } catch {
+            finish(null);
+          }
+        });
+        res.on("error", () => finish(null));
+      });
+    } catch {
+      return finish(null);
+    }
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => finish(null));
+    req.on("close", () => finish(null));
+  });
 }
 
 /**
