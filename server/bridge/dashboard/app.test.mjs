@@ -52,7 +52,7 @@ describe("dashboard ticket view", () => {
 });
 
 describe("dashboard helpers", async () => {
-  const { checklistState, friendlyError, highlightJson } = await import("./app.js");
+  const { checklistState, friendlyError, highlightJson, plainBrokerMessage } = await import("./app.js");
   const { KEY_PRESETS, genericAlert, snippets } = await import("./snippets.js");
 
   it("explains errors in plain words", () => {
@@ -78,6 +78,19 @@ describe("dashboard helpers", async () => {
     // Demo's own seeded orders do not tick the trade step; one placed by the person does.
     expect(checklistState({ orders: [{ mode: "paper", tag: "DEMOSEED" }] })[3].done).toBe(false);
     expect(checklistState({ orders: [{ mode: "paper", tag: null }] })[3].done).toBe(true);
+  });
+
+  it("turns a broker's raw error into a sentence and the next step", () => {
+    const dhan = 'Dhan (main): Dhan API error [401]: {"errorType":"Invalid_Authentication","errorCode":"DH-901","errorMessage":"Client ID or user generated access token is invalid or expired."}';
+    const out = plainBrokerMessage(dhan);
+    expect(out).toBe("Dhan (main): Client ID or user generated access token is invalid or expired. Your broker login has ended or is wrong: create a new access token on your broker's site, then choose Log in again on the Accounts page.");
+    expect(out).not.toMatch(/[{}]|errorCode|API error/);
+    expect(plainBrokerMessage('Zerodha API error [400]: {"status":"error","message":"Insufficient funds"}')).toBe("Insufficient funds.");
+    expect(plainBrokerMessage("Angel One API error [500] on /orders: gateway timeout")).toBe("gateway timeout.");
+    expect(plainBrokerMessage('Upstox API error [502]: {"weird":1}')).toBe("the broker answered 502.");
+    // Anything that is not a broker error is left exactly as it is.
+    for (const t of ["Key created", "The price 1402.5 is 4% away from the last traded price.", ""]) expect(plainBrokerMessage(t)).toBe(t);
+    expect(friendlyError({ code: "UPSTREAM_ERROR", message: dhan }).detail).not.toContain("{");
   });
 
   it("escapes data before highlighting JSON", () => {

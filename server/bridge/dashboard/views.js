@@ -121,6 +121,9 @@ export function segmented(label, options, initial = options[0][0]) {
   };
   const pick = (v, focus) => {
     value = v;
+    // The track knows what is chosen, so the thumb can take the colour of a choice that has one (BUY green, SELL
+    // red, MARKET amber: ios.css).
+    el.dataset.value = v;
     watch();
     for (const b of buttons) {
       const on = b.dataset.value === v;
@@ -2104,7 +2107,7 @@ async function renderOrders() {
               { label: "Time", cell: (o) => istTime(o.placedAt) },
               { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
               { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
-              { label: "Side", cell: (o) => h("span", { class: "order-side" }, o.side) },
+              { label: "Side", cell: (o) => h("span", { class: "order-side", "data-side": o.side }, o.side) },
               { label: "Qty", num: true, cell: (o) => (o.filledQuantity && o.filledQuantity !== o.quantity ? `${formatInt(o.filledQuantity)}/${formatInt(o.quantity)}` : formatInt(o.quantity)) },
               { label: "Avg price", num: true, cell: (o) => formatFixed(o.avgPrice, 2) },
               {

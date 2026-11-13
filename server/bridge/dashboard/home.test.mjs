@@ -85,9 +85,9 @@ describe("what became of each alert", () => {
       { type: "hook.signal", at: "t0", data: { hookId: "hk_a", status: "something_new" } },
     ];
     expect(alertRows(audit, [{ id: "hk_a", label: "TV breakout" }])).toEqual([
-      { at: "t2", status: "Refused", tone: "bad", title: "BUY NSE:RELIANCE", hook: "TV breakout", note: "The price 1402.5 is 4.18% away from the last traded price." },
-      { at: "t1", status: "Placed", tone: "ok", title: "SELL NSE:INFY", hook: "hk_gone", note: "Order placed" },
-      { at: "t0", status: "something_new", tone: "", title: "Alert", hook: "TV breakout", note: "" },
+      { at: "t2", status: "Refused", tone: "bad", side: "BUY", symbol: "NSE:RELIANCE", title: "BUY NSE:RELIANCE", hook: "TV breakout", note: "The price 1402.5 is 4.18% away from the last traded price." },
+      { at: "t1", status: "Placed", tone: "ok", side: "SELL", symbol: "NSE:INFY", title: "SELL NSE:INFY", hook: "hk_gone", note: "Order placed" },
+      { at: "t0", status: "something_new", tone: "", side: null, symbol: null, title: "Alert", hook: "TV breakout", note: "" },
     ]);
     expect(alertRows(audit, [], 1)).toHaveLength(1);
     expect(alertRows()).toEqual([]);

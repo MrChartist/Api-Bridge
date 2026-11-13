@@ -139,7 +139,7 @@ export function alertRows(audit = [], hooks = [], max = 6) {
     .map((r) => {
       const d = r.data;
       const [text, tone] = SIGNAL_TEXT[d.status] ?? [String(d.status ?? "Unknown"), ""];
-      return { at: r.at, status: text, tone, title: [d.side, d.symbol].filter(Boolean).join(" ") || "Alert", hook: label.get(d.hookId) ?? d.hookId ?? "Deleted hook", note: d.reason || SIGNAL_NOTE[d.status] || "" };
+      return { at: r.at, status: text, tone, side: d.side === "BUY" || d.side === "SELL" ? d.side : null, symbol: d.symbol ?? null, title: [d.side, d.symbol].filter(Boolean).join(" ") || "Alert", hook: label.get(d.hookId) ?? d.hookId ?? "Deleted hook", note: d.reason || SIGNAL_NOTE[d.status] || "" };
     });
 }
 
@@ -433,7 +433,7 @@ function alertsCard(rows) {
       ? h(
           "ul",
           { class: "hm-reqs" },
-          rows.map((r) => h("li", {}, h("span", { class: `hm-code wide ${r.tone || "quiet"}` }, r.status), h("span", { class: "names" }, h("span", { class: "nm" }, r.title), h("span", { class: "sub" }, [r.hook, r.note].filter(Boolean).join(" · "))), h("span", { class: "muted small" }, istTime(r.at)))),
+          rows.map((r) => h("li", {}, h("span", { class: `hm-code wide ${r.tone || "quiet"}` }, r.status), h("span", { class: "names" }, h("span", { class: "nm" }, r.side ? [h("span", { class: "order-side", "data-side": r.side }, r.side), " ", r.symbol ?? ""] : r.title), h("span", { class: "sub" }, [r.hook, r.note].filter(Boolean).join(" · "))), h("span", { class: "muted small" }, istTime(r.at)))),
         )
       : h("p", { class: "hm-empty muted small" }, "No alert has arrived yet. Send one from your charting tool and it shows up here within a second, placed or refused, with the reason."),
   });

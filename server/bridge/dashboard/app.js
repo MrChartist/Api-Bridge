@@ -156,8 +156,37 @@ export const currentKey = () => memoryKey;
  * @param {{ status?: number, code?: string, message?: string, network?: boolean }} err
  * @returns {{ title: string, detail: string }}
  */
+/**
+ * A broker's own error, in plain words (pure). Brokers answer with a status and a JSON body, and the Bridge passes
+ * that on as "<Broker> API error [401]: {...}". A person needs the sentence inside it and what to do next, not the
+ * JSON: "Dhan (main): Client ID or access token is invalid or expired. Create a new access token ... log in again".
+ * Text that is not a broker error comes back unchanged.
+ */
+export function plainBrokerMessage(text) {
+  const s = String(text ?? "");
+  const m = /^(.*?)[A-Za-z0-9 .&()-]{1,40} API error \[(\d{3})\](?: on \S+)?:\s*(.*)$/s.exec(s);
+  if (!m) return s;
+  const [, lead, status, rest] = m;
+  let said = rest.trim();
+  if (said.startsWith("{")) {
+    try {
+      const o = JSON.parse(said);
+      const inner = o && typeof o === "object" ? o : {};
+      const pick = [inner.errorMessage, inner.message, inner.error_description, inner.emsg, inner.remarks, typeof inner.error === "string" ? inner.error : null, inner.data?.message].find((v) => typeof v === "string" && v.trim());
+      said = pick ? pick.trim() : "";
+    } catch {
+      said = "";
+    }
+  }
+  if (!said) said = `the broker answered ${status}`;
+  if (!/[.!?]$/.test(said)) said += ".";
+  const login = status === "401" || status === "403" || /\b(token|session|login|authenticat|authoris|authoriz)\w*\b.*\b(invalid|expired|missing)|\b(invalid|expired)\b.*\b(token|session)/i.test(said);
+  const next = login ? " Your broker login has ended or is wrong: create a new access token on your broker's site, then choose Log in again on the Accounts page." : "";
+  return `${lead && !/\s$/.test(lead) ? `${lead} ` : lead}${said}${next}`.trim();
+}
+
 export function friendlyError(err) {
-  const detail = err?.message ?? "";
+  const detail = plainBrokerMessage(err?.message ?? "");
   if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again from its shortcut (or the start file you double-clicked), then refresh this page." };
   switch (err?.code) {
     case "UNAUTHENTICATED":
@@ -598,6 +627,7 @@ export function iconTile(name, tint = "blue", size = "md") {
 
 /** A HUD confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
 export function toast(text, { tone = "ok" } = {}) {
+  text = plainBrokerMessage(text);
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
