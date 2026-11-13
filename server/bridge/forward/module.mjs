@@ -53,6 +53,21 @@ export function createForwardRuntime(deps, { logger, fetchImpl, sleep, retryDela
     return { ...p };
   }
 
+  /**
+   * The order service can announce the same state of an order more than once (the engine, then the route). A
+   * receiver should get each state once: remember the last one sent per order and skip an exact repeat.
+   */
+  const lastSent = new Map();
+  const REMEMBERED_ORDERS = 2000;
+  function repeatOf(p) {
+    const state = `${p?.status}|${p?.filledQuantity ?? 0}|${p?.avgPrice ?? ""}`;
+    if (lastSent.get(p?.orderId) === state) return true;
+    lastSent.delete(p?.orderId);
+    lastSent.set(p?.orderId, state);
+    if (lastSent.size > REMEMBERED_ORDERS) lastSent.delete(lastSent.keys().next().value);
+    return false;
+  }
+
   const wanted = (event) => store.list().some((t) => t.enabled !== false && t.events.includes(event));
 
   function listen() {
@@ -61,7 +76,9 @@ export function createForwardRuntime(deps, { logger, fetchImpl, sleep, retryDela
         deps.bus.on(event, (p) => {
           if (!wanted(event)) return;
           // The bus does not wait: build the payload and queue it off the emitter's stack.
-          if (event === "order.updated") orderData(p).then((data) => sender.publish(event, data));
+          if (event === "order.updated") {
+            if (!repeatOf(p)) orderData(p).then((data) => sender.publish(event, data));
+          }
           else sender.publish(event, { ...p });
         }),
       );

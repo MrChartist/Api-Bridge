@@ -105,9 +105,11 @@ const SEARCH_WAIT_MS = 220;
 
 /**
  * Open the ticket. Resolves once it closes; `onPlaced` runs after an order went through.
- * @param {{ accounts: object[], side?: "BUY"|"SELL", symbol?: string, onPlaced?: () => void }} opts
+ * `account`, `quantity` (units) and `product` fill the ticket in, for "Exit" on a position: nothing is placed until
+ * the person chooses Place order.
+ * @param {{ accounts: object[], side?: "BUY"|"SELL", symbol?: string, account?: string, quantity?: number, product?: string, onPlaced?: () => void }} opts
  */
-export async function openOrderTicket({ accounts, side: firstSide = "BUY", symbol: firstSymbol = "", onPlaced = null }) {
+export async function openOrderTicket({ accounts, side: firstSide = "BUY", symbol: firstSymbol = "", account: firstAccount = "", quantity: firstQuantity = 0, product: firstProduct = "", onPlaced = null }) {
   const accs = ticketAccounts(accounts);
   const byId = new Map(accs.map((a) => [a.id, a]));
   const side = segmented("Side", [["BUY", "Buy"], ["SELL", "Sell"]], firstSide);
@@ -120,7 +122,9 @@ export async function openOrderTicket({ accounts, side: firstSide = "BUY", symbo
   const size = h("input", { id: "tk-size", type: "number", min: "1", step: "1", inputmode: "numeric", value: "1" });
   const sizeName = h("span", {}, "Quantity");
   const sizeHint = h("span", { class: "hint", "aria-live": "polite" });
-  const product = segmented("Product", TICKET_PRODUCTS.map(([v, t]) => [v, t]), "CNC");
+  const product = segmented("Product", TICKET_PRODUCTS.map(([v, t]) => [v, t]), TICKET_PRODUCTS.some(([v]) => v === firstProduct) ? firstProduct : "CNC");
+  if (firstAccount && accs.some((a) => a.id === firstAccount)) account.value = firstAccount;
+  if (firstQuantity > 0) size.value = String(firstQuantity);
   const productHint = h("p", { class: "tk-hint" });
   const orderType = segmented("Order type", TICKET_ORDER_TYPES.map(([v, t]) => [v, t]), "LIMIT");
   const typeHint = h("p", { class: "tk-hint" });
@@ -189,6 +193,8 @@ export async function openOrderTicket({ accounts, side: firstSide = "BUY", symbo
     if (inst && Number(inst.tickSize) > 0) for (const el of [price, trigger]) el.step = String(inst.tickSize);
     // Shares are usually bought for delivery; a future or an option cannot be.
     if (inst && inst.kind && inst.kind !== "EQ" && (product.value === "CNC" || product.value === "MTF")) product.value = "MARGIN";
+    // A quantity handed in (Exit on a position) is in units; the field is in lots when the contract has a lot size.
+    if (firstQuantity > 0 && sym === String(firstSymbol).toUpperCase() && lotSize > 1 && firstQuantity % lotSize === 0) size.value = String(firstQuantity / lotSize);
     showSize();
     showType();
   };

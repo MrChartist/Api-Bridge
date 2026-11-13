@@ -170,17 +170,16 @@ function runCommand(r) {
 function commands() {
   const pageCmds = pageCommands(ctx.pages()).map((c) => ({ ...c, run: () => ctx.go(c.route) }));
   const actions = [
-    { id: "scan", label: "Run a scan", sub: "Write a condition in Screeners › Stocks", keywords: "scanner screener condition rsi", icon: "scan", tint: "mint", run: () => ctx.go("screeners/stocks", "#scan-condition") },
     { id: "kill", label: "Engage kill switch", sub: "Stop every new order, from every tool", keywords: "stop all orders safety emergency halt", icon: "power", tint: "red", run: () => ctx.go("safety", "#kill-action") },
     { id: "key", label: "Create API key", sub: "One key per tool, with only the access it needs", keywords: "new token keys access", icon: "keys", tint: "pink", run: () => ctx.go("api/keys", "#key-label") },
     { id: "console", label: "Open test console", sub: "Try any call and see what comes back", keywords: "try request call endpoint quote", icon: "console", tint: "teal", run: () => ctx.go("api/console") },
-    { id: "paper", label: "Place a paper order", sub: "Send a paper order as JSON in the test console", keywords: "buy sell trade order console", icon: "orders", tint: "orange", run: () => ctx.go("api/console?endpoint=order") },
+    { id: "paper", label: "New order", sub: "Buy or sell by hand: Limit, Market, SL or SL-M", keywords: "buy sell trade order ticket place paper stop loss", icon: "orders", tint: "orange", run: () => ctx.go("orders?new=1") },
+    { id: "project", label: "Connect your project", sub: "The address, a ready .env, starters and order updates to your URL", keywords: "connect project api env sdk forward webhook url updates other", icon: "integrations", tint: "blue", run: () => ctx.go("api/integrations?tool=project") },
     { id: "theme", label: "Toggle theme", sub: `Now ${currentTheme() === "auto" ? "Auto" : currentTheme() === "light" ? "Light" : "Dark"}`, keywords: "dark light appearance mode", icon: "moon", tint: "indigo", run: () => setTheme({ auto: "light", light: "dark", dark: "auto" }[currentTheme()] ?? "auto") },
     { id: "theme-light", label: "Theme: Light", keywords: "appearance", icon: "sun", tint: "gray", run: () => setTheme("light") },
     { id: "theme-dark", label: "Theme: Dark", keywords: "appearance night", icon: "moon", tint: "gray", run: () => setTheme("dark") },
     { id: "theme-auto", label: "Theme: Auto (match system)", keywords: "appearance system", icon: "monitor", tint: "gray", run: () => setTheme("auto") },
     { id: "copy-url", label: "Copy dashboard URL", keywords: "link address share", icon: "copy", tint: "gray", run: () => copyText(`${location.origin}/dashboard`, "Dashboard URL copied") },
-    { id: "market-alert", label: "New market alert", sub: "Tell me when PCR, IV, OI at a strike, basis or flow reaches a level", keywords: "alert notify pcr iv oi strike basis gamma tide unusual bell", icon: "warn", tint: "red", run: () => import("./alerts.js").then((m) => m.openMarketAlertSheet()) },
     { id: "refresh", label: "Refresh this page", keywords: "reload update data", icon: "refresh", tint: "gray", run: () => ctx.refresh() },
     { id: "shortcuts", label: "Keyboard shortcuts", keywords: "help keys hotkeys", icon: "info", tint: "gray", hint: ["?"], run: () => showShortcuts() },
   ].map((a) => ({ ...a, group: "Actions" }));

@@ -125,6 +125,8 @@ describe("forward module", () => {
     expect(made.status).toBe(201);
     deps.bus.emit("order.updated", { orderId: "P1", accountId: "paper", mode: "paper", status: "filled", filledQuantity: 1 });
     deps.bus.emit("order.updated", { orderId: "L1", accountId: "dhan", mode: "live", status: "open", filledQuantity: 0 });
+    // The same state announced again is sent once; a new state of the same order is sent.
+    deps.bus.emit("order.updated", { orderId: "L1", accountId: "dhan", mode: "live", status: "open", filledQuantity: 0 });
     await new Promise((r) => setTimeout(r, 20));
     await rt.sender.idle();
     const sent = calls.map((c) => JSON.parse(c.init.body).data);

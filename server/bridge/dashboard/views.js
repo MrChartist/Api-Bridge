@@ -12,6 +12,7 @@ import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searc
 import { PAGE_CODES } from "./workspace.js";
 import { renderData } from "./data.js";
 import { openOrderTicket } from "./ticket.js";
+import { renderPositionsPage } from "./positions.js";
 import { renderHome } from "./home.js";
 import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
@@ -261,6 +262,7 @@ export const PAGES = [
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
       { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
+      { id: "positions", label: "Positions", page: "positions", command: "Positions and holdings", icon: "list", tint: "orange", keywords: "positions holdings portfolio pnl profit loss exit square off", sub: "What you hold now, with profit and loss", render: renderPositionsPage },
     ],
   },
   { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 5, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
@@ -1578,7 +1580,8 @@ async function fillToday(accs) {
   );
 }
 async function renderAccounts() {
-  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders"))]);
+  // v2 has no holders book (the full app's family grouping), so there is nothing to ask for.
+  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), Promise.resolve({ data: null })]);
   const accs = accounts.data.data ?? [];
   const book = holdersRes.data?.data ?? null;
   const holderOfAcc = (id) => book?.holders.find((x) => x.accounts.includes(id)) ?? null;
@@ -2146,6 +2149,33 @@ async function renderOrders() {
   const funds = await fundsCard(accs, pnlGrouped);
   if (funds) nodes.push(funds);
   return nodes;
+}
+
+/**
+ * #/orders?new=1 (the command palette's "New order", Home's first-order step) opens the order ticket. It listens to
+ * the address, not to the page's render: a page can be drawn ahead of time, before the address says new=1.
+ */
+function openTicketWhenAsked() {
+  if (!/^#\/orders(\/book)?\?/.test(location.hash) || hashParams().get("new") !== "1") return;
+  setHashParam("new", "0");
+  // Wait until the Orders page is on screen (its own New order button is the sign), then a moment more: arriving on
+  // a page closes any sheet left open by the last one, and at start-up the first page arrives late.
+  let tries = 0;
+  const wait = setInterval(async () => {
+    tries += 1;
+    const up = [...document.querySelectorAll("main button, #view button")].some((b) => b.textContent === "New order");
+    if (!up && tries < 40) return;
+    clearInterval(wait);
+    if (!up || !location.hash.startsWith("#/orders")) return;
+    await new Promise((r) => setTimeout(r, 300));
+    const accounts = (await optional(api("/v1/accounts"))).data?.data ?? [];
+    if (!document.getElementById("dialog")?.open) openOrderTicket({ accounts, onPlaced: () => show() });
+  }, 150);
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("hashchange", openTicketWhenAsked);
+  // A link opened straight on #/orders?new=1 may see no address change, so look once as well.
+  setTimeout(openTicketWhenAsked, 500);
 }
 
 /** Modify and Cancel for a working order (PATCH / DELETE /v1/orders/{id}); each answers with a toast and a redraw. */

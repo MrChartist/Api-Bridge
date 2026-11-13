@@ -159,6 +159,13 @@ All taken from demo mode: sample prices and paper accounts, no real broker.
 | <img src="docs/screenshots/sign-in.webp" alt="The sign-in screen: Continue on this computer without a key, or sign in with an API key"> | <img src="docs/screenshots/home-phone.webp" width="260" alt="Home on a phone: the status widget, the wiring map and the tab bar with Home, Accounts, API, Orders and More"> |
 | Sign-in | Home on a phone |
 
+## Trade by hand
+
+**Orders → New order** opens an order ticket: Buy or Sell with Limit, Market, SL and SL-M, every product (CNC,
+Intraday, Margin, MTF) and Day or IOC. **Check order** shows every warning and block before anything is placed.
+**Orders → Positions** lists open positions and holdings across all accounts with profit and loss, and **Exit**
+fills the ticket in for you.
+
 ## Price data for your other projects
 
 The **Data** page is one place to collect price history. It lists every connected account that can give prices,

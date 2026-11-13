@@ -109,7 +109,7 @@ export function setupSteps({ demo = false, accounts = [], keys = [], hooks = [],
     { id: "broker", done: broker, title: "Connect a broker", text: demo ? "Demo data stands in for a broker. Add your own when you are ready." : "Dhan, Zerodha, Upstox and 38 more, several accounts each.", to: "#/accounts?add=1", cta: "Add a broker" },
     { id: "key", done: key, title: "Connect a tool", text: "Python, Excel, AmiBroker or an AI assistant. No key is needed on this computer; a key holds a tool to less.", to: "#/api/integrations?tool=python", cta: "Connect a tool" },
     { id: "source", done: hooks.length > 0, title: "Connect an alert source", text: "TradingView, ChartInk, GoCharting or your own signed webhook.", to: "#/api/integrations?tool=webhooks&source=tradingview", cta: "Connect TradingView" },
-    { id: "order", done: placed, title: "Send a paper order", text: "Try the whole path with practice money before anything is live.", to: "#/api/console?endpoint=order", cta: "Open the console" },
+    { id: "order", done: placed, title: "Send a paper order", text: "Try the whole path with practice money before anything is live.", to: "#/orders?new=1", cta: "New order" },
   ];
 }
 

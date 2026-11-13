@@ -65,8 +65,9 @@ X-MCB-Signature: t=1763040000,v1=<hex HMAC-SHA256>
 - For **paper** orders `data.order` is the whole order, as `GET /v1/orders/{orderId}` shows it. For **live** orders
   only the event fields are sent; read the order yourself when you need more. (The Bridge does not ask your broker
   again just to forward an update.)
-- An order sends more than one update, and a retry repeats a delivery. Use `data.orderId` plus `data.status`, or the
-  delivery `id`, to ignore what you have already handled.
+- An order sends one update per change of state (placed, partly filled, filled, cancelled, rejected); the same state
+  is not sent twice in a row. A retry repeats a delivery with the same `id`, so use the delivery `id` to ignore what
+  you have already handled.
 
 ## Check that it came from your Bridge
 

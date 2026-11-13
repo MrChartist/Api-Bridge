@@ -1803,8 +1803,6 @@ async function signIn() {
   await startRouter();
   // The trading-readiness badge in the toolbar (every page; docs/spec/p1-05-readiness.md §6.3).
   import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
-  // Position alerts: the bell (unread fires, every alert) once there is an alert (alerts.js).
-  import("./alerts.js").then((m) => m.mountAlertBell()).catch(() => {});
 }
 
 if (typeof document !== "undefined" && document.getElementById("login-form")) {
