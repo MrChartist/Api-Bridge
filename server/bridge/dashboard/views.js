@@ -11,6 +11,7 @@ import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabili
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
 import { renderData } from "./data.js";
+import { openOrderTicket } from "./ticket.js";
 import { renderHome } from "./home.js";
 import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
@@ -2103,7 +2104,7 @@ async function renderOrders() {
       // Orders arrive from tools and alerts; the console sends one by hand (API › Test console).
       actions: [
         h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/integrations?tool=webhooks") }, "Connect an alert"),
-        h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send a test order"),
+        h("button", { type: "button", class: "small primary", onclick: () => openOrderTicket({ accounts: accs, onPlaced: () => show() }) }, "New order"),
       ],
       columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
@@ -2127,7 +2128,7 @@ async function renderOrders() {
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
               { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
       ],
-      empty: emptyState("orders", "No orders today", "Orders from TradingView and other alerts, your scripts and AI assistants show up here, whichever broker they went to.", nextStep("Send a test order", "#/api/console?endpoint=order")),
+      empty: emptyState("orders", "No orders today", "Orders from TradingView and other alerts, your scripts and AI assistants show up here, whichever broker they went to.", nextStep("New order", () => openOrderTicket({ accounts: accs, onPlaced: () => show() }))),
     }),
   );
 

@@ -140,6 +140,8 @@ input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible, sele
 .segmented[data-value="BUY"] { --sel-bg: var(--side-buy); --sel-fg: 0 0% 100%; }
 .segmented[data-value="SELL"] { --sel-bg: var(--side-sell); --sel-fg: 0 0% 100%; }
 .segmented[data-value="MARKET"] { --sel-bg: var(--choice-caution); --sel-fg: 0 0% 100%; }
+.segmented[data-value="SL-M"] { --sel-bg: var(--choice-caution); --sel-fg: 0 0% 100%; }
+.segmented[data-value="SL"] { --sel-bg: var(--accent-fill); --sel-fg: 0 0% 100%; }
 .segmented[data-value="LIMIT"] { --sel-bg: var(--accent-fill); --sel-fg: 0 0% 100%; }
 .segmented[data-value="live"] { --sel-bg: var(--side-sell); --sel-fg: 0 0% 100%; }
 /* Not chosen yet, the two sides still read as buy and sell. */

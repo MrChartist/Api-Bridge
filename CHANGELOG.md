@@ -15,6 +15,7 @@
 - Dashboard: choices that mean something take its colour (BUY green, SELL red, MARKET amber, LIMIT blue); order sides are tinted tags; dropdowns are pop-up buttons with a floating, rounded menu where the browser allows it.
 - Dashboard: a broker's raw error (status and JSON) is shown as its sentence plus the next step, for example what to do when a broker token has expired.
 - Dashboard: a Data page. It lists every connected account that can give prices, backfills price history for up to 50 symbols at once (trying the next source when one cannot answer), and downloads the result as one CSV or JSON; it also shows the same call for other projects.
+- Dashboard: a New order ticket on the Orders page. Buy or sell by hand with every order type (Limit, Market, SL, SL-M), product (CNC, Intraday, Margin, MTF) and validity (Day, IOC); "Check order" lists every warning and block before anything is placed.
 - Downloads: a Mac app (`Mr-Chartist-Bridge-<version>-macos-<arch>.app.zip`) next to the Windows Setup .exe and the ZIPs. It keeps settings, data and caches in `~/.mc-bridge`, never inside the app.
 - The one-line installers, package metadata and help links now point at `MrChartist/api-bridge-v2` (they pointed at the full app's repository).
 - Dashboard: Home refreshes itself when an alert arrives, a hook is added, a tool calls or the kill switch changes.

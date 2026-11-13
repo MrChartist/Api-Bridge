@@ -166,3 +166,16 @@
 .dt-results .dt-cell-end { text-align: right; white-space: normal; max-width: 420px; }
 .dt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .dt-snippet { display: grid; gap: 12px; }
+
+/* ── Order ticket (ticket.js) ── */
+.tk, .tk-form { gap: 14px; }
+.tk .segmented { width: 100%; }
+.tk .segmented > button { flex: 1 1 0; }
+.tk-group { display: flex; flex-direction: column; gap: 6px; }
+.tk-hint { margin: 0; font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+.tk-checks { display: flex; flex-direction: column; gap: 6px; }
+.tk-checks:empty { display: none; }
+.tk-check { margin: 0; padding: 8px 12px; border-radius: 10px; font: var(--t-caption); background: hsl(var(--foreground) / 0.05); }
+.tk-check.ok { background: hsl(var(--side-buy) / 0.12); }
+.tk-check.block { background: hsl(var(--side-sell) / 0.12); }
+.tk [hidden] { display: none; }
