@@ -14,7 +14,7 @@ import { cliCommand } from "./cliName.mjs";
 import { readControlToken } from "./controlToken.mjs";
 import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
-import { configFileForWrites, isLoopbackHost, keylessSignInAllowed, loadConfig } from "./config.mjs";
+import { IGNORED_PREFIX, configFileForWrites, isLoopbackHost, keylessSignInAllowed, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 
@@ -457,11 +457,12 @@ export async function runCli(positionals, flags, io) {
         let app;
         let port;
         let publicPort;
+        let bootWarnings = [];
         // The port to try first, then (for a double-clicked app only) the next ones while each is taken.
         const firstPort = planned.server.port + (portNote ? 1 : 0);
         for (let tryPort = firstPort; ; tryPort += 1) {
           const bootIo = tryPort === planned.server.port ? io : { ...io, env: { ...io.env, MCB_PORT: String(tryPort) } };
-          ({ app } = await bootServices(flags, bootIo, { server: true }));
+          ({ app, warnings: bootWarnings } = await bootServices(flags, bootIo, { server: true }));
           try {
             ({ port, publicPort } = await app.listen());
             if (tryPort !== planned.server.port && !portNote) portNote = `  Port ${planned.server.port} is used by another program, so the Bridge uses port ${port}.`;
@@ -479,6 +480,12 @@ export async function runCli(positionals, flags, io) {
           for (const line of appWindowLines({ app, port, version: (await import("./app.mjs")).BRIDGE_VERSION })) io.err(line);
           if (portNote) {
             io.err(portNote);
+            io.err("");
+          }
+          // Sections of the settings file that belong to the full Mr. Chartist app: not used here, and said once.
+          for (const w of bootWarnings.filter((x) => typeof x === "string" && x.startsWith(IGNORED_PREFIX))) {
+            io.err(`  Note: your settings file has parts this version does not use (${w.slice(IGNORED_PREFIX.length)}).`);
+            io.err("  They are ignored; everything else works as usual.");
             io.err("");
           }
           // Ask the Bridge for its own health over the address the browser will use. If that fails although it is

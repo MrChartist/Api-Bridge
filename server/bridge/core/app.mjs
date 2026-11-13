@@ -138,7 +138,7 @@ export const DASHBOARD_FILES = Object.freeze({
 export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
-  const config = withAddableAccounts(applyModuleConfig(baseConfig, mods));
+  const config = withAddableAccounts(applyModuleConfig(baseConfig, mods, warnings));
   const log = logger ?? createLogger({ level: config.logging.level });
   const bus = createEventBus({ logger: log });
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });

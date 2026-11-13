@@ -172,6 +172,10 @@ export const coreSchema = z
 
 export const CORE_SECTIONS = Object.freeze(Object.keys(coreSchema.shape));
 
+/** How a warning about config sections that were left out begins (the app window shows these; cli.mjs). */
+export const IGNORED_PREFIX = "Ignored config sections this version does not have: ";
+
+
 /**
  * The per-user Bridge folder: MCB_HOME, else %APPDATA%\MrChartist\Bridge on Windows, else ~/.mc-bridge. Used for the
  * config file and data when the current folder has no bridge.config.json, so `mc-bridge keys create` run from any

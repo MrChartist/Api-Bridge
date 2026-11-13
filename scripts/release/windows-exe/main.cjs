@@ -30,6 +30,8 @@ const env = process.env;
 const appDir = path.resolve(env.MCB_INSTALL_DIR || path.join(env.LOCALAPPDATA || path.join(require("node:os").homedir(), "AppData", "Local"), "MrChartist", "Bridge", "app"));
 const configDir = path.resolve(env.MCB_HOME || (isWindows && env.APPDATA ? path.join(env.APPDATA, "MrChartist", "Bridge") : path.join(require("node:os").homedir(), ".mc-bridge")));
 const installedExe = path.join(appDir, EXE_NAME);
+/** Where the Bridge's files are run from: the installed folder, or the freshly unpacked one when that could not replace it. */
+let runDir = appDir;
 const args = process.argv.slice(2);
 const has = (flag) => args.includes(flag);
 
@@ -194,11 +196,14 @@ function install() {
       if (isWindows && fs.existsSync(installedExe)) fs.closeSync(fs.openSync(installedExe, "r+"));
       fs.rmSync(appDir, { recursive: true, force: true, maxRetries: 3 });
     } catch {
-      // The installed Bridge is running (its files are in use), so it cannot be replaced now. That is not a failure
-      // for the person who double-clicked: carry on with the installed one, which opens the running dashboard.
-      fs.rmSync(fresh, { recursive: true, force: true });
-      say("    The Bridge is already running, so it was not updated this time.");
-      say("    To update it: close the Mr Chartist Bridge window, then run this Setup again.");
+      // Another Mr Chartist Bridge window is still open (a running Bridge, or one that stopped with a message and
+      // waits for Enter), so the installed files cannot be replaced now. That is not a failure for the person who
+      // double-clicked: this Setup runs the new version straight from the folder it just unpacked. If a Bridge really
+      // is running, the start below finds it and opens its dashboard.
+      runDir = fresh;
+      say("    Another Mr Chartist Bridge window is still open, so the installed copy was not replaced.");
+      say("    This window runs the new version anyway. To finish the update later: close every");
+      say("    Mr Chartist Bridge window, then run this Setup once more.");
       return true;
     }
   }
@@ -229,8 +234,8 @@ function setupConfig() {
 
 /** Run a Bridge command in this process: the .exe is the Bridge's Node.js. */
 async function runBridge(bridgeArgs) {
-  const bin = path.join(appDir, "bin", "mc-bridge.mjs");
-  if (!fs.existsSync(bin)) return fail(`the Bridge's files are missing in ${appDir}.`, "Download Mr-Chartist-Bridge-Setup.exe again and run it.");
+  const bin = path.join(runDir, "bin", "mc-bridge.mjs");
+  if (!fs.existsSync(bin)) return fail(`the Bridge's files are missing in ${runDir}.`, "Download Mr-Chartist-Bridge-Setup.exe again and run it.");
   env.MCB_CLI_NAME = env.MCB_CLI_NAME || "mc-bridge";
   process.argv = [process.execPath, bin, ...bridgeArgs];
   await import(pathToFileURL(bin).href);

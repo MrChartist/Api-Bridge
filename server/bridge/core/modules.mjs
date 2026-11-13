@@ -14,7 +14,7 @@
  * coupling between streams fails in tests, not in production. register() receives every service.
  */
 import { CORE_DEPS, SERVICE_CONTRACTS, assertService, notImplementedService } from "./contracts.mjs";
-import { CORE_SECTIONS, deepFreeze } from "./config.mjs";
+import { CORE_SECTIONS, IGNORED_PREFIX, deepFreeze } from "./config.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 
 /**
@@ -65,11 +65,16 @@ export function validateModules(modules) {
 
 /**
  * Validate module-owned config sections and return a new frozen config with parsed (defaulted) sections.
- * Unknown top-level sections are errors.
+ * A whole top-level section that no module here owns is left out and named in `warnings`: a config written by the
+ * full Mr. Chartist app has sections this Bridge does not have (backup, recorder, ...), and must still start it.
+ * Inside a section this Bridge does know, an unknown key or a wrong value is still an error, so a mistyped safety
+ * limit is never dropped quietly.
+ * @param {object} config @param {object[]} modules @param {string[]} [warnings] receives one line when anything is left out
  */
-export function applyModuleConfig(config, modules) {
+export function applyModuleConfig(config, modules, warnings = []) {
   const out = structuredClone(config);
   const claimed = new Set();
+  const dropped = [];
   for (const m of modules) {
     if (!m.configKey) continue;
     claimed.add(m.configKey);
@@ -81,8 +86,11 @@ export function applyModuleConfig(config, modules) {
     out[m.configKey] = parsed.data;
   }
   for (const k of Object.keys(config)) {
-    if (!CORE_SECTIONS.includes(k) && !claimed.has(k)) throw new BridgeError("VALIDATION_FAILED", `Unknown config section "${k}".`);
+    if (CORE_SECTIONS.includes(k) || claimed.has(k)) continue;
+    delete out[k];
+    dropped.push(k);
   }
+  if (dropped.length) warnings.push(`${IGNORED_PREFIX}${dropped.join(", ")}`);
   return deepFreeze(out);
 }
 
