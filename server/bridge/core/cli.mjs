@@ -449,6 +449,15 @@ export async function runCli(positionals, flags, io) {
             io.err(portNote);
             io.err("");
           }
+          // Ask the Bridge for its own health over the address the browser will use. If that fails although it is
+          // listening, something on this computer (a security program, a proxy setting) stands in between, and saying
+          // so here is the only way the person finds out why the browser shows "refused to connect".
+          if (app.config.server.port !== 0 && !(await probeBridge(localBaseUrl(app.config.server.host, port)))) {
+            io.err("  Warning: the Bridge is running, but this computer could not reach it at the address above.");
+            io.err("  A security program or a proxy setting may be blocking it. Allow this app in that program,");
+            io.err("  then close this window and start the Bridge again.");
+            io.err("");
+          }
           if (flags.open) {
             // On this computer the dashboard signs itself in, so the plain address is enough (and can be bookmarked).
             const url = `${localBaseUrl(app.config.server.host, port)}/dashboard`;
