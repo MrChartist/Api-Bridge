@@ -13,7 +13,8 @@ import { DASH, formatInt } from "./format.js";
 
 /** Most symbols one run collects (each is at least one broker call; a long range is several). */
 export const MAX_SYMBOLS = 50;
-export const INTERVALS = Object.freeze([["1m", "1 min"], ["5m", "5 min"], ["15m", "15 min"], ["1h", "1 hour"], ["1d", "1 day"]]);
+// The names GET /v1/history takes (market/history.mjs INTERVALS); data.test.mjs keeps the two lists in step.
+export const INTERVALS = Object.freeze([["1m", "1 min"], ["3m", "3 min"], ["5m", "5 min"], ["10m", "10 min"], ["15m", "15 min"], ["30m", "30 min"], ["60m", "1 hour"], ["1d", "1 day"], ["1w", "1 week"], ["1M", "1 month"]]);
 const IST_OFFSET_MS = 330 * 60_000;
 const DAY_MS = 86_400_000;
 

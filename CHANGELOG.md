@@ -22,6 +22,8 @@
 - Dashboard: Orders › Positions. Open positions and delivery holdings across every connected account, with profit and loss; Exit and Sell open the order ticket already filled in.
 - Dashboard: removed three leftovers from the full app that v2 cannot serve (the alert bell, the market-alert and scan commands, a holders lookup), which made three failed calls on every page; the command palette gains New order and Connect your project.
 - Forwarding: the same state of an order is sent once, not twice.
+- Docs: `docs/guides/data-api.md`, the contract for the data calls other projects point at (connect, every call, freshness, partial errors, error codes, limits, what stays stable).
+- Dashboard: the Data page offers exactly the intervals the history API accepts; its "1 hour" choice was sending a name the API refuses.
 - Downloads: a Mac app (`Mr-Chartist-Bridge-<version>-macos-<arch>.app.zip`) next to the Windows Setup .exe and the ZIPs. It keeps settings, data and caches in `~/.mc-bridge`, never inside the app.
 - The one-line installers, package metadata and help links now point at `MrChartist/api-bridge-v2` (they pointed at the full app's repository).
 - Dashboard: Home refreshes itself when an alert arrives, a hook is added, a tool calls or the kill switch changes.

@@ -170,7 +170,8 @@ fills the ticket in for you.
 
 The **Data** page is one place to collect price history. It lists every connected account that can give prices,
 backfills up to 50 symbols at once (1 minute to 1 day candles), tries the next source when one cannot answer, and
-downloads everything as one CSV or JSON file. Other projects read the same data with one call:
+downloads everything as one CSV or JSON file. Other projects read the same data with one call
+(the full contract is [data-api.md](docs/guides/data-api.md)):
 
 ```bash
 curl "http://127.0.0.1:4300/v1/history?symbol=NSE:RELIANCE&interval=1d&from=2026-01-01&to=2026-06-30&format=csv"

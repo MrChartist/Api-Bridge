@@ -10,7 +10,7 @@ yourself in the settings file.
 | Your computer | Easiest way |
 |---|---|
 | Windows 10 or 11 | [Setup.exe](#windows-setupexe) (double-click) or [one line in PowerShell](#windows-one-line) |
-| Mac | [One line in Terminal](#mac-and-linux-one-line) (no security prompts) or [the ready-to-run download](#ready-to-run-download) |
+| Mac | [The Mac app](#mac-the-app) (double-click), [one line in Terminal](#mac-and-linux-one-line) (no security prompts) or [the ready-to-run download](#ready-to-run-download) |
 | Linux | [One line in a terminal](#mac-and-linux-one-line) or [the ready-to-run download](#ready-to-run-download) |
 | Android phone or tablet | [Termux and one line](#android-termux) |
 
@@ -55,6 +55,19 @@ while installing.
    you use the Bridge. To stop the Bridge, close that window.
 
 Next time, double-click the same start file again.
+
+---
+
+## Mac: the app
+
+1. On the [latest release](https://github.com/MrChartist/api-bridge-v2/releases/latest) download
+   **`Mr-Chartist-Bridge-…-macos-arm64.app.zip`** (Apple silicon: M1 and later) or **`…-macos-x64.app.zip`** (Intel).
+2. Open the ZIP and drag **Mr Chartist Bridge** to Applications.
+3. The first time, right-click the app and choose **Open**, then **Open** again. The app is not signed with an Apple
+   developer certificate yet, so a plain double-click is refused the first time.
+
+Node.js is inside the app. Your settings and data are kept in `~/.mc-bridge`, so replacing the app with a newer one
+keeps them.
 
 ---
 

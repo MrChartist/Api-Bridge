@@ -2615,7 +2615,7 @@ const INTRO = {
   chatgpt: "ChatGPT connectors cannot reach a local server. Use the same tools from your own script with OpenAI function calling.",
   rest: "Every route answers { data, meta } JSON with freshness labels; errors are problem+json with a stable code.",
 };
-const GUIDES = { project: "forwarding", webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+const GUIDES = { project: "data-api", webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
 /**
  * "Your project": the Bridge's address with a live check, the full API description to import, and the call for each

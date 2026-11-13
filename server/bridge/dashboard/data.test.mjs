@@ -60,4 +60,10 @@ describe("what comes out", () => {
     expect(summarise(results)).toEqual({ done: 1, failed: 1, candles: 2, sources: ["dhan-main"] });
     expect(summarise([])).toEqual({ done: 0, failed: 0, candles: 0, sources: [] });
   });
+
+  it("offers exactly the intervals the history API accepts", async () => {
+    const { INTERVALS: API } = await import("../market/history.mjs");
+    const { INTERVALS: PAGE } = await import("./data.js");
+    expect(PAGE.map(([v]) => v)).toEqual([...API]);
+  });
 });
