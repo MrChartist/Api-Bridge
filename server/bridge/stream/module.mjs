@@ -7,6 +7,7 @@
  *
  * Config section: `stream` (./config.mjs). On stop() every client gets go_away "shutdown" before the feeds close.
  */
+import { localAccessFor } from "../auth/localAccess.mjs";
 import { defineModule } from "../core/modules.mjs";
 import { streamConfigSchema } from "./config.mjs";
 import { createSessionRegistry } from "./protocol.mjs";
@@ -33,7 +34,7 @@ export function createStreamEndpoints(deps, { cors } = {}) {
   const cfg = hub.config ?? streamConfigSchema.parse(deps.config?.stream ?? {});
   const logger = deps.logger.child({ module: "stream" });
   const registry = createSessionRegistry({ max: cfg.maxClients, maxPerKey: cfg.maxClientsPerKey ?? 10 });
-  const common = { hub, bus: deps.bus, keyStore: deps.keyStore, registry, config: cfg, clock: deps.clock, logger, scheduler: deps.scheduler ?? null };
+  const common = { hub, bus: deps.bus, keyStore: deps.keyStore, registry, config: cfg, clock: deps.clock, logger, scheduler: deps.scheduler ?? null, localAccess: localAccessFor(deps) };
   const ws = createWsEndpoint(common);
   const sse = createSseHandler({ ...common, cors: cors ?? deps.config?.cors });
   const offRevoked =

@@ -147,3 +147,30 @@ shared with other user accounts, so can they. It never opens live trading by its
 
 It is off by default when `server.localPeers` is set (Docker) or the dashboard is served to other computers, because
 there "this computer" means more than loopback.
+
+## Tools on this computer need no key
+
+For now, nothing on the computer the Bridge runs on needs an API key. A script, a spreadsheet or any other tool that
+calls the API from this computer without a key is treated as **This computer**: it can read, place paper orders and do
+admin work, on every account. The same holds for the live stream and the compat API. Keys will be needed again for
+subscriptions and similar features in a later version; they still work today, and a tool that sends a key is held to
+exactly what that key allows.
+
+- **Never live.** Keyless access does not carry the `live` scope and cannot create a key that does. A real order
+  still needs a key made for live trading, on top of the opt-ins in `bridge.config.json`.
+- **This computer only.** The request must come from a loopback address, be addressed to a loopback host name and
+  carry no proxy headers. A tunnel, a reverse proxy, the public webhook listener, another web site in your browser
+  and another machine on your network all still need a key.
+- **What it does not protect against:** any program running on this computer as you, and other user accounts on a
+  shared computer, can use the Bridge. On a shared or untrusted machine, switch it off.
+
+To require a key from every tool again:
+
+```json
+{ "server": { "keylessApi": false } }
+```
+
+or start the Bridge with `MCB_KEYLESS=0` in the environment. It is off by default when `server.localPeers` is set
+(Docker) or the dashboard is served to other computers. "This computer" appears on the Keys page as one key; revoking
+it there only replaces it, the setting above is what turns it off.
+

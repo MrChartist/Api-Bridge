@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tools on the computer the Bridge runs on need no API key for now: REST, the live stream and the compat API treat a request with no key as "This computer" (read, paper and admin; never live). `server.keylessApi: false` or `MCB_KEYLESS=0` requires keys again.
 - The dashboard opens without a key on the computer the Bridge runs on (`POST /v1/sign-in/local`: loopback and the Bridge's own page only). `server.keylessSignIn: false` switches it off; it is off by default with `server.localPeers` or a remote dashboard.
 - TradingView is a webhook source (`"source": "tradingview"`): strategy, indicator and price alerts, JSON or text, with ready alert messages for each hook.
 - Dashboard: a Home page with the map of sources, the Bridge and brokers, the live broker API budget, setup steps, the latest alerts (placed or refused, with the reason) and the latest calls from other tools.

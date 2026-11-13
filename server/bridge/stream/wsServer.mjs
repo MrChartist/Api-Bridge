@@ -18,13 +18,13 @@ export const MAX_CLIENT_FRAME_BYTES = 64 * 1024;
  *   config: object, clock: { now(): number }, logger: object }} opts
  * @returns {{ handleUpgrade(args: { req: any, socket: any, head: Buffer, url: URL, log?: object, reject: (statusLine: string) => void }): Promise<void>, close(): void }}
  */
-export function createWsEndpoint({ hub, bus, keyStore, registry, config: cfg, clock, logger, scheduler = null }) {
+export function createWsEndpoint({ hub, bus, keyStore, registry, config: cfg, clock, logger, scheduler = null, localAccess = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_CLIENT_FRAME_BYTES, perMessageDeflate: false, clientTracking: false });
 
-  async function handleUpgrade({ req, socket, head, url, reject }) {
+  async function handleUpgrade({ req, socket, head, url, reject, viaPublicIngress = false }) {
     let key;
     try {
-      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers });
+      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers, local: localAccess ? () => localAccess.recordFor(req, { publicListener: viaPublicIngress }) : null });
     } catch (err) {
       reject(err?.code === "SCOPE_REQUIRED" ? "403 Forbidden" : "401 Unauthorized");
       return;

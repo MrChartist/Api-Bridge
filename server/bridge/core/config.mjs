@@ -110,6 +110,12 @@ export const coreSchema = z
          * always ask for a key or a sign-in link; true to allow it even with localPeers.
          */
         keylessSignIn: z.boolean().optional(),
+        /**
+         * Let tools on this computer call the API with no key (auth/localAccess.mjs): they act as "This computer"
+         * with the read, paper and admin scopes, never live. Unset means "on wherever keylessSignIn is on"; the
+         * environment variable MCB_KEYLESS=0 turns the unset default off. Set false to require a key from every tool.
+         */
+        keylessApi: z.boolean().optional(),
         localPeers: z.array(z.string().regex(/^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/, "use an IPv4 address or IPv4/CIDR")).max(8).default([]),
         /** Extra Host header values to accept (DNS-rebinding guard). Loopback names are always accepted. */
         allowedHosts: z.array(z.string()).default([]),
@@ -355,4 +361,17 @@ export function keylessSignInAllowed(cfg) {
   const s = cfg?.server ?? {};
   if (typeof s.keylessSignIn === "boolean") return s.keylessSignIn;
   return !(s.localPeers?.length > 0) && s.remoteDashboard !== true;
+}
+
+/**
+ * May a tool on this computer call the API with no key? The config's answer when it gives one; otherwise yes
+ * wherever keyless sign-in is allowed, unless MCB_KEYLESS=0 is set in the environment.
+ * @param {{ server?: { keylessApi?: boolean, keylessSignIn?: boolean, localPeers?: string[], remoteDashboard?: boolean } } | null | undefined} cfg
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function keylessApiAllowed(cfg, env = process.env) {
+  const s = cfg?.server ?? {};
+  if (typeof s.keylessApi === "boolean") return s.keylessApi;
+  if (env?.MCB_KEYLESS === "0") return false;
+  return keylessSignInAllowed(cfg);
 }

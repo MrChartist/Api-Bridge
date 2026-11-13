@@ -3423,7 +3423,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: "Bridge API key: `mcb_<keyId>_<secret>`."
+      description: "Bridge API key: `mcb_<keyId>_<secret>`. From the computer the Bridge runs on, a request with no key is accepted as \"This computer\" (read, paper and admin scopes, never live) unless `server.keylessApi` is false; see docs/guides/safety.md."
     apiKeyHeader:
       type: apiKey
       in: header

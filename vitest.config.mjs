@@ -13,6 +13,11 @@ if (!process.env.MCB_TEST_TMPDIR) {
   process.env.TEMP = dir;
 }
 
+// The suite checks the Bridge as it behaves when every tool needs a key (who may do what, scope by scope). Keyless
+// access on this computer (auth/localAccess.mjs) is on by default for people, so it is switched off here and tested on
+// its own, with server.keylessApi: true, in auth/localAccess.test.mjs. Set in the main process so spawned Bridges inherit it.
+process.env.MCB_KEYLESS ??= "0";
+
 export default defineConfig({
   test: {
     environment: "node",

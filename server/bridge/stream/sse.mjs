@@ -37,7 +37,7 @@ const usable = (r, t) => Boolean(r) && !r.revokedAt && !(r.expiresAt && Date.par
  *   logger: object, cors?: { allowedOrigins?: string[] } }} opts
  * @returns {(ctx: import("../core/context.mjs").RequestContext) => Promise<void>}
  */
-export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, clock, logger, cors, scheduler = null }) {
+export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, clock, logger, cors, scheduler = null, localAccess = null }) {
   const corsCheck = createCors(cors ?? {});
   /** @type {Map<string, { keyId: string, sub: string, active: boolean, expiresAt: number }>} token tag -> grant */
   const grants = new Map();
@@ -71,7 +71,7 @@ export function createSseHandler({ hub, bus, keyStore, registry, config: cfg, cl
   return async function sseHandler(ctx) {
     const token = ctx.query.get("token");
     let reused = await fromGrant(token, ctx.query);
-    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers });
+    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers, local: localAccess ? () => localAccess.recordFor(ctx.req, { publicListener: ctx.viaPublicIngress === true }) : null });
     ctx.key = key;
     const symbols = (ctx.query.get("symbols") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const mode = ctx.query.get("mode") ?? "ltp";

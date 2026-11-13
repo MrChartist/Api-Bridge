@@ -35,6 +35,7 @@ Out of scope:
 - Keep the Bridge on `127.0.0.1` (the default). With Docker, use the provided `docker-compose.yml`, which publishes the port on `127.0.0.1` only.
 - Give each tool its own API key with the fewest scopes it needs, and revoke keys you no longer use.
 - The dashboard signs in without a key on the computer the Bridge runs on (loopback only, the Bridge's own page only). On a computer shared with other user accounts, set `server.keylessSignIn` to `false` (see `docs/guides/safety.md`).
+- Tools on the computer the Bridge runs on need no API key (they get read, paper and admin access, never live). On a shared or untrusted computer, set `server.keylessApi` to `false`, or start with `MCB_KEYLESS=0`.
 - Rotate the first admin key after setup if it was printed into logs (for example `docker compose logs`).
 - Keep live trading off until you have tried your setup in paper mode.
 - The confirmation step for AI-prepared orders protects against an assistant that only has its MCP tools or API key. It does not protect against one that can run shell commands or control the browser on your computer; give such tools a `read` key only (see [docs/guides/mcp.md](docs/guides/mcp.md)).

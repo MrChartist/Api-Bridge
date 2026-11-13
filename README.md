@@ -74,6 +74,10 @@ npm start          # start the Bridge
 npm run doctor     # check the setup
 ```
 
+**No key needed on your own computer.** Scripts, sheets and other tools that call the Bridge from the computer it
+runs on work without an API key for now (read, paper orders and admin; live orders still need a key). To require
+keys, set `"server": { "keylessApi": false }`; see [safety.md](docs/guides/safety.md#tools-on-this-computer-need-no-key).
+
 The dashboard is at **http://localhost:4300/dashboard**. On the computer the Bridge runs on, it opens without a key
 (`POST /v1/sign-in/local`, loopback only). To always ask for a key instead, set `"server": { "keylessSignIn": false }`;
 see [safety.md](docs/guides/safety.md#signing-in-to-the-dashboard). The health check is at `/v1/health`.
