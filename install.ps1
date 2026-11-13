@@ -1,9 +1,9 @@
 # Mr. Chartist API Bridge: one-line installer for Windows 10 and 11. No admin rights needed.
 #
 #   Install or update (paste into PowerShell and press Enter):
-#     irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1 | iex
+#     irm https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.ps1 | iex
 #   Uninstall (your settings and data are kept unless you also ask to delete them):
-#     & ([scriptblock]::Create((irm https://raw.githubusercontent.com/MrChartist/api-bridge/master/install.ps1))) -Uninstall
+#     & ([scriptblock]::Create((irm https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.ps1))) -Uninstall
 #   If you downloaded this file instead, Windows blocks running it directly; run it like this (this run only):
 #     powershell -ExecutionPolicy Bypass -File install.ps1            (add -Uninstall, -NoStart, -Demo as needed)
 #
@@ -19,7 +19,7 @@
 #   MCB_NO_START=1   -NoStart    install or update but do not start the Bridge
 #   MCB_DEMO=1       -Demo       first setup and start in demo mode (sample prices, no broker needed)
 #   MCB_SOURCE       -Source     where the code comes from: a folder, a .zip file or a .zip URL (default: GitHub)
-#   MCB_REF          -Ref        GitHub branch or tag to download (default: master)
+#   MCB_REF          -Ref        GitHub branch or tag to download (default: main)
 #   MCB_INSTALL_DIR              install folder (default %LOCALAPPDATA%\MrChartist\Bridge)
 #   MCB_HOME                     settings and data folder (default %APPDATA%\MrChartist\Bridge; the Bridge reads it too)
 #
@@ -256,8 +256,8 @@ function Install-McBridge {
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
     $unpacked = Join-Path $stage 'src'
     if (-not $Source) {
-      if ($Ref) { $Source = "https://codeload.github.com/MrChartist/api-bridge/zip/$Ref" }
-      else { $Source = 'https://codeload.github.com/MrChartist/api-bridge/zip/refs/heads/master' }
+      if ($Ref) { $Source = "https://codeload.github.com/MrChartist/api-bridge-v2/zip/$Ref" }
+      else { $Source = 'https://codeload.github.com/MrChartist/api-bridge-v2/zip/refs/heads/main' }
     }
     if ($Source -match '^https?://') {
       $zip = Join-Path $stage 'bridge.zip'
@@ -273,7 +273,7 @@ function Install-McBridge {
     } else {
       throw "Could not find $Source (MCB_SOURCE). Use a folder, a .zip file or a web address."
     }
-    # A GitHub ZIP holds one folder (api-bridge-master); a folder copy has the files directly.
+    # A GitHub ZIP holds one folder (api-bridge-v2-main); a folder copy has the files directly.
     $root = $unpacked
     if (-not (Test-Path -LiteralPath (Join-Path $root 'package.json'))) {
       $inner = @(Get-ChildItem -LiteralPath $unpacked -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'package.json') })
@@ -373,7 +373,7 @@ function Install-McBridge {
     Write-Host "  $($_.Exception.Message)"
     Write-Host ''
     Write-Host 'Nothing in your settings or data was changed. Fix the problem above if you can and run the installer again.'
-    Write-Host 'If it keeps failing, open an issue at https://github.com/MrChartist/api-bridge/issues with the message above.'
+    Write-Host 'If it keeps failing, open an issue at https://github.com/MrChartist/api-bridge-v2/issues with the message above.'
     if ($stage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
     if ($ExitOnFailure) { exit 1 }
   } finally {

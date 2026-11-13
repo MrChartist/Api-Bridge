@@ -42,7 +42,7 @@ Bridge port is not published on the server; only Caddy (HTTPS) is.
 ## 4. Start it
 
 ```bash
-git clone https://github.com/MrChartist/api-bridge.git
+git clone https://github.com/MrChartist/api-bridge-v2.git
 cd api-bridge/deploy/hostinger
 export DOMAIN=bridge.yourdomain.com        # every docker compose command below needs it
 docker compose up -d --build

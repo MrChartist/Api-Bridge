@@ -2630,7 +2630,7 @@ async function renderIntegrations() {
     const intro = h(
       "div",
       { class: "card-body stack" },
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
+      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
       createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
     );
     const parts = [intro];

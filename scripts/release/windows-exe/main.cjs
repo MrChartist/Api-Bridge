@@ -147,7 +147,7 @@ function install() {
   say("[2/3] Adding shortcuts and the mc-bridge command ...");
   addShortcutsAndCommand();
   say("[3/3] Setting up (a practice account with virtual money; real orders stay off) ...");
-  if (!setupConfig()) return fail("the first-run setup did not finish.", "Run this Setup again; if it keeps failing, open an issue at https://github.com/MrChartist/api-bridge/issues.");
+  if (!setupConfig()) return fail("the first-run setup did not finish.", "Run this Setup again; if it keeps failing, open an issue at https://github.com/MrChartist/api-bridge-v2/issues.");
   say("");
   say("Installed. Next time, start it from \"Mr Chartist Bridge\" in the Start menu or on your Desktop.");
   if (has("--install-only")) return pauseThenExit(0);

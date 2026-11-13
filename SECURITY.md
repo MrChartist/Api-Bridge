@@ -7,7 +7,7 @@ The Bridge holds your broker credentials and can place orders, so we take securi
 **Please do not open a public issue.** Report it privately through GitHub's private vulnerability reporting:
 
 1. Go to the repository's **Security** tab.
-2. Click **Report a vulnerability** ([direct link](https://github.com/MrChartist/api-bridge/security/advisories/new)).
+2. Click **Report a vulnerability** ([direct link](https://github.com/MrChartist/api-bridge-v2/security/advisories/new)).
 
 Include what you found, the steps to reproduce it, the version or commit, and what an attacker could do with it. We aim to acknowledge reports within 3 working days and to agree a disclosure date with you once a fix is ready. We are happy to credit you in the advisory.
 

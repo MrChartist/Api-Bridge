@@ -46,7 +46,7 @@ info:
     Personal use only: broker data terms generally forbid passing market data to other people.
   license:
     name: MIT
-    url: https://github.com/MrChartist/api-bridge/blob/main/LICENSE
+    url: https://github.com/MrChartist/api-bridge-v2/blob/main/LICENSE
   contact:
     name: Investology (Mr. Chartist)
 defaultContentType: application/json
