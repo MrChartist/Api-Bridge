@@ -15,6 +15,7 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
 | [webhooks.md](webhooks.md) | TradingView, ChartInk, GoCharting and signed generic alerts |
+| [forwarding.md](forwarding.md) | Send each order update to a URL in another project, as signed JSON |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |

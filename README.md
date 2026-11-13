@@ -169,6 +169,11 @@ downloads everything as one CSV or JSON file. Other projects read the same data 
 curl "http://127.0.0.1:4300/v1/history?symbol=NSE:RELIANCE&interval=1d&from=2026-01-01&to=2026-06-30&format=csv"
 ```
 
+## Order updates to your other projects
+
+Give the Bridge a URL in your project (**API → Integrations → Your project**) and it posts each order update there
+the moment it happens, as signed JSON with retries. No polling. See [forwarding.md](docs/guides/forwarding.md).
+
 ## Supported brokers
 
 **41 Indian broker adapters**, several accounts per broker, logged in from the dashboard.

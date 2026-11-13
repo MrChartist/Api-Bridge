@@ -2341,6 +2341,120 @@ paths:
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
+  /v1/forwards:
+    get:
+      tags: [Notifications]
+      operationId: listForwards
+      summary: List forward targets (never the signing secret)
+      description: A forward target is another project's URL. The Bridge POSTs each chosen event there as signed JSON.
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Forward targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Forward" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Notifications]
+      operationId: createForward
+      summary: Add a forward target; its signing secret is shown once
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForwardCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/Forward"
+                      - type: object
+                        required: [signingSecret]
+                        properties:
+                          signingSecret: { type: string, description: "Verifies X-MCB-Signature on every delivery. Shown once." }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/forwards/{forwardId}:
+    parameters:
+      - name: forwardId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 40 }
+    delete:
+      tags: [Notifications]
+      operationId: deleteForward
+      summary: Delete a forward target (deliveries stop immediately)
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, properties: { id: { type: string }, deleted: { type: boolean } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/forwards/{forwardId}/test:
+    parameters:
+      - name: forwardId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 40 }
+    post:
+      tags: [Notifications]
+      operationId: testForward
+      summary: Send one test event (forward.test) to a target now
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The outcome of the test delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      ok: { type: boolean }
+                      status: { type: [integer, "null"] }
+                      error: { type: [string, "null"] }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
   /mcp:
     post:
       tags: [AI (MCP)]
@@ -5342,6 +5456,28 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/ReadinessState" }
             - { type: "null" }
+    Forward:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        url: { type: string }
+        events: { type: array, items: { type: string, enum: [order.updated, order.outcome_unknown, safety.kill_switch, account.status] } }
+        enabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        delivered: { type: integer }
+        failed: { type: integer }
+        lastDeliveryAt: { type: [string, "null"], format: date-time }
+        lastStatus: { type: [integer, "null"] }
+        lastError: { type: [string, "null"] }
+    ForwardCreate:
+      type: object
+      required: [label, url]
+      additionalProperties: false
+      properties:
+        label: { type: string, minLength: 1, maxLength: 60 }
+        url: { type: string, maxLength: 2000, description: "https:// anywhere, or http:// only to this computer (127.0.0.1 or localhost)." }
+        events: { type: array, minItems: 1, items: { type: string, enum: [order.updated, order.outcome_unknown, safety.kill_switch, account.status] }, default: [order.updated] }
     HookCreate:
       type: object
       required: [source, label, account]

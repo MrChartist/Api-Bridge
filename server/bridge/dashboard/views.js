@@ -2585,7 +2585,7 @@ const INTRO = {
   chatgpt: "ChatGPT connectors cannot reach a local server. Use the same tools from your own script with OpenAI function calling.",
   rest: "Every route answers { data, meta } JSON with freshness labels; errors are problem+json with a stable code.",
 };
-const GUIDES = { project: "README", webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+const GUIDES = { project: "forwarding", webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
 
 /**
  * "Your project": the Bridge's address with a live check, the full API description to import, and the call for each
@@ -2619,6 +2619,118 @@ function projectPanel(account) {
       { caption: "The calls a project usually needs" },
     ),
   );
+}
+
+const FORWARD_EVENT_LABELS = [
+  ["order.updated", "Order updates"],
+  ["order.outcome_unknown", "Orders with an unknown outcome"],
+  ["safety.kill_switch", "Kill switch"],
+  ["account.status", "Account sessions"],
+];
+/** How a receiver checks that a delivery really came from this Bridge (Python, standard library). Pure. */
+export function forwardVerifySnippet(secret = "<signing secret shown when you added the URL>") {
+  return [
+    "import hashlib, hmac, time",
+    "",
+    `SECRET = "${secret}"`,
+    "",
+    "def from_bridge(raw_body: bytes, signature_header: str) -> bool:",
+    `    parts = dict(p.split("=", 1) for p in signature_header.split(","))`,
+    `    if abs(time.time() - int(parts["t"])) > 300: return False   # too old: a replay`,
+    `    want = hmac.new(SECRET.encode(), parts["t"].encode() + b"." + raw_body, hashlib.sha256).hexdigest()`,
+    `    return hmac.compare_digest(want, parts["v1"])`,
+    "",
+    `# In your handler: from_bridge(request_body_bytes, headers["X-MCB-Signature"])`,
+    `# The body is JSON: {"id", "event", "at", "data"}. Answer 200 quickly; the Bridge retries anything else.`,
+  ].join("\n");
+}
+/**
+ * "Send updates to your project": the URLs of other projects that get each order update as signed JSON
+ * (GET/POST/DELETE /v1/forwards). The signing secret is shown once, with the check a receiver runs.
+ */
+async function forwardPanel() {
+  const box = h("div", { class: "card-body stack pj fw" });
+  let created = null;
+  const draw = async () => {
+    const r = await optional(api("/v1/forwards", { fresh: true }));
+    const targets = r.data?.data ?? [];
+    const label = h("input", { id: "fw-label", value: "My project", maxlength: "60" });
+    const url = h("input", { id: "fw-url", type: "url", placeholder: "http://127.0.0.1:8000/bridge-events", autocomplete: "off", spellcheck: "false" });
+    const boxes = FORWARD_EVENT_LABELS.map(([id, text]) => [id, h("input", { type: "checkbox", ...(id === "order.updated" ? { checked: "" } : {}) }), text]);
+    const err = h("p", { class: "bad-text", role: "alert", hidden: true });
+    const add = h("button", { type: "button", class: "primary" }, icon("plus"), "Add URL");
+    add.addEventListener("click", async () => {
+      err.hidden = true;
+      const events = boxes.filter(([, b]) => b.checked).map(([id]) => id);
+      if (!url.value.trim()) return fieldError(url, "Paste the URL in your project that should get the updates.");
+      if (!events.length) return void ((err.textContent = "Tick at least one kind of update."), (err.hidden = false));
+      try {
+        const made = await api("/v1/forwards", { method: "POST", body: { label: label.value.trim() || "My project", url: url.value.trim(), events } });
+        created = made.data.data;
+        toast("Added. Copy the signing secret now: it is shown only once.");
+        draw();
+      } catch (e) {
+        const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => String(x.path ?? "").endsWith("url"));
+        if (f) return fieldError(url, `The URL must ${f.message}.`);
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+    const status = (t) => (t.lastDeliveryAt === null ? pill("Nothing sent yet") : t.lastError ? pill("Last one failed", "bad") : pill("Delivered", "ok"));
+    const rowActions = (t) => {
+      const test = h("button", { type: "button", class: "small" }, "Send a test");
+      test.addEventListener("click", async () => {
+        test.disabled = true;
+        const res = await optional(api(`/v1/forwards/${encodeURIComponent(t.id)}/test`, { method: "POST" }));
+        const d = res.data?.data;
+        toast(d?.ok ? `Test delivered to ${t.label}.` : `Test not delivered: ${d?.error ?? res.error?.message ?? "no answer"}.`, { tone: d?.ok ? "ok" : "error" });
+        draw();
+      });
+      const del = h("button", { type: "button", class: "small quiet" }, "Delete");
+      del.addEventListener("click", async () => {
+        await optional(api(`/v1/forwards/${encodeURIComponent(t.id)}`, { method: "DELETE" }));
+        if (created?.id === t.id) created = null;
+        toast(`Stopped sending to ${t.label}.`);
+        draw();
+      });
+      return h("div", { class: "row fw-actions" }, test, del);
+    };
+    box.replaceChildren(
+      ...[
+        h("div", {}, h("h3", { class: "fw-title" }, "Send updates to your project"), h("p", { class: "muted" }, "Give the Bridge a URL in your project. Every order update is sent there the moment it happens, as signed JSON, so your project does not have to keep asking. Use https, or http to this computer.")),
+        r.error ? alertBox(r.error) : null,
+        h("div", { class: "form-grid" }, field("Name", label), h("label", { class: "field wide", for: "fw-url" }, h("span", {}, "URL in your project"), url)),
+        h("div", { class: "row fw-events" }, ...boxes.map(([, b, text]) => h("label", { class: "check" }, b, h("span", {}, text))), add),
+        err,
+        created
+          ? h(
+              "div",
+              { class: "stack" },
+              h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Copy the signing secret now."), h("span", { class: "detail" }, "It proves a delivery came from your Bridge. It is shown only once."))),
+              codeBlock(created.signingSecret, { title: `Signing secret for ${created.label}` }),
+              codeBlock(forwardVerifySnippet(created.signingSecret), { title: "Check a delivery in your project (Python)" }),
+            )
+          : null,
+        targets.length
+          ? table(
+              [
+                { label: "Project", wrap: true, cell: (t) => h("div", {}, h("strong", {}, t.label), h("div", { class: "muted small fw-url" }, t.url)) },
+                { label: "Gets", wrap: true, cell: (t) => t.events.map((e) => FORWARD_EVENT_LABELS.find(([id]) => id === e)?.[1] ?? e).join(", ") },
+                { label: "Sent", num: true, cell: (t) => formatInt(t.delivered) },
+                { label: "Failed", num: true, cell: (t) => formatInt(t.failed) },
+                { label: "Status", wrap: true, cell: (t) => h("div", {}, status(t), t.lastError ? h("div", { class: "muted small" }, t.lastError) : null) },
+                { label: "", cell: rowActions },
+              ],
+              targets,
+              null,
+              { caption: "Projects that get updates" },
+            )
+          : null,
+      ].filter(Boolean),
+    );
+  };
+  await draw();
+  return box;
 }
 
 /** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */
@@ -2677,7 +2789,7 @@ async function renderIntegrations() {
     );
     const parts = [intro];
     if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
-    if (active === "project") parts.push(projectPanel(paperAcc));
+    if (active === "project") parts.push(projectPanel(paperAcc), await forwardPanel());
     if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
     panel.replaceChildren(...parts.filter(Boolean));
   };

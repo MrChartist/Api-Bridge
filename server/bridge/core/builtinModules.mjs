@@ -14,7 +14,8 @@ import safety from "../safety/module.mjs";
 import readiness from "../readiness/module.mjs";
 import integrations from "../integrations/module.mjs";
 import hooks from "../hooks/module.mjs";
+import forward from "../forward/module.mjs";
 import mcp from "../mcp/module.mjs";
 import compat from "../compat/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat]);
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, forward, mcp, compat]);
