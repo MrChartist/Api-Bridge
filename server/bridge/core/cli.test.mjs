@@ -474,3 +474,44 @@ describe("the window of a double-clicked app (MCB_APP_WINDOW=1)", async () => {
     }
   });
 });
+
+describe("a double-clicked app never gives up on a busy port", async () => {
+  const { runCli } = await import("./cli.mjs");
+  const net = await import("node:net");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  it("starts on the next free port when another program holds the configured one, and says so", async () => {
+    // Another program on the port: it accepts connections and says nothing (the worst case for a health probe).
+    const sockets = new Set();
+    const blocker = net.createServer((sock) => {
+      sockets.add(sock);
+      sock.on("error", () => {});
+      sock.on("close", () => sockets.delete(sock));
+    });
+    await new Promise((r) => blocker.listen(0, "127.0.0.1", r));
+    const taken = blocker.address().port;
+    const dir = mkdtempSync(join(tmpdir(), "mcb-appwin-"));
+    writeFileSync(join(dir, "bridge.config.json"), JSON.stringify({ server: { port: taken }, dataDir: join(dir, "data"), logging: { level: "silent" } }));
+    const lines = [];
+    let started = null;
+    const io = { out: (s) => lines.push(s), err: (s) => lines.push(s), env: { MCB_APP_WINDOW: "1" }, cwd: dir, openUrl: () => true, onListening: (app) => (started = app) };
+    try {
+      const code = await runCli(["start"], { config: join(dir, "bridge.config.json"), open: true }, io);
+      expect(code).toBeNull();
+      const text = lines.join("\n");
+      expect(text).toContain("The Bridge is running.");
+      expect(text).toMatch(new RegExp(`Port ${taken} is used by another program, so the Bridge uses port \\d+\\.`));
+      expect(text).not.toContain(`Dashboard:  http://127.0.0.1:${taken}/dashboard`);
+      // Without the app window, the same situation is still an error a person at a terminal can read.
+      lines.length = 0;
+      expect(await runCli(["start"], { config: join(dir, "bridge.config.json") }, { ...io, env: {} })).toBe(1);
+      expect(lines.join("\n")).toMatch(/already in use by another program/);
+    } finally {
+      await started?.close();
+      for (const sock of sockets) sock.destroy();
+      await new Promise((r) => blocker.close(r));
+    }
+  });
+});

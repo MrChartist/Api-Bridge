@@ -36,6 +36,41 @@ const has = (flag) => args.includes(flag);
 const say = (s = "") => process.stdout.write(`${s}\n`);
 const sameFile = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
+/**
+ * Keep a copy of everything this window shows in <settings>\\logs\\window.log, so that when something goes wrong the
+ * person can send one file instead of describing a window that has already closed. Never throws; the log is started
+ * afresh once it passes 1 MB. Keys never appear in what the window shows, and are masked here in any case.
+ */
+const logFile = path.join(configDir, "logs", "window.log");
+function keepWindowLog(what) {
+  try {
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    if (fs.existsSync(logFile) && fs.statSync(logFile).size > 1_000_000) fs.rmSync(logFile, { force: true });
+    const fd = fs.openSync(logFile, "a");
+    const put = (chunk) => {
+      try {
+        fs.writeSync(fd, String(chunk).replace(/mcb_[A-Za-z0-9_-]{20,}/g, "mcb_<hidden>").replace(/#signin=[A-Za-z0-9_-]+/g, "#signin=<hidden>"));
+      } catch {
+        /* the log is a convenience */
+      }
+    };
+    put(`\n===== ${new Date().toISOString()}  ${what}  ${version()}  ${process.platform} ${process.arch}  ${process.execPath} =====\n`);
+    for (const stream of [process.stdout, process.stderr]) {
+      const write = stream.write.bind(stream);
+      stream.write = (chunk, ...rest) => {
+        put(chunk);
+        return write(chunk, ...rest);
+      };
+    }
+    process.on("uncaughtException", (err) => {
+      put(`\nuncaught: ${err?.stack ?? err}\n`);
+      fail(err?.message ?? String(err), `A copy of these messages is in ${logFile}`);
+    });
+  } catch {
+    /* no log: carry on */
+  }
+}
+
 /** Wait for Enter when a window opened just for us would otherwise close before the message can be read. */
 function pauseThenExit(code) {
   if (!process.stdin.isTTY || has("--no-pause")) process.exit(code);
@@ -124,6 +159,7 @@ function addShortcutsAndCommand() {
 
 /** Setup: copy the Bridge and this .exe into place (into a new folder first, then swap), shortcuts, first-run setup. */
 function install() {
+  keepWindowLog("setup");
   say(`Installing Mr. Chartist API Bridge ${version()}`);
   say(`Program: ${appDir}`);
   say(`Your settings and data: ${configDir}`);
@@ -182,7 +218,28 @@ async function runBridge(bridgeArgs) {
 /** The installed copy, opened from a shortcut: first-run setup, then start and open the dashboard. */
 async function launch() {
   process.title = APP_NAME;
+  keepWindowLog("app");
   if (!setupConfig()) return fail("the first-run setup did not finish.");
+  // The window must never just vanish. If the Bridge stops with a problem, the reason stays on screen until Enter;
+  // if it had nothing to do (it was already running) the window says so and closes by itself a moment later.
+  const startedAt = Date.now();
+  const realExit = process.exit.bind(process);
+  let leaving = false;
+  process.exit = (code = 0) => {
+    if (leaving) return realExit(code);
+    leaving = true;
+    if (code !== 0) {
+      say("");
+      say("  The Bridge could not start. The reason is above.");
+      say(`  A copy of these messages is in: ${logFile}`);
+      return pauseThenExit(code);
+    }
+    if (Date.now() - startedAt < 20_000 && process.stdin.isTTY && !has("--no-pause")) {
+      say("  This window closes by itself in a few seconds.");
+      return setTimeout(() => realExit(0), 6000);
+    }
+    return realExit(code);
+  };
   // This window was opened by a double-click, not by someone at a terminal: a short, plain status and no log lines
   // (cli.mjs appWindowLines). MCB_LOG_LEVEL still wins for anyone who wants the detail.
   env.MCB_APP_WINDOW = "1";
@@ -190,10 +247,10 @@ async function launch() {
   const config = path.join(configDir, "bridge.config.json");
   const extra = has("--demo") ? ["--demo"] : [];
   process.chdir(configDir);
-  process.on("exit", (code) => {
-    if (code !== 0) say("\nThe Bridge stopped with a problem (see above).");
-  });
   await runBridge(["start", "--open", "--config", config, ...extra]);
+  // A running Bridge leaves no exit code (it keeps serving). One that is set means the command is over already: it
+  // could not start, or the Bridge was running before and only its dashboard was opened.
+  if (process.exitCode !== undefined && process.exitCode !== null) process.exit(Number(process.exitCode) || 0);
 }
 
 function uninstall() {

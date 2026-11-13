@@ -234,6 +234,9 @@ export function appWindowLines({ app, port, version }) {
   return lines;
 }
 
+/** How many ports after the configured one a double-clicked app tries when each is taken. */
+export const APP_WINDOW_PORT_TRIES = 10;
+
 /** Lines printed after `start`: where the dashboard is and what to do next. Exported for tests. */
 export async function startHints({ app, port, env = process.env }) {
   const cli = cliCommand(env);
@@ -389,7 +392,14 @@ export async function runCli(positionals, flags, io) {
         const planned = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true }).config;
         const plannedUrl = localBaseUrl(planned.server.host, planned.server.port);
         const running = planned.server.port === 0 ? null : await probeBridge(plannedUrl);
-        if (running) {
+        // A double-clicked app (MCB_APP_WINDOW=1) never gives up on a busy port: its window would close before anyone
+        // could read why. If another copy of the Bridge (kept in another folder) or another program holds the port,
+        // it starts on the next free one and says so.
+        const appWindow = io.env?.MCB_APP_WINDOW === "1";
+        let portNote = null;
+        if (running && appWindow && !usesDataDir(planned.dataDir)) {
+          portNote = `  Another copy of the Bridge is already running on port ${planned.server.port}, so this one uses the next free port.`;
+        } else if (running) {
           if (!usesDataDir(planned.dataDir)) {
             io.err(`Error: ${otherFolderMessage(plannedUrl, planned.dataDir)}`);
             return 1;
@@ -398,26 +408,47 @@ export async function runCli(positionals, flags, io) {
             io.err(`The Bridge is already running at ${plannedUrl}. To open its dashboard, run: mc-bridge open`);
             return 1;
           }
+          if (appWindow) {
+            io.err("");
+            io.err("  Mr. Chartist API Bridge is already running on this computer.");
+            io.err(`  Opening its dashboard:  ${plannedUrl}/dashboard`);
+            io.err("");
+            if (keylessSignInAllowed(planned)) (io.openUrl ?? openInBrowser)(`${plannedUrl}/dashboard`);
+            else await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
+            return 0;
+          }
           io.err("The Bridge is already running; opening the dashboard.");
           if (flags.demo === true && !running.demo) io.err("Note: the running Bridge is not in demo mode. To try demo mode, stop it first (Ctrl+C in its window), then start again with --demo.");
           await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
           return 0;
         }
-        const { app } = await bootServices(flags, io, { server: true });
+        let app;
         let port;
         let publicPort;
-        try {
-          ({ port, publicPort } = await app.listen());
-        } catch (err) {
-          await app.close().catch(() => {});
-          if (err?.code === "EADDRINUSE") {
+        // The port to try first, then (for a double-clicked app only) the next ones while each is taken.
+        const firstPort = planned.server.port + (portNote ? 1 : 0);
+        for (let tryPort = firstPort; ; tryPort += 1) {
+          const bootIo = tryPort === planned.server.port ? io : { ...io, env: { ...io.env, MCB_PORT: String(tryPort) } };
+          ({ app } = await bootServices(flags, bootIo, { server: true }));
+          try {
+            ({ port, publicPort } = await app.listen());
+            if (tryPort !== planned.server.port && !portNote) portNote = `  Port ${planned.server.port} is used by another program, so the Bridge uses port ${port}.`;
+            break;
+          } catch (err) {
+            await app.close().catch(() => {});
+            if (err?.code === "EADDRINUSE" && appWindow && planned.server.port !== 0 && tryPort < planned.server.port + APP_WINDOW_PORT_TRIES) continue;
+            if (err?.code === "EADDRINUSE") {
             throw new BridgeError("VALIDATION_FAILED", `Port ${err.port ?? app.config.server.port} is already in use by another program (not this Bridge). Close that program, or choose another port under "server" in bridge.config.json (for example "port": 4301).`);
           }
-          throw err;
+            throw err;
+          }
         }
-        const appWindow = (io.env ?? process.env)?.MCB_APP_WINDOW === "1";
         if (appWindow) {
           for (const line of appWindowLines({ app, port, version: (await import("./app.mjs")).BRIDGE_VERSION })) io.err(line);
+          if (portNote) {
+            io.err(portNote);
+            io.err("");
+          }
           if (flags.open) {
             // On this computer the dashboard signs itself in, so the plain address is enough (and can be bookmarked).
             const url = `${localBaseUrl(app.config.server.host, port)}/dashboard`;

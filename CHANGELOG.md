@@ -9,6 +9,7 @@
 - Dashboard: an iOS finish across every page (`ios.css`): system blue for actions and the current page, iOS segmented controls, switches and ticks, panels on soft depth, lit icon tiles, a red kill switch. Home leads with a status widget whose colour is its state, and sources you have not set up are a grid of icons to pick from.
 - First run: the dashboard opens with a short welcome guide (connect a broker, connect alerts, where to look). It shows once and can be reopened from Home.
 - The window of the Windows app, the Mac app and the start files now shows a short plain status (running, the dashboard address, the next step, how to stop) instead of an admin key, commands and log lines.
+- A double-clicked app no longer fails on a busy port: it starts on the next free one and says so, opens the dashboard of a copy that is already running, keeps the reason on screen when it cannot start, and keeps a copy of its window in `logs/window.log` (Windows app).
 - Downloads: a Mac app (`Mr-Chartist-Bridge-<version>-macos-<arch>.app.zip`) next to the Windows Setup .exe and the ZIPs. It keeps settings, data and caches in `~/.mc-bridge`, never inside the app.
 - The one-line installers, package metadata and help links now point at `MrChartist/api-bridge-v2` (they pointed at the full app's repository).
 - Dashboard: Home refreshes itself when an alert arrives, a hook is added, a tool calls or the kill switch changes.
