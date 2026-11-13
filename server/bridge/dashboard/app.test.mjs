@@ -253,13 +253,13 @@ describe("dashboard broker login form", async () => {
   });
 });
 
-describe("the menu and the tabbed pages (API Bridge v2: Home, Accounts, API, Orders, Safety)", async () => {
+describe("the menu and the tabbed pages (API Bridge v2: Home, Accounts, API, Data, Orders, Safety)", async () => {
   const { PAGES, LEGACY, resolveRoute } = await import("./views.js");
   const { fuzzyScore, pageCommands, rank } = await import("./palette.js");
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
-  it("has 5 pages, Home first and unlabelled, then two groups, in the order of the sidebar", () => {
-    expect(PAGES.map((p) => p.id)).toEqual(["home", "accounts", "api", "orders", "safety"]);
+  it("has 6 pages, Home first and unlabelled, then two groups, in the order of the sidebar", () => {
+    expect(PAGES.map((p) => p.id)).toEqual(["home", "accounts", "api", "data", "orders", "safety"]);
     expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["", "Bridge", "Trade"]);
     // The phone tab bar: four pages and More (Safety, appearance and the key).
     expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["home", "accounts", "api", "orders"]);
@@ -268,7 +268,7 @@ describe("the menu and the tabbed pages (API Bridge v2: Home, Accounts, API, Ord
 
   it("curates the shortcuts", () => {
     const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
-    expect(keys).toEqual({ 1: "home", 2: "accounts", 3: "api", 4: "orders", 5: "safety" });
+    expect(keys).toEqual({ 1: "home", 2: "accounts", 3: "api", 4: "orders", 5: "safety", 6: "data" });
   });
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {

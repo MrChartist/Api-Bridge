@@ -162,7 +162,8 @@ select:disabled { opacity: 0.5; cursor: default; }
    tick on the chosen row. Elsewhere the system's own menu is used, which is correct too. */
 @supports (appearance: base-select) {
   select:not([multiple]):not([size]), select:not([multiple]):not([size])::picker(select) { appearance: base-select; }
-  select:not([multiple]):not([size]) { display: inline-flex; align-items: center; }
+  select:not([multiple]):not([size]) { display: inline-flex; align-items: center; white-space: nowrap; }
+  select::picker(select) { white-space: normal; }
   select::picker-icon { display: none; }
   select::picker(select) {
     margin-top: 6px; padding: 6px; min-width: anchor-size(width); max-height: min(60vh, 420px); overflow-y: auto;

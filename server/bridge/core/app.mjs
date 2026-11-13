@@ -79,6 +79,7 @@ export const DASHBOARD_FILES = Object.freeze({
   "app.js": "text/javascript; charset=utf-8",
   "views.js": "text/javascript; charset=utf-8",
   "home.js": "text/javascript; charset=utf-8",
+  "data.js": "text/javascript; charset=utf-8",
   "chart-lite.js": "text/javascript; charset=utf-8",
   "chart-lite-core.js": "text/javascript; charset=utf-8",
   "chart-specs.js": "text/javascript; charset=utf-8",

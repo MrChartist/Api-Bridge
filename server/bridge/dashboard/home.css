@@ -149,3 +149,20 @@
   .hm-map:not(.drawn) .hm-links path.on { animation: none; stroke-dasharray: none; }
   .hm-meter .fill { transition: none; }
 }
+
+/* ── Data (data.js): sources, the backfill form and its results ── */
+.dt-srcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 0 var(--card-pad); padding: 0 var(--card-pad) 10px; }
+.dt-src { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 0; }
+.dt-src .names { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dt-src .nm { font: 500 15px/1.3 var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-src .sub { font: var(--t-caption); color: hsl(var(--foreground) / var(--a-quiet)); }
+.dt-form .field.wide { grid-column: 1 / -1; }
+.dt-form textarea { min-height: 76px; font: var(--t-ui); font-variant-numeric: tabular-nums; }
+.dt-progress { margin: 0; flex: 1 1 240px; min-width: 0; }
+.dt-results:empty, .dt-actions[hidden] { display: none; }
+.dt-results .table-wrap { margin: 4px calc(-1 * var(--card-pad)) 0; }
+.dt-results td, .dt-results th { white-space: nowrap; }
+.dt-results td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.dt-results .dt-cell-end { text-align: right; white-space: normal; max-width: 420px; }
+.dt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dt-snippet { display: grid; gap: 12px; }

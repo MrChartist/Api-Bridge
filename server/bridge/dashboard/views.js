@@ -10,6 +10,7 @@ import { KEY_PRESETS, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
+import { renderData } from "./data.js";
 import { renderHome } from "./home.js";
 import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
@@ -251,6 +252,7 @@ export const PAGES = [
       },
     ],
   },
+  { id: "data", label: "Data", icon: "download", tint: "teal", key: 6, group: "Bridge", title: "Data", sub: "Collect and backfill price history from every connected source", keywords: "data history backfill candles csv download collect ohlc", render: renderData },
   {
     id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 4, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
     defaultTab: "book",

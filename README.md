@@ -159,6 +159,16 @@ All taken from demo mode: sample prices and paper accounts, no real broker.
 | <img src="docs/screenshots/sign-in.webp" alt="The sign-in screen: Continue on this computer without a key, or sign in with an API key"> | <img src="docs/screenshots/home-phone.webp" width="260" alt="Home on a phone: the status widget, the wiring map and the tab bar with Home, Accounts, API, Orders and More"> |
 | Sign-in | Home on a phone |
 
+## Price data for your other projects
+
+The **Data** page is one place to collect price history. It lists every connected account that can give prices,
+backfills up to 50 symbols at once (1 minute to 1 day candles), tries the next source when one cannot answer, and
+downloads everything as one CSV or JSON file. Other projects read the same data with one call:
+
+```bash
+curl "http://127.0.0.1:4300/v1/history?symbol=NSE:RELIANCE&interval=1d&from=2026-01-01&to=2026-06-30&format=csv"
+```
+
 ## Supported brokers
 
 **41 Indian broker adapters**, several accounts per broker, logged in from the dashboard.
@@ -195,7 +205,7 @@ The full table (sign-in type, option chain, quotes, live feed, portfolio, orders
 
 ## What is not in v2
 
-v2 is the API connection layer and a small dashboard (Home, Accounts, API, Orders, Safety). Analytics, scanners,
+v2 is the API connection layer and a small dashboard (Home, Accounts, API, Data, Orders, Safety). Analytics, scanners,
 calendars, the recorder, option desks, the journal, alerts and the other trading-desk features are not part of it.
 The full app lives in [MrChartist/api-bridge](https://github.com/MrChartist/api-bridge).
 
