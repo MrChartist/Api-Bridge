@@ -45,7 +45,7 @@ stops a URL at once.
 | `account` | The account orders go to |
 | `mode` | `paper` (default) or `live`. Creating a live hook is refused unless the creating key has the `live` scope as well as `admin`, the account has `live.enabled` and `"webhook"` in its `live.allowedSources`, `safety.liveTrading` is on, and (for unsigned sources, see below) one of `allowSourceIps`, `requireConfirmation` or `acknowledgeUnsignedLive` is set |
 | `side` | Fix the side (`BUY`/`SELL`). Required for ChartInk, whose alerts carry none; otherwise an alert asking for the other side is refused |
-| `product`, `orderType` | Fixed per hook (`LIMIT` alerts must carry a price) |
+| `product`, `orderType` | Fixed per hook. `orderType` is `LIMIT`, `MARKET`, `SL` or `SL-M`. `LIMIT` and `SL` alerts must carry a `price`; `SL` and `SL-M` (stop-loss) alerts must carry a `triggerPrice`. ChartInk hooks take `LIMIT` or `MARKET` only |
 | `maxLotsPerSignal` | Larger signals are refused, never trimmed |
 | `allowedSymbols` | Only these canonical symbols (recommended for derivatives). Exact contracts: a dated future stops matching on expiry, so the create response warns 7 days ahead; update the hook at each roll-over |
 | `requireConfirmation` | Every signal waits on the dashboard (Pending confirmations); confirming places exactly that order, once |
@@ -99,7 +99,7 @@ Requests older or newer than 5 minutes, or replayed inside that window, are refu
 read. `{ "signals": [...], "id": "batch-7" }` sends several at once.
 
 The body accepts `symbol` (any symbol the Bridge understands, canonical preferred), `side`, `quantity` or `lots`,
-`price` (required for `LIMIT` hooks), `orderType`, `product`, and `id` (+ optional `time`). Reusing an `id` the same
+`price` (required for `LIMIT` and `SL` hooks), `triggerPrice` (required for `SL` and `SL-M` hooks), `orderType`, `product`, and `id` (+ optional `time`). Reusing an `id` the same
 day never creates a second order.
 
 ### TradingView

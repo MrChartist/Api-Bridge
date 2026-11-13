@@ -8,7 +8,7 @@
  * guessing, because a guessed order is worse than no order.
  *
  * @typedef {{ symbol: string, side: "BUY"|"SELL"|null, quantity: number|null, lots: number|null, price: number|null,
- *   orderType: "LIMIT"|"MARKET"|null, product: "CNC"|"INTRADAY"|"MARGIN"|null, ref: string|null, time: string|null }} Signal
+ *   triggerPrice: number|null, orderType: "LIMIT"|"MARKET"|"SL"|"SL-M"|null, product: "CNC"|"INTRADAY"|"MARGIN"|null, ref: string|null, time: string|null }} Signal
  *   ref + time: the sender's own identity for the signal (for example an order id plus the alert time).
  * @typedef {{ signals: Signal[], basis: string | null, dropped: number }} ParsedAlert
  *   basis: a stable identity for the alert when the sender supplies one (order id + time);
@@ -59,12 +59,12 @@ export function toSide(v, path = "side") {
   throw invalid(`${path} must be buy or sell (got "${String(v).slice(0, 20)}").`, path);
 }
 
-const ORDER_TYPES = { LIMIT: "LIMIT", LMT: "LIMIT", L: "LIMIT", MARKET: "MARKET", MKT: "MARKET", M: "MARKET" };
-/** LIMIT/MARKET (stop orders are not available to hooks in v1). */
+const ORDER_TYPES = { LIMIT: "LIMIT", LMT: "LIMIT", L: "LIMIT", MARKET: "MARKET", MKT: "MARKET", M: "MARKET", SL: "SL", "SL-L": "SL", "SL-LMT": "SL", "SL-M": "SL-M", SLM: "SL-M", "SL-MKT": "SL-M" };
+/** LIMIT, MARKET, SL (stop-loss limit) or SL-M (stop-loss market), accepting the common broker spellings. */
 export function toOrderType(v, path = "orderType") {
   if (v === undefined || v === null || v === "") return null;
   const t = ORDER_TYPES[String(v).trim().toUpperCase()];
-  if (!t) throw invalid(`${path} must be LIMIT or MARKET.`, path);
+  if (!t) throw invalid(`${path} must be LIMIT, MARKET, SL or SL-M.`, path);
   return t;
 }
 
@@ -117,6 +117,7 @@ export function signalFromObject(o, prefix = "") {
     quantity,
     lots,
     price: toNumber(pick(o, ["price", "limit_price", "limitPrice"]), p("price")),
+    triggerPrice: toNumber(pick(o, ["triggerPrice", "trigger_price", "stopPrice", "stop_price"]), p("triggerPrice")),
     orderType: toOrderType(pick(o, ["orderType", "order_type", "pricetype", "priceType"]), p("orderType")),
     product: toProduct(pick(o, ["product"]), p("product")),
     ref: toRef(pick(o, ["id", "orderId", "order_id", "signalId"]), p("id")),
@@ -128,6 +129,7 @@ export function signalFromObject(o, prefix = "") {
  * One Signal from a plain-text alert. Two styles, which may be mixed:
  *   positional:  "BUY NSE:RELIANCE 10 @ 1402.5"   "SELL NFO:NIFTY-2026-10-27-25000-CE 2 lots MKT INTRADAY"
  *   key=value:   "side=buy symbol=NSE:RELIANCE qty=10 price=1402.5 id=42"
+ *   stop-loss:   "SELL NSE:RELIANCE 10 SL-M trigger=1390"   "SELL NSE:RELIANCE 10 @ 1388 SL trigger=1390"
  * Separators: spaces, commas, semicolons, new lines. Any word the grammar does not know refuses the alert.
  * @param {string} text
  * @returns {Signal}
@@ -190,7 +192,8 @@ export function signalFromText(text) {
     ...(product !== null && kv.product === undefined ? { product } : {}),
   };
   if (kv.ordertype !== undefined) obj.orderType = kv.ordertype;
-  const known = new Set(["symbol", "ticker", "exchange", "side", "action", "qty", "quantity", "contracts", "lots", "price", "ordertype", "orderType", "product", "id", "orderid", "time"]);
+  if (kv.trigger !== undefined || kv.triggerprice !== undefined) obj.triggerPrice = kv.trigger ?? kv.triggerprice;
+  const known = new Set(["trigger", "triggerprice", "symbol", "ticker", "exchange", "side", "action", "qty", "quantity", "contracts", "lots", "price", "ordertype", "orderType", "product", "id", "orderid", "time"]);
   for (const k of Object.keys(kv)) if (!known.has(k)) throw invalid(`The alert has a field the Bridge does not understand: "${k.slice(0, 30)}".`);
   if (kv.orderid !== undefined && obj.id === undefined) obj.id = kv.orderid;
   return signalFromObject(obj);

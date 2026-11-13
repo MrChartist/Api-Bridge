@@ -5333,7 +5333,7 @@ components:
         maxLotsPerSignal: { type: integer }
         side: { type: [string, "null"], enum: [BUY, SELL, null] }
         product: { type: [string, "null"], enum: [CNC, INTRADAY, MARGIN, null] }
-        orderType: { type: string, enum: [LIMIT, MARKET] }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M] }
         allowSourceIps: { type: array, items: { type: string } }
         createdAt: { type: string, format: date-time }
         lastSignalAt: { type: [string, "null"], format: date-time }
@@ -5355,7 +5355,7 @@ components:
         allowedSymbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
         maxLotsPerSignal: { type: integer, minimum: 1, default: 1 }
         product: { type: string, enum: [CNC, INTRADAY, MARGIN] }
-        orderType: { type: string, enum: [LIMIT, MARKET], default: LIMIT }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], default: LIMIT, description: "SL and SL-M (stop-loss) hooks need a triggerPrice in every alert; not available for chartink." }
         side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
         allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist of sender IP addresses or IPv4 CIDR blocks." }
         acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (tradingview, chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }

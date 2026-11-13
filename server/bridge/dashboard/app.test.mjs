@@ -103,7 +103,7 @@ describe("dashboard helpers", async () => {
   it("fills snippets with the Bridge address and never an admin key", () => {
     const s = snippets({ base: "http://127.0.0.1:4300/", account: "paper" });
     const all = JSON.stringify(s);
-    expect(Object.keys(s)).toEqual(["webhooks", "python", "node", "excel", "amibroker", "claude", "chatgpt", "rest"]);
+    expect(Object.keys(s)).toEqual(["webhooks", "python", "node", "excel", "amibroker", "claude", "chatgpt", "project", "rest"]);
     expect(all).toContain("http://127.0.0.1:4300/hooks/generic/");
     expect(all).toContain("mcb_YOUR_READ_KEY");
     expect(JSON.parse(s.claude[0].code).mcpServers["mr-chartist-bridge"].env.MCB_BRIDGE_URL).toBe("http://127.0.0.1:4300");

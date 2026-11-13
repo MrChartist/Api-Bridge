@@ -7,6 +7,15 @@ import { alertTemplates } from "./templates.mjs";
 const hook = (o) => ({ source: "generic", side: null, orderType: "LIMIT", product: null, maxLotsPerSignal: 2, ...o });
 
 describe("alert templates match their receivers", () => {
+  it("stop-loss hooks get examples with a trigger, and each example parses", () => {
+    expect(JSON.parse(alertTemplates(hook({ orderType: "SL-M" }))[0].message)).toMatchObject({ triggerPrice: 1400 });
+    expect(JSON.parse(alertTemplates(hook({ orderType: "SL-M" }))[0].message).price).toBeUndefined();
+    expect(JSON.parse(alertTemplates(hook({ orderType: "SL" }))[0].message)).toMatchObject({ price: 1402.5, triggerPrice: 1400 });
+    expect(parseGoCharting(alertTemplates(hook({ source: "gocharting", orderType: "SL-M" }))[0].message).signals[0]).toMatchObject({ orderType: "SL-M", triggerPrice: 1400, price: null });
+    expect(parseGoCharting(alertTemplates(hook({ source: "gocharting", orderType: "SL" }))[0].message).signals[0]).toMatchObject({ orderType: "SL", triggerPrice: 1400, price: 1402.5 });
+    for (const t of alertTemplates(hook({ source: "tradingview", orderType: "SL" }))) expect(JSON.parse(t.message).triggerPrice).toBeTruthy();
+  });
+
   it("MARKET hooks get examples without a price, LIMIT hooks with one", () => {
     expect(JSON.parse(alertTemplates(hook({ orderType: "MARKET" }))[0].message).price).toBeUndefined();
     expect(JSON.parse(alertTemplates(hook({}))[0].message).price).toBe(1402.5);

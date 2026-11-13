@@ -314,6 +314,7 @@ export function createHookRoutes({ deps, cfg, store, worker, logger, now = () =>
     warnings.push(...expiryWarnings(hook));
     if (hook.source === "chartink" && !hook.side) warnings.push("ChartInk alerts carry no side: set side (BUY or SELL) on this hook, or every alert will be refused.");
     if (hook.source === "tradingview") warnings.push("TradingView posts from the internet to HTTPS on port 443 only: give it the public address of your tunnel or reverse proxy in place of the address above, and keep the /hooks/tradingview/... path.");
+    if (hook.orderType === "SL" || hook.orderType === "SL-M") warnings.push("Stop-loss hooks need a triggerPrice in every alert; an alert without one is refused.");
     if (hook.orderType === "MARKET") warnings.push("MARKET orders are sent with market protection (safety.marketProtectionPct); LIMIT is safer for alerts.");
     const host = typeof ctx.req?.headers?.host === "string" ? ctx.req.headers.host : `127.0.0.1:${deps.config?.server?.port ?? 4300}`;
     const path = `/hooks/${hook.source}/${token}`;

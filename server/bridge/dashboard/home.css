@@ -179,3 +179,8 @@
 .tk-check.ok { background: hsl(var(--side-buy) / 0.12); }
 .tk-check.block { background: hsl(var(--side-sell) / 0.12); }
 .tk [hidden] { display: none; }
+
+/* ── API › Integrations › Your project ── */
+.pj-top { flex-wrap: wrap; gap: 10px; align-items: center; }
+.pj-url { font: 500 15px/1.3 var(--font-numeric); padding: 8px 12px; border-radius: 10px; background: hsl(var(--foreground) / 0.06); user-select: all; }
+.pj code { overflow-wrap: anywhere; }

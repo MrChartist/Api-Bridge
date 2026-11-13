@@ -16,6 +16,8 @@
 - Dashboard: a broker's raw error (status and JSON) is shown as its sentence plus the next step, for example what to do when a broker token has expired.
 - Dashboard: a Data page. It lists every connected account that can give prices, backfills price history for up to 50 symbols at once (trying the next source when one cannot answer), and downloads the result as one CSV or JSON; it also shows the same call for other projects.
 - Dashboard: a New order ticket on the Orders page. Buy or sell by hand with every order type (Limit, Market, SL, SL-M), product (CNC, Intraday, Margin, MTF) and validity (Day, IOC); "Check order" lists every warning and block before anything is placed.
+- Webhooks: stop-loss order types. A hook can now place SL (stop-loss limit) and SL-M (stop-loss market) orders as well as LIMIT and MARKET; the alert carries a `triggerPrice` (text alerts: `trigger=1400`). TradingView, GoCharting and signed JSON; not ChartInk, whose alerts carry one price.
+- Dashboard: API › Integrations › Your project. One place to connect another project: the address with a live check, a ready `.env`, Python and Node starters that need no packages, the OpenAPI file to import, and the call for each thing a project usually wants.
 - Downloads: a Mac app (`Mr-Chartist-Bridge-<version>-macos-<arch>.app.zip`) next to the Windows Setup .exe and the ZIPs. It keeps settings, data and caches in `~/.mc-bridge`, never inside the app.
 - The one-line installers, package metadata and help links now point at `MrChartist/api-bridge-v2` (they pointed at the full app's repository).
 - Dashboard: Home refreshes itself when an alert arrives, a hook is added, a tool calls or the kill switch changes.

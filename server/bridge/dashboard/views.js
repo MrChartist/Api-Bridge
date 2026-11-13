@@ -6,7 +6,7 @@ import { DASH, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSi
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
 import * as live from "./live.js";
-import { KEY_PRESETS, snippets } from "./snippets.js";
+import { KEY_PRESETS, projectCalls, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
@@ -215,6 +215,7 @@ function restoreFocus(container, saved) {
 /** The Integrations tab's tools (its inner segmented control; each is also a ⌘K destination). */
 const INTEGRATION_TOOLS = [
   ["webhooks", "TradingView and webhooks"],
+  ["project", "Your project"],
   ["python", "Python"],
   ["node", "Node"],
   ["excel", "Excel and Sheets"],
@@ -2575,6 +2576,7 @@ async function renderKeys() {
 const TABS = INTEGRATION_TOOLS;
 const INTRO = {
   webhooks: "Alerts that place paper orders through a webhook: TradingView strategy and indicator alerts, ChartInk scans, GoCharting alerts, or signed JSON from your own scripts.",
+  project: "Use the Bridge as the one API for your other projects: every connected broker behind the same calls. Put the address in your project's .env and call it; on this computer it works without a key.",
   python: "The Python SDK: standard library only, Python 3.9+. Paper orders get an Idempotency-Key automatically.",
   node: "The Node SDK (ESM). Streaming on Node 20 needs ws; Node 22 has a built-in WebSocket.",
   excel: "Live prices in cells with WEBSERVICE. The key goes in the URL, so make a read-only URL key with an expiry.",
@@ -2583,7 +2585,41 @@ const INTRO = {
   chatgpt: "ChatGPT connectors cannot reach a local server. Use the same tools from your own script with OpenAI function calling.",
   rest: "Every route answers { data, meta } JSON with freshness labels; errors are problem+json with a stable code.",
 };
-const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+const GUIDES = { project: "README", webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+
+/**
+ * "Your project": the Bridge's address with a live check, the full API description to import, and the call for each
+ * thing a project usually wants (it opens in the test console).
+ */
+function projectPanel(account) {
+  const result = h("span", { class: "muted", "aria-live": "polite" });
+  const test = h("button", { type: "button", class: "small primary" }, "Test the connection");
+  test.addEventListener("click", async () => {
+    test.disabled = true;
+    result.textContent = "Checking ...";
+    const [health, accounts] = await Promise.all([optional(api("/v1/health", { fresh: true })), optional(api("/v1/accounts", { fresh: true }))]);
+    const list = accounts.data?.data ?? [];
+    const on = list.filter((a) => a.session?.state === "connected").length;
+    result.textContent = health.error ? `Not reachable: ${health.error.message}` : `Working. Bridge ${health.data?.version ?? ""}, ${on} of ${list.length} ${list.length === 1 ? "account" : "accounts"} connected.`;
+    test.disabled = false;
+  });
+  const calls = projectCalls({ account });
+  return h(
+    "div",
+    { class: "card-body stack pj" },
+    h("div", { class: "row pj-top" }, h("code", { class: "pj-url" }, location.origin), test, h("a", { class: "button small", href: "/openapi.yaml", download: "mc-bridge-openapi.yaml" }, "Download the API description (OpenAPI)"), result),
+    h("p", { class: "muted small" }, "Import the OpenAPI file into Postman, Insomnia or a client generator to get every route. From another computer, a project needs a key: create one with the button above."),
+    table(
+      [
+        { label: "What you want", cell: (c) => c.want },
+        { label: "Call", wrap: true, cell: (c) => h("code", {}, `${c.method} ${c.path}`) },
+      ],
+      calls,
+      null,
+      { caption: "The calls a project usually needs" },
+    ),
+  );
+}
 
 /** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] ?? "");
@@ -2641,6 +2677,7 @@ async function renderIntegrations() {
     );
     const parts = [intro];
     if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
+    if (active === "project") parts.push(projectPanel(paperAcc));
     if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
     panel.replaceChildren(...parts.filter(Boolean));
   };
@@ -2660,7 +2697,7 @@ async function webhookPanel(paperAcc) {
   source.value = SOURCES.some(([v]) => v === asked) ? asked : "tradingview";
   const sourceName = (id) => SOURCES.find(([v]) => v === id)?.[1] ?? id;
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
-  const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
+  const orderType = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"], ["SL", "SL"], ["SL-M", "SL-M"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
   const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
