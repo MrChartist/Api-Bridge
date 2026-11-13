@@ -130,6 +130,18 @@
 .hm-code.bad { color: hsl(var(--ios-red-ink)); background: hsl(var(--ios-red) / var(--chip-tint)); }
 .hm-empty { margin: 0; padding: 6px var(--card-pad) var(--card-pad); }
 
+/* ── The welcome guide (home.js showWelcome): one centred page at a time, as on a first-run screen ── */
+.wl { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 8px 4px 4px; text-align: center; }
+.wl-mark { width: 84px; height: 84px; margin: 4px 0 8px; border-radius: 23px; }
+.wl-mark svg { width: 52px; height: 52px; }
+.wl-title { font: var(--fw-heading) 26px/1.15 var(--font-display); letter-spacing: -0.028em; }
+.wl-text { max-width: 40ch; min-height: 4.6em; margin: 0; font: var(--t-small); font-size: 16px; color: hsl(var(--foreground) / var(--a-label)); }
+.wl-dots { display: flex; gap: 7px; margin-top: 6px; }
+.wl-dots i { width: 7px; height: 7px; border-radius: 99px; background: var(--mat-fill-3); transition: width var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out); }
+.wl-dots i.on { width: 20px; background: hsl(var(--ios-blue)); }
+.wl-count { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.wl-actions { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+
 /* A webhook's alert template notes (views.js webhookPanel). */
 .hook-notes { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 

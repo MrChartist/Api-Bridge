@@ -5,7 +5,7 @@ import { CLIENT_KINDS } from "../auth/keyStore.mjs";
 // app.js (imported by home.js) reads sessionStorage at load time.
 globalThis.sessionStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
 globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
-const { HOOK_SOURCES, KEY_SOURCES, activityMark, alertRows, bridgeStatus, brokerRows, externalRequests, keyIdOf, linkPath, setupSteps, sourceRows, uptimeText } = await import("./home.js");
+const { HOOK_SOURCES, KEY_SOURCES, activityMark, alertRows, welcomePages, bridgeStatus, brokerRows, externalRequests, keyIdOf, linkPath, setupSteps, sourceRows, uptimeText } = await import("./home.js");
 
 const NOW = Date.parse("2026-11-11T05:00:00Z");
 const key = (o) => ({ id: "k1", label: "k", scopes: ["read"], clientKind: "script", revokedAt: null, expiresAt: null, lastUsedAt: null, ...o });
@@ -68,6 +68,7 @@ describe("setup steps", () => {
   it("a broker (or demo), a tool key, an alert source, an order", () => {
     const none = setupSteps({ now: NOW, keys: [key({ scopes: ["admin"] })], orders: [{ tag: "DEMOSEED" }] });
     expect(none.map((s) => [s.id, s.done])).toEqual([["broker", false], ["key", false], ["source", false], ["order", false]]);
+    expect(none[1].to).toBe("#/api/integrations?tool=python");
     const all = setupSteps({ now: NOW, accounts: [acct({})], keys: [key({})], hooks: [{ source: "tradingview" }], orders: [{ tag: null }] });
     expect(all.every((s) => s.done)).toBe(true);
     expect(setupSteps({ demo: true })[0].done).toBe(true);
@@ -104,6 +105,24 @@ describe("staying current", () => {
     expect(activityMark({ ...base, requests: [{ requestId: "req_2" }] })).not.toBe(m);
     expect(activityMark({ ...base, safety: { killSwitch: { engaged: true } } })).not.toBe(m);
     expect(activityMark()).toBe("|||0");
+  });
+});
+
+describe("the welcome guide", () => {
+  it("four short pages: hello, a broker, alerts, ready; the two middle ones open the page that does the job", () => {
+    const pages = welcomePages();
+    expect(pages.map((p) => p.id)).toEqual(["hello", "broker", "source", "ready"]);
+    expect(pages[1].primary).toEqual(["Add my broker", "#/accounts?add=1"]);
+    expect(pages[2].primary).toEqual(["Connect TradingView", "#/api/integrations?tool=webhooks&source=tradingview"]);
+    expect([pages[1].later, pages[2].later]).toEqual(["Later", "Later"]);
+    expect([pages[0].primary[1], pages[3].primary[1]]).toEqual([null, null]);
+    for (const p of pages) expect(p.text.length, p.id).toBeLessThan(200);
+  });
+  it("does not ask for what is already there, and never mentions a key to type or a command", () => {
+    const done = welcomePages({ brokerConnected: true, hasSource: true });
+    expect([done[1].primary, done[2].primary]).toEqual([["Next", null], ["Next", null]]);
+    expect(welcomePages({ demo: true })[1]).toMatchObject({ primary: ["Next", null], later: null });
+    for (const p of [...welcomePages(), ...done, ...welcomePages({ demo: true })]) expect(`${p.title} ${p.text}`).not.toMatch(/npm|mc-bridge|terminal|mcb_/i);
   });
 });
 

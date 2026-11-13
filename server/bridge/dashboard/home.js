@@ -6,7 +6,7 @@
 // Pure helpers (sourceRows, brokerRows, bridgeStatus, setupSteps, alertRows, uptimeText, externalRequests) are exported
 // for tests; the DOM code runs only in a browser. Numbers become text through format.js. No style attributes (CSP):
 // geometry goes into SVG attributes, sizes into CSS custom properties set from script.
-import { api, app, card, currentKey, h, icon, iconTile, istTime, optional, pill } from "./app.js";
+import { api, app, card, currentKey, h, icon, iconTile, istTime, modal, optional, pill } from "./app.js";
 import { budgetView, shareTone, windowText } from "./budget.js";
 import { sessionText } from "./flows.js";
 import { DASH, formatInt } from "./format.js";
@@ -107,7 +107,7 @@ export function setupSteps({ demo = false, accounts = [], keys = [], hooks = [],
   const placed = orders.some((o) => o?.tag !== "DEMOSEED");
   return [
     { id: "broker", done: broker, title: "Connect a broker", text: demo ? "Demo data stands in for a broker. Add your own when you are ready." : "Dhan, Zerodha, Upstox and 38 more, several accounts each.", to: "#/accounts?add=1", cta: "Add a broker" },
-    { id: "key", done: key, title: "Create a key for a tool", text: "One key per tool, with only the access that tool needs.", to: "#/api/keys", cta: "Create a key" },
+    { id: "key", done: key, title: "Connect a tool", text: "Python, Excel, AmiBroker or an AI assistant. No key is needed on this computer; a key holds a tool to less.", to: "#/api/integrations?tool=python", cta: "Connect a tool" },
     { id: "source", done: hooks.length > 0, title: "Connect an alert source", text: "TradingView, ChartInk, GoCharting or your own signed webhook.", to: "#/api/integrations?tool=webhooks&source=tradingview", cta: "Connect TradingView" },
     { id: "order", done: placed, title: "Send a paper order", text: "Try the whole path with practice money before anything is live.", to: "#/api/console?endpoint=order", cta: "Open the console" },
   ];
@@ -375,6 +375,7 @@ function setupCard(steps) {
     tint: left ? "blue" : "green",
     title: left ? "Finish setting up" : "Setup complete",
     sub: left ? `${formatInt(steps.length - left)} of ${formatInt(steps.length)} done` : "A broker, a key, an alert source and a first order are all in place.",
+    actions: go("Welcome guide", "#/home?welcome=1", "small quiet"),
     cls: "hm-setup",
     flush: true,
     body: h(
@@ -438,6 +439,105 @@ function alertsCard(rows) {
   });
 }
 
+// ── The welcome guide: shown once, the first time the dashboard opens after an install ──
+
+/** localStorage slot: "1" once the guide was seen (or closed). */
+export const WELCOMED_SLOT = "mcb.dashboard.welcomed";
+
+/**
+ * The pages of the welcome guide (pure): a hello, then the two things that make the Bridge useful (a broker, a source
+ * of alerts), then where to look. Each page is { id, title, text, primary: [label, hash | null], later: label | null }:
+ * a primary with a hash closes the guide and opens that page; null moves on to the next page.
+ */
+export function welcomePages({ demo = false, brokerConnected = false, hasSource = false } = {}) {
+  return [
+    {
+      id: "hello",
+      title: "Welcome to API Bridge",
+      text: "One place for your broker accounts and the tools that trade through them. It runs on this computer, and every order is a practice order until you decide otherwise.",
+      primary: ["Get started", null],
+      later: null,
+    },
+    {
+      id: "broker",
+      title: "Connect your broker",
+      text: demo
+        ? "You are in demo mode: sample prices stand in for a broker, so you can look around first. Add your own broker whenever you like."
+        : brokerConnected
+          ? "Your broker is connected. You can add more brokers, or more accounts with the same broker, at any time."
+          : "Pick your broker and log in. It takes about a minute, and your login stays on this computer.",
+      primary: demo || brokerConnected ? ["Next", null] : ["Add my broker", "#/accounts?add=1"],
+      later: demo || brokerConnected ? null : "Later",
+    },
+    {
+      id: "source",
+      title: "Send it your alerts",
+      text: hasSource
+        ? "An alert source is already connected. Each alert shows up on Home with what the Bridge did with it."
+        : "Alerts from TradingView, ChartInk and GoCharting become orders. Create a webhook and the Bridge writes the alert message for you to paste.",
+      primary: hasSource ? ["Next", null] : ["Connect TradingView", "#/api/integrations?tool=webhooks&source=tradingview"],
+      later: hasSource ? null : "Later",
+    },
+    {
+      id: "ready",
+      title: "You are ready",
+      text: "Home shows what is connected and what happened to every alert. Nothing on this computer needs a key, and real orders stay off until you switch them on.",
+      primary: ["Open my Bridge", null],
+      later: null,
+    },
+  ];
+}
+
+/** Show the welcome guide. Resolves when it is closed. */
+export function showWelcome(state = {}) {
+  const pages = welcomePages(state);
+  try {
+    app.local?.set?.(WELCOMED_SLOT, "1");
+  } catch {
+    /* storage off: the guide shows again next time */
+  }
+  return modal({
+    title: "Welcome",
+    body: (close) => {
+      let at = 0;
+      const mark = h("span", { class: "hm-mark wl-mark", "aria-hidden": "true" });
+      const sym = svgEl("svg", { viewBox: "0 0 1024 1024", focusable: "false" });
+      sym.append(svgEl("use", { href: "#mc-symbol" }));
+      mark.append(sym);
+      const title = h("h3", { class: "wl-title" });
+      const text = h("p", { class: "wl-text" });
+      const dots = h("div", { class: "wl-dots", "aria-hidden": "true" });
+      const count = h("span", { class: "wl-count", role: "status" });
+      const primary = h("button", { type: "button", class: "primary wide" });
+      const later = h("button", { type: "button", class: "wide quiet" });
+      const next = () => {
+        if (at >= pages.length - 1) return close(undefined, true);
+        at += 1;
+        draw();
+      };
+      const draw = () => {
+        const p = pages[at];
+        title.textContent = p.title;
+        text.textContent = p.text;
+        primary.textContent = p.primary[0];
+        later.textContent = p.later ?? "";
+        later.hidden = !p.later;
+        count.textContent = `Step ${at + 1} of ${pages.length}`;
+        dots.replaceChildren(...pages.map((_, i) => h("i", { class: i === at ? "on" : "" })));
+      };
+      primary.addEventListener("click", () => {
+        const to = pages[at].primary[1];
+        if (!to) return next();
+        close(undefined, true);
+        location.hash = to;
+      });
+      later.addEventListener("click", next);
+      draw();
+      return h("div", { class: "wl" }, mark, title, text, dots, count, h("div", { class: "wl-actions" }, primary, later));
+    },
+  });
+}
+
 let stopBudget = null;
 /** True once the map has been drawn in this tab (its links animate in only the first time). */
 let mapShown = false;
@@ -493,6 +593,19 @@ export async function renderHome() {
   if (hooks.length) lower.push(alertsCard(alertRows(auditR.data?.data ?? [], hooks)));
   lower.push(trafficCard(externalRequests(requestsR.data?.data ?? [], keyIdOf(currentKey())), requestsR.error));
   nodes.push(h("div", { class: "hm-grid" }, lower));
+  // First open after an install (or #/home?welcome=1 from the setup card): the welcome guide, once the page is drawn.
+  const asked = /[?&]welcome=1/.test(location.hash);
+  let welcomed = true;
+  try {
+    welcomed = app.local?.get?.(WELCOMED_SLOT) === "1";
+  } catch {
+    welcomed = true;
+  }
+  if (asked || !welcomed) {
+    if (asked && typeof history !== "undefined") history.replaceState(history.state, "", "#/home");
+    const brokerConnected = accounts.some((a) => a.broker !== "paper" && a.broker !== "demo" && a.session?.state === "connected");
+    setTimeout(() => showWelcome({ demo, brokerConnected, hasSource: hooks.length > 0 }), 350);
+  }
   // Home stays current by itself: every few seconds it reads the few things that change (alerts, hooks, calls from
   // tools, the kill switch) and redraws only when one of them did, so an alert shows up without a reload.
   const ownKey = keyIdOf(currentKey());

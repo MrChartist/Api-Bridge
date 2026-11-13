@@ -89,7 +89,7 @@ describe.skipIf(!canBuild)("Setup .exe flow (Linux twin)", () => {
     expect(r.stdout + r.stderr).toMatch(/Loaded .*bridge\.config\.json/);
   }, 90_000);
 
-  it("opened from its shortcut, it starts the Bridge and opens the dashboard signed in", async () => {
+  it("opened from its shortcut, it starts the Bridge and shows a clean window with the dashboard address", async () => {
     const installed = join(env.MCB_INSTALL_DIR, "Mr Chartist Bridge.exe");
     const port = await freePort();
     const child = spawn(installed, ["--demo", "--no-pause"], { env: { ...env, MCB_PORT: String(port), DISPLAY: "" }, stdio: ["ignore", "pipe", "pipe"] });
@@ -104,7 +104,11 @@ describe.skipIf(!canBuild)("Setup .exe flow (Linux twin)", () => {
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));
     expect(health?.status, out).toBe("ok");
-    expect(out).toMatch(/#signin=/);
+    // The window of a double-clicked app: running, the one address, how to stop. No log lines, key or sign-in link.
+    expect(out).toContain("The Bridge is running.");
+    expect(out).toContain(`Dashboard:  http://127.0.0.1:${port}/dashboard`);
+    expect(out).toContain("To stop the Bridge, close this window.");
+    expect(out).not.toMatch(/#signin=|mcb_[a-z0-9]{6,}|\{"t":/);
   }, 60_000);
 
   it("uninstalls the program and keeps the settings", () => {

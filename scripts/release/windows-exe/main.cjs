@@ -163,7 +163,10 @@ function install() {
 function setupConfig() {
   if (fs.existsSync(path.join(configDir, "bridge.config.json"))) return true;
   fs.mkdirSync(configDir, { recursive: true });
-  const r = spawnSync(installedExe, ["--mcb-cli", "init", "--yes", "--config", path.join(configDir, "bridge.config.json")], { cwd: configDir, stdio: "inherit", env: { ...env, MCB_CLI_NAME: "mc-bridge" } });
+  // What init prints is for people at a terminal (an admin key, commands to type). The dashboard needs neither on
+  // this computer, so the window stays quiet unless the setup fails, and then shows all of it.
+  const r = spawnSync(installedExe, ["--mcb-cli", "init", "--yes", "--config", path.join(configDir, "bridge.config.json")], { cwd: configDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...env, MCB_CLI_NAME: "mc-bridge" } });
+  if (r.status !== 0) say(`${r.stdout ?? ""}${r.stderr ?? ""}`.replace(/mcb_[A-Za-z0-9_-]{20,}/g, "mcb_<hidden>"));
   return r.status === 0;
 }
 
@@ -179,10 +182,11 @@ async function runBridge(bridgeArgs) {
 /** The installed copy, opened from a shortcut: first-run setup, then start and open the dashboard. */
 async function launch() {
   process.title = APP_NAME;
-  say("Mr. Chartist API Bridge");
   if (!setupConfig()) return fail("the first-run setup did not finish.");
-  say("Keep this window open while you use the Bridge. To stop it, close this window.");
-  say("");
+  // This window was opened by a double-click, not by someone at a terminal: a short, plain status and no log lines
+  // (cli.mjs appWindowLines). MCB_LOG_LEVEL still wins for anyone who wants the detail.
+  env.MCB_APP_WINDOW = "1";
+  if (!env.MCB_LOG_LEVEL) env.MCB_LOG_LEVEL = "error";
   const config = path.join(configDir, "bridge.config.json");
   const extra = has("--demo") ? ["--demo"] : [];
   process.chdir(configDir);

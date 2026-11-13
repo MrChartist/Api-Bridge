@@ -13,7 +13,7 @@ import { cliCommand } from "./cliName.mjs";
 import { readControlToken } from "./controlToken.mjs";
 import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
-import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
+import { configFileForWrites, isLoopbackHost, keylessSignInAllowed, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 
@@ -209,6 +209,31 @@ export function bridgeUrl(flags, io, config) {
   return `http://${host}:${config.server.port}`;
 }
 
+/**
+ * What the Bridge's own window says when it was opened by a double-click (the Windows app, the Mac app, the start
+ * files; MCB_APP_WINDOW=1): a name, that it is running, the one address, the one next step and how to stop. No
+ * commands, keys or log lines: the person looking at it did not open a terminal on purpose. Plain ASCII, so it reads
+ * the same in every Windows console. Exported for tests.
+ */
+export function appWindowLines({ app, port, version }) {
+  const host = app.config.server.host === "0.0.0.0" ? "127.0.0.1" : app.config.server.host;
+  const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}/dashboard`;
+  const lines = ["", `  Mr. Chartist API Bridge ${version ?? ""}`.trimEnd(), "  ----------------------------------------", "", "  The Bridge is running.", `  Dashboard:  ${url}`, ""];
+  let rows = [];
+  try {
+    rows = app.deps.accounts.list().filter((a) => a.broker !== "paper");
+  } catch {
+    /* account manager not built */
+  }
+  const live = rows.filter((a) => a.session?.state === "connected");
+  if (app.config.demo) lines.push("  Demo mode: sample prices and practice orders only. No broker is connected.");
+  else if (rows.length === 0) lines.push("  Next step: add your broker on the Accounts page of the dashboard.");
+  else if (live.length === 0) lines.push("  Next step: log in to your broker on the Accounts page of the dashboard.");
+  else lines.push(`  Connected: ${live.map((a) => a.label || a.id).join(", ")}.`);
+  lines.push("  Orders are practice (paper) orders until you switch real trading on.", "", "  Keep this window open while you use the Bridge.", "  To stop the Bridge, close this window.", "");
+  return lines;
+}
+
 /** Lines printed after `start`: where the dashboard is and what to do next. Exported for tests. */
 export async function startHints({ app, port, env = process.env }) {
   const cli = cliCommand(env);
@@ -390,6 +415,19 @@ export async function runCli(positionals, flags, io) {
           }
           throw err;
         }
+        const appWindow = (io.env ?? process.env)?.MCB_APP_WINDOW === "1";
+        if (appWindow) {
+          for (const line of appWindowLines({ app, port, version: (await import("./app.mjs")).BRIDGE_VERSION })) io.err(line);
+          if (flags.open) {
+            // On this computer the dashboard signs itself in, so the plain address is enough (and can be bookmarked).
+            const url = `${localBaseUrl(app.config.server.host, port)}/dashboard`;
+            if (keylessSignInAllowed(app.config)) {
+              const opened = (io.openUrl ?? openInBrowser)(url);
+              io.err(opened ? "  Opening the dashboard in your browser ..." : `  Open this address in your browser:  ${url}`);
+              io.err("");
+            } else await openSignedInDashboard({ dataDir: app.config.dataDir, baseUrl: localBaseUrl(app.config.server.host, port), io });
+          }
+        } else {
         if (app.config.demo) {
           io.err("");
           io.err("  ************************************************************");
@@ -403,6 +441,7 @@ export async function runCli(positionals, flags, io) {
         for (const line of await startHints({ app, port, env: io.env })) io.err(line);
         if (flags.open) await openSignedInDashboard({ dataDir: app.config.dataDir, baseUrl: localBaseUrl(app.config.server.host, port), io });
         io.err("Press Ctrl+C to stop.");
+        }
         // Tests close the app themselves; the real CLI stops on Ctrl+C or a termination signal.
         if (typeof io.onListening === "function") {
           io.onListening(app);
