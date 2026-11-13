@@ -6,6 +6,8 @@
 - TradingView is a webhook source (`"source": "tradingview"`): strategy, indicator and price alerts, JSON or text, with ready alert messages for each hook.
 - Dashboard: a Home page with the map of sources, the Bridge and brokers, the live broker API budget, setup steps, the latest alerts (placed or refused, with the reason) and the latest calls from other tools.
 - Dashboard: an iOS finish across every page (`ios.css`): system blue for actions and the current page, iOS segmented controls, switches and ticks, panels on soft depth, lit icon tiles, a red kill switch. Home leads with a status widget whose colour is its state, and sources you have not set up are a grid of icons to pick from.
+- Downloads: a Mac app (`Mr-Chartist-Bridge-<version>-macos-<arch>.app.zip`) next to the Windows Setup .exe and the ZIPs. It keeps settings, data and caches in `~/.mc-bridge`, never inside the app.
+- The one-line installers, package metadata and help links now point at `MrChartist/api-bridge-v2` (they pointed at the full app's repository).
 - Dashboard: Home refreshes itself when an alert arrives, a hook is added, a tool calls or the kill switch changes.
 - README rewritten with screenshots (`docs/screenshots`) and a 60-second announcement video (`docs/media/announcement.mp4`).
 - Dashboard: Home, Accounts, API and Orders are in the phone tab bar; shortcuts are 1 to 5 in the order of the sidebar.

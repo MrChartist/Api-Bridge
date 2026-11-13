@@ -83,6 +83,8 @@ export const MAC_APP_LAUNCHER = [
   "# Start the Mr. Chartist API Bridge that is inside this app. Nothing is written into the app: settings, keys and",
   "# data live in ~/.mc-bridge, so the app can sit in Applications, be replaced by a newer one, or run from Downloads.",
   'APP="$(cd "$(dirname "$0")" && pwd)/app"',
+  'MCB_CACHE_DIR="$HOME/.mc-bridge/cache"',
+  "export MCB_CACHE_DIR",
   'exec /bin/sh "$APP/scripts/install/launch.sh" "$APP" "$HOME/.mc-bridge" "$@"',
   "",
 ].join("\n");

@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 import { createSessionCache } from "./boundedCache.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CACHE_DIR = resolve(__dirname, "../../.cache");
+// Next to the program by default; MCB_CACHE_DIR moves it (the Mac app keeps it in ~/.mc-bridge, so nothing is ever
+// written into the app itself, which may sit in a folder that cannot be written).
+const CACHE_DIR = process.env.MCB_CACHE_DIR ? resolve(process.env.MCB_CACHE_DIR) : resolve(__dirname, "../../.cache");
 try { mkdirSync(CACHE_DIR, { recursive: true }); } catch { /* ignore */ }
 
 // At most MAX_RESIDENT masters stay parsed in memory (least recently used dropped first); an evicted master is

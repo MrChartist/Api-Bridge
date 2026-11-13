@@ -11,7 +11,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SNAPSHOT_DIR = resolve(__dirname, "../../.cache/snapshots");
+const SNAPSHOT_DIR = process.env.MCB_CACHE_DIR ? resolve(process.env.MCB_CACHE_DIR, "snapshots") : resolve(__dirname, "../../.cache/snapshots");
 
 function todayIST() {
   // NSE trading day — anchor to IST so a snapshot taken near UTC midnight still

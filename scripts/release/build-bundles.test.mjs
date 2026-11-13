@@ -44,7 +44,7 @@ describe("the Mac app", () => {
     mkdirSync(join(from, "bin"), { recursive: true });
     writeFileSync(join(from, "bin/mc-bridge.mjs"), "// stand-in\n");
     // A stand-in launcher that reports what it was given, so the app's own two scripts can be run here.
-    writeFileSync(join(from, "scripts/install/launch.sh"), 'printf "%s|%s|%s\\n" "$1" "$2" "$3"\n');
+    writeFileSync(join(from, "scripts/install/launch.sh"), 'printf "%s|%s|%s|%s\\n" "$1" "$2" "$3" "$MCB_CACHE_DIR"\n');
     const app = buildMacApp({ from, stage: join(work, "out"), version: "2.3.4" });
     return { work, app };
   };
@@ -67,7 +67,7 @@ describe("the Mac app", () => {
     const home = join(work, "home with space");
     mkdirSync(home);
     const out = execFileSync("/bin/sh", [join(app, "Contents/Resources/launch.command"), "--demo"], { env: { ...process.env, HOME: home }, encoding: "utf8" }).trim();
-    expect(out).toBe(`${join(app, "Contents/Resources/app")}|${join(home, ".mc-bridge")}|--demo`);
+    expect(out).toBe(`${join(app, "Contents/Resources/app")}|${join(home, ".mc-bridge")}|--demo|${join(home, ".mc-bridge", "cache")}`);
     // The app's executable hands that launcher to Terminal by its full path, wherever the app was put.
     expect(readFileSync(join(app, "Contents/MacOS/mr-chartist-bridge"), "utf8")).toContain('open -a Terminal "$(cd "$(dirname "$0")/../Resources" && pwd)/launch.command"');
   });
