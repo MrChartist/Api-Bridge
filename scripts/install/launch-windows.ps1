@@ -73,10 +73,9 @@ try {
     Write-Host ''
     Write-Host 'Everything is ready.'
   } else {
-    Write-Host ''
-    Write-Host 'Starting the Bridge. Your browser will open the dashboard in a moment.'
-    Write-Host 'Keep this window open while you use the Bridge. Close it (or press Ctrl+C) to stop the Bridge.'
-    Write-Host ''
+    # This window was opened by a double-click: a short, plain status and no log lines (cli.mjs appWindowLines).
+    $env:MCB_APP_WINDOW = '1'
+    if (-not $env:MCB_LOG_LEVEL) { $env:MCB_LOG_LEVEL = 'error' }
     Start-McbBridge -AppDir $AppDir -ConfigDir $ConfigDir -Node $node -Demo:$Demo
     $code = $LASTEXITCODE
     Write-Host ''

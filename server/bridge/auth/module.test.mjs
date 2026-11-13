@@ -10,7 +10,8 @@ import { createCallContext } from "../core/context.mjs";
 import { createLogger, createNullLogger } from "../core/logger.mjs";
 import { createFakeKeyStore } from "./fake.mjs";
 import { createKeyStore } from "./keyStore.mjs";
-import authModule, { MAX_FAILED_SIGN_IN, SIGN_IN_FAILED, auditKeyEvent, createHandlers, ROUTES } from "./module.mjs";
+import { keylessSignInAllowed } from "../core/config.mjs";
+import authModule, { LOCAL_SIGN_IN_KEYS_KEPT, LOCAL_SIGN_IN_KEY_LABEL, LOCAL_SIGN_IN_OFF, MAX_FAILED_SIGN_IN, SIGN_IN_FAILED, auditKeyEvent, createHandlers, ROUTES } from "./module.mjs";
 import { SIGN_IN_KEY_TTL_MS, SIGN_IN_TTL_MS, createSignInCode } from "./signIn.mjs";
 
 const auditRecords = [];
@@ -290,5 +291,69 @@ describe("handlers (unit, with fakes)", () => {
     await expect(attempt(code)).rejects.toMatchObject({ code: "RATE_LIMITED" });
     t += 61_000;
     expect((await attempt(code)).status).toBe(201);
+  });
+});
+
+describe("POST /v1/sign-in/local (the dashboard on this computer, no key)", () => {
+  const origin = () => ({ origin: `http://127.0.0.1:${port}` });
+  const local = (headers = origin()) => request("/v1/sign-in/local", { method: "POST", headers, body: {} });
+
+  it("gives the Bridge's own dashboard page an admin key that works and expires", async () => {
+    const r = await local();
+    expect(r.status).toBe(201);
+    expect(r.headers["cache-control"]).toBe("no-store");
+    const { key, record } = r.json.data;
+    expect(record).toMatchObject({ label: "Dashboard on this computer", scopes: ["paper", "admin"], accounts: "*", clientKind: "ui", allowQuery: false });
+    expect(Date.parse(record.expiresAt) - Date.now()).toBeLessThanOrEqual(SIGN_IN_KEY_TTL_MS);
+    expect((await request("/v1/keys", { headers: bearer(key) })).status).toBe(200);
+    const audit = auditRecords.findLast((a) => a.type === "key.created");
+    expect(audit).toMatchObject({ actor: { kind: "local", id: "this-computer" }, data: { keyId: record.id, createdBy: "this-computer" } });
+    expect(logLines.join("\n")).not.toContain(key);
+  });
+
+  it("refuses anything that is not that page on this computer", async () => {
+    // Another web site (its own Origin), a script with no Origin, and a request that came through a proxy.
+    expect((await local({ origin: "https://evil.example" })).status).toBe(403);
+    const none = await local({});
+    expect([none.status, none.json.code]).toEqual([403, "ORIGIN_NOT_ALLOWED"]);
+    const proxied = await local({ ...origin(), "x-forwarded-for": "203.0.113.9" });
+    expect([proxied.status, proxied.json.code]).toEqual([403, "LOOPBACK_ONLY"]);
+    const rebind = await local({ origin: "http://attacker.example:4300", host: "attacker.example:4300" });
+    expect(rebind.status).toBe(403);
+  });
+
+  it("keeps only the newest few of its keys valid", async () => {
+    for (let i = 0; i < LOCAL_SIGN_IN_KEYS_KEPT + 2; i += 1) expect((await local()).status).toBe(201);
+    const mine = (await app.deps.keyStore.list()).filter((k) => k.label === LOCAL_SIGN_IN_KEY_LABEL);
+    expect(mine.filter((k) => !k.revokedAt)).toHaveLength(LOCAL_SIGN_IN_KEYS_KEPT);
+    expect(mine.length).toBeGreaterThan(LOCAL_SIGN_IN_KEYS_KEPT);
+    // Keys people made are never touched.
+    expect((await request("/v1/keys", { headers: bearer(adminKey) })).status).toBe(200);
+  });
+
+  it("is off when the config says so, and by default when this computer means more than loopback", async () => {
+    expect(keylessSignInAllowed({ server: {} })).toBe(true);
+    expect(keylessSignInAllowed({ server: { localPeers: ["172.17.0.1"] } })).toBe(false);
+    expect(keylessSignInAllowed({ server: { remoteDashboard: true } })).toBe(false);
+    expect(keylessSignInAllowed({ server: { keylessSignIn: true, localPeers: ["172.17.0.1"] } })).toBe(true);
+    expect(keylessSignInAllowed({ server: { keylessSignIn: false } })).toBe(false);
+    const handlers = createHandlers({ config: { server: { keylessSignIn: false } }, keyStore: app.deps.keyStore, audit: fakeAudit });
+    await expect(handlers.signInLocal({ loopback: true, req: { headers: { origin: "http://127.0.0.1:1", host: "127.0.0.1:1" } } })).rejects.toMatchObject({ code: "LOOPBACK_ONLY", detail: LOCAL_SIGN_IN_OFF });
+  });
+});
+
+describe("POST /v1/sign-in/local with server.keylessSignIn: false", () => {
+  it("is refused by a running Bridge, in plain words", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "mcb-auth-off-"));
+    const { config } = loadConfig({ raw: { server: { port: 0, keylessSignIn: false }, dataDir }, env: {} });
+    const off = await createApp({ config, modules: [authModule], overrides: { audit: fakeAudit }, logger: createNullLogger() });
+    const { port: p } = await off.listen();
+    try {
+      const res = await fetch(`http://127.0.0.1:${p}/v1/sign-in/local`, { method: "POST", headers: { "content-type": "application/json", origin: `http://127.0.0.1:${p}` }, body: "{}" });
+      expect(res.status).toBe(403);
+      expect((await res.json()).detail).toBe(LOCAL_SIGN_IN_OFF);
+    } finally {
+      await off.close();
+    }
   });
 });

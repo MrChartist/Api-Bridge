@@ -5,7 +5,7 @@ info:
   summary: One local API for all your Indian broker accounts.
   description: |
     The Bridge runs on your own computer (default `http://127.0.0.1:4300`) and holds your connections to several
-    brokers and accounts at once. Web apps, webhook alerts (ChartInk, GoCharting, signed scripts), Python and Node scripts, Excel,
+    brokers and accounts at once. Web apps, webhook alerts (TradingView, ChartInk, GoCharting, signed scripts), Python and Node scripts, Excel,
     Google Sheets and AI assistants all share those connections through this API, so the broker sees one well-behaved
     client instead of many.
 
@@ -120,7 +120,7 @@ tags:
   - name: Spreadsheets
     description: Plain-text and CSV endpoints for Excel, Google Sheets and AmiBroker.
   - name: Webhooks
-    description: Inbound alerts from ChartInk, GoCharting and signed senders.
+    description: Inbound alerts from TradingView, ChartInk, GoCharting and signed senders.
   - name: AI (MCP)
     description: Model Context Protocol endpoint for AI assistants.
   - name: Events
@@ -643,6 +643,42 @@ paths:
               required: [code]
               properties:
                 code: { type: string, pattern: "^[A-Za-z0-9_-]{43}$", description: "The code from the sign-in link." }
+      responses:
+        "201":
+          description: Signed in. The key is shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { $ref: "#/components/schemas/KeyCreated" }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/sign-in/local:
+    post:
+      tags: [Keys]
+      operationId: signInLocal
+      summary: Sign the dashboard on this computer in without a key
+      description: |
+        Used by the dashboard when it is opened on the computer the Bridge runs on with no key and no sign-in link.
+        Being on this computer stands in for the credential: the request must come from a loopback address, be
+        addressed to a loopback host name, carry no proxy headers and not arrive on the public listener, and it must
+        carry the Bridge's own `Origin` (so only the dashboard page the Bridge serves can ask, not another web site
+        and not a script). It creates a new admin key (scopes admin and paper, all accounts, label "Dashboard on this
+        computer") that expires in 30 days; audited `key.created`. Only the newest 5 such keys stay valid. At most
+        20 a minute. Switched off with `server.keylessSignIn: false`, and off by default when `server.localPeers` is
+        set or the dashboard is served to other computers; then it answers 403 and the dashboard asks for a key.
+      x-stream: S2
+      x-loopback-only: true
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object }
       responses:
         "201":
           description: Signed in. The key is shown once.
@@ -2181,16 +2217,16 @@ paths:
       - name: source
         in: path
         required: true
-        schema: { type: string, enum: [generic, chartink, gocharting] }
+        schema: { type: string, enum: [generic, tradingview, chartink, gocharting] }
       - name: token
         in: path
         required: true
-        description: The hook's secret token (shown once when the hook is created). It is the only credential ChartInk and GoCharting can carry, since they cannot sign requests.
+        description: The hook's secret token (shown once when the hook is created). It is the only credential TradingView, ChartInk and GoCharting can carry, since they cannot sign requests.
         schema: { type: string, minLength: 32, maxLength: 128 }
     post:
       tags: [Webhooks]
       operationId: receiveHook
-      summary: Inbound alert (signed generic, ChartInk or GoCharting)
+      summary: Inbound alert (signed generic, TradingView, ChartInk or GoCharting)
       description: |
         Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,
         through the same preview and safety checks as any order. The hook decides what an alert may do (account,
@@ -2302,6 +2338,120 @@ paths:
       responses:
         "204":
           description: Deleted.
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/forwards:
+    get:
+      tags: [Notifications]
+      operationId: listForwards
+      summary: List forward targets (never the signing secret)
+      description: A forward target is another project's URL. The Bridge POSTs each chosen event there as signed JSON.
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Forward targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Forward" } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [Notifications]
+      operationId: createForward
+      summary: Add a forward target; its signing secret is shown once
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForwardCreate" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/Forward"
+                      - type: object
+                        required: [signingSecret]
+                        properties:
+                          signingSecret: { type: string, description: "Verifies X-MCB-Signature on every delivery. Shown once." }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/forwards/{forwardId}:
+    parameters:
+      - name: forwardId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 40 }
+    delete:
+      tags: [Notifications]
+      operationId: deleteForward
+      summary: Delete a forward target (deliveries stop immediately)
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data: { type: object, properties: { id: { type: string }, deleted: { type: boolean } } }
+                  meta: { $ref: "#/components/schemas/Meta" }
+        "4XX": { $ref: "#/components/responses/Problem" }
+        "5XX": { $ref: "#/components/responses/Problem" }
+
+  /v1/forwards/{forwardId}/test:
+    parameters:
+      - name: forwardId
+        in: path
+        required: true
+        schema: { type: string, maxLength: 40 }
+    post:
+      tags: [Notifications]
+      operationId: testForward
+      summary: Send one test event (forward.test) to a target now
+      x-stream: S15
+      x-scope: admin
+      x-loopback-only: true
+      responses:
+        "200":
+          description: The outcome of the test delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      ok: { type: boolean }
+                      status: { type: [integer, "null"] }
+                      error: { type: [string, "null"] }
+                  meta: { $ref: "#/components/schemas/Meta" }
         "4XX": { $ref: "#/components/responses/Problem" }
         "5XX": { $ref: "#/components/responses/Problem" }
 
@@ -3387,7 +3537,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: "Bridge API key: `mcb_<keyId>_<secret>`."
+      description: "Bridge API key: `mcb_<keyId>_<secret>`. From the computer the Bridge runs on, a request with no key is accepted as \"This computer\" (read, paper and admin scopes, never live) unless `server.keylessApi` is false; see docs/guides/safety.md."
     apiKeyHeader:
       type: apiKey
       in: header
@@ -5288,7 +5438,7 @@ components:
       required: [id, source, label, account, mode, createdAt]
       properties:
         id: { type: string }
-        source: { type: string, enum: [generic, chartink, gocharting] }
+        source: { type: string, enum: [generic, tradingview, chartink, gocharting] }
         label: { type: string }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live] }
@@ -5297,7 +5447,7 @@ components:
         maxLotsPerSignal: { type: integer }
         side: { type: [string, "null"], enum: [BUY, SELL, null] }
         product: { type: [string, "null"], enum: [CNC, INTRADAY, MARGIN, null] }
-        orderType: { type: string, enum: [LIMIT, MARKET] }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M] }
         allowSourceIps: { type: array, items: { type: string } }
         createdAt: { type: string, format: date-time }
         lastSignalAt: { type: [string, "null"], format: date-time }
@@ -5306,12 +5456,34 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/ReadinessState" }
             - { type: "null" }
+    Forward:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        url: { type: string }
+        events: { type: array, items: { type: string, enum: [order.updated, order.outcome_unknown, safety.kill_switch, account.status] } }
+        enabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        delivered: { type: integer }
+        failed: { type: integer }
+        lastDeliveryAt: { type: [string, "null"], format: date-time }
+        lastStatus: { type: [integer, "null"] }
+        lastError: { type: [string, "null"] }
+    ForwardCreate:
+      type: object
+      required: [label, url]
+      additionalProperties: false
+      properties:
+        label: { type: string, minLength: 1, maxLength: 60 }
+        url: { type: string, maxLength: 2000, description: "https:// anywhere, or http:// only to this computer (127.0.0.1 or localhost)." }
+        events: { type: array, minItems: 1, items: { type: string, enum: [order.updated, order.outcome_unknown, safety.kill_switch, account.status] }, default: [order.updated] }
     HookCreate:
       type: object
       required: [source, label, account]
       additionalProperties: false
       properties:
-        source: { type: string, enum: [generic, chartink, gocharting] }
+        source: { type: string, enum: [generic, tradingview, chartink, gocharting] }
         label: { type: string, minLength: 1, maxLength: 60 }
         account: { $ref: "#/components/schemas/AccountId" }
         mode: { type: string, enum: [paper, live], default: paper }
@@ -5319,10 +5491,10 @@ components:
         allowedSymbols: { type: array, items: { $ref: "#/components/schemas/Symbol" } }
         maxLotsPerSignal: { type: integer, minimum: 1, default: 1 }
         product: { type: string, enum: [CNC, INTRADAY, MARGIN] }
-        orderType: { type: string, enum: [LIMIT, MARKET], default: LIMIT }
+        orderType: { type: string, enum: [LIMIT, MARKET, SL, SL-M], default: LIMIT, description: "SL and SL-M (stop-loss) hooks need a triggerPrice in every alert; not available for chartink." }
         side: { type: string, enum: [BUY, SELL], description: "Fix the side for every signal (needed for ChartInk, whose alerts carry no side)." }
         allowSourceIps: { type: array, items: { type: string }, description: "Optional allowlist of sender IP addresses or IPv4 CIDR blocks." }
-        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
+        acknowledgeUnsignedLive: { type: boolean, default: false, description: "Live mode on an unsigned source (tradingview, chartink, gocharting) needs allowSourceIps, requireConfirmation or this acknowledgement." }
     RefMeta:
       type: object
       properties:

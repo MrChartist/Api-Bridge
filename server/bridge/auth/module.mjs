@@ -8,14 +8,17 @@
  *  DELETE /v1/keys/{keyId}    admin, loopback only   revoke now; audited key.revoked
  *  POST   /v1/stream/token    read                   single-use 60 s token for ?token= on WS/SSE URLs
  *  POST   /v1/sign-in         none, loopback only    exchange a one-time sign-in code (signIn.mjs) for a new admin key
+ *  POST   /v1/sign-in/local   none, loopback only    the dashboard page on this computer signs in without a key or a code
  *                                                    that expires in 30 days; audited key.created
  *
  * Audit: key events go to deps.audit (S9). While S9 is a stub the action still succeeds and a warning is logged,
  * matching the CLI; any other audit failure is logged as an error (the key change itself has already happened).
  */
+import { keylessSignInAllowed } from "../core/config.mjs";
 import { BridgeError, NotImplementedError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
 import { defineModule } from "../core/modules.mjs";
+import { isSameOrigin } from "../core/security.mjs";
 import { createKeyStore, KEY_ID_RE } from "./keyStore.mjs";
 import { createSecretStore } from "./secretStore.mjs";
 import { SIGN_IN_KEY_TTL_MS, consumeSignInCode } from "./signIn.mjs";
@@ -28,6 +31,7 @@ export const ROUTES = Object.freeze([
   ["DELETE", "/v1/keys/:keyId", { scope: "admin", loopbackOnly: true, body: "none", summary: "Revoke an API key" }],
   ["POST", "/v1/stream/token", { scope: "read", body: "none", summary: "Short-lived token for WebSocket and SSE URLs" }],
   ["POST", "/v1/sign-in", { auth: "none", loopbackOnly: true, bodyLimitBytes: 1024, summary: "Exchange a one-time sign-in code for a dashboard key" }],
+  ["POST", "/v1/sign-in/local", { auth: "none", loopbackOnly: true, bodyLimitBytes: 1024, summary: "Sign the dashboard on this computer in without a key" }],
 ]);
 
 /** Label of the admin key a sign-in creates (the dashboard's welcome checklist does not count these as tool keys). */
@@ -55,11 +59,20 @@ export async function auditKeyEvent(deps, ctx, type, data) {
   }
 }
 
+/** Label of the admin key a keyless sign-in creates. */
+export const LOCAL_SIGN_IN_KEY_LABEL = "Dashboard on this computer";
+/** Keyless sign-ins allowed per minute, and how many of their keys stay valid at once (older ones are revoked). */
+const MAX_LOCAL_SIGN_IN = 20;
+export const LOCAL_SIGN_IN_KEYS_KEPT = 5;
+export const LOCAL_SIGN_IN_OFF = "Signing in without a key is switched off on this Bridge. Sign in with a key, or run mc-bridge open.";
+
 /** Route handlers, exported for unit tests. @param {object} deps */
 export function createHandlers(deps) {
   const now = () => deps.clock?.now() ?? Date.now();
   /** Times of recent failed sign-ins (memory only). */
   const failedSignIns = [];
+  /** Times of recent keyless sign-ins (memory only). */
+  const localSignIns = [];
   return {
     async listKeys(ctx) {
       // An account-limited admin key sees only keys limited to accounts it holds (never the unlimited ones).
@@ -93,6 +106,38 @@ export function createHandlers(deps) {
       const { token, expiresAt } = await deps.keyStore.issueStreamToken(ctx.key);
       return { data: { token, expiresAt }, meta: meta(ctx) };
     },
+    /**
+     * POST /v1/sign-in/local: the dashboard page on this computer gets an admin key with no key and no code.
+     *
+     * What stands in for the credential is being on this computer: the route is loopbackOnly (loopback peer, loopback
+     * Host name, no proxy headers, never the public listener), and the request must carry the Bridge's own Origin, so
+     * only the dashboard page it serves can ask (another web site's request carries its own Origin, and a browser
+     * will not let it read the answer). The trade-off is stated in docs/guides/safety.md: any program or person using
+     * this computer as you can already read the Bridge's files; another user account on a shared computer could now
+     * open the dashboard too. server.keylessSignIn: false switches it off.
+     */
+    async signInLocal(ctx) {
+      if (!keylessSignInAllowed(deps.config)) throw new BridgeError("LOOPBACK_ONLY", LOCAL_SIGN_IN_OFF);
+      const headers = ctx.req?.headers ?? {};
+      if (!isSameOrigin(headers.origin, headers.host)) throw new BridgeError("ORIGIN_NOT_ALLOWED", "Only the Bridge's own dashboard page can sign in without a key.");
+      const t = now();
+      while (localSignIns.length && localSignIns[0] <= t - SIGN_IN_WINDOW_MS) localSignIns.shift();
+      if (localSignIns.length >= MAX_LOCAL_SIGN_IN) throw new BridgeError("RATE_LIMITED", "Too many sign-ins. Wait a minute and open the dashboard again.", { retryAfterMs: localSignIns[0] + SIGN_IN_WINDOW_MS - t });
+      localSignIns.push(t);
+      const { key, record } = await deps.keyStore.create(
+        { label: LOCAL_SIGN_IN_KEY_LABEL, scopes: ["admin", "paper"], accounts: "*", clientKind: "ui", expiresAt: new Date(t + SIGN_IN_KEY_TTL_MS).toISOString() },
+        { loopback: ctx.loopback },
+      );
+      const actorCtx = { ...ctx, principal: { kind: "local", id: "this-computer" } };
+      await auditKeyEvent(deps, actorCtx, "key.created", { keyId: record.id, label: record.label, scopes: record.scopes, accounts: record.accounts, allowQuery: record.allowQuery, expiresAt: record.expiresAt, createdBy: "this-computer" });
+      // Every new tab makes a key, so only the newest few stay valid: the list of keys does not grow without end.
+      const mine = (await deps.keyStore.list()).filter((k) => k.label === LOCAL_SIGN_IN_KEY_LABEL && k.clientKind === "ui" && !k.revokedAt && k.id !== record.id).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+      for (const old of mine.slice(LOCAL_SIGN_IN_KEYS_KEPT - 1)) {
+        await deps.keyStore.revoke(old.id);
+        await auditKeyEvent(deps, actorCtx, "key.revoked", { keyId: old.id, label: old.label });
+      }
+      return json({ data: { key, record }, meta: meta(ctx) }, { status: 201, headers: { "Cache-Control": "no-store" } });
+    },
     async signIn(ctx) {
       // Never log the code or the key: neither is passed to a logger, and the code only ever arrives in the body.
       const t = now();
@@ -119,6 +164,7 @@ export function createHandlers(deps) {
 }
 
 const HANDLER_FOR = Object.freeze({
+  "POST /v1/sign-in/local": "signInLocal",
   "GET /v1/keys": "listKeys",
   "POST /v1/keys": "createKey",
   "DELETE /v1/keys/:keyId": "revokeKey",

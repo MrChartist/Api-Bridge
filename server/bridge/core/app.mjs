@@ -13,6 +13,7 @@
  *   7. handler -> value (200 JSON) | Reply | nothing (204) | handler wrote the response itself (SSE)
  *   8. access log line (method, path WITHOUT query string, status, ms, key id) — never bodies, never keys
  */
+import { localAccessFor } from "../auth/localAccess.mjs";
 import http from "node:http";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -77,6 +78,10 @@ export const DASHBOARD_FILES = Object.freeze({
   "index.html": "text/html; charset=utf-8",
   "app.js": "text/javascript; charset=utf-8",
   "views.js": "text/javascript; charset=utf-8",
+  "home.js": "text/javascript; charset=utf-8",
+  "data.js": "text/javascript; charset=utf-8",
+  "ticket.js": "text/javascript; charset=utf-8",
+  "positions.js": "text/javascript; charset=utf-8",
   "chart-lite.js": "text/javascript; charset=utf-8",
   "chart-lite-core.js": "text/javascript; charset=utf-8",
   "chart-specs.js": "text/javascript; charset=utf-8",
@@ -120,6 +125,8 @@ export const DASHBOARD_FILES = Object.freeze({
   "budget.js": "text/javascript; charset=utf-8",
   "motion.min.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
+  "home.css": "text/css; charset=utf-8",
+  "ios.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",
   "logo.svg": "image/svg+xml",
 });
@@ -134,7 +141,7 @@ export const DASHBOARD_FILES = Object.freeze({
 export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
-  const config = withAddableAccounts(applyModuleConfig(baseConfig, mods));
+  const config = withAddableAccounts(applyModuleConfig(baseConfig, mods, warnings));
   const log = logger ?? createLogger({ level: config.logging.level });
   const bus = createEventBus({ logger: log });
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
@@ -360,17 +367,20 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       const authMode = opts.auth ?? "key";
       if (authMode === "key") {
         const found = extractApiKey(req, url, { allowQuery: opts.allowQueryKey === true });
-        if (!found) throw new BridgeError("UNAUTHENTICATED", "Send your Bridge API key as 'Authorization: Bearer <key>'.");
+        // No key at all: on this computer the caller acts as "This computer" (auth/localAccess.mjs; read, paper and
+        // admin, never live). Anywhere else, and when that is switched off, a key is required.
+        const local = found ? null : await localAccessFor(deps).recordFor(req, { publicListener: listener.public });
+        if (!found && !local) throw new BridgeError("UNAUTHENTICATED", "Send your Bridge API key as 'Authorization: Bearer <key>'.");
         // `mc-bridge kill` on this computer: the control token in the data folder acts as the local CLI (controlToken.mjs).
-        const control = opts.localControl === true && ctx.loopback && !found.viaQuery && isControlToken(controlToken, found.key);
+        const control = Boolean(found) && opts.localControl === true && ctx.loopback && !found.viaQuery && isControlToken(controlToken, found.key);
         if (control) {
           ctx.scopes = expandScopes(["admin"]);
           ctx.principal = { kind: "local", id: "cli" };
           ctx.log = ctx.log.child({ principal: "cli" });
         } else {
-          const record = await deps.keyStore.authenticate(found.key, { ip: ctx.clientIp });
+          const record = local ?? (await deps.keyStore.authenticate(found.key, { ip: ctx.clientIp }));
           if (!record) throw new BridgeError("UNAUTHENTICATED", "This API key is not valid, has expired or was revoked.");
-          if (found.viaQuery && (!record.allowQuery || record.scopes.some((s) => s !== "read"))) {
+          if (found?.viaQuery && (!record.allowQuery || record.scopes.some((s) => s !== "read"))) {
             throw new BridgeError("UNAUTHENTICATED", "Only read-only keys created for URL use may be sent as ?key=.");
           }
           ctx.key = record;

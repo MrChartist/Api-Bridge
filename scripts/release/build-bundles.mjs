@@ -9,7 +9,7 @@
 // Needs `zip` and `tar` on the build machine (GitHub's ubuntu runners have both).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,12 +33,105 @@ export const TARGETS = Object.freeze([
   { id: "linux-arm64", node: "linux-arm64", archive: "tar.gz", launcher: "start-linux.sh" },
 ]);
 
-/** Repository files that do not belong in a download: tests, fixtures, CI, screenshots, deploy kits. */
+/** Repository files that do not belong in a download: tests, fixtures, CI, screenshots, the video, deploy kits. */
 export function shipped(path) {
   if (/(^|\/)__fixtures__\//.test(path) || /\.(test|spec)\.mjs$/.test(path)) return false;
-  if (/^(\.github|test|deploy|docker|scripts\/release)\//.test(path) || path.startsWith("docs/screenshots/")) return false;
+  if (/^(\.github|test|deploy|docker|scripts\/release)\//.test(path) || path.startsWith("docs/screenshots/") || path.startsWith("docs/media/")) return false;
   if (/^(\.gitattributes|\.gitignore|\.dockerignore|Dockerfile|docker-compose\.yml|vitest\.config\.mjs|tsconfig\.json)$/.test(path)) return false;
   return true;
+}
+
+/** The name of the Mac app, as Finder, Spotlight and Launchpad show it. */
+export const MAC_APP_NAME = "Mr Chartist Bridge";
+
+/** Info.plist of the Mac app (the same identity as the app install.sh makes, so one replaces the other). */
+export function macAppPlist(version) {
+  const v = /^\d+\.\d+\.\d+$/.test(String(version)) ? version : "0.0.0";
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0">',
+    "<dict>",
+    `  <key>CFBundleName</key><string>${MAC_APP_NAME}</string>`,
+    `  <key>CFBundleDisplayName</key><string>${MAC_APP_NAME}</string>`,
+    "  <key>CFBundleIdentifier</key><string>com.mrchartist.bridge</string>",
+    "  <key>CFBundleExecutable</key><string>mr-chartist-bridge</string>",
+    "  <key>CFBundlePackageType</key><string>APPL</string>",
+    "  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>",
+    `  <key>CFBundleShortVersionString</key><string>${v}</string>`,
+    `  <key>CFBundleVersion</key><string>${v}</string>`,
+    "  <key>CFBundleIconFile</key><string>AppIcon</string>",
+    "  <key>LSMinimumSystemVersion</key><string>11.0</string>",
+    "  <key>NSHighResolutionCapable</key><true/>",
+    "  <key>LSApplicationCategoryType</key><string>public.app-category.finance</string>",
+    "</dict>",
+    "</plist>",
+    "",
+  ].join("\n");
+}
+
+/** The app's two scripts: the executable opens Terminal with the launcher; the launcher starts the Bridge inside it. */
+export const MAC_APP_EXECUTABLE = [
+  "#!/bin/sh",
+  "# Mr Chartist Bridge.app: open a Terminal window with the launcher (the Bridge shows what it is doing there, and",
+  "# closing the window stops it).",
+  'exec /usr/bin/open -a Terminal "$(cd "$(dirname "$0")/../Resources" && pwd)/launch.command"',
+  "",
+].join("\n");
+export const MAC_APP_LAUNCHER = [
+  "#!/bin/sh",
+  "# Start the Mr. Chartist API Bridge that is inside this app. Nothing is written into the app: settings, keys and",
+  "# data live in ~/.mc-bridge, so the app can sit in Applications, be replaced by a newer one, or run from Downloads.",
+  'APP="$(cd "$(dirname "$0")" && pwd)/app"',
+  'MCB_CACHE_DIR="$HOME/.mc-bridge/cache"',
+  "export MCB_CACHE_DIR",
+  'exec /bin/sh "$APP/scripts/install/launch.sh" "$APP" "$HOME/.mc-bridge" "$@"',
+  "",
+].join("\n");
+
+/**
+ * Build "<stage>/Mr Chartist Bridge.app" from a staged Bridge folder that already has runtime/ (Node.js for macOS)
+ * and node_modules. A Mac app is a folder, so this needs no Mac: Info.plist, the icon, two shell scripts and the
+ * Bridge under Contents/Resources/app. It is not signed or notarised (the release has no Apple certificate), so macOS
+ * asks once before the first open; READ ME says how.
+ * @param {{ from: string, stage: string, version: string }} o  @returns {string} the .app folder
+ */
+export function buildMacApp({ from, stage, version }) {
+  const appDir = join(stage, `${MAC_APP_NAME}.app`);
+  const contents = join(appDir, "Contents");
+  mkdirSync(join(contents, "MacOS"), { recursive: true });
+  mkdirSync(join(contents, "Resources"), { recursive: true });
+  writeFileSync(join(contents, "Info.plist"), macAppPlist(version), "utf8");
+  writeFileSync(join(contents, "PkgInfo"), "APPL????", "utf8");
+  cpSync(join(ROOT, "scripts/install/icon/AppIcon.icns"), join(contents, "Resources", "AppIcon.icns"));
+  writeFileSync(join(contents, "MacOS", "mr-chartist-bridge"), MAC_APP_EXECUTABLE, "utf8");
+  writeFileSync(join(contents, "Resources", "launch.command"), MAC_APP_LAUNCHER, "utf8");
+  chmodSync(join(contents, "MacOS", "mr-chartist-bridge"), 0o755);
+  chmodSync(join(contents, "Resources", "launch.command"), 0o755);
+  cpSync(from, join(contents, "Resources", "app"), { recursive: true, verbatimSymlinks: true });
+  return appDir;
+}
+
+/** What to tell someone who downloaded the Mac app (shown beside it in the ZIP). */
+export function macAppReadMe(version, nodeVersion) {
+  return [
+    `Mr. Chartist API Bridge ${version} for Mac`,
+    "",
+    `1. Drag "${MAC_APP_NAME}" into your Applications folder (or leave it where it is).`,
+    "2. Double-click it. A Terminal window opens, the Bridge starts, and your browser opens the dashboard.",
+    "   The first time, macOS says it cannot check the app, because this release is not signed with an Apple",
+    "   developer certificate. On macOS 15 or newer: open System Settings, Privacy & Security, scroll down and",
+    `   click "Open Anyway" next to ${MAC_APP_NAME}. On older macOS: right-click the app, choose Open, then Open.`,
+    "3. Keep the Terminal window open while you use the Bridge. Close it, or press Ctrl+C, to stop.",
+    "",
+    "The first run sets up a practice account with virtual money; real orders stay off until you switch them on.",
+    "Your settings, keys and data are kept in the folder .mc-bridge in your home folder, not inside the app, so",
+    "replacing the app with a newer one keeps them.",
+    "",
+    `Inside: the Bridge, its parts and Node.js ${nodeVersion}. Nothing else is downloaded.`,
+    "Help: https://github.com/MrChartist/api-bridge-v2#readme",
+    "",
+  ].join("\n");
 }
 
 /** Newest v<major>.x from nodejs.org's index.json. @param {Array<{ version: string }>} index */
@@ -122,8 +215,21 @@ async function main() {
       rmSync(join(OUT, zipName), { force: true });
       // -X: no extra file attributes; -y: keep Node's symlinks (bin/npm) as links. Unix modes are kept for macOS/Linux.
       run("zip", ["-q", "-r", "-X", "-y", join(OUT, zipName), "Mr Chartist Bridge"], { cwd: stage });
-      rmSync(stage, { recursive: true, force: true });
       console.log(`  ${zipName}`);
+
+      // The Mac app: the same folder as a double-clickable application, in a ZIP (unzipping gives the .app).
+      if (t.id.startsWith("macos-")) {
+        const appStage = join(stage, "mac-app");
+        mkdirSync(appStage, { recursive: true });
+        rmSync(join(top, "READ ME FIRST.txt"), { force: true });
+        buildMacApp({ from: top, stage: appStage, version });
+        writeFileSync(join(appStage, "READ ME FIRST.txt"), macAppReadMe(version, nodeVersion), "utf8");
+        const appZip = `Mr-Chartist-Bridge-${version}-${t.id}.app.zip`;
+        rmSync(join(OUT, appZip), { force: true });
+        run("zip", ["-q", "-r", "-X", "-y", join(OUT, appZip), `${MAC_APP_NAME}.app`, "READ ME FIRST.txt"], { cwd: appStage });
+        console.log(`  ${appZip}`);
+      }
+      rmSync(stage, { recursive: true, force: true });
     }
 
     // The Windows Setup .exe (build-exe.mjs). Its blob is made by a Linux Node.js of the same version.
@@ -181,7 +287,7 @@ export function readMe(t, version, nodeVersion) {
     "3. To stop it, close that window (or press Ctrl+C in it). Double-click again to start it next time.",
     "",
     "Orders are paper (practice) by default. Real orders stay off until you switch them on yourself.",
-    "Help: https://github.com/MrChartist/api-bridge#readme",
+    "Help: https://github.com/MrChartist/api-bridge-v2#readme",
     "",
   ].join(t.launcher === "start-windows.bat" ? "\r\n" : "\n");
 }

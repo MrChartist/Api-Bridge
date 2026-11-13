@@ -12,7 +12,7 @@ import { DASH, formatInt, formatRupeeGrouped, isFigure } from "./format.js";
 /** How often the badge reads /v1/readiness while the tab is visible (spec §6.3). */
 export const POLL_MS = 30_000;
 /** Where the guides live (the dashboard does not serve docs). */
-export const GUIDE_URL = "https://github.com/MrChartist/api-bridge/blob/main/docs/guides/";
+export const GUIDE_URL = "https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/";
 
 const IST_OFFSET_MS = 330 * 60_000;
 const finite = (v) => typeof v === "number" && Number.isFinite(v);

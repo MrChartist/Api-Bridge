@@ -6,11 +6,14 @@ import { DASH, formatFixed, formatInt, formatRupee, formatRupeeGrouped, formatSi
 import { DENSITY_SLOT, parseDensity } from "./layout-prefs.js";
 import { busiestClass, mountBudget, perSecondLimit, usageChart, windowText } from "./budget.js";
 import * as live from "./live.js";
-import { KEY_PRESETS, snippets } from "./snippets.js";
+import { KEY_PRESETS, projectCalls, snippets } from "./snippets.js";
 import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, capabilityLabel, contractName, orderStatusText, capabilitySummary, clearFieldError, defaultKeyName, fieldError, keyFormProblem, keyUse, modifyChange, sessionText } from "./flows.js";
 import { TYPE_CREDIT, initPalette, kbd, modKey, openPalette, pageShortcut, searchIcon } from "./palette.js";
 import { PAGE_CODES } from "./workspace.js";
-import { triggersCard } from "./triggers.js";
+import { renderData } from "./data.js";
+import { openOrderTicket } from "./ticket.js";
+import { renderPositionsPage } from "./positions.js";
+import { renderHome } from "./home.js";
 import { fundsCard, ordersCard, renderTradesPage } from "./orders-book.js";
 import { whatToDo } from "./reasons-core.js";
 
@@ -121,6 +124,9 @@ export function segmented(label, options, initial = options[0][0]) {
   };
   const pick = (v, focus) => {
     value = v;
+    // The track knows what is chosen, so the thumb can take the colour of a choice that has one (BUY green, SELL
+    // red, MARKET amber: ios.css).
+    el.dataset.value = v;
     watch();
     for (const b of buttons) {
       const on = b.dataset.value === v;
@@ -209,7 +215,8 @@ function restoreFocus(container, saved) {
 
 /** The Integrations tab's tools (its inner segmented control; each is also a ⌘K destination). */
 const INTEGRATION_TOOLS = [
-  ["webhooks", "Webhooks"],
+  ["webhooks", "TradingView and webhooks"],
+  ["project", "Your project"],
   ["python", "Python"],
   ["node", "Node"],
   ["excel", "Excel and Sheets"],
@@ -229,15 +236,16 @@ const INTEGRATION_TOOLS = [
  * is its ⌘K label; `extras` are further ⌘K destinations inside it.
  */
 export const PAGES = [
-  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", group: "Bridge", title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
+  { id: "home", label: "Home", icon: "home", tint: "blue", key: 1, group: "", tab: true, title: "Home", headline: ["Your ", { serif: "bridge" }], sub: "Every source on one side, every broker on the other", render: renderHome },
+  { id: "accounts", label: "Accounts", icon: "accounts", tint: "indigo", key: 2, group: "Bridge", tab: true, title: "Accounts and brokers", sub: "Broker accounts, sessions and the 41 supported brokers", render: renderAccounts },
   {
-    id: "api", label: "API", icon: "keys", tint: "pink", key: 9, group: "Bridge", title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
+    id: "api", label: "API", icon: "keys", tint: "pink", key: 3, group: "Bridge", tab: true, title: "API", sub: "Keys, integrations, a test console, rate limits and the request log",
     defaultTab: "keys",
     tabs: [
       { id: "keys", label: "Keys", page: "keys", command: "API keys", keywords: "keys token access create revoke", render: renderKeys },
       {
         id: "integrations", label: "Integrations", page: "integrations", command: "Integrations", icon: "integrations", tint: "blue", keywords: "integrations snippets connect tools sdk", render: renderIntegrations,
-        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "Webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
+        extras: INTEGRATION_TOOLS.map(([id, label]) => ({ id, label: id === "webhooks" ? "TradingView and webhooks" : `${label} snippet`, route: `api/integrations?tool=${id}`, keywords: id === "webhooks" ? "webhook alert tradingview chartink gocharting hooks" : `${id} snippet setup code`, sub: `API › Integrations › ${label}` })),
       },
       { id: "console", label: "Test console", page: "console", command: "Test console", icon: "console", tint: "teal", keywords: "console try request call endpoint", render: renderConsole },
       { id: "limits", label: "Rate limits", page: "limits", command: "Rate limits", icon: "limits", tint: "purple", keywords: "limits usage throttle budget", render: renderLimits },
@@ -247,15 +255,17 @@ export const PAGES = [
       },
     ],
   },
+  { id: "data", label: "Data", icon: "download", tint: "teal", key: 6, group: "Bridge", title: "Data", sub: "Collect and backfill price history from every connected source", keywords: "data history backfill candles csv download collect ohlc", render: renderData },
   {
-    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 5, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
+    id: "orders", label: "Orders", icon: "orders", tint: "orange", tab: true, key: 4, group: "Trade", title: "Orders", sub: "Paper by default. Pending confirmations wait here",
     defaultTab: "book",
     tabs: [
       { id: "book", label: "Orders", page: "orders", command: "Orders", keywords: "orders confirmations tickets modify cancel paper", render: renderOrders },
       { id: "trades", label: "Trades", page: "trades", command: "Trade book", icon: "list", tint: "orange", keywords: "trades trade book fills executions turnover charges csv", sub: "Every fill with buy, sell and turnover totals", render: renderTradesPage },
+      { id: "positions", label: "Positions", page: "positions", command: "Positions and holdings", icon: "list", tint: "orange", keywords: "positions holdings portfolio pnl profit loss exit square off", sub: "What you hold now, with profit and loss", render: renderPositionsPage },
     ],
   },
-  { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 6, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
+  { id: "safety", label: "Safety", icon: "safety", tint: "red", key: 5, group: "Trade", title: "Safety", sub: "Kill switch, daily limits and live-trading status", render: renderSafety },
 ];
 
 /**
@@ -1570,7 +1580,8 @@ async function fillToday(accs) {
   );
 }
 async function renderAccounts() {
-  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), optional(api("/v1/book/holders"))]);
+  // v2 has no holders book (the full app's family grouping), so there is nothing to ask for.
+  const [accounts, brokers, holdersRes] = await Promise.all([api("/v1/accounts"), api("/v1/brokers"), Promise.resolve({ data: null })]);
   const accs = accounts.data.data ?? [];
   const book = holdersRes.data?.data ?? null;
   const holderOfAcc = (id) => book?.holders.find((x) => x.accounts.includes(id)) ?? null;
@@ -2086,10 +2097,6 @@ async function renderOrders() {
     }),
   );
 
-  // GTT, OCO, stops, targets and trailing stops checked on the Bridge (triggers.js), above the day's orders so an
-  // open stop is never below a long list; it refreshes itself.
-  nodes.push(triggersCard(byId));
-
   const ord = orders.data?.data ?? [];
   // The day's orders with status and side filters, a search and Cancel all (orders-book.js).
   nodes.push(
@@ -2098,16 +2105,16 @@ async function renderOrders() {
       error: orders.error ?? null,
       byId,
       refresh: () => show(),
-      // Orders are placed from the chain's ticket; the JSON route is for trying the API (API › Test console).
+      // Orders arrive from tools and alerts; the console sends one by hand (API › Test console).
       actions: [
-        h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/console?endpoint=order") }, "Send as JSON"),
-        h("button", { type: "button", class: "small primary", onclick: () => (location.hash = "#/chain") }, "Trade from the chain"),
+        h("button", { type: "button", class: "small quiet", onclick: () => (location.hash = "#/api/integrations?tool=webhooks") }, "Connect an alert"),
+        h("button", { type: "button", class: "small primary", onclick: () => openOrderTicket({ accounts: accs, onPlaced: () => show() }) }, "New order"),
       ],
       columns: [
               { label: "Time", cell: (o) => istTime(o.placedAt) },
               { label: "Account", cell: (o) => byId.get(o.accountId)?.label ?? o.accountId },
               { label: "Contract", wrap: true, cell: (o) => h("div", { title: o.symbol, class: "order-contract" }, h("strong", {}, contractName(o.symbol)), h("div", { class: "muted small" }, `${o.orderType ?? ""}${isFigure(o.price) ? ` @ ${formatFixed(o.price, 2)}` : ""} · ${o.product ?? ""}`)) },
-              { label: "Side", cell: (o) => h("span", { class: "order-side" }, o.side) },
+              { label: "Side", cell: (o) => h("span", { class: "order-side", "data-side": o.side }, o.side) },
               { label: "Qty", num: true, cell: (o) => (o.filledQuantity && o.filledQuantity !== o.quantity ? `${formatInt(o.filledQuantity)}/${formatInt(o.quantity)}` : formatInt(o.quantity)) },
               { label: "Avg price", num: true, cell: (o) => formatFixed(o.avgPrice, 2) },
               {
@@ -2125,7 +2132,7 @@ async function renderOrders() {
               { label: "Mode", cell: (o) => (o.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
               { label: "", cell: (o) => (WORKING_ORDER.has(o.status) ? orderActions(o) : "") },
       ],
-      empty: emptyState("orders", "No orders today", "Paper orders from the option chain, your scripts, webhooks and AI assistants show up here.", nextStep("Trade from the chain", "#/chain")),
+      empty: emptyState("orders", "No orders today", "Orders from TradingView and other alerts, your scripts and AI assistants show up here, whichever broker they went to.", nextStep("New order", () => openOrderTicket({ accounts: accs, onPlaced: () => show() }))),
     }),
   );
 
@@ -2142,6 +2149,33 @@ async function renderOrders() {
   const funds = await fundsCard(accs, pnlGrouped);
   if (funds) nodes.push(funds);
   return nodes;
+}
+
+/**
+ * #/orders?new=1 (the command palette's "New order", Home's first-order step) opens the order ticket. It listens to
+ * the address, not to the page's render: a page can be drawn ahead of time, before the address says new=1.
+ */
+function openTicketWhenAsked() {
+  if (!/^#\/orders(\/book)?\?/.test(location.hash) || hashParams().get("new") !== "1") return;
+  setHashParam("new", "0");
+  // Wait until the Orders page is on screen (its own New order button is the sign), then a moment more: arriving on
+  // a page closes any sheet left open by the last one, and at start-up the first page arrives late.
+  let tries = 0;
+  const wait = setInterval(async () => {
+    tries += 1;
+    const up = [...document.querySelectorAll("main button, #view button")].some((b) => b.textContent === "New order");
+    if (!up && tries < 40) return;
+    clearInterval(wait);
+    if (!up || !location.hash.startsWith("#/orders")) return;
+    await new Promise((r) => setTimeout(r, 300));
+    const accounts = (await optional(api("/v1/accounts"))).data?.data ?? [];
+    if (!document.getElementById("dialog")?.open) openOrderTicket({ accounts, onPlaced: () => show() });
+  }, 150);
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("hashchange", openTicketWhenAsked);
+  // A link opened straight on #/orders?new=1 may see no address change, so look once as well.
+  setTimeout(openTicketWhenAsked, 500);
 }
 
 /** Modify and Cancel for a working order (PATCH / DELETE /v1/orders/{id}); each answers with a toast and a redraw. */
@@ -2313,7 +2347,7 @@ async function renderSafety() {
     { class: `card kill${ks.engaged ? " engaged" : ""}` },
     iconTile(ks.engaged ? "stop" : "power", ks.engaged ? "red" : "green", "lg"),
     h("div", { class: "stack" }, h("h2", {}, ks.engaged ? "Kill switch is on: no orders are sent" : "Kill switch is off"), h("p", { class: "muted" }, ks.engaged ? `Engaged ${istDateTime(ks.at)} by ${ks.by ?? "?"}: ${ks.reason ?? ""}` : ["One click stops every new order from every tool: REST, webhooks, AI assistants and the CLI. Also: ", h("span", { class: "cli-cmd" }, "mc-bridge kill"), "."])),
-    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", onclick: engage }, icon("stop"), "Stop all orders")),
+    h("div", { class: "actions" }, ks.engaged ? h("button", { type: "button", id: "kill-action", class: "primary", onclick: release }, "Release (admin)") : h("button", { type: "button", id: "kill-action", class: "primary", "data-destructive": "", onclick: engage }, icon("stop"), "Stop all orders")),
   );
   const live = card({
     glyph: "bolt",
@@ -2571,7 +2605,8 @@ async function renderKeys() {
 
 const TABS = INTEGRATION_TOOLS;
 const INTRO = {
-  webhooks: "Alerts that place paper orders through a webhook: signed generic JSON from your scripts, ChartInk scans or GoCharting alerts.",
+  webhooks: "Alerts that place paper orders through a webhook: TradingView strategy and indicator alerts, ChartInk scans, GoCharting alerts, or signed JSON from your own scripts.",
+  project: "Use the Bridge as the one API for your other projects: every connected broker behind the same calls. Put the address in your project's .env and call it; on this computer it works without a key.",
   python: "The Python SDK: standard library only, Python 3.9+. Paper orders get an Idempotency-Key automatically.",
   node: "The Node SDK (ESM). Streaming on Node 20 needs ws; Node 22 has a built-in WebSocket.",
   excel: "Live prices in cells with WEBSERVICE. The key goes in the URL, so make a read-only URL key with an expiry.",
@@ -2580,7 +2615,153 @@ const INTRO = {
   chatgpt: "ChatGPT connectors cannot reach a local server. Use the same tools from your own script with OpenAI function calling.",
   rest: "Every route answers { data, meta } JSON with freshness labels; errors are problem+json with a stable code.",
 };
-const GUIDES = { webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+const GUIDES = { project: "data-api", webhooks: "webhooks", python: "python", node: "typescript", excel: "excel-sheets", amibroker: "amibroker", claude: "mcp", chatgpt: "chatgpt-openai", rest: "streaming" };
+
+/**
+ * "Your project": the Bridge's address with a live check, the full API description to import, and the call for each
+ * thing a project usually wants (it opens in the test console).
+ */
+function projectPanel(account) {
+  const result = h("span", { class: "muted", "aria-live": "polite" });
+  const test = h("button", { type: "button", class: "small primary" }, "Test the connection");
+  test.addEventListener("click", async () => {
+    test.disabled = true;
+    result.textContent = "Checking ...";
+    const [health, accounts] = await Promise.all([optional(api("/v1/health", { fresh: true })), optional(api("/v1/accounts", { fresh: true }))]);
+    const list = accounts.data?.data ?? [];
+    const on = list.filter((a) => a.session?.state === "connected").length;
+    result.textContent = health.error ? `Not reachable: ${health.error.message}` : `Working. Bridge ${health.data?.version ?? ""}, ${on} of ${list.length} ${list.length === 1 ? "account" : "accounts"} connected.`;
+    test.disabled = false;
+  });
+  const calls = projectCalls({ account });
+  return h(
+    "div",
+    { class: "card-body stack pj" },
+    h("div", { class: "row pj-top" }, h("code", { class: "pj-url" }, location.origin), test, h("a", { class: "button small", href: "/openapi.yaml", download: "mc-bridge-openapi.yaml" }, "Download the API description (OpenAPI)"), result),
+    h("p", { class: "muted small" }, "Import the OpenAPI file into Postman, Insomnia or a client generator to get every route. From another computer, a project needs a key: create one with the button above."),
+    table(
+      [
+        { label: "What you want", cell: (c) => c.want },
+        { label: "Call", wrap: true, cell: (c) => h("code", {}, `${c.method} ${c.path}`) },
+      ],
+      calls,
+      null,
+      { caption: "The calls a project usually needs" },
+    ),
+  );
+}
+
+const FORWARD_EVENT_LABELS = [
+  ["order.updated", "Order updates"],
+  ["order.outcome_unknown", "Orders with an unknown outcome"],
+  ["safety.kill_switch", "Kill switch"],
+  ["account.status", "Account sessions"],
+];
+/** How a receiver checks that a delivery really came from this Bridge (Python, standard library). Pure. */
+export function forwardVerifySnippet(secret = "<signing secret shown when you added the URL>") {
+  return [
+    "import hashlib, hmac, time",
+    "",
+    `SECRET = "${secret}"`,
+    "",
+    "def from_bridge(raw_body: bytes, signature_header: str) -> bool:",
+    `    parts = dict(p.split("=", 1) for p in signature_header.split(","))`,
+    `    if abs(time.time() - int(parts["t"])) > 300: return False   # too old: a replay`,
+    `    want = hmac.new(SECRET.encode(), parts["t"].encode() + b"." + raw_body, hashlib.sha256).hexdigest()`,
+    `    return hmac.compare_digest(want, parts["v1"])`,
+    "",
+    `# In your handler: from_bridge(request_body_bytes, headers["X-MCB-Signature"])`,
+    `# The body is JSON: {"id", "event", "at", "data"}. Answer 200 quickly; the Bridge retries anything else.`,
+  ].join("\n");
+}
+/**
+ * "Send updates to your project": the URLs of other projects that get each order update as signed JSON
+ * (GET/POST/DELETE /v1/forwards). The signing secret is shown once, with the check a receiver runs.
+ */
+async function forwardPanel() {
+  const box = h("div", { class: "card-body stack pj fw" });
+  let created = null;
+  const draw = async () => {
+    const r = await optional(api("/v1/forwards", { fresh: true }));
+    const targets = r.data?.data ?? [];
+    const label = h("input", { id: "fw-label", value: "My project", maxlength: "60" });
+    const url = h("input", { id: "fw-url", type: "url", placeholder: "http://127.0.0.1:8000/bridge-events", autocomplete: "off", spellcheck: "false" });
+    const boxes = FORWARD_EVENT_LABELS.map(([id, text]) => [id, h("input", { type: "checkbox", ...(id === "order.updated" ? { checked: "" } : {}) }), text]);
+    const err = h("p", { class: "bad-text", role: "alert", hidden: true });
+    const add = h("button", { type: "button", class: "primary" }, icon("plus"), "Add URL");
+    add.addEventListener("click", async () => {
+      err.hidden = true;
+      const events = boxes.filter(([, b]) => b.checked).map(([id]) => id);
+      if (!url.value.trim()) return fieldError(url, "Paste the URL in your project that should get the updates.");
+      if (!events.length) return void ((err.textContent = "Tick at least one kind of update."), (err.hidden = false));
+      try {
+        const made = await api("/v1/forwards", { method: "POST", body: { label: label.value.trim() || "My project", url: url.value.trim(), events } });
+        created = made.data.data;
+        toast("Added. Copy the signing secret now: it is shown only once.");
+        draw();
+      } catch (e) {
+        const f = (Array.isArray(e?.body?.errors) ? e.body.errors : []).find((x) => String(x.path ?? "").endsWith("url"));
+        if (f) return fieldError(url, `The URL must ${f.message}.`);
+        err.textContent = e.message;
+        err.hidden = false;
+      }
+    });
+    const status = (t) => (t.lastDeliveryAt === null ? pill("Nothing sent yet") : t.lastError ? pill("Last one failed", "bad") : pill("Delivered", "ok"));
+    const rowActions = (t) => {
+      const test = h("button", { type: "button", class: "small" }, "Send a test");
+      test.addEventListener("click", async () => {
+        test.disabled = true;
+        const res = await optional(api(`/v1/forwards/${encodeURIComponent(t.id)}/test`, { method: "POST" }));
+        const d = res.data?.data;
+        toast(d?.ok ? `Test delivered to ${t.label}.` : `Test not delivered: ${d?.error ?? res.error?.message ?? "no answer"}.`, { tone: d?.ok ? "ok" : "error" });
+        draw();
+      });
+      const del = h("button", { type: "button", class: "small quiet" }, "Delete");
+      del.addEventListener("click", async () => {
+        await optional(api(`/v1/forwards/${encodeURIComponent(t.id)}`, { method: "DELETE" }));
+        if (created?.id === t.id) created = null;
+        toast(`Stopped sending to ${t.label}.`);
+        draw();
+      });
+      return h("div", { class: "row fw-actions" }, test, del);
+    };
+    box.replaceChildren(
+      ...[
+        h("div", {}, h("h3", { class: "fw-title" }, "Send updates to your project"), h("p", { class: "muted" }, "Give the Bridge a URL in your project. Every order update is sent there the moment it happens, as signed JSON, so your project does not have to keep asking. Use https, or http to this computer.")),
+        r.error ? alertBox(r.error) : null,
+        h("div", { class: "form-grid" }, field("Name", label), h("label", { class: "field wide", for: "fw-url" }, h("span", {}, "URL in your project"), url)),
+        h("div", { class: "row fw-events" }, ...boxes.map(([, b, text]) => h("label", { class: "check" }, b, h("span", {}, text))), add),
+        err,
+        created
+          ? h(
+              "div",
+              { class: "stack" },
+              h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Copy the signing secret now."), h("span", { class: "detail" }, "It proves a delivery came from your Bridge. It is shown only once."))),
+              codeBlock(created.signingSecret, { title: `Signing secret for ${created.label}` }),
+              codeBlock(forwardVerifySnippet(created.signingSecret), { title: "Check a delivery in your project (Python)" }),
+            )
+          : null,
+        targets.length
+          ? table(
+              [
+                { label: "Project", wrap: true, cell: (t) => h("div", {}, h("strong", {}, t.label), h("div", { class: "muted small fw-url" }, t.url)) },
+                { label: "Gets", wrap: true, cell: (t) => t.events.map((e) => FORWARD_EVENT_LABELS.find(([id]) => id === e)?.[1] ?? e).join(", ") },
+                { label: "Sent", num: true, cell: (t) => formatInt(t.delivered) },
+                { label: "Failed", num: true, cell: (t) => formatInt(t.failed) },
+                { label: "Status", wrap: true, cell: (t) => h("div", {}, status(t), t.lastError ? h("div", { class: "muted small" }, t.lastError) : null) },
+                { label: "", cell: rowActions },
+              ],
+              targets,
+              null,
+              { caption: "Projects that get updates" },
+            )
+          : null,
+      ].filter(Boolean),
+    );
+  };
+  await draw();
+  return box;
+}
 
 /** The hash's query (`#/api/integrations?tool=python` → URLSearchParams). */
 const hashParams = () => new URLSearchParams(location.hash.split("?")[1] ?? "");
@@ -2633,11 +2814,12 @@ async function renderIntegrations() {
     const intro = h(
       "div",
       { class: "card-body stack" },
-      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
+      h("div", { class: "row" }, h("p", { class: "grow muted" }, INTRO[active], " ", h("span", { class: "nowrap" }, `Your Bridge address: ${location.origin}`)), ...(keyBtn ? [keyBtn] : []), h("a", { href: `https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/${GUIDES[active]}.md`, target: "_blank", rel: "noopener", "aria-label": `${TABS.find(([id]) => id === active)[1]} guide (opens in a new tab)` }, "Guide ↗")),
       createdKeys[active] ? h("div", { class: "alert info" }, icon("info"), h("div", {}, h("strong", {}, "Your new key is in the snippets below."), h("span", { class: "detail" }, "It is shown only on this page and only until you leave it."))) : null,
     );
     const parts = [intro];
     if (active === "webhooks") parts.push(...(await webhookPanel(paperAcc)));
+    if (active === "project") parts.push(projectPanel(paperAcc), await forwardPanel());
     if (s.length) parts.push(h("div", { class: "card-body stack" }, s.map((sn) => codeBlock(sn.code, { title: sn.title, json: sn.lang === "json", onCopy: markCopied }))));
     panel.replaceChildren(...parts.filter(Boolean));
   };
@@ -2650,15 +2832,20 @@ async function webhookPanel(paperAcc) {
   const list = hooks.data?.data ?? [];
   const box = h("div", { class: "stack" });
   const label = h("input", { value: "NIFTY breakout", maxlength: "60" });
-  const source = h("select", {}, [["generic", "Generic (signed JSON)"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"]].map(([v, t]) => h("option", { value: v }, t)));
+  // TradingView leads: it is what most alerts come from. #/api/integrations?tool=webhooks&source=<id> (Home's map) picks one.
+  const SOURCES = [["tradingview", "TradingView"], ["chartink", "ChartInk"], ["gocharting", "GoCharting"], ["generic", "Your own script (signed JSON)"]];
+  const asked = hashParams().get("source");
+  const source = h("select", {}, SOURCES.map(([v, t]) => h("option", { value: v }, t)));
+  source.value = SOURCES.some(([v]) => v === asked) ? asked : "tradingview";
+  const sourceName = (id) => SOURCES.find(([v]) => v === id)?.[1] ?? id;
   const side = segmented("Side", [["", "From the alert"], ["BUY", "BUY"], ["SELL", "SELL"]], "");
-  const orderType = segmented("Order type", [["LIMIT", "LIMIT (safer)"], ["MARKET", "MARKET (protected)"]], "LIMIT");
+  const orderType = segmented("Order type", [["LIMIT", "Limit"], ["MARKET", "Market"], ["SL", "SL"], ["SL-M", "SL-M"]], "LIMIT");
   const product = segmented("Product", ["INTRADAY", "MARGIN", "CNC"].map((p) => [p, p]), "INTRADAY");
   const lots = h("input", { type: "number", inputmode: "numeric", value: "1", min: "1", max: "50" });
   const btn = h("button", { type: "button", class: "primary" }, icon("plus"), "Create webhook");
   const columns = [
     { label: "Hook", cell: (x) => h("div", {}, h("strong", {}, x.label), h("div", { class: "muted small mono" }, x.id)) },
-    { label: "Source", cell: (x) => x.source },
+    { label: "Source", cell: (x) => sourceName(x.source) },
     { label: "Account", cell: (x) => x.account },
     { label: "Mode", cell: (x) => (x.mode === "live" ? pill("Live", "bad") : pill("Paper")) },
     // Live hooks: their account's trading readiness (GET /v1/hooks `readiness`; paper hooks have none).
@@ -2693,7 +2880,8 @@ async function webhookPanel(paperAcc) {
       box.replaceChildren(...[
         h("div", { class: "secret-box" }, h("strong", {}, "Webhook URL (its secret token is shown once):"), h("code", {}, d.url), copyButton(d.url, { cls: "small primary", toastLabel: "URL copied", onCopy: markCopied })),
         d.signingSecret ? h("div", { class: "secret-box" }, h("strong", {}, "Signing secret (shown once; sign every request with it):"), h("code", {}, d.signingSecret), copyButton(d.signingSecret, { cls: "small primary", toastLabel: "Secret copied", onCopy: markCopied })) : null,
-        ...(d.templates ?? []).slice(0, 1).map((t) => codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{"), onCopy: markCopied })),
+        // Every template of the source (TradingView has two: strategy and indicator alerts), each with what it needs.
+        ...(d.templates ?? []).flatMap((t) => [codeBlock(t.message, { title: t.name, json: t.contentType === "application/json" && t.message.startsWith("{"), onCopy: markCopied }), t.notes?.length ? h("ul", { class: "hook-notes muted small" }, t.notes.map((n) => h("li", {}, n))) : null]),
         ...(d.warnings ?? []).map((w) => alertBox({ title: "Note", detail: w }, "warn")),
         h("p", { class: "muted small" }, "Hosted alert services post from the internet, so point a tunnel (for example Cloudflare Tunnel) at the public ingress listener, which serves /hooks only. Paper orders by default."),
       ].filter(Boolean));
@@ -2707,7 +2895,7 @@ async function webhookPanel(paperAcc) {
     h(
       "div",
       { class: "card-body stack integ-hook-form" },
-      h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}.`)),
+      h("div", { class: "card-titles" }, h("h3", {}, "Alert webhook"), h("p", {}, `Each hook has its own secret URL and places paper orders on ${paperAcc}. Pick where the alerts come from and the Bridge writes the alert message for you.`)),
       h("div", { class: "form-grid" }, h("label", { class: "field" }, "Name", label), h("label", { class: "field" }, "Source", source), segField("Side", side), segField("Order type", orderType, { wide: true }), segField("Product", product), h("label", { class: "field" }, "Max lots per alert", lots), btn),
       box,
     ),

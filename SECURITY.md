@@ -7,7 +7,7 @@ The Bridge holds your broker credentials and can place orders, so we take securi
 **Please do not open a public issue.** Report it privately through GitHub's private vulnerability reporting:
 
 1. Go to the repository's **Security** tab.
-2. Click **Report a vulnerability** ([direct link](https://github.com/MrChartist/api-bridge/security/advisories/new)).
+2. Click **Report a vulnerability** ([direct link](https://github.com/MrChartist/api-bridge-v2/security/advisories/new)).
 
 Include what you found, the steps to reproduce it, the version or commit, and what an attacker could do with it. We aim to acknowledge reports within 3 working days and to agree a disclosure date with you once a fix is ready. We are happy to credit you in the advisory.
 
@@ -34,6 +34,8 @@ Out of scope:
 
 - Keep the Bridge on `127.0.0.1` (the default). With Docker, use the provided `docker-compose.yml`, which publishes the port on `127.0.0.1` only.
 - Give each tool its own API key with the fewest scopes it needs, and revoke keys you no longer use.
+- The dashboard signs in without a key on the computer the Bridge runs on (loopback only, the Bridge's own page only). On a computer shared with other user accounts, set `server.keylessSignIn` to `false` (see `docs/guides/safety.md`).
+- Tools on the computer the Bridge runs on need no API key (they get read, paper and admin access, never live). On a shared or untrusted computer, set `server.keylessApi` to `false`, or start with `MCB_KEYLESS=0`.
 - Rotate the first admin key after setup if it was printed into logs (for example `docker compose logs`).
 - Keep live trading off until you have tried your setup in paper mode.
 - The confirmation step for AI-prepared orders protects against an assistant that only has its MCP tools or API key. It does not protect against one that can run shell commands or control the browser on your computer; give such tools a `read` key only (see [docs/guides/mcp.md](docs/guides/mcp.md)).

@@ -20,7 +20,7 @@ import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
 import { ipEntrySchema } from "./config.mjs";
 
-export const HOOK_SOURCES = Object.freeze(["generic", "chartink", "gocharting"]);
+export const HOOK_SOURCES = Object.freeze(["generic", "tradingview", "chartink", "gocharting"]);
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const HOOK_ID_RE = /^hk_[a-z2-7]{12}$/;
 const B32 = "abcdefghijklmnopqrstuvwxyz234567";
@@ -42,18 +42,24 @@ export const hookCreateSchema = z
     allowedSymbols: z.array(z.string().min(3).max(64)).max(500).optional(),
     maxLotsPerSignal: z.number().int().min(1).max(1000).default(1),
     product: z.enum(["CNC", "INTRADAY", "MARGIN"]).optional(),
-    orderType: z.enum(["LIMIT", "MARKET"]).default("LIMIT"),
+    orderType: z.enum(["LIMIT", "MARKET", "SL", "SL-M"]).default("LIMIT"),
     allowSourceIps: z.array(ipEntrySchema).max(50).optional(),
     side: z.enum(["BUY", "SELL"]).optional(),
     /** Live mode on a source that cannot sign its alerts (only the URL token protects it): the person says so. */
     acknowledgeUnsignedLive: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .superRefine((o, ctx) => {
+    // A ChartInk scan sends one price per stock and nothing else, so it cannot say where a stop should wait.
+    if (o.source === "chartink" && (o.orderType === "SL" || o.orderType === "SL-M")) {
+      ctx.addIssue({ code: "custom", path: ["orderType"], message: "ChartInk alerts carry one price and no trigger, so a ChartInk hook places LIMIT or MARKET orders." });
+    }
+  });
 
 /**
- * @typedef {{ id: string, source: "generic"|"chartink"|"gocharting", label: string, account: string,
+ * @typedef {{ id: string, source: "generic"|"tradingview"|"chartink"|"gocharting", label: string, account: string,
  *   mode: "paper"|"live", requireConfirmation: boolean, allowedSymbols: string[], maxLotsPerSignal: number,
- *   product: "CNC"|"INTRADAY"|"MARGIN"|null, orderType: "LIMIT"|"MARKET", allowSourceIps: string[], side: "BUY"|"SELL"|null,
+ *   product: "CNC"|"INTRADAY"|"MARGIN"|null, orderType: "LIMIT"|"MARKET"|"SL"|"SL-M", allowSourceIps: string[], side: "BUY"|"SELL"|null,
  *   tokenHash: string, createdAt: string, lastSignalAt: string | null }} HookRecord
  */
 

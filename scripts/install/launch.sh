@@ -49,16 +49,18 @@ if [ ! -f bridge.config.json ]; then
   # Show what init says, without its "Next steps" (those are for people typing commands; this window does it all).
   _mcb_out=$(node "$APP_DIR/bin/mc-bridge.mjs" init --yes </dev/null 2>&1)
   _mcb_rc=$?
-  printf '%s\n' "$_mcb_out" | sed '/^Next steps/,$d'
+  # On failure, everything; otherwise nothing: an admin key and commands to type are for people at a terminal, and
+  # on this computer the dashboard needs neither.
+  [ "$_mcb_rc" -eq 0 ] || printf '%s\n' "$_mcb_out" | sed '/^Next steps/,$d'
   [ "$_mcb_rc" -eq 0 ] || mcb_stop "Setting up failed (see the message above)."
 fi
 
-echo "Starting the Bridge. Your browser opens the dashboard in a moment."
-echo "Keep this window open while you use the Bridge. To stop it, press Ctrl+C or close the window."
-echo
 # Ctrl+C stops the Bridge (it shuts down cleanly); this script then carries on to the "Press Enter" line.
 trap ':' INT
 mcb_wake_lock
+# This window was opened by a double-click: a short, plain status and no log lines (cli.mjs appWindowLines).
+MCB_APP_WINDOW=1; export MCB_APP_WINDOW
+MCB_LOG_LEVEL=${MCB_LOG_LEVEL:-error}; export MCB_LOG_LEVEL
 node "$APP_DIR/bin/mc-bridge.mjs" start --open "$@"
 trap - INT
 mcb_pause "The Bridge has stopped. Press Enter to close."

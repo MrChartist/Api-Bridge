@@ -14,7 +14,9 @@ Start with the [main README](../../README.md) for the quick start. These guides 
 | [notifications.md](notifications.md) | Saved-scan alerts, fills, kill switch and expired sessions to Telegram, Discord, Slack or a webhook |
 | [compat-api.md](compat-api.md) | `/api/v1` apikey-in-body REST and WebSocket for existing algo tools and SDKs |
 | [streaming.md](streaming.md) | WebSocket and SSE live data |
-| [webhooks.md](webhooks.md) | Signed generic, ChartInk and GoCharting alerts |
+| [data-api.md](data-api.md) | The data calls every project points at: prices, history, option chain, instruments |
+| [webhooks.md](webhooks.md) | TradingView, ChartInk, GoCharting and signed generic alerts |
+| [forwarding.md](forwarding.md) | Send each order update to a URL in another project, as signed JSON |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [python.md](python.md) | Python SDK |
 | [typescript.md](typescript.md) | Node and TypeScript SDK |

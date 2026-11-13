@@ -5,6 +5,7 @@
  */
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
@@ -13,7 +14,7 @@ import { cliCommand } from "./cliName.mjs";
 import { readControlToken } from "./controlToken.mjs";
 import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
-import { configFileForWrites, isLoopbackHost, loadConfig } from "./config.mjs";
+import { IGNORED_PREFIX, configFileForWrites, isLoopbackHost, keylessSignInAllowed, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 
@@ -209,6 +210,34 @@ export function bridgeUrl(flags, io, config) {
   return `http://${host}:${config.server.port}`;
 }
 
+/**
+ * What the Bridge's own window says when it was opened by a double-click (the Windows app, the Mac app, the start
+ * files; MCB_APP_WINDOW=1): a name, that it is running, the one address, the one next step and how to stop. No
+ * commands, keys or log lines: the person looking at it did not open a terminal on purpose. Plain ASCII, so it reads
+ * the same in every Windows console. Exported for tests.
+ */
+export function appWindowLines({ app, port, version }) {
+  const host = app.config.server.host === "0.0.0.0" ? "127.0.0.1" : app.config.server.host;
+  const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}/dashboard`;
+  const lines = ["", `  Mr. Chartist API Bridge ${version ?? ""}`.trimEnd(), "  ----------------------------------------", "", "  The Bridge is running.", `  Dashboard:  ${url}`, ""];
+  let rows = [];
+  try {
+    rows = app.deps.accounts.list().filter((a) => a.broker !== "paper");
+  } catch {
+    /* account manager not built */
+  }
+  const live = rows.filter((a) => a.session?.state === "connected");
+  if (app.config.demo) lines.push("  Demo mode: sample prices and practice orders only. No broker is connected.");
+  else if (rows.length === 0) lines.push("  Next step: add your broker on the Accounts page of the dashboard.");
+  else if (live.length === 0) lines.push("  Next step: log in to your broker on the Accounts page of the dashboard.");
+  else lines.push(`  Connected: ${live.map((a) => a.label || a.id).join(", ")}.`);
+  lines.push("  Orders are practice (paper) orders until you switch real trading on.", "", "  Keep this window open while you use the Bridge.", "  To stop the Bridge, close this window.", "");
+  return lines;
+}
+
+/** How many ports after the configured one a double-clicked app tries when each is taken. */
+export const APP_WINDOW_PORT_TRIES = 10;
+
 /** Lines printed after `start`: where the dashboard is and what to do next. Exported for tests. */
 export async function startHints({ app, port, env = process.env }) {
   const cli = cliCommand(env);
@@ -268,15 +297,46 @@ export function localBaseUrl(host, port) {
  * or another program that does not speak the Bridge's health format).
  * @returns {Promise<{ status: string, version?: string, demo?: boolean } | null>}
  */
-export async function probeBridge(baseUrl) {
-  try {
-    const res = await fetch(`${baseUrl}/v1/health`, { signal: AbortSignal.timeout(2000) });
-    if (!res.ok) return null;
-    const body = await res.json();
-    return body?.status === "ok" && typeof body.apiVersion === "string" ? body : null;
-  } catch {
-    return null;
-  }
+export function probeBridge(baseUrl, { timeoutMs = 2000 } = {}) {
+  // node:http rather than fetch: it is the plainest way to ask, has no proxy or agent in between, and this answer
+  // decides whether a second window starts a second Bridge.
+  return new Promise((done) => {
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      done(v);
+    };
+    let req;
+    try {
+      req = http.get(`${baseUrl}/v1/health`, { timeout: timeoutMs, agent: false, headers: { connection: "close" } }, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          return finish(null);
+        }
+        let raw = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => {
+          raw += c;
+          if (raw.length > 65_536) req.destroy();
+        });
+        res.on("end", () => {
+          try {
+            const body = JSON.parse(raw);
+            finish(body?.status === "ok" && typeof body.apiVersion === "string" ? body : null);
+          } catch {
+            finish(null);
+          }
+        });
+        res.on("error", () => finish(null));
+      });
+    } catch {
+      return finish(null);
+    }
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => finish(null));
+    req.on("close", () => finish(null));
+  });
 }
 
 /**
@@ -364,7 +424,14 @@ export async function runCli(positionals, flags, io) {
         const planned = loadConfig({ path: flags.config, env: io.env, cwd: io.cwd, knownBrokers: createBrokerRegistry().list(), demo: flags.demo === true }).config;
         const plannedUrl = localBaseUrl(planned.server.host, planned.server.port);
         const running = planned.server.port === 0 ? null : await probeBridge(plannedUrl);
-        if (running) {
+        // A double-clicked app (MCB_APP_WINDOW=1) never gives up on a busy port: its window would close before anyone
+        // could read why. If another copy of the Bridge (kept in another folder) or another program holds the port,
+        // it starts on the next free one and says so.
+        const appWindow = io.env?.MCB_APP_WINDOW === "1";
+        let portNote = null;
+        if (running && appWindow && !usesDataDir(planned.dataDir)) {
+          portNote = `  Another copy of the Bridge is already running on port ${planned.server.port}, so this one uses the next free port.`;
+        } else if (running) {
           if (!usesDataDir(planned.dataDir)) {
             io.err(`Error: ${otherFolderMessage(plannedUrl, planned.dataDir)}`);
             return 1;
@@ -373,23 +440,73 @@ export async function runCli(positionals, flags, io) {
             io.err(`The Bridge is already running at ${plannedUrl}. To open its dashboard, run: mc-bridge open`);
             return 1;
           }
+          if (appWindow) {
+            io.err("");
+            io.err("  Mr. Chartist API Bridge is already running on this computer.");
+            io.err(`  Opening its dashboard:  ${plannedUrl}/dashboard`);
+            io.err("");
+            if (keylessSignInAllowed(planned)) (io.openUrl ?? openInBrowser)(`${plannedUrl}/dashboard`);
+            else await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
+            return 0;
+          }
           io.err("The Bridge is already running; opening the dashboard.");
           if (flags.demo === true && !running.demo) io.err("Note: the running Bridge is not in demo mode. To try demo mode, stop it first (Ctrl+C in its window), then start again with --demo.");
           await openSignedInDashboard({ dataDir: planned.dataDir, baseUrl: plannedUrl, io });
           return 0;
         }
-        const { app } = await bootServices(flags, io, { server: true });
+        let app;
         let port;
         let publicPort;
-        try {
-          ({ port, publicPort } = await app.listen());
-        } catch (err) {
-          await app.close().catch(() => {});
-          if (err?.code === "EADDRINUSE") {
+        let bootWarnings = [];
+        // The port to try first, then (for a double-clicked app only) the next ones while each is taken.
+        const firstPort = planned.server.port + (portNote ? 1 : 0);
+        for (let tryPort = firstPort; ; tryPort += 1) {
+          const bootIo = tryPort === planned.server.port ? io : { ...io, env: { ...io.env, MCB_PORT: String(tryPort) } };
+          ({ app, warnings: bootWarnings } = await bootServices(flags, bootIo, { server: true }));
+          try {
+            ({ port, publicPort } = await app.listen());
+            if (tryPort !== planned.server.port && !portNote) portNote = `  Port ${planned.server.port} is used by another program, so the Bridge uses port ${port}.`;
+            break;
+          } catch (err) {
+            await app.close().catch(() => {});
+            if (err?.code === "EADDRINUSE" && appWindow && planned.server.port !== 0 && tryPort < planned.server.port + APP_WINDOW_PORT_TRIES) continue;
+            if (err?.code === "EADDRINUSE") {
             throw new BridgeError("VALIDATION_FAILED", `Port ${err.port ?? app.config.server.port} is already in use by another program (not this Bridge). Close that program, or choose another port under "server" in bridge.config.json (for example "port": 4301).`);
           }
-          throw err;
+            throw err;
+          }
         }
+        if (appWindow) {
+          for (const line of appWindowLines({ app, port, version: (await import("./app.mjs")).BRIDGE_VERSION })) io.err(line);
+          if (portNote) {
+            io.err(portNote);
+            io.err("");
+          }
+          // Sections of the settings file that belong to the full Mr. Chartist app: not used here, and said once.
+          for (const w of bootWarnings.filter((x) => typeof x === "string" && x.startsWith(IGNORED_PREFIX))) {
+            io.err(`  Note: your settings file has parts this version does not use (${w.slice(IGNORED_PREFIX.length)}).`);
+            io.err("  They are ignored; everything else works as usual.");
+            io.err("");
+          }
+          // Ask the Bridge for its own health over the address the browser will use. If that fails although it is
+          // listening, something on this computer (a security program, a proxy setting) stands in between, and saying
+          // so here is the only way the person finds out why the browser shows "refused to connect".
+          if (app.config.server.port !== 0 && !(await probeBridge(localBaseUrl(app.config.server.host, port)))) {
+            io.err("  Warning: the Bridge is running, but this computer could not reach it at the address above.");
+            io.err("  A security program or a proxy setting may be blocking it. Allow this app in that program,");
+            io.err("  then close this window and start the Bridge again.");
+            io.err("");
+          }
+          if (flags.open) {
+            // On this computer the dashboard signs itself in, so the plain address is enough (and can be bookmarked).
+            const url = `${localBaseUrl(app.config.server.host, port)}/dashboard`;
+            if (keylessSignInAllowed(app.config)) {
+              const opened = (io.openUrl ?? openInBrowser)(url);
+              io.err(opened ? "  Opening the dashboard in your browser ..." : `  Open this address in your browser:  ${url}`);
+              io.err("");
+            } else await openSignedInDashboard({ dataDir: app.config.dataDir, baseUrl: localBaseUrl(app.config.server.host, port), io });
+          }
+        } else {
         if (app.config.demo) {
           io.err("");
           io.err("  ************************************************************");
@@ -403,6 +520,7 @@ export async function runCli(positionals, flags, io) {
         for (const line of await startHints({ app, port, env: io.env })) io.err(line);
         if (flags.open) await openSignedInDashboard({ dataDir: app.config.dataDir, baseUrl: localBaseUrl(app.config.server.host, port), io });
         io.err("Press Ctrl+C to stop.");
+        }
         // Tests close the app themselves; the real CLI stops on Ctrl+C or a termination signal.
         if (typeof io.onListening === "function") {
           io.onListening(app);

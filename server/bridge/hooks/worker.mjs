@@ -127,9 +127,17 @@ export function createSignalWorker({ deps, store, logger, queueSize, concurrency
     if (!product) throw new SignalRefused("VALIDATION_FAILED", "No product: set it on the hook (CNC, INTRADAY or MARGIN) or send it in the alert.");
     if (s.orderType && s.orderType !== hook.orderType) throw new SignalRefused("ORDER_TYPE_NOT_ALLOWED", `This hook places ${hook.orderType} orders; the alert asked for ${s.orderType}.`);
     const order = { account: hook.account, symbol: inst.canonical, side, lots, product, orderType: hook.orderType, mode: hook.mode, tag: hook.id };
-    if (hook.orderType === "LIMIT") {
-      if (s.price === null) throw new SignalRefused("VALIDATION_FAILED", "This hook places LIMIT orders, so the alert must carry a price.");
+    const stop = hook.orderType === "SL" || hook.orderType === "SL-M";
+    if (hook.orderType === "LIMIT" || hook.orderType === "SL") {
+      if (s.price === null) throw new SignalRefused("VALIDATION_FAILED", `This hook places ${hook.orderType} orders, so the alert must carry a price.`);
       order.price = s.price;
+    }
+    // A stop-loss waits at its trigger. The alert must say where: the Bridge never guesses one from the price.
+    if (stop) {
+      if ((s.triggerPrice ?? null) === null) throw new SignalRefused("VALIDATION_FAILED", `This hook places ${hook.orderType} (stop-loss) orders, so the alert must carry a triggerPrice.`);
+      order.triggerPrice = s.triggerPrice;
+    } else if ((s.triggerPrice ?? null) !== null) {
+      throw new SignalRefused("ORDER_TYPE_NOT_ALLOWED", `The alert carries a triggerPrice, but this hook places ${hook.orderType} orders. Create an SL or SL-M hook for stop-loss alerts.`);
     }
     return order;
   }

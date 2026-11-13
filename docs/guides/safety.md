@@ -124,3 +124,53 @@ Every key change, login, order step, confirmation, kill-switch action and webhoo
 
 One JSON line per event on stderr. Secret field names, Bridge keys, bearer tokens, JWTs and every decrypted credential
 are masked; request bodies are never logged; webhook paths are logged without their tokens.
+
+## Signing in to the dashboard
+
+On the computer the Bridge runs on, the dashboard opens without a key: the page asks the Bridge for a key of its own
+(`POST /v1/sign-in/local`) and you are in. Signing out (the account row in the sidebar) keeps that tab signed out
+until you choose **Continue on this computer**.
+
+What stands in for the key is being on this computer. The Bridge gives that key only when the request comes from a
+loopback address, is addressed to a loopback host name, carries no proxy headers, did not arrive on the public
+listener, and carries the Bridge's own `Origin`, so another web site open in your browser, a script, a tunnel or a
+reverse proxy cannot get one. The key is an admin key for 30 days; the Bridge keeps only the newest five valid and
+writes each one to the audit log.
+
+What it does not protect against: anyone who can use this computer as you can open the dashboard, and on a computer
+shared with other user accounts, so can they. It never opens live trading by itself (that still needs the opt-ins in
+`bridge.config.json` and a key with the `live` scope). To always ask for a key or a sign-in link instead:
+
+```json
+{ "server": { "keylessSignIn": false } }
+```
+
+It is off by default when `server.localPeers` is set (Docker) or the dashboard is served to other computers, because
+there "this computer" means more than loopback.
+
+## Tools on this computer need no key
+
+For now, nothing on the computer the Bridge runs on needs an API key. A script, a spreadsheet or any other tool that
+calls the API from this computer without a key is treated as **This computer**: it can read, place paper orders and do
+admin work, on every account. The same holds for the live stream and the compat API. Keys will be needed again for
+subscriptions and similar features in a later version; they still work today, and a tool that sends a key is held to
+exactly what that key allows.
+
+- **Never live.** Keyless access does not carry the `live` scope and cannot create a key that does. A real order
+  still needs a key made for live trading, on top of the opt-ins in `bridge.config.json`.
+- **This computer only.** The request must come from a loopback address, be addressed to a loopback host name and
+  carry no proxy headers. A tunnel, a reverse proxy, the public webhook listener, another web site in your browser
+  and another machine on your network all still need a key.
+- **What it does not protect against:** any program running on this computer as you, and other user accounts on a
+  shared computer, can use the Bridge. On a shared or untrusted machine, switch it off.
+
+To require a key from every tool again:
+
+```json
+{ "server": { "keylessApi": false } }
+```
+
+or start the Bridge with `MCB_KEYLESS=0` in the environment. It is off by default when `server.localPeers` is set
+(Docker) or the dashboard is served to other computers. "This computer" appears on the Keys page as one key; revoking
+it there only replaces it, the setting above is what turns it off.
+

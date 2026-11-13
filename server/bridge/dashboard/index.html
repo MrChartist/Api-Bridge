@@ -12,6 +12,8 @@
   <link rel="preload" href="/dashboard/font-chartist-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/dashboard/app.css">
   <link rel="stylesheet" href="/dashboard/palette.css">
+  <link rel="stylesheet" href="/dashboard/ios.css">
+  <link rel="stylesheet" href="/dashboard/home.css">
   <!-- Motion (motion.dev, MIT, vendored v14.1.0: see motion.LICENSE.md). Sets window.Motion; served from this Bridge (CSP script-src 'self'). -->
   <script src="/dashboard/motion.min.js"></script>
   <script type="module" src="/dashboard/app.js"></script>
@@ -26,8 +28,10 @@
   </defs></svg>
   <div class="app-symbol-wrap" aria-hidden="true"><svg class="app-symbol" viewBox="0 0 1024 1024" focusable="false"><use href="#mc-symbol"/></svg></div>
 
-  <!-- Sign-in: the API key stays in this browser tab only (sessionStorage) and is never put in a URL. A one-time
-       sign-in link (#signin=..., from mc-bridge start --open or mc-bridge open) skips this screen; see app.js. -->
+  <!-- Sign-in. On this computer the dashboard signs itself in (POST /v1/sign-in/local) and this screen is not shown;
+       it appears after signing out, or when the Bridge does not allow that. A one-time sign-in link (#signin=...,
+       from mc-bridge start --open or mc-bridge open) skips it too. A key typed here stays in this browser tab only
+       (sessionStorage) and is never put in a URL; see app.js. -->
   <section id="login" class="login" hidden>
     <div class="card login-card">
       <div class="lockup">
@@ -37,28 +41,21 @@
       <div id="login-demo" class="login-demo" hidden><span class="pill demo">Demo data</span><span>This Bridge runs in demo mode: sample prices, no broker, paper orders only.</span></div>
       <div class="login-head">
         <div class="eyebrow">Local dashboard · this computer only</div>
-        <h1>Sign in with your <em class="serif">admin key</em></h1>
-        <p class="muted">The key was printed once when you ran the setup. It stays in this browser tab and is forgotten when you close it.</p>
+        <h1>Open your <em class="serif">bridge</em></h1>
+        <p class="muted">On this computer you do not need a key. A key is only for signing in as someone with less access.</p>
       </div>
+      <button type="button" id="login-local" class="primary wide">Continue on this computer</button>
+      <div class="login-or" aria-hidden="true"><span>or sign in with a key</span></div>
       <form id="login-form" class="stack">
         <label class="field">API key
           <input id="key-input" type="password" autocomplete="off" spellcheck="false" placeholder="mcb_…" required>
         </label>
-        <button type="submit" class="primary wide">Open dashboard</button>
+        <button type="submit" class="wide">Sign in with this key</button>
       </form>
       <div id="login-error" role="alert"></div>
       <div class="login-help-list">
-        <strong>No key yet?</strong>
-        <p class="muted">Run one of these in the Bridge folder:</p>
-        <dl class="login-cmds">
-          <dt>Just trying it: demo mode, opens signed in</dt>
-          <dd><code>npm run dev</code></dd>
-          <dt>First time: set up and print an admin key</dt>
-          <dd><code>npm run bridge -- init</code></dd>
-          <dt>Another key</dt>
-          <dd><code>npm run bridge -- keys create --label me --scope admin,paper</code></dd>
-        </dl>
-        <p class="muted">Lost your key? You do not need it here: open the Bridge again from its shortcut, or run <code>mc-bridge open</code> (in the Bridge folder: <code>npm run bridge -- open</code>). The dashboard then opens already signed in.</p>
+        <strong>Signed out by accident?</strong>
+        <p class="muted">Choose Continue on this computer. A key is only needed when the Bridge has been set to ask for one, or to sign in with less access than this computer has.</p>
       </div>
     </div>
   </section>
@@ -69,7 +66,7 @@
 
     <!-- Wide screens (1024px and up): the sidebar, flush on the left edge; the icon rail from 1024 to 1279 px or when collapsed. -->
     <aside id="sidebar" class="sidebar glass glass-strong" aria-label="Sidebar">
-      <a class="sb-brand lockup" href="#/accounts" aria-label="API Bridge home">
+      <a class="sb-brand lockup" href="#/home" aria-label="API Bridge home">
         <svg class="lockup-symbol" viewBox="0 0 1024 1024" aria-hidden="true" focusable="false"><use href="#mc-symbol"/></svg>
         <span class="lockup-text"><span class="lockup-name">API Bridge</span><span class="lockup-sub">by Mr. Chartist</span></span>
       </a>

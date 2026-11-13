@@ -42,7 +42,7 @@ body:
         - Streaming (WebSocket / SSE)
         - Orders / paper engine / safety
         - Rate limits
-        - Webhooks (generic, ChartInk, GoCharting)
+        - Webhooks (TradingView, ChartInk, GoCharting, generic)
         - Excel / Google Sheets / AmiBroker
         - MCP (Claude, other AI tools) / OpenAI tool schemas
         - Node SDK

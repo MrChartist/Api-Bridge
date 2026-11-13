@@ -3,6 +3,7 @@ import { MAX_SIGNALS_PER_ALERT, signalFromObject, signalFromText, toNumber, toOr
 import { parseChartInk } from "./chartink.mjs";
 import { parseGeneric } from "./generic.mjs";
 import { parseGoCharting } from "./gocharting.mjs";
+import { TRADINGVIEW_WEBHOOK_IPS, parseTradingView } from "./tradingview.mjs";
 
 const code = (fn) => {
   try {
@@ -29,14 +30,17 @@ describe("common field parsing", () => {
     expect(code(() => toSide("long"))).toBe("VALIDATION_FAILED");
     expect(toOrderType("mkt")).toBe("MARKET");
     expect(toOrderType("limit")).toBe("LIMIT");
-    expect(code(() => toOrderType("SL"))).toBe("VALIDATION_FAILED");
+    expect(toOrderType("SL")).toBe("SL");
+    expect(toOrderType("slm")).toBe("SL-M");
+    expect(toOrderType("sl-m")).toBe("SL-M");
+    expect(code(() => toOrderType("BRACKET"))).toBe("VALIDATION_FAILED");
     expect(toProduct("MIS")).toBe("INTRADAY");
     expect(toProduct("nrml")).toBe("MARGIN");
     expect(toProduct("cnc")).toBe("CNC");
   });
   it("builds a signal from common JSON spellings, joining exchange and ticker", () => {
     const s = signalFromObject({ ticker: "RELIANCE", exchange: "NSE", action: "buy", qty: "10", limit_price: "1402.5", product: "MIS", order_id: "L1", timenow: "t" });
-    expect(s).toEqual({ symbol: "NSE:RELIANCE", side: "BUY", quantity: 10, lots: null, price: 1402.5, orderType: null, product: "INTRADAY", ref: "L1", time: "t" });
+    expect(s).toEqual({ symbol: "NSE:RELIANCE", side: "BUY", quantity: 10, lots: null, price: 1402.5, triggerPrice: null, orderType: null, product: "INTRADAY", ref: "L1", time: "t" });
     expect(code(() => signalFromObject({ symbol: "NSE:X", quantity: 1, lots: 1 }))).toBe("VALIDATION_FAILED");
     expect(code(() => signalFromObject({ side: "buy" }))).toBe("VALIDATION_FAILED");
   });
@@ -46,6 +50,9 @@ describe("text alert grammar", () => {
   it("reads positional alerts", () => {
     expect(signalFromText("BUY NSE:RELIANCE 10 @ 1402.5")).toMatchObject({ side: "BUY", symbol: "NSE:RELIANCE", quantity: 10, price: 1402.5 });
     expect(signalFromText("sell NFO:NIFTY-2026-10-27-25000-CE 2 lots MKT INTRADAY")).toMatchObject({ side: "SELL", lots: 2, orderType: "MARKET", product: "INTRADAY" });
+    expect(signalFromText("SELL NSE:RELIANCE 10 SL-M trigger=1390")).toMatchObject({ side: "SELL", quantity: 10, orderType: "SL-M", triggerPrice: 1390, price: null });
+    expect(signalFromText("SELL NSE:RELIANCE 10 @ 1388 SL trigger=1390")).toMatchObject({ orderType: "SL", price: 1388, triggerPrice: 1390 });
+    expect(signalFromObject({ symbol: "NSE:INFY", side: "sell", qty: 1, order_type: "SLM", trigger_price: "1490.5" })).toMatchObject({ orderType: "SL-M", triggerPrice: 1490.5 });
     expect(signalFromText("BUY NSE:M&M 5 @1500")).toMatchObject({ symbol: "NSE:M&M", quantity: 5, price: 1500 });
   });
   it("reads key=value alerts, mixed with positional words", () => {
@@ -127,5 +134,29 @@ describe("generic", () => {
     expect(code(() => parseGeneric({ signals: Array(MAX_SIGNALS_PER_ALERT + 1).fill(sig) }))).toBe("VALIDATION_FAILED");
     expect(code(() => parseGeneric({ signals: [] }))).toBe("VALIDATION_FAILED");
     expect(code(() => parseGeneric("BUY NSE:INFY 1"))).toBe("VALIDATION_FAILED");
+  });
+});
+
+describe("TradingView", () => {
+  it("reads a filled-in strategy alert: exchange and ticker joined, numbers sent as text", () => {
+    const a = parseTradingView({ symbol: "NSE:RELIANCE", side: "buy", quantity: "10", price: "1402.5", id: "Long", time: "2026-10-19T04:00:00Z" });
+    expect(a.signals).toEqual([{ symbol: "NSE:RELIANCE", side: "BUY", quantity: 10, lots: null, price: 1402.5, triggerPrice: null, orderType: null, product: null, ref: "Long", time: "2026-10-19T04:00:00Z" }]);
+    expect(a.basis).toBe("tv|Long|2026-10-19T04:00:00Z");
+    expect(parseTradingView({ ticker: "INFY", exchange: "NSE", action: "sell", contracts: 2 }).signals[0]).toMatchObject({ symbol: "NSE:INFY", side: "SELL", quantity: 2 });
+  });
+  it("reads a plain-text message, and identifies an alert with no id by its bytes", () => {
+    expect(parseTradingView("SELL NSE:INFY 2 @ 1500").signals[0]).toMatchObject({ side: "SELL", quantity: 2, price: 1500 });
+    expect(parseTradingView({ symbol: "NSE:RELIANCE", side: "buy", quantity: 1 }).basis).toBeNull();
+  });
+  it("refuses a placeholder TradingView did not fill, and anything that is not an object or text", () => {
+    expect(code(() => parseTradingView({ symbol: "{{exchange}}:{{ticker}}", side: "buy" }))).toBe("VALIDATION_FAILED");
+    expect(code(() => parseTradingView("{{strategy.order.action}} NSE:RELIANCE 1"))).toBe("VALIDATION_FAILED");
+    expect(code(() => parseTradingView({ symbol: "NSE:RELIANCE", side: "long" }))).toBe("VALIDATION_FAILED");
+    expect(code(() => parseTradingView([1]))).toBe("VALIDATION_FAILED");
+    expect(code(() => parseTradingView(null))).toBe("VALIDATION_FAILED");
+  });
+  it("lists the sender's addresses as plain IPv4", () => {
+    expect(TRADINGVIEW_WEBHOOK_IPS.length).toBeGreaterThan(0);
+    for (const ip of TRADINGVIEW_WEBHOOK_IPS) expect(ip).toMatch(/^\d{1,3}(\.\d{1,3}){3}$/);
   });
 });

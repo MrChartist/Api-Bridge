@@ -38,7 +38,7 @@ export function marketData(tick, mode, symbol, exchange) {
 /**
  * @param {{ hub: object, keyStore: object, accounts: object, bus?: object, logger?: object, account?: string }} deps
  */
-export function createCompatWs({ hub, keyStore, accounts, bus, logger, account }) {
+export function createCompatWs({ hub, keyStore, accounts, bus, logger, account, localAccess = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, perMessageDeflate: false, clientTracking: false });
   /** id -> { ws, keyId } */
   const sockets = new Map();
@@ -89,7 +89,8 @@ export function createCompatWs({ hub, keyStore, accounts, bus, logger, account }
       }
       const action = String(msg?.action ?? "").toLowerCase();
       if (action === "authenticate") {
-        const rec = typeof msg.api_key === "string" ? await keyStore.authenticate(msg.api_key, { ip }) : null;
+        // No api_key: on this computer the connection acts as "This computer" (auth/localAccess.mjs).
+        const rec = typeof msg.api_key === "string" && msg.api_key ? await keyStore.authenticate(msg.api_key, { ip }) : ((await localAccess?.recordFor(req)) ?? null);
         if (!rec || !expandScopes(rec.scopes).has("read")) {
           send({ type: "auth", status: "error", message: "Invalid API key" });
           return ws.close(4001, "invalid api key");

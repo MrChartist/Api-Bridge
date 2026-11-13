@@ -445,3 +445,73 @@ describe("one-time sign-in links from the CLI", () => {
     expect(USAGE).toMatch(/mc-bridge open/);
   });
 });
+
+describe("the window of a double-clicked app (MCB_APP_WINDOW=1)", async () => {
+  const { appWindowLines } = await import("./cli.mjs");
+  const app = (o = {}) => ({ config: { server: { host: "127.0.0.1" }, demo: false, ...o.config }, deps: { accounts: { list: () => o.accounts ?? [] } } });
+  const text = (o) => appWindowLines({ app: app(o), port: 4300, version: "2.0.0" }).join("\n");
+
+  it("says it is running, gives the one address and how to stop, in plain ASCII", () => {
+    const t = text();
+    expect(t).toContain("Mr. Chartist API Bridge 2.0.0");
+    expect(t).toContain("The Bridge is running.");
+    expect(t).toContain("Dashboard:  http://127.0.0.1:4300/dashboard");
+    expect(t).toContain("To stop the Bridge, close this window.");
+    // eslint-disable-next-line no-control-regex
+    expect(t).toMatch(/^[\x00-\x7F]*$/);
+  });
+
+  it("names the one next step: add a broker, log in, or nothing when connected", () => {
+    expect(text()).toContain("Next step: add your broker on the Accounts page");
+    expect(text({ accounts: [{ id: "dhan-main", broker: "dhan", session: { state: "expired" } }] })).toContain("Next step: log in to your broker");
+    expect(text({ accounts: [{ id: "dhan-main", label: "Dhan", broker: "dhan", session: { state: "connected" } }, { id: "p", broker: "paper" }] })).toContain("Connected: Dhan.");
+    expect(text({ config: { demo: true } })).toContain("Demo mode");
+  });
+
+  it("shows no key, no command to type and no sign-in link", () => {
+    for (const t of [text(), text({ config: { demo: true } })]) {
+      expect(t).not.toMatch(/mcb_|mc-bridge|npm run|#signin=|Ctrl\+C|API key/);
+    }
+  });
+});
+
+describe("a double-clicked app never gives up on a busy port", async () => {
+  const { runCli } = await import("./cli.mjs");
+  const net = await import("node:net");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  it("starts on the next free port when another program holds the configured one, and says so", async () => {
+    // Another program on the port: it accepts connections and says nothing (the worst case for a health probe).
+    const sockets = new Set();
+    const blocker = net.createServer((sock) => {
+      sockets.add(sock);
+      sock.on("error", () => {});
+      sock.on("close", () => sockets.delete(sock));
+    });
+    await new Promise((r) => blocker.listen(0, "127.0.0.1", r));
+    const taken = blocker.address().port;
+    const dir = mkdtempSync(join(tmpdir(), "mcb-appwin-"));
+    writeFileSync(join(dir, "bridge.config.json"), JSON.stringify({ server: { port: taken }, dataDir: join(dir, "data"), logging: { level: "silent" } }));
+    const lines = [];
+    let started = null;
+    const io = { out: (s) => lines.push(s), err: (s) => lines.push(s), env: { MCB_APP_WINDOW: "1" }, cwd: dir, openUrl: () => true, onListening: (app) => (started = app) };
+    try {
+      const code = await runCli(["start"], { config: join(dir, "bridge.config.json"), open: true }, io);
+      expect(code).toBeNull();
+      const text = lines.join("\n");
+      expect(text).toContain("The Bridge is running.");
+      expect(text).toMatch(new RegExp(`Port ${taken} is used by another program, so the Bridge uses port \\d+\\.`));
+      expect(text).not.toContain(`Dashboard:  http://127.0.0.1:${taken}/dashboard`);
+      // Without the app window, the same situation is still an error a person at a terminal can read.
+      lines.length = 0;
+      expect(await runCli(["start"], { config: join(dir, "bridge.config.json") }, { ...io, env: {} })).toBe(1);
+      expect(lines.join("\n")).toMatch(/already in use by another program/);
+    } finally {
+      await started?.close();
+      for (const sock of sockets) sock.destroy();
+      await new Promise((r) => blocker.close(r));
+    }
+  });
+});

@@ -16,7 +16,29 @@ export const KEY_PRESETS = Object.freeze({
   claude: { label: "Claude (MCP)", scopes: ["read"], clientKind: "mcp" },
   chatgpt: { label: "OpenAI tools", scopes: ["read"], clientKind: "mcp" },
   rest: { label: "curl / REST", scopes: ["read"], clientKind: "script" },
+  project: { label: "My project", scopes: ["read", "paper"], clientKind: "script" },
 });
+
+/**
+ * What another project usually wants from the Bridge, and the one call that gives it. Pure.
+ * @returns {Array<{ want: string, method: "GET"|"POST", path: string }>}
+ */
+export function projectCalls({ account = "paper", symbol = "NSE:NIFTY" } = {}) {
+  return [
+    { want: "Live prices", method: "GET", path: `/v1/quotes?symbols=${symbol},NSE:RELIANCE` },
+    { want: "Price history (candles)", method: "GET", path: `/v1/history?symbol=${symbol}&interval=5m&countback=300` },
+    { want: "The same history as CSV", method: "GET", path: `/v1/history?symbol=${symbol}&interval=1d&from=2026-01-01&to=2026-06-30&format=csv` },
+    { want: "Option chain with greeks", method: "GET", path: "/v1/optionchain?underlying=NIFTY&expiry=<YYYY-MM-DD>&strikes=10&greeks=true" },
+    { want: "Find a symbol", method: "GET", path: "/v1/instruments/search?q=banknifty fut&limit=5" },
+    { want: "Your accounts", method: "GET", path: "/v1/accounts" },
+    { want: "Positions", method: "GET", path: `/v1/positions?account=${account}` },
+    { want: "Holdings", method: "GET", path: `/v1/holdings?account=${account}` },
+    { want: "Funds", method: "GET", path: `/v1/funds?account=${account}` },
+    { want: "Today's orders", method: "GET", path: "/v1/orders" },
+    { want: "Place an order", method: "POST", path: "/v1/orders" },
+    { want: "Check an order first", method: "POST", path: "/v1/orders/preview" },
+  ];
+}
 
 const j = (v) => JSON.stringify(v, null, 2);
 
@@ -38,6 +60,11 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
   const host = base.replace(/\/$/, "");
   return {
     webhooks: [
+      {
+        title: "TradingView strategy alert (paste into the alert's Message box)",
+        lang: "json",
+        code: JSON.stringify({ symbol: "{{exchange}}:{{ticker}}", side: "{{strategy.order.action}}", quantity: "{{strategy.order.contracts}}", price: "{{strategy.order.price}}", id: "{{strategy.order.id}}", time: "{{timenow}}" }, null, 2),
+      },
       { title: "Generic alert body (JSON)", lang: "json", code: genericAlert() },
       {
         title: "Send a signed generic alert (bash + openssl)",
@@ -147,6 +174,59 @@ export function snippets({ base, key = null, account = "paper", symbol = "NSE:NI
           `        "Authorization": "Bearer ${read}", "Content-Type": "application/json", "Accept": "application/json, text/event-stream"})`,
           "    with urllib.request.urlopen(req) as r:",
           "        return json.loads(r.read())[\"result\"]",
+        ].join("\n"),
+      },
+    ],
+    project: [
+      {
+        title: ".env (put this file in your project; never commit it)",
+        lang: "text",
+        code: [`MCB_URL=${host}`, `MCB_API_KEY=${key ?? ""}`, `MCB_ACCOUNT=${account}`].join("\n"),
+      },
+      {
+        title: "Python (no packages needed)",
+        lang: "python",
+        code: [
+          "import json, os, urllib.request",
+          "",
+          `BASE = os.environ.get("MCB_URL", "${host}")`,
+          `KEY = os.environ.get("MCB_API_KEY", "")  # empty works on the computer the Bridge runs on`,
+          "",
+          "def bridge(path, body=None):",
+          `    headers = {"Content-Type": "application/json"}`,
+          `    if KEY: headers["Authorization"] = f"Bearer {KEY}"`,
+          "    data = json.dumps(body).encode() if body is not None else None",
+          "    req = urllib.request.Request(BASE + path, data=data, headers=headers)",
+          "    with urllib.request.urlopen(req, timeout=15) as r:",
+          `        return json.load(r)["data"]`,
+          "",
+          `print(bridge("/v1/quotes?symbols=${symbol},NSE:RELIANCE"))`,
+          `order = {"account": os.environ.get("MCB_ACCOUNT", "${account}"), "symbol": "NSE:RELIANCE", "side": "BUY",`,
+          `         "quantity": 1, "product": "CNC", "orderType": "MARKET", "mode": "paper"}`,
+          `print(bridge("/v1/orders/preview", order))   # check it first`,
+          `# print(bridge("/v1/orders", order))         # then place it (paper)`,
+        ].join("\n"),
+      },
+      {
+        title: "Node 22 (no packages needed)",
+        lang: "javascript",
+        code: [
+          `const BASE = process.env.MCB_URL ?? "${host}";`,
+          `const KEY = process.env.MCB_API_KEY ?? ""; // empty works on the computer the Bridge runs on`,
+          "",
+          "async function bridge(path, body) {",
+          "  const r = await fetch(BASE + path, {",
+          `    method: body ? "POST" : "GET",`,
+          `    headers: { "Content-Type": "application/json", ...(KEY ? { Authorization: \`Bearer \${KEY}\` } : {}) },`,
+          "    body: body ? JSON.stringify(body) : undefined,",
+          "  });",
+          "  const j = await r.json();",
+          "  if (!r.ok) throw new Error(j.detail ?? j.title ?? r.statusText);",
+          "  return j.data;",
+          "}",
+          "",
+          `console.log(await bridge("/v1/quotes?symbols=${symbol},NSE:RELIANCE"));`,
+          `console.log(await bridge("/v1/positions?account=${account}"));`,
         ].join("\n"),
       },
     ],

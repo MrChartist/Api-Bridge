@@ -1,5 +1,5 @@
 /**
- * hooks module — stream S11: inbound webhooks (signed generic, ChartInk, GoCharting).
+ * hooks module — stream S11: inbound webhooks (signed generic, TradingView, ChartInk, GoCharting).
  * Owned files and tasks: docs/STREAMS.md §S11. The routes below are the contract in docs/openapi.yaml.
  *
  * Config section `hooks` (optional; see config.mjs): queue size, concurrency, dedupe window, signature tolerance,

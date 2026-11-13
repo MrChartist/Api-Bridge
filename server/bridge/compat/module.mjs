@@ -6,6 +6,7 @@
  * the key's scopes, account list and per-key rate limit exactly as the /v1 pipeline does, and only then runs.
  * Errors come back the compat-style way: { "status": "error", "message": "..." } with the Bridge's HTTP status.
  */
+import { localAccessFor } from "../auth/localAccess.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { expandScopes } from "../core/context.mjs";
 import { BridgeError, toProblem } from "../core/errors.mjs";
@@ -69,8 +70,10 @@ async function authenticate(ctx, deps) {
   const h = ctx.req?.headers ?? {};
   if (!raw && typeof h.authorization === "string") raw = /^Bearer\s+(\S+)$/i.exec(h.authorization.trim())?.[1] ?? null;
   if (!raw && typeof h["x-api-key"] === "string") raw = h["x-api-key"].trim() || null;
-  if (!raw) throw new BridgeError("UNAUTHENTICATED", "Send your Bridge API key as apikey in the JSON body.");
-  const record = await deps.keyStore.authenticate(raw, { ip: ctx.clientIp });
+  // No key: on this computer the caller acts as "This computer" (auth/localAccess.mjs).
+  const here = raw ? null : await localAccessFor(deps).recordFor(ctx.req, { publicListener: ctx.viaPublicIngress === true });
+  if (!raw && !here) throw new BridgeError("UNAUTHENTICATED", "Send your Bridge API key as apikey in the JSON body.");
+  const record = here ?? (await deps.keyStore.authenticate(raw, { ip: ctx.clientIp }));
   if (!record) throw new BridgeError("UNAUTHENTICATED", "This API key is not valid, has expired or was revoked.");
   ctx.key = record;
   ctx.scopes = expandScopes(record.scopes);
@@ -108,7 +111,7 @@ export default defineModule({
       );
     }
     if (deps.streamHub && !isStub(deps.streamHub) && typeof deps.streamHub.attachSink === "function") {
-      const ws = createCompatWs({ hub: deps.streamHub, keyStore: deps.keyStore, accounts: deps.accounts, bus: deps.bus, logger: deps.logger, account: cfg.account });
+      const ws = createCompatWs({ localAccess: localAccessFor(deps), hub: deps.streamHub, keyStore: deps.keyStore, accounts: deps.accounts, bus: deps.bus, logger: deps.logger, account: cfg.account });
       endpoints.set(deps, ws);
       app.upgrade("/api/v1/ws", (args) => ws.handleUpgrade(args));
     }

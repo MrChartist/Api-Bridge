@@ -76,13 +76,25 @@ describe("defineModule and validateModules", () => {
 describe("module config sections", () => {
   const hooks = defineModule({ name: "hooks", stream: "S11", configKey: "hooks", configSchema: z.object({ ackTimeoutMs: z.number().default(500) }).strict() });
 
-  it("parses module sections with defaults and rejects unknown sections", () => {
+  it("parses module sections with defaults; leaves out whole sections it does not have and says so; still rejects a typo inside a section it knows", () => {
     const base = loadConfig({ raw: {}, env: {} }).config;
     expect(applyModuleConfig(base, [hooks]).hooks).toEqual({ ackTimeoutMs: 500 });
     const withUnknown = loadConfig({ raw: { hookz: {} }, env: {} }).config;
-    expect(() => applyModuleConfig(withUnknown, [hooks])).toThrow(/Unknown config section "hookz"/);
+    // A config written by the full app (a "backup" section) or with a mistyped section still starts this Bridge.
+    const warnings = [];
+    const lenient = applyModuleConfig(withUnknown, [hooks], warnings);
+    expect(lenient.hookz).toBeUndefined();
+    expect(lenient.hooks).toEqual({ ackTimeoutMs: 500 });
+    expect(warnings).toEqual(["Ignored config sections this version does not have: hookz"]);
+    const fullApp = loadConfig({ raw: { hooks: { ackTimeoutMs: 900 }, backup: { enabled: true }, recorder: {} }, env: {} }).config;
+    const w2 = [];
+    expect(applyModuleConfig(fullApp, [hooks], w2).hooks).toEqual({ ackTimeoutMs: 900 });
+    expect(w2).toEqual(["Ignored config sections this version does not have: backup, recorder"]);
+    // Inside a section it knows, a typo or a wrong value is still refused.
     const bad = loadConfig({ raw: { hooks: { nope: 1 } }, env: {} }).config;
     expect(() => applyModuleConfig(bad, [hooks])).toThrow(/hooks/);
+    const wrong = loadConfig({ raw: { hooks: { ackTimeoutMs: "soon" } }, env: {} }).config;
+    expect(() => applyModuleConfig(wrong, [hooks])).toThrow(/hooks\.ackTimeoutMs/);
   });
 });
 

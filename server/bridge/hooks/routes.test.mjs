@@ -39,6 +39,26 @@ describe("hook management routes", () => {
     expect(JSON.stringify(b.audit.records)).not.toContain(token);
   });
 
+  it("a TradingView hook: JSON or text alerts, a strategy resend is a duplicate, an unfilled placeholder is refused", async () => {
+    const h = await createHook({ source: "tradingview", label: "TV breakout" });
+    expect(h.path).toMatch(/^\/hooks\/tradingview\//);
+    expect(h.templates.map((t) => t.name)).toEqual(["TradingView strategy alert", "TradingView indicator or price alert"]);
+    expect(h.templates[0].message).toContain("{{strategy.order.action}}");
+    expect(h.signingSecret).toBeUndefined();
+    expect(h.warnings.join(" ")).toMatch(/port 443/);
+    const first = await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
+    expect(first.status).toBe(202);
+    const again = await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
+    expect(again.json).toMatchObject({ accepted: true, signalId: first.json.signalId, duplicate: true });
+    const text = await b.request({ method: "POST", path: h.path, headers: { "content-type": "text/plain" }, body: "SELL NSE:RELIANCE 1 @ 1400" });
+    expect(text.status).toBe(202);
+    const unfilled = await b.request({ method: "POST", path: h.path, headers: json, body: alert({ side: "{{strategy.order.action}}" }) });
+    expect(unfilled.status).toBe(400);
+    // The token belongs to this source only.
+    expect((await b.request({ method: "POST", path: h.path.replace("tradingview", "gocharting"), headers: json, body: alert() })).status).toBe(404);
+    await idle();
+  });
+
   it("needs an admin key and refuses unknown accounts or bad bodies", async () => {
     expect((await b.request({ path: "/v1/hooks", headers: b.auth(b.keys.read) })).status).toBe(403);
     expect((await b.request({ path: "/v1/hooks" })).status).toBe(401);

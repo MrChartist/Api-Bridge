@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "asOf": "2026-04-01",
+  "source": "Staggered delivery margin on physically settled stock derivatives (exchange circulars); check the current schedule",
+  "verified": false,
+  "appliesTo": "Long ITM stock options and all stock futures held into expiry week",
+  "schedule": [
+    {
+      "day": "E-4",
+      "pct": 10
+    },
+    {
+      "day": "E-3",
+      "pct": 25
+    },
+    {
+      "day": "E-2",
+      "pct": 45
+    },
+    {
+      "day": "E-1",
+      "pct": 70
+    }
+  ]
+}

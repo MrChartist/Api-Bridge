@@ -79,6 +79,18 @@ describe("signal worker: hook mapping and caps", () => {
     expect((await run({}, sig({ orderType: "MARKET" }))).rec.code).toBe("ORDER_TYPE_NOT_ALLOWED");
   });
 
+  it("places stop-loss orders only from a stop-loss hook, and only with a trigger in the alert", async () => {
+    expect((await run({ orderType: "SL-M" }, sig({ price: null, triggerPrice: 1390 }))).rec.status).toBe("placed");
+    expect(orders.calls.at(-1)[1]).toMatchObject({ orderType: "SL-M", triggerPrice: 1390 });
+    expect(orders.calls.at(-1)[1].price).toBeUndefined();
+    expect((await run({ orderType: "SL" }, sig({ price: 1388, triggerPrice: 1390 }))).rec.status).toBe("placed");
+    expect(orders.calls.at(-1)[1]).toMatchObject({ orderType: "SL", price: 1388, triggerPrice: 1390 });
+    expect((await run({ orderType: "SL-M" }, sig({ price: null }))).rec.code).toBe("VALIDATION_FAILED");
+    expect((await run({ orderType: "SL" }, sig({ price: null, triggerPrice: 1390 }))).rec.code).toBe("VALIDATION_FAILED");
+    // A trigger sent to a LIMIT hook is refused: the Bridge never drops part of what the alert asked for.
+    expect((await run({}, sig({ triggerPrice: 1390 }))).rec.code).toBe("ORDER_TYPE_NOT_ALLOWED");
+  });
+
   it("needs a price for LIMIT hooks and sends none for MARKET hooks", async () => {
     expect((await run({}, sig({ price: null }))).rec.code).toBe("VALIDATION_FAILED");
     await run({ orderType: "MARKET" }, sig({ price: null }));

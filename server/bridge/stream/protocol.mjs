@@ -117,10 +117,11 @@ export function errorBody(err, extra = {}) {
  * Authenticate a streaming connection: `?token=` (single-use stream token from POST /v1/stream/token), else an
  * `Authorization: Bearer <key>` or `X-API-Key` header. The key needs the read scope. API keys are never accepted in
  * the URL here.
- * @param {{ keyStore: object, query: URLSearchParams, headers: Record<string, any> }} opts
+ * @param {{ keyStore: object, query: URLSearchParams, headers: Record<string, any>, local?: (() => Promise<object | null>) | null }} opts
+ *   local: gives the "This computer" key record when the connection may use keyless access, else null
  * @returns {Promise<import("../core/context.mjs").KeyRecord>}
  */
-export async function authenticateStream({ keyStore, query, headers }) {
+export async function authenticateStream({ keyStore, query, headers, local = null }) {
   let record = null;
   const token = query.get("token");
   if (token) {
@@ -132,8 +133,10 @@ export async function authenticateStream({ keyStore, query, headers }) {
     const m = typeof auth === "string" ? /^Bearer\s+(\S+)$/i.exec(auth.trim()) : null;
     if (m) raw = m[1];
     else if (typeof headers["x-api-key"] === "string" && headers["x-api-key"].trim()) raw = headers["x-api-key"].trim();
-    if (!raw) throw new BridgeError("UNAUTHENTICATED", "Connect with ?token=<stream token> or an 'Authorization: Bearer <key>' header.");
-    record = await keyStore.authenticate(raw, {});
+    // No token and no key: on this computer the connection acts as "This computer" (auth/localAccess.mjs).
+    const here = raw ? null : await local?.();
+    if (!raw && !here) throw new BridgeError("UNAUTHENTICATED", "Connect with ?token=<stream token> or an 'Authorization: Bearer <key>' header.");
+    record = here ?? (await keyStore.authenticate(raw, {}));
     if (!record) throw new BridgeError("UNAUTHENTICATED", "This API key is not valid, has expired or was revoked.");
   }
   if (!expandScopes(record.scopes).has("read")) throw new BridgeError("SCOPE_REQUIRED", 'This API key needs the "read" scope to stream.');

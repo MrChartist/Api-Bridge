@@ -175,7 +175,7 @@ export async function renderTradesPage() {
     { label: "Time", cell: (t) => istTime(t.tradedAt) },
     { label: "Account", cell: (t) => labelOf(t.accountId) },
     { label: "Contract", wrap: true, cell: (t) => h("div", { class: "order-contract", title: t.symbol }, h("strong", {}, contractName(t.symbol)), h("div", { class: "muted small" }, `${t.product ?? ""} · ${formatDayMonth(String(t.tradedAt ?? "").slice(0, 10))}`)) },
-    { label: "Side", cell: (t) => h("span", { class: "order-side" }, t.side) },
+    { label: "Side", cell: (t) => h("span", { class: "order-side", "data-side": t.side }, t.side) },
     { label: "Qty", num: true, cell: (t) => formatInt(t.qty ?? t.quantity) },
     { label: "Price", num: true, cell: (t) => formatFixed(t.price, 2) },
     { label: "Value", num: true, cell: (t) => formatRupee((Number(t.qty ?? t.quantity) || 0) * (Number(t.price) || 0), 0) },

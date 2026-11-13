@@ -45,6 +45,8 @@ describe("hook store", () => {
   it("validates the definition", async () => {
     const store = createHookStore({ dataDir: tmp() });
     await expect(store.create({ ...base, source: "slack" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(store.create({ ...base, source: "chartink", side: "BUY", orderType: "SL-M" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect((await store.create({ ...base, source: "tradingview", orderType: "SL-M" })).hook.orderType).toBe("SL-M");
     await expect(store.create({ ...base, extra: 1 })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await expect(store.create({ ...base, allowedSymbols: ["???"] })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     await expect(store.create({ ...base, maxLotsPerSignal: 0 })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });

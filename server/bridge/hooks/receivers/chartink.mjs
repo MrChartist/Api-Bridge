@@ -40,6 +40,7 @@ export function parseChartInk(body, { istDate }) {
       quantity: null,
       lots: null,
       price: prices.length ? toNumber(prices[i], `trigger_prices.${i}`) : null,
+      triggerPrice: null,
       orderType: null,
       product: null,
       ref: stock,

@@ -30,24 +30,79 @@ const env = process.env;
 const appDir = path.resolve(env.MCB_INSTALL_DIR || path.join(env.LOCALAPPDATA || path.join(require("node:os").homedir(), "AppData", "Local"), "MrChartist", "Bridge", "app"));
 const configDir = path.resolve(env.MCB_HOME || (isWindows && env.APPDATA ? path.join(env.APPDATA, "MrChartist", "Bridge") : path.join(require("node:os").homedir(), ".mc-bridge")));
 const installedExe = path.join(appDir, EXE_NAME);
+/** Where the Bridge's files are run from: the installed folder, or the freshly unpacked one when that could not replace it. */
+let runDir = appDir;
 const args = process.argv.slice(2);
 const has = (flag) => args.includes(flag);
 
 const say = (s = "") => process.stdout.write(`${s}\n`);
 const sameFile = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
+/**
+ * Keep a copy of everything this window shows in <settings>\\logs\\window.log, so that when something goes wrong the
+ * person can send one file instead of describing a window that has already closed. Never throws; the log is started
+ * afresh once it passes 1 MB. Keys never appear in what the window shows, and are masked here in any case.
+ */
+const logFile = path.join(configDir, "logs", "window.log");
+function keepWindowLog(what) {
+  try {
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    if (fs.existsSync(logFile) && fs.statSync(logFile).size > 1_000_000) fs.rmSync(logFile, { force: true });
+    const fd = fs.openSync(logFile, "a");
+    const put = (chunk) => {
+      try {
+        fs.writeSync(fd, String(chunk).replace(/mcb_[A-Za-z0-9_-]{20,}/g, "mcb_<hidden>").replace(/#signin=[A-Za-z0-9_-]+/g, "#signin=<hidden>"));
+      } catch {
+        /* the log is a convenience */
+      }
+    };
+    put(`\n===== ${new Date().toISOString()}  ${what}  ${version()}  ${process.platform} ${process.arch}  ${process.execPath} =====\n`);
+    for (const stream of [process.stdout, process.stderr]) {
+      const write = stream.write.bind(stream);
+      stream.write = (chunk, ...rest) => {
+        put(chunk);
+        return write(chunk, ...rest);
+      };
+    }
+    process.on("uncaughtException", (err) => {
+      put(`\nuncaught: ${err?.stack ?? err}\n`);
+      fail(err?.message ?? String(err), `A copy of these messages is in ${logFile}`);
+    });
+  } catch {
+    /* no log: carry on */
+  }
+}
+
 /** Wait for Enter when a window opened just for us would otherwise close before the message can be read. */
 function pauseThenExit(code) {
-  if (!process.stdin.isTTY || has("--no-pause")) process.exit(code);
+  if (has("--no-pause") || (!isWindows && !process.stdin.isTTY)) return process.exit(code);
+  // On Windows the window was opened for us by a double-click. With a keyboard it waits for Enter; without one
+  // (some launchers give the app no input) it stays for a minute, so the message can always be read.
+  if (!process.stdin.isTTY) {
+    process.stdout.write("\nThis window closes by itself in 60 seconds.\n");
+    return setTimeout(() => process.exit(code), 60_000);
+  }
   process.stdout.write("\nPress Enter to close this window.");
   process.stdin.resume();
   process.stdin.once("data", () => process.exit(code));
+}
+
+/** When something went wrong on Windows: open the saved copy of this window in Notepad, so it can be read and sent. */
+function showLogInNotepad() {
+  if (!isWindows || has("--no-pause")) return;
+  try {
+    if (fs.existsSync(logFile)) spawn("notepad.exe", [logFile], { detached: true, stdio: "ignore" }).unref();
+  } catch {
+    /* a convenience */
+  }
 }
 
 function fail(message, hint) {
   say("");
   say(`Something went wrong: ${message}`);
   if (hint) say(hint);
+  say(`A copy of these messages is in: ${logFile}`);
+  showLogInNotepad();
   pauseThenExit(1);
 }
 
@@ -136,10 +191,20 @@ function install() {
   fs.copyFileSync(process.execPath, path.join(fresh, EXE_NAME));
   if (fs.existsSync(appDir)) {
     try {
+      // A running Bridge keeps its .exe open. Check that first: removing the folder would otherwise delete the files
+      // around it before failing on the .exe, and leave a broken install.
+      if (isWindows && fs.existsSync(installedExe)) fs.closeSync(fs.openSync(installedExe, "r+"));
       fs.rmSync(appDir, { recursive: true, force: true, maxRetries: 3 });
     } catch {
-      fs.rmSync(fresh, { recursive: true, force: true });
-      return fail("the Bridge is running, so it cannot be updated right now.", "Close the Mr Chartist Bridge window, then run this Setup again.");
+      // Another Mr Chartist Bridge window is still open (a running Bridge, or one that stopped with a message and
+      // waits for Enter), so the installed files cannot be replaced now. That is not a failure for the person who
+      // double-clicked: this Setup runs the new version straight from the folder it just unpacked. If a Bridge really
+      // is running, the start below finds it and opens its dashboard.
+      runDir = fresh;
+      say("    Another Mr Chartist Bridge window is still open, so the installed copy was not replaced.");
+      say("    This window runs the new version anyway. To finish the update later: close every");
+      say("    Mr Chartist Bridge window, then run this Setup once more.");
+      return true;
     }
   }
   fs.renameSync(fresh, appDir);
@@ -147,30 +212,30 @@ function install() {
   say("[2/3] Adding shortcuts and the mc-bridge command ...");
   addShortcutsAndCommand();
   say("[3/3] Setting up (a practice account with virtual money; real orders stay off) ...");
-  if (!setupConfig()) return fail("the first-run setup did not finish.", "Run this Setup again; if it keeps failing, open an issue at https://github.com/MrChartist/api-bridge/issues.");
+  if (!setupConfig()) {
+    fail("the first-run setup did not finish.", "Run this Setup again; if it keeps failing, open an issue at https://github.com/MrChartist/api-bridge-v2/issues.");
+    return false;
+  }
   say("");
   say("Installed. Next time, start it from \"Mr Chartist Bridge\" in the Start menu or on your Desktop.");
-  if (has("--install-only")) return pauseThenExit(0);
-  say("Starting it now ...");
-  // The installed copy runs the Bridge in its own window; this Setup window can close.
-  const extra = has("--demo") ? ["--demo"] : [];
-  if (isWindows) spawn("cmd.exe", ["/c", "start", '""', `"${installedExe}"`, ...extra], { detached: true, stdio: "ignore", windowsVerbatimArguments: true }).unref();
-  else spawn(installedExe, extra, { detached: true, stdio: "ignore" }).unref();
-  setTimeout(() => process.exit(0), 1500);
+  return true;
 }
 
 /** mc-bridge init --yes in the settings folder when there is no config yet. Returns false on failure. */
 function setupConfig() {
   if (fs.existsSync(path.join(configDir, "bridge.config.json"))) return true;
   fs.mkdirSync(configDir, { recursive: true });
-  const r = spawnSync(installedExe, ["--mcb-cli", "init", "--yes", "--config", path.join(configDir, "bridge.config.json")], { cwd: configDir, stdio: "inherit", env: { ...env, MCB_CLI_NAME: "mc-bridge" } });
+  // What init prints is for people at a terminal (an admin key, commands to type). The dashboard needs neither on
+  // this computer, so the window stays quiet unless the setup fails, and then shows all of it.
+  const r = spawnSync(installedExe, ["--mcb-cli", "init", "--yes", "--config", path.join(configDir, "bridge.config.json")], { cwd: configDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...env, MCB_CLI_NAME: "mc-bridge" } });
+  if (r.status !== 0) say(`${r.stdout ?? ""}${r.stderr ?? ""}`.replace(/mcb_[A-Za-z0-9_-]{20,}/g, "mcb_<hidden>"));
   return r.status === 0;
 }
 
 /** Run a Bridge command in this process: the .exe is the Bridge's Node.js. */
 async function runBridge(bridgeArgs) {
-  const bin = path.join(appDir, "bin", "mc-bridge.mjs");
-  if (!fs.existsSync(bin)) return fail(`the Bridge's files are missing in ${appDir}.`, "Download Mr-Chartist-Bridge-Setup.exe again and run it.");
+  const bin = path.join(runDir, "bin", "mc-bridge.mjs");
+  if (!fs.existsSync(bin)) return fail(`the Bridge's files are missing in ${runDir}.`, "Download Mr-Chartist-Bridge-Setup.exe again and run it.");
   env.MCB_CLI_NAME = env.MCB_CLI_NAME || "mc-bridge";
   process.argv = [process.execPath, bin, ...bridgeArgs];
   await import(pathToFileURL(bin).href);
@@ -179,17 +244,39 @@ async function runBridge(bridgeArgs) {
 /** The installed copy, opened from a shortcut: first-run setup, then start and open the dashboard. */
 async function launch() {
   process.title = APP_NAME;
-  say("Mr. Chartist API Bridge");
   if (!setupConfig()) return fail("the first-run setup did not finish.");
-  say("Keep this window open while you use the Bridge. To stop it, close this window.");
-  say("");
+  // The window must never just vanish. If the Bridge stops with a problem, the reason stays on screen until Enter;
+  // if it had nothing to do (it was already running) the window says so and closes by itself a moment later.
+  const startedAt = Date.now();
+  const realExit = process.exit.bind(process);
+  let leaving = false;
+  process.exit = (code = 0) => {
+    if (leaving) return realExit(code);
+    leaving = true;
+    if (code !== 0) {
+      say("");
+      say("  The Bridge could not start. The reason is above.");
+      say(`  A copy of these messages is in: ${logFile}`);
+      showLogInNotepad();
+      return pauseThenExit(code);
+    }
+    if (Date.now() - startedAt < 20_000 && isWindows && !has("--no-pause")) {
+      say("  This window closes by itself in a few seconds.");
+      return setTimeout(() => realExit(0), 6000);
+    }
+    return realExit(code);
+  };
+  // This window was opened by a double-click, not by someone at a terminal: a short, plain status and no log lines
+  // (cli.mjs appWindowLines). MCB_LOG_LEVEL still wins for anyone who wants the detail.
+  env.MCB_APP_WINDOW = "1";
+  if (!env.MCB_LOG_LEVEL) env.MCB_LOG_LEVEL = "error";
   const config = path.join(configDir, "bridge.config.json");
   const extra = has("--demo") ? ["--demo"] : [];
   process.chdir(configDir);
-  process.on("exit", (code) => {
-    if (code !== 0) say("\nThe Bridge stopped with a problem (see above).");
-  });
   await runBridge(["start", "--open", "--config", config, ...extra]);
+  // A running Bridge leaves no exit code (it keeps serving). One that is set means the command is over already: it
+  // could not start, or the Bridge was running before and only its dashboard was opened.
+  if (process.exitCode !== undefined && process.exitCode !== null) process.exit(Number(process.exitCode) || 0);
 }
 
 function uninstall() {
@@ -220,8 +307,19 @@ async function main() {
   try {
     if (args[0] === "--mcb-cli") return await runBridge(args.slice(1));
     if (has("--uninstall")) return uninstall();
+    // The first line appears at once, before any work, so a window that opens is never empty.
+    process.title = APP_NAME;
+    keepWindowLog(sameFile(process.execPath, installedExe) ? "app" : "setup");
+    say("Mr. Chartist API Bridge");
+    say("");
     if (sameFile(process.execPath, installedExe)) return await launch();
-    return install();
+    if (!install()) return undefined;
+    if (has("--install-only")) return pauseThenExit(0);
+    // Setup carries straight on as the app, in this same window. There is no second window to wait for and nothing
+    // to hand over: the Bridge runs from the installed files, and this window is the one to keep open.
+    say("");
+    say("Starting the Bridge ...");
+    return await launch();
   } catch (err) {
     fail(err?.message ?? String(err));
   }
