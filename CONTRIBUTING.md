@@ -9,7 +9,7 @@ The most useful contributions right now are:
 - **Docs fixes** wherever something was unclear when you set the Bridge up.
 - **Good first changes:** a typo or a wrong command in a guide, a missing error explanation, a test for a behaviour that has none. If you are unsure whether something fits, open an issue first and ask.
 
-Please read the [Code of Conduct](CODE_OF_CONDUCT.md) first. Security problems go through [SECURITY.md](SECURITY.md), never a public issue. For questions that are not bugs, see [SUPPORT.md](SUPPORT.md).
+Security problems go through [SECURITY.md](SECURITY.md), never a public issue.
 
 ## Quick path for a first pull request
 
@@ -108,4 +108,4 @@ Read [docs/source-contract.md](docs/source-contract.md) first. It covers the des
 - Every change is reviewed by a maintainer (see `.github/CODEOWNERS`) before it is merged.
 - Maintainers: how a release is cut is in [docs/release-process.md](docs/release-process.md).
 
-By contributing you agree that your contribution is licensed under the [MIT License](LICENSE).
+By contributing you agree that your contribution is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), and that the maintainer may relicense it.

@@ -17,7 +17,6 @@ import { REPO_ROOT, byTag, loadSpec, operations, slug, stableJson } from "./lib/
 import { apiIndexPage, endpointPage, errorsPage, pagePath } from "./lib/endpoint-docs.mjs";
 import { headingsOf, plainText, snippetOf, titleOf } from "./lib/docs-text.mjs";
 import { runCli } from "./lib/outputs.mjs";
-import { buildCollections } from "./gen-collections.mjs";
 
 const REPO_URL = "https://github.com/MrChartist/api-bridge-v2";
 const RAW = "https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main";
@@ -41,7 +40,7 @@ function llmsTxt(spec, ops, root) {
   const lines = [
     "# Mr. Chartist API Bridge",
     "",
-    "> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. MIT licensed. Broker market data is for the account holder's own use, as the broker terms say.",
+    "> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. Source-available under the PolyForm Noncommercial License 1.0.0 (no commercial use). Broker market data is for the account holder's own use, as the broker terms say.",
     "",
     "Facts that help when writing code against it:",
     "",
@@ -65,7 +64,6 @@ function llmsTxt(spec, ops, root) {
     link("AsyncAPI description", "docs/asyncapi.yaml", "WebSocket and SSE message formats"),
     link("Endpoint pages", "docs/api/README.md", `one Markdown page per operation (${ops.length}), grouped by area, each with curl and Python examples`),
     link("Error codes", "docs/api/errors.md", "every stable error code with its HTTP status and whether a retry is safe"),
-    link("Postman and Bruno collections", "docs/collections/README.md", "import every request, with paper-mode examples and no real keys"),
     "",
     "## Guides",
     "",
@@ -85,7 +83,6 @@ function llmsTxt(spec, ops, root) {
     link("Search index", "docs/search-index.json", "title, path, headings and a short text for each page"),
     link("README", "README.md", "project overview"),
     link("Changelog", "CHANGELOG.md", "what changed in each release"),
-    link("Roadmap", "ROADMAP.md", "what is planned"),
     link("Security policy", "SECURITY.md", `how to report a problem (${REPO_URL}/security)`),
     "",
   ];
@@ -117,7 +114,7 @@ function llmsFull(spec, ops, root, errors) {
 
 /** Hand-written pages that go into the search index (paths relative to the repository). */
 function docPages(root) {
-  const files = ["README.md", "CONTRIBUTING.md", "SECURITY.md", "ROADMAP.md"];
+  const files = ["README.md", "CONTRIBUTING.md", "SECURITY.md"];
   for (const dir of ["docs", "docs/guides"]) {
     for (const f of readdirSync(join(root, dir)).sort()) if (f.endsWith(".md")) files.push(`${dir}/${f}`);
   }
@@ -155,9 +152,6 @@ export function buildDocs(root = REPO_ROOT, spec = loadSpec(root)) {
   files.set("docs/api/README.md", apiIndexPage(spec, ops, groups));
   files.set("docs/api/errors.md", errorsPage());
   const apiPages = new Map([["docs/api/README.md", files.get("docs/api/README.md")], ["docs/api/errors.md", files.get("docs/api/errors.md")]]);
-  // The collections' README comes from its own generator, in memory, so this output never depends on the disk state.
-  const collections = buildCollections(spec).get("docs/collections/README.md");
-  apiPages.set("docs/collections/README.md", collections);
   files.set("docs/llms.txt", llmsTxt(spec, ops, root));
   files.set("docs/llms-full.txt", llmsFull(spec, ops, root, files.get("docs/api/errors.md")));
   files.set("docs/search-index.json", `${stableJson({ generatedBy: "scripts/gen-docs-index.mjs", pages: searchIndex(root, ops, apiPages) })}\n`);

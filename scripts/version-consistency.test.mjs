@@ -59,7 +59,7 @@ describe("the SDKs are versioned on their own and agree with themselves", () => 
     const [major, minor] = node.version.split(".");
     expect(/userAgent \?\? "mrchartist-bridge-node\/([^"]+)"/.exec(read("sdk/node/src/client.mjs"))?.[1]).toBe(`${major}.${minor}`);
     expect(read("sdk/node/README.md")).toContain(`mrchartist-bridge-client-${node.version}.tgz`);
-    expect(node.license).toBe("MIT");
+    expect(node.license).toBe("PolyForm-Noncommercial-1.0.0");
   });
 
 });

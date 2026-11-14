@@ -55,7 +55,7 @@ info:
 
     Personal use only: broker data terms generally forbid passing market data to other people.
   license:
-    name: MIT
+    name: PolyForm Noncommercial License 1.0.0
     url: https://github.com/MrChartist/api-bridge-v2/blob/main/LICENSE
   contact:
     name: Investology (Mr. Chartist)

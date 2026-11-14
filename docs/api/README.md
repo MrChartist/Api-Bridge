@@ -4,8 +4,6 @@
 
 Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `"mode": "live"` and every live opt-in is in place ([safety.md](../guides/safety.md)).
 
-Try the calls without code: [Postman and Bruno collections](../collections/README.md).
-
 ## System
 
 Health, versions and this document.

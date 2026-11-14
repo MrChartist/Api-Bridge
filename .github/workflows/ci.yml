@@ -54,7 +54,7 @@ jobs:
         run: npm run typecheck
       - name: Syntax check (node --check on every .mjs)
         run: node scripts/check-mjs.mjs
-      - name: Generated files are in sync (collections, endpoint pages, llms files, search index)
+      - name: Generated files are in sync (endpoint pages, llms files, search index)
         run: npm run docs:check
       - name: Tests with coverage
         run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov

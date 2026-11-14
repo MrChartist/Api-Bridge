@@ -1,6 +1,6 @@
 # Documentation
 
-API Bridge v2 is one local API in front of your Indian broker accounts. It is open source (MIT), runs on your own computer and has no hosted
+API Bridge v2 is one local API in front of your Indian broker accounts. It is source-available (PolyForm Noncommercial 1.0.0, no commercial use), runs on your own computer and has no hosted
 service. These pages are for people who run it and people who build on it. Everything works in demo mode first: sample prices, no broker,
 paper orders.
 
@@ -52,7 +52,6 @@ Orders are paper unless you ask for live and every opt-in is in place. Practise 
 - Start in five minutes: [developers.md](guides/developers.md) covers keys and scopes, limits, pagination, idempotency and the versioning promise; `mc-bridge init node` writes a starter project.
 - Python and Node: [python.md](guides/python.md) and [typescript.md](guides/typescript.md) describe the two libraries.
 - The API: [api/README.md](api/README.md) has one page per endpoint, [api/errors.md](api/errors.md) lists every error code, and [openapi.yaml](openapi.yaml) and [asyncapi.yaml](asyncapi.yaml) are the full descriptions.
-- Try calls without code: [collections/README.md](collections/README.md) holds Postman and Bruno collections.
 - Every setting: [config.md](guides/config.md) is the reference of `bridge.config.json`, written from the code.
 - Every command: [cli.md](guides/cli.md) lists the `mc-bridge` commands and which key each needs.
 
@@ -92,7 +91,7 @@ Orders are paper unless you ask for live and every opt-in is in place. Practise 
 - [API-DEPRECATIONS.md](API-DEPRECATIONS.md): API changes that need a migration window. Release notes are in the [main changelog](../CHANGELOG.md).
 - [reference-data.md](reference-data.md): the market tables shipped with the Bridge (holidays, trading hours, special sessions, freeze quantities, charges), where each comes from, what `verified` means and how to update them.
 - [release-process.md](release-process.md): for maintainers, how a version is numbered, checked, tagged and published.
-- [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md): licences of the packages that ship with the Bridge, and the broker names and logos that are not MIT.
+- [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md): licences of the packages that ship with the Bridge, and the broker names and logos that are not under the project licence.
 
 ## Generated files
 

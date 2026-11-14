@@ -58,7 +58,7 @@ On Windows, run the commands in PowerShell, and read [windows.md](windows.md) fo
 | [compliance.md](compliance.md) | SEBI, exchange and broker rules that shape the design (with needs-verification flags) |
 
 Reference: [one page per endpoint](../api/README.md) and the [error codes](../api/errors.md), [openapi.yaml](../openapi.yaml) (REST),
-[asyncapi.yaml](../asyncapi.yaml) (streams), [Postman and Bruno collections](../collections/README.md),
+[asyncapi.yaml](../asyncapi.yaml) (streams),
 [ARCHITECTURE.md](../ARCHITECTURE.md) (design), [BROKERS.md](../BROKERS.md) (broker table),
 [source-contract.md](../source-contract.md) (writing a data source or plugin),
 [sources-architecture.md](../sources-architecture.md) (how sources, routing and quotas fit together).

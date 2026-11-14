@@ -68,7 +68,7 @@ describe("the minimum Node.js version is one number everywhere", () => {
 });
 
 describe("community files for outside contributors", () => {
-  const FILES = ["SECURITY.md", "CODE_OF_CONDUCT.md", "SUPPORT.md", "CONTRIBUTING.md", ".github/pull_request_template.md", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/new_broker.yml"];
+  const FILES = ["SECURITY.md", "CONTRIBUTING.md", ".github/pull_request_template.md", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/new_broker.yml"];
 
   it("exist", () => {
     for (const f of FILES) expect(repoFiles(), f).toContain(f);
@@ -85,19 +85,15 @@ describe("community files for outside contributors", () => {
     expect(bad).toEqual([]);
   });
 
-  it("SECURITY.md and the Code of Conduct use GitHub's private reporting form and give an aim for answering", () => {
+  it("SECURITY.md uses GitHub's private reporting form and give an aim for answering", () => {
     const security = read("SECURITY.md");
     expect(security).toContain("https://github.com/MrChartist/api-bridge-v2/security/advisories/new");
     expect(security).toMatch(/private vulnerability reporting/i);
     expect(security).toMatch(/within 3 working days/);
     expect(security).toMatch(/within 10 working days/);
-    const coc = read("CODE_OF_CONDUCT.md");
-    expect(coc).toContain("https://github.com/MrChartist/api-bridge-v2/security/advisories/new");
-    expect(coc).toMatch(/Conduct report/);
   });
 
-  it("the issue forms point at SUPPORT.md and the bug form covers the newer areas", () => {
-    expect(read(".github/ISSUE_TEMPLATE/config.yml")).toContain("SUPPORT.md");
+  it("the bug form covers the newer areas", () => {
     const bug = read(".github/ISSUE_TEMPLATE/bug_report.yml");
     for (const area of ["Telegram", "Events", "Data downloads", "Recorder", "Data sources"]) expect(bug, area).toContain(area);
     expect(read(".github/ISSUE_TEMPLATE/feature_request.yml")).toMatch(/connection layer/);

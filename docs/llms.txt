@@ -1,6 +1,6 @@
 # Mr. Chartist API Bridge
 
-> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. MIT licensed. Broker market data is for the account holder's own use, as the broker terms say.
+> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. Source-available under the PolyForm Noncommercial License 1.0.0 (no commercial use). Broker market data is for the account holder's own use, as the broker terms say.
 
 Facts that help when writing code against it:
 
@@ -24,7 +24,6 @@ Facts that help when writing code against it:
 - [AsyncAPI description](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/asyncapi.yaml): WebSocket and SSE message formats
 - [Endpoint pages](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/README.md): one Markdown page per operation (223), grouped by area, each with curl and Python examples
 - [Error codes](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/api/errors.md): every stable error code with its HTTP status and whether a retry is safe
-- [Postman and Bruno collections](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/collections/README.md): import every request, with paper-mode examples and no real keys
 
 ## Guides
 
@@ -89,5 +88,4 @@ Facts that help when writing code against it:
 - [Search index](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/docs/search-index.json): title, path, headings and a short text for each page
 - [README](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/README.md): project overview
 - [Changelog](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/CHANGELOG.md): what changed in each release
-- [Roadmap](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/ROADMAP.md): what is planned
 - [Security policy](https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/SECURITY.md): how to report a problem (https://github.com/MrChartist/api-bridge-v2/security)

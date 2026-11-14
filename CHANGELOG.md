@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Licence: the project moves from MIT to the [PolyForm Noncommercial License 1.0.0](LICENSE) (no commercial use). Copies already received under MIT stay MIT.
+- Removed: the Postman and Bruno collections (`docs/collections`, `scripts/gen-collections.mjs`), ROADMAP.md, SUPPORT.md and CODE_OF_CONDUCT.md.
+
 - Guides: [orders](docs/guides/orders.md), [upgrading](docs/guides/upgrading.md), [docker](docs/guides/docker.md), [Dhan](docs/guides/dhan.md), [TradingView](docs/guides/tradingview.md), [saving data](docs/guides/data.md) (three recipes, run by a test) and a [configuration reference](docs/guides/config.md) written from the settings checker (a test fails when a setting has no description); the docs home is sorted by what you want to do.
 - API: daily candles carry the IST `date`; `timeIso` and `tz` on history; one documented time rule; ETag, 304 and gzip on history, chain, instrument search and the spec; `fields=` on quotes, candles and instrument search; MCP `market_status`, `resolve_symbol` and `underlying`/`expiry` search filters; `purpose` in the Python and Node SDK reads.
 - Order-book check ([docs/guides/orders-drift.md](docs/guides/orders-drift.md)): a read-only, periodic compare of the Bridge's live orders with the broker's order book (`GET /v1/orders/drift`, readiness `orderBook`, event `orders.drift`, a Telegram line, a Safety card). It never changes or cancels anything.

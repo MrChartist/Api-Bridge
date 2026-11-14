@@ -1,5 +1,5 @@
 /**
- * The generated developer files (collections, per-endpoint pages, llms files, search index) must match what the
+ * The generated developer files (per-endpoint pages, llms files, search index) must match what the
  * generators write from docs/openapi.yaml and the guides, and must hold their promises: one request and one page per
  * operation, no real keys, paper-mode order examples, links that resolve, the llms.txt layout.
  *
@@ -8,7 +8,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildCollections } from "./gen-collections.mjs";
 import { OWNED, buildDocs, guideRows } from "./gen-docs-index.mjs";
 import { helperMethods, pagePath } from "./lib/endpoint-docs.mjs";
 import { REPO_ROOT, isCallable, loadSpec, operations } from "./lib/openapi-model.mjs";
@@ -17,9 +16,8 @@ import { syncOutputs } from "./lib/outputs.mjs";
 const spec = loadSpec();
 const ops = operations(spec);
 const callable = ops.filter(isCallable);
-const collections = buildCollections(spec);
 const docs = buildDocs(REPO_ROOT, spec);
-const all = new Map([...collections, ...docs]);
+const all = docs;
 
 const stale = (files, owned) => {
   const r = syncOutputs(REPO_ROOT, files, { owned, check: true });
@@ -27,16 +25,11 @@ const stale = (files, owned) => {
 };
 
 describe("generated files are in sync", () => {
-  it("docs/collections matches scripts/gen-collections.mjs (run: npm run docs:generate)", () => {
-    expect(stale(collections, ["docs/collections"])).toEqual([]);
-  });
-
   it("docs/api, llms.txt, llms-full.txt and search-index.json match scripts/gen-docs-index.mjs (run: npm run docs:generate)", () => {
     expect(stale(docs, OWNED)).toEqual([]);
   });
 
   it("the generators are deterministic", () => {
-    expect([...buildCollections(loadSpec())]).toEqual([...collections]);
     expect([...buildDocs(REPO_ROOT, loadSpec())]).toEqual([...docs]);
   });
 
@@ -48,71 +41,18 @@ describe("generated files are in sync", () => {
   });
 });
 
-describe("collections", () => {
-  const postman = JSON.parse(collections.get("docs/collections/postman/mr-chartist-bridge.postman_collection.json"));
-  const requests = postman.item.flatMap((f) => f.item);
-
-  it("is a Postman v2.1 collection with baseUrl and an empty apiKey variable", () => {
-    expect(postman.info.schema).toBe("https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
-    expect(postman.variable.slice(0, 2)).toEqual([
-      { key: "baseUrl", value: "http://127.0.0.1:4300", type: "string" },
-      { key: "apiKey", value: "", type: "string" },
-    ]);
-    // The rest are the ids and the expiry that one call stores for the next (CAPTURES in scripts/lib/examples.mjs).
-    expect(postman.variable.slice(2).map((v) => v.key).sort()).toEqual(["downloadId", "expiry", "hookId", "keyId", "orderId", "recordingId", "ruleId", "subscriptionId"]);
-    expect(postman.auth.bearer[0].value).toBe("{{apiKey}}");
-    const env = JSON.parse(collections.get("docs/collections/postman/local.postman_environment.json"));
-    expect(env.values.find((v) => v.key === "apiKey")).toMatchObject({ value: "", type: "secret" });
-  });
-
-  it("has one request per HTTP operation, in a folder per tag", () => {
-    expect(requests).toHaveLength(callable.length);
-    expect(callable.length).toBeGreaterThan(100);
-    expect(postman.item.map((f) => f.name)).toEqual([...new Set(callable.map((o) => o.tag))].sort((a, b) => spec.tags.findIndex((t) => t.name === a) - spec.tags.findIndex((t) => t.name === b)));
-    const byRequest = new Set(requests.map((r) => `${r.request.method} ${r.request.url.raw.replace("{{baseUrl}}", "").split("?")[0]}`));
-    for (const op of callable) {
-      const path = op.path.replace(/\{(\w+)\}/g, ":$1");
-      expect(byRequest.has(`${op.method} ${path}`), `${op.method} ${op.path}`).toBe(true);
-    }
-  });
-
-  it("has a Bruno file per request and a collection file and environment", () => {
-    const bru = [...collections.keys()].filter((k) => k.endsWith(".bru") && !k.includes("/environments/"));
-    expect(bru).toHaveLength(callable.length);
-    expect(JSON.parse(collections.get("docs/collections/bruno/bruno.json")).type).toBe("collection");
-    expect(collections.get("docs/collections/bruno/environments/local.bru")).toMatch(/vars:secret \[\n {2}apiKey\n\]/);
-    for (const k of bru) {
-      const t = collections.get(k);
-      expect(t, k).toMatch(/^meta \{\n {2}name: .+\n {2}type: http\n {2}seq: \d+\n\}\n/);
-      expect(t, k).toMatch(/\n(get|post|put|patch|delete) \{\n {2}url: \{\{baseUrl\}\}\//);
-      expect((t.match(/^\S.*\{$/gm) ?? []).length, k).toBe((t.match(/^\}$/gm) ?? []).length);
-    }
-  });
-
+describe("examples", () => {
   it("orders are paper in every example and no example asks for live", () => {
     const orderOps = callable.filter((o) => ["placeOrder", "previewOrder", "cancelAllOrders", "compatPlaceorder"].includes(o.id));
     expect(orderOps.length).toBe(4);
     // Only request bodies: the descriptions legitimately explain what `"mode": "live"` does.
-    const bodies = [
-      ...requests.map((r) => r.request.body?.raw ?? ""),
-      ...[...all].filter(([k]) => k.endsWith(".bru")).flatMap(([, t]) => [...t.matchAll(/^body:json \{\n([\s\S]*?)\n\}$/gm)].map((m) => m[1])),
-      ...[...all].filter(([k]) => k.startsWith("docs/api/")).flatMap(([, t]) => [...t.matchAll(/^ {2}-d '(.*)'$/gm)].map((m) => m[1])),
-    ];
-    expect(bodies.length).toBeGreaterThan(100);
+    const bodies = [...all].filter(([k]) => k.startsWith("docs/api/")).flatMap(([, t]) => [...t.matchAll(/^ {2}-d '(.*)'$/gm)].map((m) => m[1]));
+    expect(bodies.length).toBeGreaterThan(50);
     for (const b of bodies) expect(b).not.toMatch(/"mode":\s*"live"/);
     for (const id of ["placeOrder", "previewOrder"]) {
-      const r = requests.find((x) => x.request.description.includes(`docs/api/orders/${id}.md`));
-      expect(JSON.parse(r.request.body.raw)).toMatchObject({ account: "demo-paper", mode: "paper" });
-    }
-  });
-
-  it("operations that need a key use the bearer variable; the ones that do not say so", () => {
-    for (const op of callable) {
-      const r = requests.find((x) => x.request.description.includes(`docs/api/${op.tag.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}/${op.id}.md`));
-      expect(r, op.id).toBeTruthy();
-      if (op.noAuth || op.bodyKey) expect(r.request.auth, op.id).toEqual({ type: "noauth" });
-      else expect(r.request.auth, op.id).toBeUndefined();
-      if (op.loopbackOnly) expect(r.request.description, op.id).toMatch(/This computer only/);
+      const page = all.get(`docs/api/orders/${id}.md`);
+      expect(page).toMatch(/"account": ?"demo-paper"/);
+      expect(page).toMatch(/"mode": ?"paper"/);
     }
   });
 });
@@ -234,7 +174,7 @@ describe("llms.txt and the search index", () => {
       expect(existsSync(join(REPO_ROOT, p.path)) || all.has(p.path), p.path).toBe(true);
     }
     expect(pages.filter((p) => p.kind === "endpoint")).toHaveLength(ops.length);
-    for (const need of ["docs/README.md", "docs/guides/quickstart.md", "docs/guides/safety.md", "docs/api/errors.md", "docs/collections/README.md"]) expect(paths).toContain(need);
+    for (const need of ["docs/README.md", "docs/guides/quickstart.md", "docs/guides/safety.md", "docs/api/errors.md"]) expect(paths).toContain(need);
     expect(docs.get("docs/search-index.json").length).toBeLessThan(200_000);
   });
 });

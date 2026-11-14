@@ -33,15 +33,6 @@
     },
     {
       "headings": [
-        "Open for contribution"
-      ],
-      "kind": "doc",
-      "path": "ROADMAP.md",
-      "text": "API Bridge v2 is a local connection layer for Indian broker APIs. This file lists the directions the project is open to; day-to-day work is tracked in GitHub issues. Broker verification. Only Dhan is verified with a live account. Trying the other brokers in paper mode and...",
-      "title": "Roadmap"
-    },
-    {
-      "headings": [
         "Reporting a vulnerability",
         "Supported versions",
         "Scope",
@@ -119,7 +110,7 @@
       ],
       "kind": "doc",
       "path": "docs/README.md",
-      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. It is open source (MIT), runs on your own computer and has no hosted service. These pages are for people who run it and people who build on it. Everything works in demo mode first: sample prices, no broker,...",
+      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. It is source-available (PolyForm Noncommercial 1.0.0, no commercial use), runs on your own computer and has no hosted service. These pages are for people who run it and people who build on it. Everything...",
       "title": "Documentation"
     },
     {
@@ -2203,17 +2194,6 @@
     },
     {
       "headings": [
-        "Postman",
-        "Bruno",
-        "Regenerating"
-      ],
-      "kind": "doc",
-      "path": "docs/collections/README.md",
-      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 218 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
-      "title": "API collections"
-    },
-    {
-      "headings": [
         "Running mc-bridge"
       ],
       "kind": "guide",
@@ -2612,7 +2592,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/faq.md",
-      "text": "Short answers, each pointing at the guide that has the details. The Bridge is free, open-source software under the MIT License. There is no hosted service and no account with us: it runs on your computer. What can cost money is outside the Bridge. Some brokers charge for their...",
+      "text": "Short answers, each pointing at the guide that has the details. The Bridge is free, source-available software under the PolyForm Noncommercial License 1.0.0 (no commercial use). There is no hosted service and no account with us: it runs on your computer. What can cost money is...",
       "title": "FAQ"
     },
     {

@@ -239,5 +239,4 @@ do not know and treat an unknown `code` by its `status` and `retryable`. The Ope
 - [quickstart.md](quickstart.md): the same five minutes with a paper order and a stream.
 - [python.md](python.md) and [typescript.md](typescript.md): the fuller clients in `sdk/`.
 - [../api/README.md](../api/README.md): one page per call, with curl and Python.
-- [../collections/README.md](../collections/README.md): Postman and Bruno collections.
 - [mcp.md](mcp.md): AI assistants.

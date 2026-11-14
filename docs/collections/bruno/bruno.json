@@ -1,9 +1,0 @@
-{
-  "ignore": [
-    "node_modules",
-    ".git"
-  ],
-  "name": "Mr. Chartist API Bridge",
-  "type": "collection",
-  "version": "1"
-}

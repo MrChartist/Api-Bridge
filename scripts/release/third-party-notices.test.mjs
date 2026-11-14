@@ -18,9 +18,9 @@ describe("THIRD-PARTY-NOTICES.md", () => {
     expect(tableRows(readFileSync(join(ROOT, NOTICES_FILE), "utf8"))).toHaveLength(prod.length);
   });
 
-  it("carves broker names and logos out of the MIT licence and says what it does not claim", () => {
+  it("carves broker names and logos out of the project licence and says what it does not claim", () => {
     const text = readFileSync(join(ROOT, NOTICES_FILE), "utf8");
-    expect(text).toMatch(/Broker names and logos are not under the MIT licence/);
+    expect(text).toMatch(/Broker names and logos are not under the project licence/);
     expect(text).toMatch(/not affiliated with, sponsored by or endorsed by any broker/);
     expect(text).toMatch(/Node\.js/);
     expect(text).toMatch(/## Fonts\n\nNone\./);
@@ -30,7 +30,7 @@ describe("THIRD-PARTY-NOTICES.md", () => {
   it("the README repeats the trademark carve-out and links the notices", () => {
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
     expect(readme).toMatch(/## License, trademarks and logos/);
-    expect(readme).toMatch(/not under the MIT licence/);
+    expect(readme).toMatch(/not under the project licence/);
     expect(readme).toContain("THIRD-PARTY-NOTICES.md");
   });
 

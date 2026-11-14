@@ -335,7 +335,6 @@ export function apiIndexPage(spec, ops, groups) {
   const out = ["# API reference: one page per endpoint", ""];
   out.push(`${ops.length} operations, generated from [openapi.yaml](../openapi.yaml). Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in [asyncapi.yaml](../asyncapi.yaml); error codes in [errors.md](errors.md).`, "");
   out.push("Every call except `/v1/health`, inbound webhooks and the streaming endpoints needs an API key (`Authorization: Bearer mcb_<keyId>_<secret>`). Scopes: `read`, `paper` (read plus paper orders), `live`, `admin` (this computer only). Orders are paper unless a request says `\"mode\": \"live\"` and every live opt-in is in place ([safety.md](../guides/safety.md)).", "");
-  out.push("Try the calls without code: [Postman and Bruno collections](../collections/README.md).", "");
   for (const [tag, list] of groups) {
     const t = (spec.tags ?? []).find((x) => x.name === tag);
     out.push(`## ${tag}`, "");

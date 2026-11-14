@@ -4,7 +4,7 @@ One local API in front of your Indian broker accounts, so every tool you run sha
 
 It is for developers, traders and anyone building their own tools (a script, a spreadsheet, an AI assistant, a dashboard) who would rather talk to one steady API than log in to and rate-limit each broker separately.
 
-**Status: beta.** Open source (MIT), self-hosted, runs on your own computer; there is no hosted service. Only Dhan is verified with a live account; the other 40 brokers are beta or contract-tested ([BROKERS.md](docs/BROKERS.md)), and orders are paper unless you turn live trading on yourself. This project is independent: it is not affiliated with, sponsored by or endorsed by any broker, exchange or data provider. It is a connection layer, not a trading desk; see [what it does not do](#what-it-does-not-do).
+**Status: beta.** Source-available (PolyForm Noncommercial 1.0.0, no commercial use), self-hosted, runs on your own computer; there is no hosted service. Only Dhan is verified with a live account; the other 40 brokers are beta or contract-tested ([BROKERS.md](docs/BROKERS.md)), and orders are paper unless you turn live trading on yourself. This project is independent: it is not affiliated with, sponsored by or endorsed by any broker, exchange or data provider. It is a connection layer, not a trading desk; see [what it does not do](#what-it-does-not-do).
 
 <p>
   <picture>
@@ -78,12 +78,12 @@ The full walk-through, with the output of every command (a paper order, the sour
 
 [Quickstart](docs/guides/quickstart.md) · [FAQ](docs/guides/faq.md) · [One-step installer](docs/guides/install.md) · [Accounts](docs/guides/accounts.md) · [Rate limits](docs/guides/rate-limits.md) · [Sources](docs/guides/sources.md) · [Safety](docs/guides/safety.md) · [Streaming](docs/guides/streaming.md) · [MCP for AI assistants](docs/guides/mcp.md) · [Node SDK](docs/guides/typescript.md) · [Python SDK](docs/guides/python.md) · [Webhooks](docs/guides/webhooks.md) · [Excel and Sheets](docs/guides/excel-sheets.md) · [AmiBroker](docs/guides/amibroker.md)
 
-The [docs home](docs/README.md) sorts everything by what you want to do, and [docs/guides/README.md](docs/guides/README.md) lists every guide. Reference: [one page per endpoint](docs/api/README.md), [openapi.yaml](docs/openapi.yaml), [asyncapi.yaml](docs/asyncapi.yaml), [Postman and Bruno collections](docs/collections/README.md), [ARCHITECTURE.md](docs/ARCHITECTURE.md), [BROKERS.md](docs/BROKERS.md). For AI assistants: [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt).
+The [docs home](docs/README.md) sorts everything by what you want to do, and [docs/guides/README.md](docs/guides/README.md) lists every guide. Reference: [one page per endpoint](docs/api/README.md), [openapi.yaml](docs/openapi.yaml), [asyncapi.yaml](docs/asyncapi.yaml), [ARCHITECTURE.md](docs/ARCHITECTURE.md), [BROKERS.md](docs/BROKERS.md). For AI assistants: [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt).
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) (it has a quick path for a first pull request) and [SUPPORT.md](SUPPORT.md) for where to ask questions. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) (it has a quick path for a first pull request). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License, trademarks and logos
 
-The code and documentation are MIT, see [LICENSE](LICENSE). Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the MIT licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The code and documentation are under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use, modify and share them for any non-commercial purpose; commercial use is not permitted. Versions released before this change were MIT and stay MIT for those who received them. Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the project licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

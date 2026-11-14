@@ -952,7 +952,7 @@ Short answers, each pointing at the guide that has the details.
 
 ## Is it free?
 
-The Bridge is free, open-source software under the [MIT License](../../LICENSE). There is no hosted service and no account
+The Bridge is free, source-available software under the [PolyForm Noncommercial License 1.0.0](../../LICENSE) (no commercial use). There is no hosted service and no account
 with us: it runs on your computer. What can cost money is outside the Bridge. Some brokers charge for their API or for
 live market data, and some data vendors have paid plans. For example, [BROKERS.md](../BROKERS.md#limits-live-feed-and-data-plans)
 lists brokers whose live quotes need a paid plan, and the Twelve Data and Alpha Vantage sources in
@@ -6629,7 +6629,6 @@ do not know and treat an unknown `code` by its `status` and `retryable`. The Ope
 - [quickstart.md](quickstart.md): the same five minutes with a paper order and a stream.
 - [python.md](python.md) and [typescript.md](typescript.md): the fuller clients in `sdk/`.
 - [../api/README.md](../api/README.md): one page per call, with curl and Python.
-- [../collections/README.md](../collections/README.md): Postman and Bruno collections.
 - [mcp.md](mcp.md): AI assistants.
 
 ---
