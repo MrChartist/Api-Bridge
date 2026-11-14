@@ -35,7 +35,7 @@ runs. Prefer the environment variable (the CLI warns when you use `--key`).
 
 | To do this | Command | Guide |
 |---|---|---|
-| First setup, or a starter project | `init` | [install.md](install.md), [developers.md](developers.md) |
+| First setup, or a starter project | `init` | [developers.md](developers.md) |
 | Run the Bridge, open the dashboard | `start [--demo] [--open]`, `open` | [quickstart.md](quickstart.md) |
 | Keys | `keys create / list / revoke` | [developers.md](developers.md#auth-and-scopes) |
 | Brokers and accounts | `accounts list / connect` | [accounts.md](accounts.md) |

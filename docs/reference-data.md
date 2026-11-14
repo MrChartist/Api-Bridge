@@ -66,4 +66,4 @@ Only NSE, BSE, NFO and BFO are in the table. MCX and CDS hours, and their holida
 
 The Safety page of the dashboard shows the same sentences under "Market reference data". The same data is in the `referenceData` part of `GET /v1/readiness`. These are warnings: they never stop an order.
 
-Release gate: in early December, add the next year's holiday list before tagging a release. The release steps are in [release-process.md](release-process.md).
+Release gate: in early December, add the next year's holiday list before tagging a release.

@@ -64,7 +64,7 @@ Orders are paper unless you ask for live and every opt-in is in place. Practise 
 
 ## Run it for weeks
 
-- Install: [install.md](guides/install.md) covers the installers, and [windows.md](guides/windows.md) covers PowerShell, folders, the firewall and start at login.
+- Windows: [windows.md](guides/windows.md) covers PowerShell, folders, the firewall and start at login.
 - A server or a container: [vps.md](guides/vps.md) is a hardened server recipe, and [docker.md](guides/docker.md) explains the Dockerfile and compose file.
 - Day to day: [operations.md](guides/operations.md) covers one Bridge per folder, stopping, damaged files, disk space, health and logs.
 - Keep your data: [backup.md](guides/backup.md) covers backup, restore and recovery runbooks.
@@ -90,7 +90,6 @@ Orders are paper unless you ask for live and every opt-in is in place. Practise 
 - [broker-contract.md](broker-contract.md): what a broker adapter must provide.
 - [API-DEPRECATIONS.md](API-DEPRECATIONS.md): API changes that need a migration window. Release notes are in the [main changelog](../CHANGELOG.md).
 - [reference-data.md](reference-data.md): the market tables shipped with the Bridge (holidays, trading hours, special sessions, freeze quantities, charges), where each comes from, what `verified` means and how to update them.
-- [release-process.md](release-process.md): for maintainers, how a version is numbered, checked, tagged and published.
 - [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md): licences of the packages that ship with the Bridge, and the broker names and logos that are not under the project licence.
 
 ## Generated files

@@ -307,8 +307,7 @@ folder than ...`: run the command from the folder you started it in, or stop it 
 ### Node version
 
 The Bridge needs Node.js 22.12 or newer. Check with `node -v`. `npm run doctor` prints a `Node.js <version>` line and
-marks it as failed with "(22 or newer is required)" on an older version. Install a current Node.js (or use the
-[one-step installer](install.md), which brings its own) and run `npm ci` again.
+marks it as failed with "(22 or newer is required)" on an older version. Install a current Node.js and run `npm ci` again.
 
 ### The key is not accepted (401)
 

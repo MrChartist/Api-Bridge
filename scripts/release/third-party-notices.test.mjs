@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ROOT } from "../lib/repo-files.mjs";
-import { shipped } from "./build-bundles.mjs";
 import { NOTICES_FILE, checkNotices, copyrightLines, devLicenceCounts, productionPackages, renderNotices, tableRows } from "./third-party-notices.mjs";
 
 const lockOf = (packages) => ({ lockfileVersion: 3, packages: { "": { name: "x" }, ...packages } });
@@ -22,7 +21,6 @@ describe("THIRD-PARTY-NOTICES.md", () => {
     const text = readFileSync(join(ROOT, NOTICES_FILE), "utf8");
     expect(text).toMatch(/Broker names and logos are not under the project licence/);
     expect(text).toMatch(/not affiliated with, sponsored by or endorsed by any broker/);
-    expect(text).toMatch(/Node\.js/);
     expect(text).toMatch(/## Fonts\n\nNone\./);
     expect(text).not.toMatch(/\p{Extended_Pictographic}/u);
   });
@@ -32,10 +30,6 @@ describe("THIRD-PARTY-NOTICES.md", () => {
     expect(readme).toMatch(/## License, trademarks and logos/);
     expect(readme).toMatch(/not under the project licence/);
     expect(readme).toContain("THIRD-PARTY-NOTICES.md");
-  });
-
-  it("ships in the downloads", () => {
-    expect(shipped(NOTICES_FILE)).toBe(true);
   });
 
   it("package.json offers npm run notices", () => {

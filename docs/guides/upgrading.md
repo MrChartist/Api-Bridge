@@ -67,9 +67,8 @@ reported rather than stopping the start ([operations.md](operations.md#a-damaged
 
 ## Upgrade
 
-| How you installed | How to upgrade |
+| How you run it | How to upgrade |
 |---|---|
-| One-step installer ([install.md](install.md)) | Run the same line again. Your settings and data are kept. Choose a version with `--version` (Mac, Linux) or `MCB_VERSION` (Windows). No release has been published yet, so today this path does not exist |
 | Git checkout | Stop the Bridge, `git pull`, `npm ci`, start it again with `mc-bridge start` (or `npm run bridge -- start`) |
 | A VPS with systemd | `sudo git pull --ff-only && sudo npm ci --omit=dev`, then `sudo systemctl restart mc-bridge` ([vps.md](vps.md#8-updating)) |
 | Docker | `docker compose up -d --build` in the repository folder. The data is in the `bridge-data` volume and survives ([docker.md](docker.md)) |

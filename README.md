@@ -47,7 +47,7 @@ All screenshots are demo mode: sample data, no real account.
 18. [Configuration](#configuration)
 19. [Where your data lives, backup and restore](#where-your-data-lives-backup-and-restore)
 20. [Security and privacy](#security-and-privacy)
-21. [Updating and uninstalling](#updating-and-uninstalling)
+21. [Updating and removing](#updating-and-removing)
 22. [Troubleshooting](#troubleshooting)
 23. [FAQ](#faq)
 24. [What it does not do](#what-it-does-not-do)
@@ -83,7 +83,7 @@ It is for traders, developers and anyone building their own tools who would rath
 | **AI assistants (MCP)** | An MCP server with 20 tools for Claude, Cursor and other assistants. Read-only by default; order tools are off until you enable them. |
 | **Webhooks and alerts** | Signed webhooks for events, plus inbound alert hooks for TradingView and ChartInk that turn alerts into orders under strict rules. |
 | **Data tools** | History downloads, real-time quote and option-chain recorders, named collections of instruments and option universes, in CSV, JSONL or AmiBroker format. |
-| **Compatibility API** | An OpenAlgo-style compatibility layer so existing tools that expect that shape can point at the Bridge. |
+| **Compatibility API** | A compatibility REST layer so existing tools that expect a common trading-API shape can point at the Bridge. |
 | **SDKs and integrations** | Node and Python clients, Excel Power Query files, a Google Sheets script, AmiBroker AFL, and starter projects (`mc-bridge init node`, `python`, `curl`, `sheets`, `webhook-receiver`, `mcp-client`). |
 | **Telegram notifications** | Order, safety and download events to your own Telegram bot. |
 | **Backup and restore** | One-command archive of your data, automatic copy before every version change. |
@@ -111,53 +111,22 @@ It is for traders, developers and anyone building their own tools who would rath
 
 ## Install
 
-You do not need to know programming. Pick one way. None needs an admin password.
-
-| Your computer | Easiest way |
-|---|---|
-| **Windows 10 or 11** | Run **`Mr-Chartist-Bridge-Setup-….exe`** |
-| **Mac** | The **Mac app** (`…-macos-arm64.app.zip` for Apple chips, `…-macos-x64.app.zip` for Intel), or the ready-to-run ZIP |
-| **Linux** | The ready-to-run ZIP (`…-linux-x64.zip`, or `…-linux-arm64.zip` for Raspberry Pi and other ARM boards) |
-| **Android** | Termux ([guide](docs/guides/install.md#android-termux)) |
-| **Server or always-on machine** | [Docker](docs/guides/docker.md) or a [VPS](docs/guides/vps.md) |
-
-Use the files you were given with your copy of the Bridge. Each download is self-contained: **Node.js is inside it**, so there is nothing else to install.
-
-### Windows: Setup.exe
-
-1. Double-click the Setup `.exe`.
-2. If Windows says *"Windows protected your PC"*, click **More info**, then **Run anyway**. The file is not code-signed yet; this happens once.
-3. A small window shows progress, then the Bridge starts and your browser opens the dashboard, **already signed in**.
-
-Next time, open **Mr Chartist Bridge** from the Start menu or Desktop. Running a newer Setup.exe updates it and keeps your settings and data.
-
-### Ready-to-run ZIP (Windows, Mac, Linux)
-
-1. Unzip it. You get a folder called **Mr Chartist Bridge**; put it anywhere.
-2. Double-click the start file:
-   - Windows: `start-windows.bat` (click **More info → Run anyway** the first time).
-   - Mac: `start-mac.command`. On macOS 15 or newer open **System Settings → Privacy & Security → Open Anyway**; on macOS 14 or older right-click the file, choose **Open**, then **Open** again.
-   - Linux: `start-linux.sh` (or `sh start-linux.sh` in a terminal).
-3. A small window opens and the dashboard appears in your browser. **Keep the small window open** while you use the Bridge; close it to stop.
-
-### Mac app
-
-Open the app ZIP, drag **Mr Chartist Bridge** into Applications, then right-click it and choose **Open** the first time (it is not signed with an Apple developer certificate yet). Your data stays in `~/.mc-bridge`, so replacing the app with a newer one keeps it.
-
-### Docker
-
-`docker compose up -d` starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Details: [docker.md](docs/guides/docker.md).
-
-### Running from the program folder with Node.js
-
-If you have the program folder rather than an installer, you need Node.js 22.12 or newer (`node -v`):
+You need **Node.js 22.12 or newer** (`node -v`) and git. Run the Bridge from the repository folder:
 
 ```bash
+git clone https://github.com/MrChartist/api-bridge-v2.git
+cd api-bridge-v2
 npm ci
 npm run dev        # demo mode: sample data, no broker, opens the dashboard
 ```
 
-In this form, commands in this README that start with `mc-bridge` are run as `npm run bridge -- <command>`, for example `npm run bridge -- keys create --label first --scope read,paper`.
+### Docker
+
+`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Details: [docker.md](docs/guides/docker.md). For an always-on server see [vps.md](docs/guides/vps.md).
+
+### Running mc-bridge
+
+From the repository folder the `mc-bridge` command is not on your PATH. Commands in this README that start with `mc-bridge` are run as `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`), for example `npm run bridge -- keys create --label first --scope read,paper`. Do not run `mc-bridge` through `npx`: that name on npm belongs to an unrelated package.
 
 ## Five minutes to a first answer
 
@@ -270,12 +239,12 @@ One port serves WebSocket and SSE. Get a single-use token with `POST /v1/stream/
 - [OpenAPI specification](docs/openapi.yaml) (REST) and [AsyncAPI specification](docs/asyncapi.yaml) (streams). The running Bridge also serves `/openapi.yaml`.
 - [One page per endpoint](docs/api/README.md), with scope, parameters, fields, errors and curl and Python examples.
 - [Symbols](docs/guides/symbols.md): `EXCHANGE:SYMBOL` format and conversion between brokers.
-- [Compatibility API](docs/guides/compat-api.md) for tools that expect the OpenAlgo shape.
+- [Compatibility API](docs/guides/compat-api.md) for tools that expect a common trading-API shape.
 - For AI assistants reading the docs: [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt).
 
 ## Dashboard tour
 
-Open it any time with `mc-bridge open` (or the **Mr Chartist Bridge** shortcut). It is already signed in on this computer.
+Open it any time with `mc-bridge open`. It is already signed in on this computer.
 
 | Page | What it is for |
 |---|---|
@@ -362,7 +331,7 @@ See [rate-limits.md](docs/guides/rate-limits.md).
 | **Claude Desktop, Claude Code, Cursor** | MCP over stdio (`mc-bridge mcp`) or HTTP (`/mcp`), 20 tools, read-only by default | [mcp.md](docs/guides/mcp.md) |
 | **ChatGPT / OpenAI** | `mc-bridge openai-tools` prints tool definitions | [chatgpt-openai.md](docs/guides/chatgpt-openai.md) |
 | **Python / Node / curl** | SDKs and starter projects: `mc-bridge init python`, `node`, `curl`, `sheets`, `webhook-receiver`, `mcp-client` | [python.md](docs/guides/python.md), [typescript.md](docs/guides/typescript.md) |
-| **OpenAlgo-style tools** | Compatibility REST layer | [compat-api.md](docs/guides/compat-api.md) |
+| **Other trading tools** | Compatibility REST layer | [compat-api.md](docs/guides/compat-api.md) |
 
 Example, Claude Code with a read-only key:
 
@@ -429,7 +398,7 @@ The config is found, in order, from `--config`, `MCB_CONFIG`, `./bridge.config.j
 |---|---|
 | Windows | `%APPDATA%\MrChartist\Bridge` |
 | Mac and Linux | `~/.mc-bridge` (override with `MCB_HOME`) |
-| Ready-to-run ZIP | `bridge.config.json` and `data` next to the start file |
+| Running from the repository | `bridge.config.json` and `data` in the repository folder, if you keep them there |
 
 It holds your encrypted broker secrets, API keys, paper books, the audit log, downloads and recordings. The **master key** that seals the secrets is kept outside the data folder and is **never** included in a backup.
 
@@ -450,25 +419,16 @@ The Bridge also copies your data to `backups/` before the first start of any new
 - **Sandboxed plugins** run with no secrets and no direct network.
 - Report a vulnerability **privately** as described in [SECURITY.md](SECURITY.md); never post keys or tokens in a report.
 
-## Updating and uninstalling
+## Updating and removing
 
-**Update.** Run the newer Setup.exe, or replace the program folder with the newer one (copy your `bridge.config.json` and `data` folder across if you used the ZIP). Your keys, paper accounts and audit log live in the data folder and are not touched. Before the first start of a new version the Bridge copies your data into `backups/`. To go back to an older version, install it, then restore the copy made before the update (a Bridge refuses a backup made by a newer version). More: [upgrading.md](docs/guides/upgrading.md).
+**Update.** Stop the Bridge, `git pull`, `npm ci`, start it again. Your keys, paper accounts and audit log live in the data folder, not in the repository, so an update does not touch them. Before the first start of a new version the Bridge copies your data into `backups/`. To go back to an older version, check it out, then restore the copy made before the update (a Bridge refuses a backup made by a newer version). More: [upgrading.md](docs/guides/upgrading.md).
 
-**Checking a download.** Compare the SHA-256 of any file you were sent with the checksum the sender gave you (`sha256sum file` on Linux, `shasum -a 256 file` on Mac, `Get-FileHash file -Algorithm SHA256` on Windows). Releases are not code-signed yet, so the checksum is the only check.
-
-**Uninstall.**
-
-| How you installed | Remove with |
-|---|---|
-| Setup.exe | Settings → Apps → Installed apps → Mr. Chartist API Bridge → Uninstall (data is kept in `%APPDATA%\MrChartist\Bridge`) |
-| Mac app | Drag it to the Bin (data is kept in `~/.mc-bridge`) |
-| ZIP | Delete the **Mr Chartist Bridge** folder. **This also deletes your settings and data** if they sit inside it, so back up first |
+**Remove.** Delete the repository folder. Your settings and data stay in the data folder (below); delete that too if you no longer want them, after a backup.
 
 ## Troubleshooting
 
 | You see | Likely cause and fix |
 |---|---|
-| "Windows protected your PC" | The file is not code-signed yet. **More info → Run anyway** |
 | "Port 4300 is already in use" | Another program or a second Bridge has it. Close it, or set `MCB_PORT=4301` and `MCB_BRIDGE_URL` |
 | "The Bridge is already running" | One Bridge per data folder. Use it: `mc-bridge open` |
 | Dashboard asks you to sign in | The sign-in link works once. `mc-bridge open` prints a fresh one |
@@ -479,7 +439,7 @@ The Bridge also copies your data to `backups/` before the first start of any new
 | `PAPER_ONLY` or `ORDER_GATE_CLOSED` | A live order is missing one of the live opt-ins ([list](#safety-model)). Paper orders need none |
 | `MARKET_CLOSED` | The exchange is closed; `GET /v1/calendar/status` says when it opens |
 | `RATE_LIMITED` | Wait `retryAfterMs`; use the stream instead of polling |
-| `mc-bridge: command not found` | Use the start file or Start-menu shortcut, or `npm run bridge -- <command>` from the program folder |
+| `mc-bridge: command not found` | Run it as `npm run bridge -- <command>` from the repository folder |
 | Excel shows `#NAME?` or `NO ANSWER` | Old workbook, wrong address or key: [excel-sheets.md](docs/guides/excel-sheets.md) |
 | `LOOPBACK_ONLY` through a tunnel | Admin actions never work from outside; do it on the computer running the Bridge |
 
@@ -497,9 +457,9 @@ When you report a problem, include the `requestId` from the error, what `mc-brid
 
 **Can several tools use it at once?** Yes, that is the point: they share connections and each key has its own quota.
 
-**Can I use it from my phone or another computer?** From Android with Termux; from another computer only if you deliberately allow it in the config.
+**Can I use it from my phone or another computer?** From another computer only if you deliberately allow it in the config.
 
-**Do I need Node.js?** Not with Setup.exe, the Mac app or the ZIP (it is inside). Only the program-folder route needs Node.js 22.12 or newer.
+**Do I need Node.js?** Yes, 22.12 or newer (`node -v`). Docker needs only Docker.
 
 **Which broker should I start with?** Dhan is the only one verified with a live account. Start any broker in paper mode first.
 
@@ -515,7 +475,7 @@ More answers: [faq.md](docs/guides/faq.md).
 
 ## Guides index
 
-[Quickstart](docs/guides/quickstart.md) · [FAQ](docs/guides/faq.md) · [Install](docs/guides/install.md) · [Accounts](docs/guides/accounts.md) · [Rate limits](docs/guides/rate-limits.md) · [Sources](docs/guides/sources.md) · [Safety](docs/guides/safety.md) · [Orders](docs/guides/orders.md) · [Alert orders](docs/guides/alert-orders.md) · [Data](docs/guides/data.md) · [Downloads](docs/guides/downloads.md) · [Recording](docs/guides/recording.md) · [Collections](docs/guides/collections.md) · [Events](docs/guides/events.md) · [Telegram](docs/guides/telegram.md) · [Backup](docs/guides/backup.md) · [Streaming](docs/guides/streaming.md) · [Excel and Sheets](docs/guides/excel-sheets.md) · [AmiBroker](docs/guides/amibroker.md) · [Python](docs/guides/python.md) · [TypeScript](docs/guides/typescript.md) · [MCP](docs/guides/mcp.md) · [ChatGPT](docs/guides/chatgpt-openai.md) · [TradingView](docs/guides/tradingview.md) · [Webhooks](docs/guides/webhooks.md) · [Docker](docs/guides/docker.md) · [VPS](docs/guides/vps.md) · [Windows](docs/guides/windows.md) · [Operations](docs/guides/operations.md) · [Troubleshooting](docs/guides/troubleshooting.md) · [Glossary](docs/guides/glossary.md) · [Configuration](docs/guides/config.md) · [CLI](docs/guides/cli.md)
+[Quickstart](docs/guides/quickstart.md) · [FAQ](docs/guides/faq.md) · [Accounts](docs/guides/accounts.md) · [Rate limits](docs/guides/rate-limits.md) · [Sources](docs/guides/sources.md) · [Safety](docs/guides/safety.md) · [Orders](docs/guides/orders.md) · [Alert orders](docs/guides/alert-orders.md) · [Data](docs/guides/data.md) · [Downloads](docs/guides/downloads.md) · [Recording](docs/guides/recording.md) · [Collections](docs/guides/collections.md) · [Events](docs/guides/events.md) · [Telegram](docs/guides/telegram.md) · [Backup](docs/guides/backup.md) · [Streaming](docs/guides/streaming.md) · [Excel and Sheets](docs/guides/excel-sheets.md) · [AmiBroker](docs/guides/amibroker.md) · [Python](docs/guides/python.md) · [TypeScript](docs/guides/typescript.md) · [MCP](docs/guides/mcp.md) · [ChatGPT](docs/guides/chatgpt-openai.md) · [TradingView](docs/guides/tradingview.md) · [Webhooks](docs/guides/webhooks.md) · [Docker](docs/guides/docker.md) · [VPS](docs/guides/vps.md) · [Windows](docs/guides/windows.md) · [Operations](docs/guides/operations.md) · [Troubleshooting](docs/guides/troubleshooting.md) · [Glossary](docs/guides/glossary.md) · [Configuration](docs/guides/config.md) · [CLI](docs/guides/cli.md)
 
 Reference: [docs home](docs/README.md) · [one page per endpoint](docs/api/README.md) · [openapi.yaml](docs/openapi.yaml) · [asyncapi.yaml](docs/asyncapi.yaml) · [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [BROKERS.md](docs/BROKERS.md) · [CHANGELOG.md](CHANGELOG.md)
 

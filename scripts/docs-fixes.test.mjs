@@ -13,7 +13,7 @@ const NOT_TESTS = (f) => !f.endsWith(".test.mjs") && !f.startsWith("node_modules
 
 describe("running the command (D-01)", () => {
   const CLI_LINE = /(^|[^-/.\w`])mc-bridge (start|init|keys|download|record|collections|subscriptions|accounts|backup|restore|doctor|open|kill|expose|notify|mcp|sources|orders)\b/m;
-  const SKIP = new Set(["README.md", "install.md", "quickstart.md", "faq.md", "compliance.md", "connect.md", "streaming.md", "typescript.md", "paper-margin.md", "compat-api.md", "alert-orders.md"]);
+  const SKIP = new Set(["README.md", "quickstart.md", "faq.md", "compliance.md", "connect.md", "streaming.md", "typescript.md", "paper-margin.md", "compat-api.md", "alert-orders.md"]);
 
   it("the guides index explains once how to run mc-bridge from a checkout, and not through npx", () => {
     const index = read("docs/guides/README.md");
@@ -65,12 +65,6 @@ describe("Windows (D-02, D-23, D-24)", () => {
     const safety = read("docs/guides/safety.md");
     expect(safety).toMatch(/\$\{env:USERNAME\}/);
     expect(safety).toMatch(/%USERNAME%/);
-  });
-
-  it("the ready-to-run download row says that deleting the folder deletes the data, and an execution-policy row exists", () => {
-    const install = read("docs/guides/install.md");
-    expect(install).toMatch(/Ready-to-run download \| Delete the \*\*Mr Chartist Bridge\*\* folder\. \*\*This also deletes your settings and data\*\*/);
-    expect(install).toMatch(/execution policy/);
   });
 
   it("the AmiBroker key file is read from the Bridge's own Windows folder first and the old path still works", () => {

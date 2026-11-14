@@ -27,7 +27,7 @@ broker's current rules before you rely on it. See also [compliance.md](complianc
 | Option | What you do | Notes |
 |---|---|---|
 | (a) Static IP from your internet provider | Ask your ISP for a static IPv4 address for your home connection and run the Bridge on your PC | Cost and availability vary by provider and city; ask the ISP |
-| (b) A small Linux VPS in India | Rent a server with a static IPv4 address, install the Bridge there ([install.md](install.md)), keep it on `127.0.0.1` and reach the dashboard from your own computer with `ssh -L 4300:127.0.0.1:4300 you@your-vps` | Monthly cost is modest at most hosts (**needs verification**); pick an Indian region for low latency |
+| (b) A small Linux VPS in India | Rent a server with a static IPv4 address, install the Bridge there ([vps.md](vps.md)), keep it on `127.0.0.1` and reach the dashboard from your own computer with `ssh -L 4300:127.0.0.1:4300 you@your-vps` | Monthly cost is modest at most hosts (**needs verification**); pick an Indian region for low latency |
 | (c) A VPN or exit node with a dedicated IP | Route the Bridge's traffic through a VPN that gives you your own fixed exit address | The broker sees the **exit** address, so register that one. Split tunnels can send broker traffic another way: check |
 
 **Never put a public tunnel (ngrok, Cloudflare Tunnel and similar) in front of a Bridge that holds `live` keys.** A

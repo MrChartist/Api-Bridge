@@ -12,11 +12,7 @@ Market data that a broker or a data source delivers to you stays under that prov
 
 The project's own source code, documentation, the dashboard (which uses system fonts only and loads nothing from other sites), the application icons (`scripts/install/icon/`) and `server/bridge/dashboard/logo.svg` are part of this project and under its licence (End User Licence Agreement).
 
-## Node.js
-
-The ready-to-run ZIP downloads and the Windows Setup.exe contain a copy of Node.js (MIT, by the Node.js contributors, with components of its own under other licences). In each ZIP its full licence file is `runtime/LICENSE`. The Setup.exe does not carry a separate copy of that file; it is in the Node.js distribution for the version named in the release (https://github.com/nodejs/node/blob/main/LICENSE).
-
-## Packages in the downloads (93)
+## Packages shipped with the Bridge (93)
 
 These npm packages are installed with the Bridge (`npm ci --omit=dev`). The licence is the one the package's own metadata states; the copyright lines are copied from its licence file.
 
@@ -126,7 +122,7 @@ None. The dashboard uses the fonts of your system.
 
 ## Licence texts
 
-Each group below is one licence text, copied unchanged from the package files named, so that the notice travels with the Setup.exe too. In the ZIPs every package also keeps its own file in `node_modules/<package>/`.
+Each group below is one licence text, copied unchanged from the package files named, so that the notice travels with the Bridge. Every package also keeps its own file in `node_modules/<package>/`.
 
 ### 1. @hono/node-server@2.1.5
 

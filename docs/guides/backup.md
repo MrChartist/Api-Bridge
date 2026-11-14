@@ -136,8 +136,8 @@ Do these with the Bridge stopped.
 
 ### The disk died (you have a backup file elsewhere)
 
-1. Install the Bridge on the new disk ([install.md](install.md)). If the backup says it was made by a newer version than
-   the installer gives you, install that version with `--version`.
+1. Set the Bridge up on the new disk (`git clone`, `npm ci`). If the backup says it was made by a newer version than
+   your checkout, check out that version.
 2. Put your **master key** back if you kept a copy, at the path your settings name (`masterKeyFile`, or
    `~/.mc-bridge/data/master.key`; `mc-bridge doctor` prints it) or set `MCB_MASTER_KEY`.
 3. `mc-bridge restore <file> --dry-run`, then `mc-bridge restore <file>`.

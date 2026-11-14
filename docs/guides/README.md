@@ -4,7 +4,7 @@ Start with the [quickstart](quickstart.md) (five minutes, demo mode, no broker n
 
 ## Running mc-bridge
 
-Commands in these guides start with `mc-bridge`. That command is on your PATH after you use one of the installers in [install.md](install.md). From a git checkout it is not on your PATH, so use `npm run bridge -- <command>` in the repository folder instead (for example `npm run bridge -- keys create --label me --scope read`). `node bin/mc-bridge.mjs <command>` does the same. Do not run it through npx: this project is not published to npm, and the name `mc-bridge` there belongs to an unrelated package. The Bridge's own hints (the dashboard and the command line) show the form that fits your setup.
+Commands in these guides start with `mc-bridge`. It is not on your PATH from a git checkout, so use `npm run bridge -- <command>` in the repository folder instead (for example `npm run bridge -- keys create --label me --scope read`). `node bin/mc-bridge.mjs <command>` does the same. Do not run it through npx: this project is not published to npm, and the name `mc-bridge` there belongs to an unrelated package. The Bridge's own hints (the dashboard and the command line) show the form that fits your setup.
 
 On Windows, run the commands in PowerShell, and read [windows.md](windows.md) for the few places where the shell matters.
 
@@ -17,7 +17,6 @@ On Windows, run the commands in PowerShell, and read [windows.md](windows.md) fo
 | [faq.md](faq.md) | Is it free, is my broker supported, why pooling is off, why Yahoo is not real-time, where the data lives, how to reset |
 | [cli.md](cli.md) | Every `mc-bridge` command group, which credential each needs (none, the local control token, a read key, an admin key), exit codes, where the Bridge looks for settings |
 | [windows.md](windows.md) | PowerShell instead of bash, `curl.exe`, where the files are on Windows, protecting the master key, firewall, start at login |
-| [install.md](install.md) | Installing in one step on Windows, Mac or Linux (no Node.js, no admin password), updating, uninstalling |
 | [docker.md](docker.md) | The Dockerfile and compose file: start, what the compose file sets up, the dashboard from a container, running commands, backup, upgrade and what goes wrong |
 | [upgrading.md](upgrading.md) | Upgrading: which version you have, what to do before, the copy the Bridge makes by itself, going back, and the messages about settings a new version no longer accepts |
 | [downloads.md](downloads.md) | Saving history to files (CSV, JSONL, AmiBroker), datasets that update from their last bar, the API budget share, and the estimate before you start |

@@ -68,14 +68,8 @@ close it, or pick another with `$env:MCB_PORT = "4301"` and tell every tool the 
 ## Running at login
 
 The Bridge has no built-in start at login, and a broker login is needed each morning anyway. To start the Bridge window when you
-sign in to Windows, press Win+R, type `shell:startup`, and put a shortcut to `start-windows.bat` (or the **Mr Chartist Bridge**
-shortcut the installer made) in the folder that opens.
+sign in to Windows, press Win+R, type `shell:startup`, and put a shortcut to a small `.bat` file that runs `npm run dev` (or `npm start`) in the repository folder in the folder that opens.
 
-## If the one-line installer is blocked
-
-PowerShell's execution policy applies to script files, not to `irm ... | iex` typed in a window, so it normally does not stop
-the installer. A company proxy, antivirus or application-control rule can. If it is blocked, use the **Ready-to-run download**
-in [install.md](install.md), which needs no PowerShell command.
 
 ## Files for Excel and AmiBroker
 

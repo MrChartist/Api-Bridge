@@ -19,7 +19,7 @@ const UNSTATED = "not stated";
 const nameOf = (key) => key.slice(key.lastIndexOf("node_modules/") + "node_modules/".length);
 const licenceOf = (p) => (typeof p.license === "string" && p.license ? p.license : p.license?.type ?? UNSTATED);
 
-/** Production packages (everything the ZIPs and the Windows .exe carry) from a parsed package-lock.json. */
+/** Production packages (everything the Bridge installs with `npm ci --omit=dev`) from a parsed package-lock.json. */
 export function productionPackages(lock) {
   const seen = new Map(); // the same name and version can sit in several folders; list it once
   for (const [k, p] of Object.entries(lock.packages)) {
@@ -82,11 +82,7 @@ export function renderNotices({ root = ROOT } = {}) {
     "",
     "The project's own source code, documentation, the dashboard (which uses system fonts only and loads nothing from other sites), the application icons (`scripts/install/icon/`) and `server/bridge/dashboard/logo.svg` are part of this project and under its licence (End User Licence Agreement).",
     "",
-    "## Node.js",
-    "",
-    "The ready-to-run ZIP downloads and the Windows Setup.exe contain a copy of Node.js (MIT, by the Node.js contributors, with components of its own under other licences). In each ZIP its full licence file is `runtime/LICENSE`. The Setup.exe does not carry a separate copy of that file; it is in the Node.js distribution for the version named in the release (https://github.com/nodejs/node/blob/main/LICENSE).",
-    "",
-    `## Packages in the downloads (${pkgs.length})`,
+    `## Packages shipped with the Bridge (${pkgs.length})`,
     "",
     "These npm packages are installed with the Bridge (`npm ci --omit=dev`). The licence is the one the package's own metadata states; the copyright lines are copied from its licence file.",
     "",
@@ -101,7 +97,7 @@ export function renderNotices({ root = ROOT } = {}) {
   const dev = devLicenceCounts(lock);
   out.push(`Not shipped in any download: ${dev.reduce((n, [, c]) => n + c, 0)} packages (${dev.map(([l, c]) => `${c} ${l}`).join(", ")}). Their licences are in \`package-lock.json\`.`, "");
   out.push("## Fonts", "", "None. The dashboard uses the fonts of your system.", "", "## Licence texts", "");
-  out.push("Each group below is one licence text, copied unchanged from the package files named, so that the notice travels with the Setup.exe too. In the ZIPs every package also keeps its own file in `node_modules/<package>/`.", "");
+  out.push("Each group below is one licence text, copied unchanged from the package files named, so that the notice travels with the Bridge. Every package also keeps its own file in `node_modules/<package>/`.", "");
   const groups = new Map();
   for (const p of withFiles) {
     const text = p.lic?.text ?? null;
