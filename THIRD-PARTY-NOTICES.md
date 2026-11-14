@@ -18,7 +18,7 @@ These npm packages are installed with the Bridge (`npm ci --omit=dev`). The lice
 
 | Package | Version | Licence | Copyright |
 |---|---|---|---|
-| @hono/node-server | 2.1.5 | MIT | Copyright (c) 2022 - present, Yusuke Wada and Hono contributors |
+| @hono/node-server | 2.1.8 | MIT | Copyright (c) 2022 - present, Yusuke Wada and Hono contributors |
 | @modelcontextprotocol/sdk | 1.32.2 | MIT | Copyright (c) 2024 Anthropic, PBC |
 | accepts | 2.0.0 | MIT | Copyright (c) 2014 Jonathan Ong / Copyright (c) 2015 Douglas Christopher Wilson |
 | ajv | 8.20.0 | MIT | Copyright (c) 2015-2021 Evgeny Poberezkin |
@@ -59,7 +59,7 @@ These npm packages are installed with the Bridge (`npm ci --omit=dev`). The lice
 | gopd | 1.2.0 | MIT | Copyright (c) 2022 Jordan Harband |
 | has-symbols | 1.1.0 | MIT | Copyright (c) 2016 Jordan Harband |
 | hasown | 2.0.4 | MIT | Copyright (c) Jordan Harband and contributors |
-| hono | 4.13.13 | MIT | Copyright (c) 2021 - present, Yusuke Wada and Hono contributors |
+| hono | 4.13.18 | MIT | Copyright (c) 2021 - present, Yusuke Wada and Hono contributors |
 | http-errors | 2.0.1 | MIT | Copyright (c) 2014 Jonathan Ong me@jongleberry.com / Copyright (c) 2016 Douglas Christopher Wilson doug@somethingdoug.com |
 | iconv-lite | 0.7.3 | MIT | Copyright (c) 2011 Alexander Shtuchkin |
 | inherits | 2.0.4 | ISC | Copyright (c) Isaac Z. Schlueter / copyright notice and this permission notice appear in all copies. |
@@ -124,9 +124,9 @@ None. The dashboard uses the fonts of your system.
 
 Each group below is one licence text, copied unchanged from the package files named, so that the notice travels with the Bridge. Every package also keeps its own file in `node_modules/<package>/`.
 
-### 1. @hono/node-server@2.1.5
+### 1. @hono/node-server@2.1.8
 
-Applies to: @hono/node-server@2.1.5
+Applies to: @hono/node-server@2.1.8
 
 ```text
 MIT License
@@ -1134,9 +1134,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### 36. hono@4.13.13
+### 36. hono@4.13.18
 
-Applies to: hono@4.13.13
+Applies to: hono@4.13.18
 
 ```text
 MIT License
