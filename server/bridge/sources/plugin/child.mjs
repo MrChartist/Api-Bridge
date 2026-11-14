@@ -27,6 +27,10 @@ const METHODS = ["quotes", "history", "expiries", "optionChain"];
 const PLUGIN_CODES = new Set(["RATE_LIMITED", "UNAVAILABLE", "TIMEOUT", "BAD_RESPONSE", "NOT_FOUND", "UNSUPPORTED", "AUTH", "CANCELLED", "INTERNAL"]);
 const FETCH_CODE_MAP = { RATE_LIMITED: "RATE_LIMITED", TIMEOUT: "TIMEOUT", TOO_LARGE: "BAD_RESPONSE", NETWORK: "UNAVAILABLE", CANCELLED: "CANCELLED" };
 
+// The plugin gets no network of its own: only ctx.fetch, which the host brokers. Node 24 and newer cannot switch the
+// global fetch and WebSocket off with a flag, so they are removed here, before the plugin's code is loaded.
+for (const name of ["fetch", "WebSocket", "EventSource"]) delete globalThis[name];
+
 const write = (obj) => process.stdout.write(`${JSON.stringify(obj)}\n`);
 
 // stdout carries the protocol: keep console output out of it.

@@ -40,7 +40,7 @@ function llmsTxt(spec, ops, root) {
   const lines = [
     "# Mr. Chartist API Bridge",
     "",
-    "> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. Free for personal, non-commercial use under the Mr. Chartist End User Licence Agreement. Broker market data is for the account holder's own use, as the broker terms say.",
+    "> One local API (REST, WebSocket and MCP) in front of your Indian broker accounts. It runs on the user's own computer, keeps one connection per broker, shares it between all of the user's tools and stays inside each broker's rate limits. Orders are paper by default; live orders need several explicit opt-ins. Free and open source under the GNU Affero General Public License v3.0. Broker market data is for the account holder's own use, as the broker terms say.",
     "",
     "Facts that help when writing code against it:",
     "",

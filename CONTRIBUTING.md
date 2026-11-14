@@ -107,4 +107,4 @@ Read [docs/source-contract.md](docs/source-contract.md) first. It covers the des
 - Fill in the pull request template, including how you tested it.
 - Every change is reviewed by a maintainer (see `.github/CODEOWNERS`) before it is merged.
 
-By contributing you agree that your contribution is licensed under the [Mr. Chartist End User Licence Agreement](LICENSE), and that the maintainer may relicense it.
+By contributing you agree that your contribution is licensed under the [GNU Affero General Public License v3.0](LICENSE).

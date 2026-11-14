@@ -55,7 +55,7 @@ info:
 
     Personal use only: broker data terms generally forbid passing market data to other people.
   license:
-    name: Mr. Chartist End User Licence Agreement
+    name: GNU Affero General Public License v3.0
     url: https://github.com/MrChartist/api-bridge-v2/blob/main/LICENSE
   contact:
     name: Investology (Mr. Chartist)

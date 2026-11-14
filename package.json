@@ -4,7 +4,7 @@
   "description": "Mr. Chartist API Bridge: one local API for all your Indian broker accounts, with rate-limit-aware routing, streaming and safety gates.",
   "type": "module",
   "private": true,
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "AGPL-3.0-only",
   "author": "Mr. Chartist",
   "repository": {
     "type": "git",

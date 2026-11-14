@@ -1,6 +1,6 @@
 // =====================================================================================================
 // Mr. Chartist API Bridge — AFL include (read-only market data)
-// Copyright (c) 2026 Mr. Chartist. Mr. Chartist End User Licence Agreement, see LICENSE in the repository.
+// Copyright (c) 2026 Mr. Chartist. GNU AGPL-3.0-only, see LICENSE in the repository.
 //
 // Put this file in AmiBroker's Formulas\Include folder and add to your formula:
 //     #include_once <mrchartist-bridge.afl>

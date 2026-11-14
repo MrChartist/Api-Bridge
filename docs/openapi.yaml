@@ -92,8 +92,8 @@ info:
   contact:
     name: Investology (Mr. Chartist)
   license:
-    name: Mr. Chartist End User Licence Agreement
-    identifier: LicenseRef-MrChartist-EULA
+    name: GNU Affero General Public License v3.0
+    identifier: AGPL-3.0-only
 servers:
   - url: http://127.0.0.1:4300
     description: Local Bridge (default)

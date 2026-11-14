@@ -581,7 +581,7 @@ function aboutSheet() {
         h(
           "div",
           { class: "list" },
-          listRow({ tag: "div", title: "Licence", value: "End User Licence Agreement" }),
+          listRow({ tag: "div", title: "Licence", value: "AGPL-3.0" }),
           listRow({ tag: "div", title: "Created by", value: "Mr. Chartist" }),
           listRow({ tag: "div", title: "Fonts", value: "Your system fonts" }),
         ),

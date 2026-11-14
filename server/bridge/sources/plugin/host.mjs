@@ -21,7 +21,7 @@
  * This module imports nothing from the order, safety, paper, accounts or broker code, and nothing outside the
  * sources area imports it except through loader.mjs.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { BridgeError } from "../../core/errors.mjs";
 import { API_VERSION, effectiveLimits } from "./manifest.mjs";
@@ -93,6 +93,20 @@ export function permissionFlagFor(version = process.versions.node) {
  * The argument list for the child. Pure, so a test can check it: permission flags first, then limits, then the runner,
  * its entry file and the pinned hash.
  */
+/**
+ * The `--no-experimental-<name>` switch, when this Node still has one. Node 24 made fetch stable and dropped the switch
+ * (a child started with it refuses to run), so it is added only where it exists; the runner removes the globals itself
+ * either way. For the Node that is running now the switch is tried once (a `node <flag> -e 0` that must succeed); for a
+ * version named by a test, by major number.
+ */
+const probed = new Map();
+function noExperimental(name, version) {
+  const flag = `--no-experimental-${name}`;
+  if (version !== process.versions.node) return !(name === "fetch" && Number(version.split(".")[0]) >= 24) ? [flag] : [];
+  if (!probed.has(flag)) probed.set(flag, spawnSync(process.execPath, [flag, "-e", "0"], { stdio: "ignore", env: {} }).status === 0);
+  return probed.get(flag) ? [flag] : [];
+}
+
 export function buildNodeArgs({ pluginDir, runnerPath = RUNNER_PATH, entryPath, entrySha, nodeVersion = process.versions.node, maxOldSpaceMb = 128 }) {
   const flag = permissionFlagFor(nodeVersion);
   return [
@@ -102,8 +116,8 @@ export function buildNodeArgs({ pluginDir, runnerPath = RUNNER_PATH, entryPath, 
     ...(flag ? [flag, `--allow-fs-read=${entryPath}`, `--allow-fs-read=${runnerPath}`] : []),
     `--max-old-space-size=${maxOldSpaceMb}`,
     "--disallow-code-generation-from-strings",
-    "--no-experimental-fetch",
-    "--no-experimental-websocket",
+    ...noExperimental("fetch", nodeVersion),
+    ...noExperimental("websocket", nodeVersion),
     runnerPath,
     entryPath,
     entrySha,

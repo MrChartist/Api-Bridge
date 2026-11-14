@@ -32,5 +32,6 @@ if (mode === "signals") {
   setInterval(() => {}, 1000);
 } else {
   process.stdout.write("READY\n");
+  await new Promise((r) => setTimeout(r, 1000)); // the test reads READY and checks the plugin is alive before the exit
   process.exit(0);
 }

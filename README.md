@@ -2,7 +2,7 @@
 
 **One local API in front of all your Indian broker accounts.** Your scripts, spreadsheets, AI assistants and dashboards talk to the Bridge; the Bridge talks to your brokers. Every tool shares the same connections, stays inside each broker's rate limits, and orders are **paper (practice) orders unless you deliberately switch real trading on**.
 
-Version 2.0.0 · **Status: beta** · Runs on your own computer, with no hosted service and no account with us · Free for personal, non-commercial use under the [End User Licence Agreement](LICENSE). An independent project: not affiliated with, sponsored by or endorsed by any broker.
+Version 2.0.0 · **Status: beta** · Runs on your own computer, with no hosted service and no account with us · Free and open source under the [GNU Affero General Public License v3.0](LICENSE). An independent project: not affiliated with, sponsored by or endorsed by any broker.
 
 <p>
   <picture>
@@ -52,7 +52,8 @@ All screenshots are demo mode: sample data, no real account.
 23. [FAQ](#faq)
 24. [What it does not do](#what-it-does-not-do)
 25. [Guides index](#guides-index)
-26. [License, trademarks and logos](#license-trademarks-and-logos)
+26. [Contributing](#contributing)
+27. [License, trademarks and logos](#license-trademarks-and-logos)
 
 ---
 
@@ -447,7 +448,7 @@ When you report a problem, include the `requestId` from the error, what `mc-brid
 
 ## FAQ
 
-**Is it free?** For personal, non-commercial use, yes. Commercial use needs a separate written licence ([LICENSE](LICENSE)).
+**Is it free?** Yes. It is open source under the [AGPL-3.0](LICENSE): use, study, change and share it. If you run a modified version for other people over a network, you must offer them your changes under the same licence.
 
 **Does it send my data or keys anywhere?** No. It runs on your computer and talks only to your brokers and the sources you enable.
 
@@ -479,8 +480,11 @@ More answers: [faq.md](docs/guides/faq.md).
 
 Reference: [docs home](docs/README.md) · [one page per endpoint](docs/api/README.md) · [openapi.yaml](docs/openapi.yaml) · [asyncapi.yaml](docs/asyncapi.yaml) · [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [BROKERS.md](docs/BROKERS.md) · [CHANGELOG.md](CHANGELOG.md)
 
+## Contributing
+
+Contributions are welcome: bug fixes with a test, doc fixes, and broker reports (try a broker in paper mode and tell us what happened). Start with [CONTRIBUTING.md](CONTRIBUTING.md), which has a quick path for a first pull request. Run the tests with `npm test`. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+
 ## License, trademarks and logos
 
-The Bridge and its documentation are © 2026 Mr. Chartist and licensed under the [End User Licence Agreement](LICENSE): free for personal, non-commercial use; no commercial use, redistribution, resale or reverse engineering. Releases before this change were MIT and stay MIT for those who received them. Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the project licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The Bridge and its documentation are © 2026 Mr. Chartist and licensed under the [GNU Affero General Public License v3.0](LICENSE) (SPDX: `AGPL-3.0-only`). You may use, study, change and share it; if you run a modified version as a service for other people, you must offer them your changes under the same licence. Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the project licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
