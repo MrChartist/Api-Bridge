@@ -92,7 +92,7 @@ async function brand(exeBuffer, version) {
       ProductName: "Mr. Chartist API Bridge",
       OriginalFilename: "Mr Chartist Bridge.exe",
       InternalName: "mr-chartist-bridge",
-      LegalCopyright: "PolyForm Noncommercial License 1.0.0. Includes Node.js (MIT, OpenJS Foundation).",
+      LegalCopyright: "Mr. Chartist End User Licence Agreement. Includes Node.js (MIT, OpenJS Foundation).",
       FileVersion: version,
       ProductVersion: version,
     },

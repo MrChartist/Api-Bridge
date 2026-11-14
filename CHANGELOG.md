@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Licence: the project moves from MIT to the [PolyForm Noncommercial License 1.0.0](LICENSE) (no commercial use). Copies already received under MIT stay MIT.
+- Licence: MIT is replaced by the Mr. Chartist [End User Licence Agreement](LICENSE): free for personal, non-commercial use, no redistribution. The Bridge is distributed as downloads (Setup.exe, ZIP), not as source. Copies already received under MIT stay MIT.
 - Removed: the Postman and Bruno collections (`docs/collections`, `scripts/gen-collections.mjs`), ROADMAP.md, SUPPORT.md and CODE_OF_CONDUCT.md.
 
 - Guides: [orders](docs/guides/orders.md), [upgrading](docs/guides/upgrading.md), [docker](docs/guides/docker.md), [Dhan](docs/guides/dhan.md), [TradingView](docs/guides/tradingview.md), [saving data](docs/guides/data.md) (three recipes, run by a test) and a [configuration reference](docs/guides/config.md) written from the settings checker (a test fails when a setting has no description); the docs home is sorted by what you want to do.

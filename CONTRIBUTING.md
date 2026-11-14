@@ -108,4 +108,4 @@ Read [docs/source-contract.md](docs/source-contract.md) first. It covers the des
 - Every change is reviewed by a maintainer (see `.github/CODEOWNERS`) before it is merged.
 - Maintainers: how a release is cut is in [docs/release-process.md](docs/release-process.md).
 
-By contributing you agree that your contribution is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE), and that the maintainer may relicense it.
+By contributing you agree that your contribution is licensed under the [Mr. Chartist End User Licence Agreement](LICENSE), and that the maintainer may relicense it.

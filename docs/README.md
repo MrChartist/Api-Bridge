@@ -1,6 +1,6 @@
 # Documentation
 
-API Bridge v2 is one local API in front of your Indian broker accounts. It is source-available (PolyForm Noncommercial 1.0.0, no commercial use), runs on your own computer and has no hosted
+API Bridge v2 is one local API in front of your Indian broker accounts. It is free for personal, non-commercial use (End User Licence Agreement), runs on your own computer and has no hosted
 service. These pages are for people who run it and people who build on it. Everything works in demo mode first: sample prices, no broker,
 paper orders.
 

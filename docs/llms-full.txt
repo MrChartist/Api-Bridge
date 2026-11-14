@@ -952,7 +952,7 @@ Short answers, each pointing at the guide that has the details.
 
 ## Is it free?
 
-The Bridge is free, source-available software under the [PolyForm Noncommercial License 1.0.0](../../LICENSE) (no commercial use). There is no hosted service and no account
+The Bridge is free software for personal, non-commercial use under the [End User Licence Agreement](../../LICENSE). There is no hosted service and no account
 with us: it runs on your computer. What can cost money is outside the Bridge. Some brokers charge for their API or for
 live market data, and some data vendors have paid plans. For example, [BROKERS.md](../BROKERS.md#limits-live-feed-and-data-plans)
 lists brokers whose live quotes need a paid plan, and the Twelve Data and Alpha Vantage sources in

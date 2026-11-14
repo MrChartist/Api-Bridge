@@ -17,19 +17,48 @@
     },
     {
       "headings": [
+        "Contents",
+        "Why the Bridge",
         "What you get",
-        "Five minutes to a first answer",
+        "How it works",
+        "Install",
+        "Windows: Setup.exe",
+        "Ready-to-run ZIP (Windows, Mac, Linux)",
+        "Mac app",
         "Docker",
-        "Safety stance",
+        "Running from the program folder with Node.js",
+        "Five minutes to a first answer",
+        "Connect a broker",
+        "API keys",
+        "Using the API",
+        "Examples",
+        "Python",
+        "Node.js",
+        "Live streaming",
+        "References",
+        "Dashboard tour",
+        "Supported brokers",
+        "Data sources",
+        "Safety model",
+        "Rate limits",
+        "Connect your tools",
+        "Save and replay data",
+        "Alerts, events and notifications",
+        "Command line reference",
+        "Configuration",
+        "Where your data lives, backup and restore",
+        "Security and privacy",
+        "Updating and uninstalling",
+        "Troubleshooting",
+        "FAQ",
         "What it does not do",
-        "Guides",
-        "Contributing and security",
+        "Guides index",
         "License, trademarks and logos"
       ],
       "kind": "doc",
       "path": "README.md",
-      "text": "One local API in front of your Indian broker accounts, so every tool you run shares the same connections and stays inside each broker's rate limits. It is for developers, traders and anyone building their own tools (a script, a spreadsheet, an AI assistant, a dashboard) who...",
-      "title": "API Bridge v2"
+      "text": "One local API in front of all your Indian broker accounts. Your scripts, spreadsheets, AI assistants and dashboards talk to the Bridge; the Bridge talks to your brokers. Every tool shares the same connections, stays inside each broker's rate limits, and orders are paper...",
+      "title": "Mr. Chartist API Bridge v2"
     },
     {
       "headings": [
@@ -110,7 +139,7 @@
       ],
       "kind": "doc",
       "path": "docs/README.md",
-      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. It is source-available (PolyForm Noncommercial 1.0.0, no commercial use), runs on your own computer and has no hosted service. These pages are for people who run it and people who build on it. Everything...",
+      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. It is free for personal, non-commercial use (End User Licence Agreement), runs on your own computer and has no hosted service. These pages are for people who run it and people who build on it. Everything...",
       "title": "Documentation"
     },
     {
@@ -2592,7 +2621,7 @@
       ],
       "kind": "guide",
       "path": "docs/guides/faq.md",
-      "text": "Short answers, each pointing at the guide that has the details. The Bridge is free, source-available software under the PolyForm Noncommercial License 1.0.0 (no commercial use). There is no hosted service and no account with us: it runs on your computer. What can cost money is...",
+      "text": "Short answers, each pointing at the guide that has the details. The Bridge is free software for personal, non-commercial use under the End User Licence Agreement. There is no hosted service and no account with us: it runs on your computer. What can cost money is outside the...",
       "title": "FAQ"
     },
     {

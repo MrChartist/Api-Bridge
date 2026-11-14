@@ -1,10 +1,8 @@
-# API Bridge v2
+# Mr. Chartist API Bridge v2
 
-One local API in front of your Indian broker accounts, so every tool you run shares the same connections and stays inside each broker's rate limits.
+**One local API in front of all your Indian broker accounts.** Your scripts, spreadsheets, AI assistants and dashboards talk to the Bridge; the Bridge talks to your brokers. Every tool shares the same connections, stays inside each broker's rate limits, and orders are **paper (practice) orders unless you deliberately switch real trading on**.
 
-It is for developers, traders and anyone building their own tools (a script, a spreadsheet, an AI assistant, a dashboard) who would rather talk to one steady API than log in to and rate-limit each broker separately.
-
-**Status: beta.** Source-available (PolyForm Noncommercial 1.0.0, no commercial use), self-hosted, runs on your own computer; there is no hosted service. Only Dhan is verified with a live account; the other 40 brokers are beta or contract-tested ([BROKERS.md](docs/BROKERS.md)), and orders are paper unless you turn live trading on yourself. This project is independent: it is not affiliated with, sponsored by or endorsed by any broker, exchange or data provider. It is a connection layer, not a trading desk; see [what it does not do](#what-it-does-not-do).
+Version 2.0.0 · **Status: beta** · Runs on your own computer, with no hosted service and no account with us · Free for personal, non-commercial use under the [End User Licence Agreement](LICENSE). An independent project: not affiliated with, sponsored by or endorsed by any broker.
 
 <p>
   <picture>
@@ -21,69 +19,508 @@ It is for developers, traders and anyone building their own tools (a script, a s
   </picture>
 </p>
 
-More: [Sources, providers](docs/screenshots/sources-providers-light.webp) · [API keys](docs/screenshots/api-keys-light.webp) · [Safety](docs/screenshots/safety-light.webp) · [on a phone](docs/screenshots/accounts-phone.webp). All screenshots are demo mode: sample prices, no broker, no real data.
+All screenshots are demo mode: sample data, no real account.
+
+> **Beta software, not financial advice.** Only Dhan is verified with a live account. The other 40 brokers are beta or contract-tested ([how each is ranked](docs/BROKERS.md)). Trading involves risk of loss. Try everything in paper mode first and check figures against your broker before you ever turn live trading on. See [Safety](#safety-model) and the [licence](#license-trademarks-and-logos).
+
+---
+
+## Contents
+
+1. [Why the Bridge](#why-the-bridge)
+2. [What you get](#what-you-get)
+3. [How it works](#how-it-works)
+4. [Install](#install)
+5. [Five minutes to a first answer](#five-minutes-to-a-first-answer)
+6. [Connect a broker](#connect-a-broker)
+7. [API keys](#api-keys)
+8. [Using the API](#using-the-api)
+9. [Dashboard tour](#dashboard-tour)
+10. [Supported brokers](#supported-brokers)
+11. [Data sources](#data-sources)
+12. [Orders and the safety model](#safety-model)
+13. [Rate limits](#rate-limits)
+14. [Connect your tools](#connect-your-tools)
+15. [Save and replay data](#save-and-replay-data)
+16. [Alerts, events and notifications](#alerts-events-and-notifications)
+17. [Command line reference](#command-line-reference)
+18. [Configuration](#configuration)
+19. [Where your data lives, backup and restore](#where-your-data-lives-backup-and-restore)
+20. [Security and privacy](#security-and-privacy)
+21. [Updating and uninstalling](#updating-and-uninstalling)
+22. [Troubleshooting](#troubleshooting)
+23. [FAQ](#faq)
+24. [What it does not do](#what-it-does-not-do)
+25. [Guides index](#guides-index)
+26. [License, trademarks and logos](#license-trademarks-and-logos)
+
+---
+
+## Why the Bridge
+
+Every Indian broker has its own login, its own API, its own symbols and its own rate limits. If you run a spreadsheet, a Python script, a charting tool and an AI assistant at the same time, each one logs in separately, they fight over the same limits, and a mistake in one can place an order from another.
+
+The Bridge puts **one local service** in the middle:
+
+- It keeps **one connection per broker** and shares it between all your tools.
+- It speaks **one API shape** (REST, WebSocket and MCP) whichever broker is behind it.
+- It **budgets requests** so no tool starves the others and no broker bans you.
+- It **labels every price** with where it came from, how old it is and whether it is official.
+- It makes real orders **hard to place by accident**, and keeps an audit log of everything.
+
+It is for traders, developers and anyone building their own tools who would rather talk to one steady API than log in to and rate-limit each broker separately.
 
 ## What you get
 
-- **One API over 41 brokers.** REST and a WebSocket stream for quotes, option chains, history, positions, funds and orders, the same shape whichever broker is behind it. Each broker is ranked on a published ladder (beta, contract-tested, sandbox, live-verified), so you can see which ones have been proven with a real account; the adapters are written from official documentation and tested against recorded responses ([BROKERS.md](docs/BROKERS.md)).
-- **Shared limits.** The Bridge keeps every broker inside its documented limits and splits the room fairly between your tools. Each API key has its own quota, and a refused request says whose limit it hit and when to retry.
-- **Honest data sources.** Real-time prices come from your own broker. You can switch on free delayed or end-of-day sources, or write a plugin; every answer is labelled with its class, delay and whether the source is official, and such data is never used for orders or alerts.
-- **Paper trading by default.** Every order is a paper order unless you go out of your way to make it live.
-- **No key needed on your own computer.** The dashboard opens signed in, and calls from the same computer work without a key (read, paper and admin access, never live). A tool on another computer uses a key. `server.keylessSignIn` and `server.keylessApi` switch this off.
-- **Trade by hand too.** The dashboard's order ticket places Limit, Market, SL and SL-M orders; Orders, Positions lists what you hold with profit and loss and fills the ticket in to exit.
-- **A dashboard**, plus MCP tools for AI assistants, signed webhooks, SDKs for Node and Python, and integrations for Excel, Google Sheets and AmiBroker.
+| Area | What it does |
+|---|---|
+| **One API over 41 brokers** | Quotes, depth, option chains, expiries, history, positions, holdings, funds, orders and trades in the same shape for every broker. REST plus a WebSocket and SSE stream. |
+| **Shared, fair rate limits** | Each broker's documented limits are enforced centrally. Every API key has its own quota, and a refused request says whose limit it hit and when to retry. |
+| **Honest data sources** | Real-time prices come from your own broker. You can switch on free delayed or end-of-day sources, or add a plugin. Every answer is labelled with class, delay and officialness, and delayed data is never used for orders, risk checks, paper fills or alerts. |
+| **Paper trading by default** | A full paper account with margin checks, fills, daily P&L, snapshots and a reset with undo. |
+| **Hand trading** | An order ticket in the dashboard for Limit, Market, SL and SL-M orders, plus positions with profit and loss and one-click exit. |
+| **Dashboard** | Signed-in dashboard for accounts, sources, orders, positions, keys, safety, downloads, recordings, collections, events, notifications and backup. |
+| **AI assistants (MCP)** | An MCP server with 20 tools for Claude, Cursor and other assistants. Read-only by default; order tools are off until you enable them. |
+| **Webhooks and alerts** | Signed webhooks for events, plus inbound alert hooks for TradingView and ChartInk that turn alerts into orders under strict rules. |
+| **Data tools** | History downloads, real-time quote and option-chain recorders, named collections of instruments and option universes, in CSV, JSONL or AmiBroker format. |
+| **Compatibility API** | An OpenAlgo-style compatibility layer so existing tools that expect that shape can point at the Bridge. |
+| **SDKs and integrations** | Node and Python clients, Excel Power Query files, a Google Sheets script, AmiBroker AFL, and starter projects (`mc-bridge init node`, `python`, `curl`, `sheets`, `webhook-receiver`, `mcp-client`). |
+| **Telegram notifications** | Order, safety and download events to your own Telegram bot. |
+| **Backup and restore** | One-command archive of your data, automatic copy before every version change. |
+| **Kill switch** | One command (or button) stops live orders everywhere, optionally cancelling open ones. |
 
-## Five minutes to a first answer
+## How it works
 
-You need Node.js 22.12 or newer.
-
-```bash
-git clone https://github.com/MrChartist/api-bridge-v2.git
-cd api-bridge-v2
-npm ci
-npm run dev                                   # demo mode: sample data, no broker, opens the dashboard
+```
+ Excel · Google Sheets · AmiBroker · Python · Node · TradingView · AI assistants (MCP) · your own code
+                                          │
+                       one local address: http://127.0.0.1:4300
+                                          │
+        ┌─────────────────────────── the Bridge ───────────────────────────┐
+        │  keys & scopes · rate-limit budgets · freshness labels · audit   │
+        │  paper engine · live-order gate · events · recorder · dashboard  │
+        └──────────────┬─────────────────┬─────────────────┬───────────────┘
+                       │                 │                 │
+                  Dhan, Zerodha,     free delayed /     your plugins
+                  Upstox, Fyers…    end-of-day sources   (sandboxed)
 ```
 
-In a second terminal, from the same folder:
+- The Bridge listens on **`127.0.0.1` only**. Nothing else on your network can reach it unless you deliberately allow it.
+- Broker credentials are stored **encrypted** in the Bridge's own data folder.
+- Everything keeps working without us: there is no server of ours in the loop.
 
-```bash
-npm run bridge -- keys create --label first --scope read,paper     # prints a key once: copy it
-export MCB_API_KEY=mcb_...                                             # the key you were just shown
-curl "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -H "Authorization: Bearer $MCB_API_KEY"
-```
+## Install
 
-On Windows use PowerShell: `$env:MCB_API_KEY = "mcb_..."` and `Invoke-RestMethod "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -Headers @{ Authorization = "Bearer $env:MCB_API_KEY" }` ([windows.md](docs/guides/windows.md)). On another port, set `MCB_BRIDGE_URL` (the commands and SDKs all read it).
+You do not need to know programming. Pick one way. None needs an admin password.
 
-The full walk-through, with the output of every command (a paper order, the sources list, a WebSocket stream) and fixes for the usual problems, is [docs/guides/quickstart.md](docs/guides/quickstart.md). When something does not work, see [troubleshooting](docs/guides/troubleshooting.md). Demo prices are generated on your computer; they are not market data.
+| Your computer | Easiest way |
+|---|---|
+| **Windows 10 or 11** | Run **`Mr-Chartist-Bridge-Setup-….exe`** |
+| **Mac** | The **Mac app** (`…-macos-arm64.app.zip` for Apple chips, `…-macos-x64.app.zip` for Intel), or the ready-to-run ZIP |
+| **Linux** | The ready-to-run ZIP (`…-linux-x64.zip`, or `…-linux-arm64.zip` for Raspberry Pi and other ARM boards) |
+| **Android** | Termux ([guide](docs/guides/install.md#android-termux)) |
+| **Server or always-on machine** | [Docker](docs/guides/docker.md) or a [VPS](docs/guides/vps.md) |
+
+Use the files you were given with your copy of the Bridge. Each download is self-contained: **Node.js is inside it**, so there is nothing else to install.
+
+### Windows: Setup.exe
+
+1. Double-click the Setup `.exe`.
+2. If Windows says *"Windows protected your PC"*, click **More info**, then **Run anyway**. The file is not code-signed yet; this happens once.
+3. A small window shows progress, then the Bridge starts and your browser opens the dashboard, **already signed in**.
+
+Next time, open **Mr Chartist Bridge** from the Start menu or Desktop. Running a newer Setup.exe updates it and keeps your settings and data.
+
+### Ready-to-run ZIP (Windows, Mac, Linux)
+
+1. Unzip it. You get a folder called **Mr Chartist Bridge**; put it anywhere.
+2. Double-click the start file:
+   - Windows: `start-windows.bat` (click **More info → Run anyway** the first time).
+   - Mac: `start-mac.command`. On macOS 15 or newer open **System Settings → Privacy & Security → Open Anyway**; on macOS 14 or older right-click the file, choose **Open**, then **Open** again.
+   - Linux: `start-linux.sh` (or `sh start-linux.sh` in a terminal).
+3. A small window opens and the dashboard appears in your browser. **Keep the small window open** while you use the Bridge; close it to stop.
+
+### Mac app
+
+Open the app ZIP, drag **Mr Chartist Bridge** into Applications, then right-click it and choose **Open** the first time (it is not signed with an Apple developer certificate yet). Your data stays in `~/.mc-bridge`, so replacing the app with a newer one keeps it.
 
 ### Docker
 
-`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Set `MCB_DEMO: "1"` in the compose file for demo mode. [docs/guides/docker.md](docs/guides/docker.md) explains the files, commands, backup and upgrade. The [one-step installers](docs/guides/install.md) (no Node.js needed) download from a GitHub release; none has been published yet, so use the steps above until it is.
+`docker compose up -d` starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Details: [docker.md](docs/guides/docker.md).
 
-## Safety stance
+### Running from the program folder with Node.js
 
-- **Paper by default.** Live orders need every one of these: `safety.liveTrading` on in the config file, the account marked live, the request source allowed, an API key with the `live` scope (created on this computer), `"mode": "live"` in the request, an idempotency key, and every safety check passing. AI assistants additionally need a human to confirm. A request that misses one is refused, never quietly downgraded. See [safety guide](docs/guides/safety.md).
-- **This computer only.** The Bridge listens on `127.0.0.1` and keeps broker credentials encrypted in its data folder.
-- **Pooling is off.** Spreading reads over several of your own accounts can give you more room, but no broker's terms clearly allow it. It stays off until you accept a notice that names the risk ([rate limits](docs/guides/rate-limits.md)).
-- **Free sources are labelled, not trusted.** A delayed or end-of-day answer says so, and the Bridge refuses to use it for an order, a risk check, a paper fill or an alert ([sources](docs/guides/sources.md)).
+If you have the program folder rather than an installer, you need Node.js 22.12 or newer (`node -v`):
+
+```bash
+npm ci
+npm run dev        # demo mode: sample data, no broker, opens the dashboard
+```
+
+In this form, commands in this README that start with `mc-bridge` are run as `npm run bridge -- <command>`, for example `npm run bridge -- keys create --label first --scope read,paper`.
+
+## Five minutes to a first answer
+
+Start in **demo mode**: sample prices, no broker, paper orders only, nothing real can happen.
+
+```bash
+mc-bridge start --demo --open
+```
+
+The dashboard opens already signed in. To use the API from another program you need a key. In a second terminal:
+
+```bash
+mc-bridge keys create --label first --scope read,paper     # prints a key once: copy it
+export MCB_API_KEY=mcb_...                                    # the key you were just shown
+curl "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -H "Authorization: Bearer $MCB_API_KEY"
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:MCB_API_KEY = "mcb_..."
+Invoke-RestMethod "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -Headers @{ Authorization = "Bearer $env:MCB_API_KEY" }
+```
+
+(Use `curl.exe`, not `curl`, in Windows PowerShell 5.1: see [windows.md](docs/guides/windows.md).) The full walk-through with the output of every command, a paper order and a WebSocket stream is [docs/guides/quickstart.md](docs/guides/quickstart.md).
+
+When you are ready for real prices, stop the demo and run `mc-bridge init` (or use the dashboard) to set up a broker, then `mc-bridge start --open`.
+
+## Connect a broker
+
+1. Open the dashboard and go to **Accounts**, or run `mc-bridge init --broker <id>` (the ids are in [BROKERS.md](docs/BROKERS.md)).
+2. Add your account. The sign-in method depends on the broker: API key and token, OAuth login in the browser, a one-time code exchange, or a session login. The dashboard walks you through the one your broker uses.
+3. **Log in again each trading day** for brokers whose sessions expire daily: Dashboard → Accounts → Log in, or `mc-bridge accounts connect <accountId>`.
+4. Check it: `mc-bridge doctor` reports what works and what does not.
+
+Your broker credentials never leave your computer except to go to that broker. They are stored encrypted in `secrets.enc`, sealed with a master key kept outside the data folder. See [accounts.md](docs/guides/accounts.md) and [Dhan](docs/guides/dhan.md) for a worked example.
+
+## API keys
+
+Every call from another program needs a key, except calls from this same computer when keyless access is on (the default, read, paper and admin access but **never live**). Keys have a **scope**:
+
+| Scope | Allows |
+|---|---|
+| `read` | Prices, history, option chains, portfolio, order books |
+| `paper` | Everything in `read`, plus paper orders |
+| `live` | Live orders (the key must be created on this computer, and every other [live opt-in](#safety-model) must be in place) |
+| `admin` | Settings and management; only from this computer |
+
+```bash
+mc-bridge keys create --label sheets --scope read --expires 90d
+mc-bridge keys list
+mc-bridge keys revoke <keyId>
+```
+
+Options: `--accounts a,b` limits a key to some accounts, `--expires 30d` sets an expiry, `--allow-query` lets a key travel in a web address (needed by some spreadsheet setups). Revoking a key closes its open connections at once. A key looks like `mcb_<keyId>_<secret>`; **treat it like a password**. Each key can have its own request quota.
+
+## Using the API
+
+The API is under `/v1` on `http://127.0.0.1:4300` (change the port with `MCB_PORT`, and tell clients with `MCB_BRIDGE_URL`). Send the key as `Authorization: Bearer <key>`.
+
+### Examples
+
+```bash
+# last prices (several symbols at once)
+curl "http://127.0.0.1:4300/v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE" -H "Authorization: Bearer $MCB_API_KEY"
+
+# option chain (get a live expiry from /v1/expiries first)
+curl "http://127.0.0.1:4300/v1/optionchain?underlying=NIFTY&expiry=2026-11-24&strikes=5" -H "Authorization: Bearer $MCB_API_KEY"
+
+# a paper order (the default mode)
+curl -X POST http://127.0.0.1:4300/v1/orders \
+  -H "Authorization: Bearer $MCB_API_KEY" -H "Content-Type: application/json" -H "Idempotency-Key: 6f1c2a52-1b0e-4c53-9d0a-3f7a2b9e4c10" \
+  -d '{"account":"demo-paper","symbol":"NSE:RELIANCE","side":"BUY","quantity":1,"product":"CNC","orderType":"MARKET","mode":"paper"}'
+```
+
+Every price answer carries a `freshness` block (`source`, `class` such as `realtime`, `delayed` or `eod`, `ageMs`, `official`). Partial failures come back with HTTP 200: `data[]` holds what worked and `errors[]` the rest. Every error has a stable `code` and a `requestId`; switch on `code`, never on wording. All errors: [docs/api/errors.md](docs/api/errors.md).
+
+Writes take an **`Idempotency-Key`**: sending the same key again returns the first result, so a retry can never create a second order.
+
+### Python
+
+```python
+from mrchartist_bridge import Bridge
+
+bridge = Bridge()                                  # finds the URL and key itself
+quote = bridge.quote("NSE:RELIANCE")
+quote.require_realtime()                           # raises if the data is delayed, end-of-day or stale
+order = bridge.orders.place("NSE:RELIANCE", "BUY", quantity=1, product="CNC", price=quote)   # paper unless live=True
+```
+
+Standard library only (Python 3.9+), with asyncio and pandas helpers. See [python.md](docs/guides/python.md) and `sdk/python`.
+
+### Node.js
+
+```js
+import { BridgeClient } from "@mrchartist/bridge-client";
+
+const bridge = new BridgeClient({ apiKey: process.env.MCB_API_KEY });
+const { data, errors } = await bridge.ltp(["NSE:NIFTY", "NSE:RELIANCE"]);
+```
+
+Dependency-free, retries only when safe, never retries a write that got no reply. See [typescript.md](docs/guides/typescript.md) and `sdk/node`.
+
+### Live streaming
+
+One port serves WebSocket and SSE. Get a single-use token with `POST /v1/stream/token`, connect to `ws://127.0.0.1:4300/v1/stream?token=…`, then send `{"op":"subscribe","symbols":["NSE:NIFTY"],"mode":"quote"}`. You get a `snapshot`, then `tick`s, plus `subscribe_orders` for order updates. See [streaming.md](docs/guides/streaming.md).
+
+### References
+
+- [OpenAPI specification](docs/openapi.yaml) (REST) and [AsyncAPI specification](docs/asyncapi.yaml) (streams). The running Bridge also serves `/openapi.yaml`.
+- [One page per endpoint](docs/api/README.md), with scope, parameters, fields, errors and curl and Python examples.
+- [Symbols](docs/guides/symbols.md): `EXCHANGE:SYMBOL` format and conversion between brokers.
+- [Compatibility API](docs/guides/compat-api.md) for tools that expect the OpenAlgo shape.
+- For AI assistants reading the docs: [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt).
+
+## Dashboard tour
+
+Open it any time with `mc-bridge open` (or the **Mr Chartist Bridge** shortcut). It is already signed in on this computer.
+
+| Page | What it is for |
+|---|---|
+| **Accounts** | Add, log in, test and remove broker and paper accounts |
+| **Sources** | How much request room each broker and data source has left; turn free delayed or end-of-day sources on or off; provider terms |
+| **Orders / Positions** | The order ticket (Limit, Market, SL, SL-M), open orders, trades, positions with P&L and one-click exit |
+| **Keys** | Create, scope, expire and revoke API keys |
+| **Safety** | The live-trading switches, the kill switch and the readiness check |
+| **Downloads, Recordings, Collections** | Save history and real-time data to files; named instrument lists |
+| **Events, Notifications** | Event feed, signed webhooks, Telegram |
+| **Backup** | Make and verify backups |
+| **Developers** | API explorer, error list, copy-paste snippets |
+
+The **Simple** view hides advanced pages; choose **Advanced** in the account menu, or press <kbd>Ctrl</kbd> <kbd>K</kbd> to search every page. It works on a phone too.
+
+## Supported brokers
+
+**41 Indian brokers**, with several accounts per broker allowed:
+
+5paisa · 5paisa (XTS) · Alice Blue · Anand Rathi (Algozy) · Angel One · Arrow · Axis Direct · Bigul · Composite Edge · Definedge · **Dhan** · Firstock · Flattrade · Fyers · Goodwill · Groww · HDFC Securities · HDFC Sky · ICICI Direct · IIFL Capital · IIFL Securities (XTS) · IndiaBulls · IndMoney · Jainam · Kotak Securities (Neo) · Motilal Oswal · mStock · Nuvama Nubra · Paytm Money · Pocketful · Profitmart · RMoney · Rupeezy · SAMCO · Shoonya · Tradejini · TradeSmart · Upstox · Wisdom Capital · Zebu · Zerodha
+
+Each broker sits on a four-step ladder, shown honestly in the dashboard:
+
+1. **Beta**: built from recorded samples only.
+2. **Contract-tested**: every contract case passes.
+3. **Sandbox-verified**: checked against the broker's sandbox.
+4. **Live-verified**: checked with a real account, with the date and who did it.
+
+Today **Dhan** is live-verified. All others are beta or contract-tested, and **live orders for them are blocked by default**. The full table (sign-in method, option-chain Greeks, quotes and depth, live feed, portfolio, orders, official docs, status) is in [docs/BROKERS.md](docs/BROKERS.md).
+
+## Data sources
+
+Real-time prices come from **your own broker account**: no free real-time source exists in India that you may redistribute. For other needs you can turn on extra sources in the dashboard under **Sources**:
+
+- Free **delayed** or **end-of-day** providers, each with its limits and terms shown, and an acknowledgement you must accept first.
+- **Plugins** you write or trust: sandboxed processes with an empty environment, a locked-down file system, no child processes and no network except through the Bridge, pinned by checksum. Writing one: [source-contract.md](docs/source-contract.md).
+
+Every answer says where it came from and how old it is. Data from a free source is **refused for orders, risk checks, paper fills and alerts**. Trace what answered a call with `mc-bridge sources trace --capability quotes --symbols NSE:RELIANCE`. More: [sources.md](docs/guides/sources.md).
+
+## Safety model
+
+**Paper by default.** Unless you do everything below, every order is a paper order.
+
+A **live order** needs *all* of these:
+
+1. `safety.liveTrading` switched on in the config file.
+2. The account marked **live**.
+3. The request source allowed for live.
+4. An API key with the `live` scope, created on this computer.
+5. `"mode": "live"` in the request.
+6. An idempotency key on the request.
+7. An armed, single-use, broker-bound order gate (every broker adapter refuses without one).
+
+Further protections:
+
+- **Kill switch**: `mc-bridge kill --reason "text" [--cancel-open]` stops live orders everywhere; `mc-bridge kill release` lifts it. Also in the dashboard under Safety.
+- **Order previews and tickets**: `previewOrder` shows margin and effects before anything is sent; tickets can require confirmation.
+- **Drift check**: a read-only periodic comparison of the Bridge's live orders with the broker's order book ([orders-drift.md](docs/guides/orders-drift.md)).
+- **Audit log** of every order and sign-in.
+- **Damaged records are set aside, not trusted**: after one, live orders resume only after you check the broker's order book and run `mc-bridge orders acknowledge-state`.
+- **Pooling is off.** Spreading reads over several of your own accounts can give more room, but no broker's terms clearly allow it. It stays off until you accept a notice that names the risk.
+- **Readiness check** (Dashboard → Safety) tells you what would stop a live order.
+
+Read [safety.md](docs/guides/safety.md), [orders.md](docs/guides/orders.md) and [compliance.md](docs/guides/compliance.md) before going live.
+
+## Rate limits
+
+The Bridge keeps every broker inside its **documented** limits (with a source link and a `verified` flag per number) and divides the room fairly between your tools:
+
+- Per-key quotas (dashboard → Keys, or the quotas API) so one noisy tool cannot starve the rest.
+- Queues with a fair share per account; a request that cannot be served says `RATE_LIMITED` with `retryAfterMs` and whose limit it hit (`scope`: client, account or broker).
+- Streams over polling: use the WebSocket for prices instead of calling in a loop.
+
+See [rate-limits.md](docs/guides/rate-limits.md).
+
+## Connect your tools
+
+| Tool | How | Guide |
+|---|---|---|
+| **Excel** | Power Query files (`quotes.pq`, `history.pq`, `chain.pq`) and a template builder in `integrations/excel` | [excel-sheets.md](docs/guides/excel-sheets.md) |
+| **Google Sheets** | `integrations/google-sheets/bridge.gs` with `BRIDGE_QUOTES`, `BRIDGE_CHAIN` and `BRIDGE_HISTORY` functions, reached through a safe tunnel | [excel-sheets.md](docs/guides/excel-sheets.md) |
+| **AmiBroker** | `mrchartist-bridge.afl` include plus EOD and intraday import formats | [amibroker.md](docs/guides/amibroker.md) |
+| **TradingView / ChartInk** | Inbound alert webhooks that become orders under strict, per-hook rules; `mc-bridge expose alerts` publishes only that route | [tradingview.md](docs/guides/tradingview.md), [webhooks.md](docs/guides/webhooks.md), [expose-alerts.md](docs/guides/expose-alerts.md) |
+| **Claude Desktop, Claude Code, Cursor** | MCP over stdio (`mc-bridge mcp`) or HTTP (`/mcp`), 20 tools, read-only by default | [mcp.md](docs/guides/mcp.md) |
+| **ChatGPT / OpenAI** | `mc-bridge openai-tools` prints tool definitions | [chatgpt-openai.md](docs/guides/chatgpt-openai.md) |
+| **Python / Node / curl** | SDKs and starter projects: `mc-bridge init python`, `node`, `curl`, `sheets`, `webhook-receiver`, `mcp-client` | [python.md](docs/guides/python.md), [typescript.md](docs/guides/typescript.md) |
+| **OpenAlgo-style tools** | Compatibility REST layer | [compat-api.md](docs/guides/compat-api.md) |
+
+Example, Claude Code with a read-only key:
+
+```bash
+mc-bridge keys create --label claude --scope read --client mcp
+claude mcp add --transport http mr-chartist-bridge http://127.0.0.1:4300/mcp --header "Authorization: Bearer mcb_..."
+```
+
+## Save and replay data
+
+All of this runs as background jobs on your computer and never slows down live reads.
+
+- **History downloads**: `mc-bridge download NSE:RELIANCE --interval 5m --from 2024-01-01 --format csv`. Datasets keep growing from their last stored bar with `mc-bridge download update <dataset>`. Formats: CSV, JSONL, AmiBroker. See [downloads.md](docs/guides/downloads.md).
+- **Recorders**: `mc-bridge record quotes NSE:NIFTY --every 5` saves real-time prices (one file per symbol per day); `mc-bridge record chain NIFTY --every 30 --strikes 10` saves option-chain snapshots. `mc-bridge record auto on` records by itself every trading day (off until you turn it on). See [recording.md](docs/guides/recording.md).
+- **Collections**: named lists of instruments and *option universes* (ATM, rolling expiry) used by downloads, recordings and sheets: `mc-bridge collections create|universe|resolve|…`. See [collections.md](docs/guides/collections.md) and [data.md](docs/guides/data.md).
+
+## Alerts, events and notifications
+
+- **Events** (orders, logins, downloads, kill switch…) are available as a replayable stream, and as **signed webhooks** to your own program with retry and dead letters: `mc-bridge subscriptions add https://… --topics order.*`. See [events.md](docs/guides/events.md).
+- **Telegram**: `mc-bridge notify telegram setup` connects your own bot (the token is read from a hidden prompt). See [telegram.md](docs/guides/telegram.md) and [notifications.md](docs/guides/notifications.md).
+- **Alert orders**: TradingView and ChartInk alerts can place orders through hooks that fix the account, symbol rules, size limits, age limit and source IP, with duplicate protection. See [alert-orders.md](docs/guides/alert-orders.md).
+
+## Command line reference
+
+Run `mc-bridge --help` for everything. The most useful commands:
+
+| Command | What it does |
+|---|---|
+| `mc-bridge init [--demo] [--broker <id>]` | First-run setup; also `init node\|python\|curl\|sheets\|webhook-receiver\|mcp-client` for starter projects |
+| `mc-bridge start [--demo] [--open]` | Start the Bridge (and open the dashboard signed in) |
+| `mc-bridge open` | Open the dashboard of the running Bridge, already signed in |
+| `mc-bridge doctor [--strict] [--json]` | Check config, port, accounts, exposure and safety |
+| `mc-bridge keys create\|list\|revoke` | Manage API keys |
+| `mc-bridge accounts list\|connect <id>` | List accounts; log an account in |
+| `mc-bridge sources list\|enable\|disable\|set-key\|test\|trace` | Manage data sources |
+| `mc-bridge download …` / `record …` / `collections …` | Data tools |
+| `mc-bridge subscriptions …` / `notify …` | Webhooks and Telegram |
+| `mc-bridge expose [alerts\|sheets]` | Let TradingView alerts or a Google Sheet reach the Bridge through a tunnel, without exposing the dashboard |
+| `mc-bridge backup` / `restore FILE` | Backups |
+| `mc-bridge kill [release]` | Kill switch |
+| `mc-bridge mcp --key <key>` | MCP over stdio |
+| `mc-bridge openai-tools` | Tool definitions for OpenAI-style assistants |
+
+More: [cli.md](docs/guides/cli.md).
+
+## Configuration
+
+Settings live in `bridge.config.json`. With no file the Bridge uses **safe defaults: paper only, `127.0.0.1:4300`**. `bridge.config.example.json` shows the shape and [config.md](docs/guides/config.md) lists every option with its type, range and default.
+
+The config is found, in order, from `--config`, `MCB_CONFIG`, `./bridge.config.json`, then the per-user folder.
+
+| Setting | How |
+|---|---|
+| Port | `MCB_PORT=4301` (and `MCB_BRIDGE_URL` for clients) |
+| Demo mode | `--demo` or `MCB_DEMO=1` |
+| Home folder | `MCB_HOME` |
+| API key for the CLI and SDKs | `MCB_API_KEY` or `MCB_API_KEY_FILE` |
+| Keyless access from this computer | `server.keylessSignIn`, `server.keylessApi` |
+| Live trading | `safety.liveTrading` (off by default) |
+
+## Where your data lives, backup and restore
+
+| Platform | Settings and data folder |
+|---|---|
+| Windows | `%APPDATA%\MrChartist\Bridge` |
+| Mac and Linux | `~/.mc-bridge` (override with `MCB_HOME`) |
+| Ready-to-run ZIP | `bridge.config.json` and `data` next to the start file |
+
+It holds your encrypted broker secrets, API keys, paper books, the audit log, downloads and recordings. The **master key** that seals the secrets is kept outside the data folder and is **never** included in a backup.
+
+```bash
+mc-bridge backup --out my-backup.tar.gz       # one archive of your data (add --include-secrets if you want broker secrets inside)
+mc-bridge backup verify my-backup.tar.gz    # check an archive
+mc-bridge restore my-backup.tar.gz --dry-run # preview; the Bridge must be stopped to restore
+```
+
+The Bridge also copies your data to `backups/` before the first start of any new version, and keeps the newest five. See [backup.md](docs/guides/backup.md).
+
+## Security and privacy
+
+- **Local only.** The Bridge listens on `127.0.0.1`; other computers cannot reach it unless you allow it in the config. To let TradingView or a Google Sheet in, `mc-bridge expose` opens **only** the routes that need it, behind a tunnel or proxy, with IP rules, and `mc-bridge expose check` tests that nothing else answers.
+- **No telemetry from us.** There is no hosted service. The Bridge only calls your brokers and the data sources you switched on.
+- **Credentials**: encrypted at rest, never shown again after creation (keys are displayed once), never passed on the command line (prompts read them hidden).
+- **Admin actions** (settings, keys, kill switch release) work only from this computer, even through a tunnel.
+- **Sandboxed plugins** run with no secrets and no direct network.
+- Report a vulnerability **privately** as described in [SECURITY.md](SECURITY.md); never post keys or tokens in a report.
+
+## Updating and uninstalling
+
+**Update.** Run the newer Setup.exe, or replace the program folder with the newer one (copy your `bridge.config.json` and `data` folder across if you used the ZIP). Your keys, paper accounts and audit log live in the data folder and are not touched. Before the first start of a new version the Bridge copies your data into `backups/`. To go back to an older version, install it, then restore the copy made before the update (a Bridge refuses a backup made by a newer version). More: [upgrading.md](docs/guides/upgrading.md).
+
+**Checking a download.** Compare the SHA-256 of any file you were sent with the checksum the sender gave you (`sha256sum file` on Linux, `shasum -a 256 file` on Mac, `Get-FileHash file -Algorithm SHA256` on Windows). Releases are not code-signed yet, so the checksum is the only check.
+
+**Uninstall.**
+
+| How you installed | Remove with |
+|---|---|
+| Setup.exe | Settings → Apps → Installed apps → Mr. Chartist API Bridge → Uninstall (data is kept in `%APPDATA%\MrChartist\Bridge`) |
+| Mac app | Drag it to the Bin (data is kept in `~/.mc-bridge`) |
+| ZIP | Delete the **Mr Chartist Bridge** folder. **This also deletes your settings and data** if they sit inside it, so back up first |
+
+## Troubleshooting
+
+| You see | Likely cause and fix |
+|---|---|
+| "Windows protected your PC" | The file is not code-signed yet. **More info → Run anyway** |
+| "Port 4300 is already in use" | Another program or a second Bridge has it. Close it, or set `MCB_PORT=4301` and `MCB_BRIDGE_URL` |
+| "The Bridge is already running" | One Bridge per data folder. Use it: `mc-bridge open` |
+| Dashboard asks you to sign in | The sign-in link works once. `mc-bridge open` prints a fresh one |
+| Blank dashboard | Reload with <kbd>Ctrl</kbd>+<kbd>F5</kbd>, try a private window, run `mc-bridge doctor` |
+| "DEMO DATA" everywhere | You are in demo mode. Add a broker account for real prices |
+| `SESSION_EXPIRED`, no prices | Your broker login ended (most brokers need a fresh login every day). Dashboard → Accounts → Log in |
+| A price is old, `stale: true`, `class` is `delayed` or `eod` | The market is closed, the feed is silent, or the answer came from a free delayed source. Read `freshness` on the answer |
+| `PAPER_ONLY` or `ORDER_GATE_CLOSED` | A live order is missing one of the live opt-ins ([list](#safety-model)). Paper orders need none |
+| `MARKET_CLOSED` | The exchange is closed; `GET /v1/calendar/status` says when it opens |
+| `RATE_LIMITED` | Wait `retryAfterMs`; use the stream instead of polling |
+| `mc-bridge: command not found` | Use the start file or Start-menu shortcut, or `npm run bridge -- <command>` from the program folder |
+| Excel shows `#NAME?` or `NO ANSWER` | Old workbook, wrong address or key: [excel-sheets.md](docs/guides/excel-sheets.md) |
+| `LOOPBACK_ONLY` through a tunnel | Admin actions never work from outside; do it on the computer running the Bridge |
+
+When you report a problem, include the `requestId` from the error, what `mc-bridge doctor` prints and the Bridge version. **Never paste a key.** The complete list is in [troubleshooting.md](docs/guides/troubleshooting.md).
+
+## FAQ
+
+**Is it free?** For personal, non-commercial use, yes. Commercial use needs a separate written licence ([LICENSE](LICENSE)).
+
+**Does it send my data or keys anywhere?** No. It runs on your computer and talks only to your brokers and the sources you enable.
+
+**Can it place real orders?** Only after you switch live trading on and satisfy every [opt-in](#safety-model). Until then, paper only.
+
+**Is real-time data free?** Real-time prices come from your own broker account. The Bridge does not provide free real-time data, because none exists in India that may be redistributed.
+
+**Can several tools use it at once?** Yes, that is the point: they share connections and each key has its own quota.
+
+**Can I use it from my phone or another computer?** From Android with Termux; from another computer only if you deliberately allow it in the config.
+
+**Do I need Node.js?** Not with Setup.exe, the Mac app or the ZIP (it is inside). Only the program-folder route needs Node.js 22.12 or newer.
+
+**Which broker should I start with?** Dhan is the only one verified with a live account. Start any broker in paper mode first.
+
+More answers: [faq.md](docs/guides/faq.md).
 
 ## What it does not do
 
-- It is a connection layer, not a trading desk: no analytics, scanners, journal or strategies. Build those on top of the API.
-- It gives no financial advice and does not recommend trades.
-- It does not provide free real-time market data. None exists in India that you may redistribute; real-time prices come from your broker account.
-- It does not make a beta broker safe for live trading. Try it in paper mode first and check figures against your broker.
+- It is a **connection layer**, not a trading desk: no analytics, scanners, journal or strategies. Build those on top of the API.
+- It gives **no financial advice** and does not recommend trades.
+- It does **not** provide free real-time market data.
+- It does **not** make a beta broker safe for live trading. Try it in paper mode and check figures against your broker.
+- It is **not** a hosted service: there is no account with us and nothing to sign up for.
 
-## Guides
+## Guides index
 
-[Quickstart](docs/guides/quickstart.md) · [FAQ](docs/guides/faq.md) · [One-step installer](docs/guides/install.md) · [Accounts](docs/guides/accounts.md) · [Rate limits](docs/guides/rate-limits.md) · [Sources](docs/guides/sources.md) · [Safety](docs/guides/safety.md) · [Streaming](docs/guides/streaming.md) · [MCP for AI assistants](docs/guides/mcp.md) · [Node SDK](docs/guides/typescript.md) · [Python SDK](docs/guides/python.md) · [Webhooks](docs/guides/webhooks.md) · [Excel and Sheets](docs/guides/excel-sheets.md) · [AmiBroker](docs/guides/amibroker.md)
+[Quickstart](docs/guides/quickstart.md) · [FAQ](docs/guides/faq.md) · [Install](docs/guides/install.md) · [Accounts](docs/guides/accounts.md) · [Rate limits](docs/guides/rate-limits.md) · [Sources](docs/guides/sources.md) · [Safety](docs/guides/safety.md) · [Orders](docs/guides/orders.md) · [Alert orders](docs/guides/alert-orders.md) · [Data](docs/guides/data.md) · [Downloads](docs/guides/downloads.md) · [Recording](docs/guides/recording.md) · [Collections](docs/guides/collections.md) · [Events](docs/guides/events.md) · [Telegram](docs/guides/telegram.md) · [Backup](docs/guides/backup.md) · [Streaming](docs/guides/streaming.md) · [Excel and Sheets](docs/guides/excel-sheets.md) · [AmiBroker](docs/guides/amibroker.md) · [Python](docs/guides/python.md) · [TypeScript](docs/guides/typescript.md) · [MCP](docs/guides/mcp.md) · [ChatGPT](docs/guides/chatgpt-openai.md) · [TradingView](docs/guides/tradingview.md) · [Webhooks](docs/guides/webhooks.md) · [Docker](docs/guides/docker.md) · [VPS](docs/guides/vps.md) · [Windows](docs/guides/windows.md) · [Operations](docs/guides/operations.md) · [Troubleshooting](docs/guides/troubleshooting.md) · [Glossary](docs/guides/glossary.md) · [Configuration](docs/guides/config.md) · [CLI](docs/guides/cli.md)
 
-The [docs home](docs/README.md) sorts everything by what you want to do, and [docs/guides/README.md](docs/guides/README.md) lists every guide. Reference: [one page per endpoint](docs/api/README.md), [openapi.yaml](docs/openapi.yaml), [asyncapi.yaml](docs/asyncapi.yaml), [ARCHITECTURE.md](docs/ARCHITECTURE.md), [BROKERS.md](docs/BROKERS.md). For AI assistants: [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt).
-
-## Contributing and security
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) (it has a quick path for a first pull request). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+Reference: [docs home](docs/README.md) · [one page per endpoint](docs/api/README.md) · [openapi.yaml](docs/openapi.yaml) · [asyncapi.yaml](docs/asyncapi.yaml) · [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [BROKERS.md](docs/BROKERS.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## License, trademarks and logos
 
-The code and documentation are under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use, modify and share them for any non-commercial purpose; commercial use is not permitted. Versions released before this change were MIT and stay MIT for those who received them. Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the project licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The Bridge and its documentation are © 2026 Mr. Chartist and licensed under the [End User Licence Agreement](LICENSE): free for personal, non-commercial use; no commercial use, redistribution, resale or reverse engineering. Releases before this change were MIT and stay MIT for those who received them. Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the project licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

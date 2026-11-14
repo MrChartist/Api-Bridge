@@ -92,8 +92,8 @@ info:
   contact:
     name: Investology (Mr. Chartist)
   license:
-    name: PolyForm Noncommercial License 1.0.0
-    identifier: PolyForm-Noncommercial-1.0.0
+    name: Mr. Chartist End User Licence Agreement
+    identifier: LicenseRef-MrChartist-EULA
 servers:
   - url: http://127.0.0.1:4300
     description: Local Bridge (default)

@@ -4,7 +4,7 @@
   "description": "Node client for the Mr. Chartist API Bridge: market data, paper and live orders with idempotency keys, live streams, downloads, recordings, collections and events.",
   "type": "module",
   "private": true,
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Mr. Chartist",
   "repository": {
     "type": "git",

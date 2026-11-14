@@ -4,7 +4,7 @@
   "description": "Mr. Chartist API Bridge: one local API for all your Indian broker accounts, with rate-limit-aware routing, streaming and safety gates.",
   "type": "module",
   "private": true,
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Mr. Chartist",
   "repository": {
     "type": "git",

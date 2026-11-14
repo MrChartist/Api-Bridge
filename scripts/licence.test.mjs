@@ -6,21 +6,21 @@ import { ROOT, readText, repoFiles } from "./lib/repo-files.mjs";
 /** Files whose job is to talk about other people's licences; they may use these words about them. */
 const ABOUT_OTHERS = new Set(["THIRD-PARTY-NOTICES.md", "scripts/licence.test.mjs"]);
 
-/** Wording that would claim a licence other than the PolyForm Noncommercial one on this repository. */
+/** Wording that would claim a licence other than the EULA on this repository. */
 const CONTRADICTING = [
   /under the \[?MIT Licen[cs]e/i,
   /open[- ]source \(MIT\)/i,
-  /all rights reserved/i,
-  /proprietary licen[cs]e/i,
+  /PolyForm/i,
+  /source-available/i,
 ];
 
 const files = repoFiles().filter((f) => !f.startsWith("node_modules/") && f !== "package-lock.json");
 
 describe("licence text in the repository", () => {
-  it("LICENSE is PolyForm Noncommercial and names the same holder in every copy", () => {
+  it("LICENSE is the EULA and names the same holder in every copy", () => {
     const root = readFileSync(join(ROOT, "LICENSE"), "utf8");
-    expect(root).toMatch(/PolyForm Noncommercial License 1\.0\.0/);
-    const holder = (t) => t.split("\n").find((l) => l.startsWith("Required Notice: Copyright"));
+    expect(root).toMatch(/End User Licence Agreement/);
+    const holder = (t) => t.split("\n").find((l) => l.startsWith("Copyright"));
     for (const copy of ["sdk/python/LICENSE", "sdk/node/LICENSE"]) {
       expect(holder(readFileSync(join(ROOT, copy), "utf8")), copy).toBe(holder(root));
     }
@@ -37,7 +37,7 @@ describe("licence text in the repository", () => {
     expect(hits).toEqual([]);
   });
 
-  it("every shipped integration file with a copyright line says PolyForm Noncommercial and points at LICENSE", () => {
+  it("every shipped integration file with a copyright line says End User Licence Agreement and points at LICENSE", () => {
     const shipped = files.filter((f) => /^(integrations|examples|sdk|deploy|docker)\//.test(f));
     const bad = [];
     let withLine = 0;
@@ -48,7 +48,7 @@ describe("licence text in the repository", () => {
       const line = text.split("\n").slice(0, 12).find((l) => /\bcopyright\b/i.test(l));
       if (!line) continue;
       withLine++;
-      if (!/PolyForm Noncommercial/.test(line) || !/LICENSE/.test(line)) bad.push(`${f}: ${line.trim()}`);
+      if (!/End User Licence Agreement/.test(line) || !/LICENSE/.test(line)) bad.push(`${f}: ${line.trim()}`);
     }
     expect(bad).toEqual([]);
     expect(withLine).toBeGreaterThan(0); // the AmiBroker include at least
@@ -56,13 +56,13 @@ describe("licence text in the repository", () => {
 
   it("the AmiBroker include states the licence", () => {
     const afl = readFileSync(join(ROOT, "integrations/amibroker/mrchartist-bridge.afl"), "utf8");
-    expect(afl.split("\n").slice(0, 5).join("\n")).toContain("Copyright (c) 2026 Mr. Chartist. PolyForm Noncommercial License 1.0.0, see LICENSE");
+    expect(afl.split("\n").slice(0, 5).join("\n")).toContain("Copyright (c) 2026 Mr. Chartist. Mr. Chartist End User Licence Agreement, see LICENSE");
   });
 
-  it("every package manifest that declares a licence declares PolyForm-Noncommercial-1.0.0", () => {
+  it("every package manifest that declares a licence declares a licence reference", () => {
     for (const f of files.filter((p) => /(^|\/)package\.json$/.test(p))) {
       const json = JSON.parse(readFileSync(join(ROOT, f), "utf8"));
-      if (json.license !== undefined) expect(json.license, f).toBe("PolyForm-Noncommercial-1.0.0");
+      if (json.license !== undefined) expect(json.license, f).toBe("SEE LICENSE IN LICENSE");
     }
   });
 });

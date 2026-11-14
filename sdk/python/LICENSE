@@ -1,75 +1,80 @@
-Required Notice: Copyright (c) 2026 Mr. Chartist (https://github.com/MrChartist/api-bridge-v2)
+Mr. Chartist API Bridge: End User Licence Agreement
 
-# PolyForm Noncommercial License 1.0.0
+Copyright (c) 2026 Mr. Chartist. All rights reserved.
 
-<https://polyformproject.org/licenses/noncommercial/1.0.0>
+This is a draft agreement. Have a lawyer review it before you rely on it.
 
-## Acceptance
+By downloading, installing or using API Bridge (the "Software", including the
+Windows Setup.exe, the ZIP downloads, the dashboard, the SDKs and the
+documentation delivered with it), you agree to these terms. If you do not
+agree, do not install or use the Software.
 
-In order to get any license under these terms, you must agree to them as both strict obligations and conditions to all your licenses.
+1. Licence grant
+Mr. Chartist (the "Licensor") grants you a personal, non-exclusive,
+non-transferable, revocable licence to install and run the Software on
+computers you own or control, for your own non-commercial use.
 
-## Copyright License
+2. Non-commercial use only
+"Non-commercial" means use for your own personal trading, learning, research
+and hobby projects. You may not use the Software, or any output made by
+connecting other products to it, to provide a paid service, to build or run a
+product you sell or license, to manage other people's money or accounts for a
+fee, or for any other purpose aimed at commercial advantage, unless you have a
+separate written commercial licence from the Licensor.
 
-The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose.  However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
+3. What you may not do
+You may not, and may not let anyone else:
+  a. copy, sell, rent, lease, lend, sublicense or redistribute the Software,
+     in whole or in part, or put it on a website, share or download service;
+  b. reverse engineer, decompile or disassemble the Software, or try to
+     obtain its source code, except where the law allows this despite this
+     clause;
+  c. modify the Software or make works based on it, except for the
+     configuration files, scripts and integrations the Software expects you to
+     edit, and the use of its documented API;
+  d. remove or change any copyright, licence or trademark notice;
+  e. bypass or disable the safety gates, rate-limit protections or licence
+     terms of the Software or of any broker or data provider it connects to.
 
-## Distribution License
+4. Third-party components
+The Software includes components written by others (for example Node.js and
+npm packages). They stay under their own licences, listed in
+THIRD-PARTY-NOTICES.md. Nothing in this agreement restricts the rights those
+licences give you in those components.
 
-The licensor grants you an additional copyright license to distribute copies of the software.  Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
+5. Brokers, market data and trademarks
+The Software connects to brokers and data sources you choose. Your accounts,
+credentials and data stay yours, and you must follow each provider's terms.
+Market data stays under its provider's terms and is for your own use. Broker
+names and logos belong to their owners; the Licensor is not affiliated with,
+sponsored by or endorsed by any broker.
 
-## Notices
+6. No financial advice; trading risk
+The Software is a connection layer. It gives no investment advice and does not
+recommend trades. Trading involves risk of loss. Orders are paper orders unless
+you switch on live trading yourself. You alone are responsible for every order
+placed through the Software and for checking its figures against your broker.
 
-You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software.  For example:
+7. No warranty
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, ACCURACY, AVAILABILITY AND NON-INFRINGEMENT. The Software is in beta.
 
-> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+8. Limit of liability
+TO THE MAXIMUM EXTENT THE LAW ALLOWS, THE LICENSOR IS NOT LIABLE FOR ANY LOSS
+ARISING FROM THE USE OF, OR INABILITY TO USE, THE SOFTWARE, INCLUDING TRADING
+LOSSES, LOST PROFITS, ORDERS PLACED OR MISSED, BROKER OR DATA PROVIDER ACTIONS,
+OR LOSS OF DATA, EVEN IF TOLD THEY MIGHT HAPPEN. NOTHING HERE LIMITS LIABILITY
+THAT CANNOT BE LIMITED BY LAW.
 
-## Changes and New Works License
+9. Ownership
+The Software is licensed, not sold. The Licensor keeps all rights not expressly
+granted here.
 
-The licensor grants you an additional copyright license to make changes and new works based on the software for any permitted purpose.
+10. Termination
+This licence ends automatically if you break these terms. When it ends you
+must stop using the Software and delete all copies. Sections 4 to 10 survive.
 
-## Patent License
-
-The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
-
-## Noncommercial Purposes
-
-Any noncommercial purpose is a permitted purpose.
-
-## Personal Uses
-
-Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, is use for a permitted purpose.
-
-## Noncommercial Organizations
-
-Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is use for a permitted purpose regardless of the source of funding or obligations resulting from the funding.
-
-## Fair Use
-
-You may have "fair use" rights for the software under the law. These terms do not limit them.
-
-## No Other Rights
-
-These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or prevent the licensor from granting licenses to anyone else.  These terms do not imply any other licenses.
-
-## Patent Defense
-
-If you make any written claim that the software infringes or contributes to infringement of any patent, your patent license for the software granted under these terms ends immediately. If your company makes such a claim, your patent license ends immediately for work on behalf of your company.
-
-## Violations
-
-The first time you are notified in writing that you have violated any of these terms, or done anything with the software not covered by your licenses, your licenses can nonetheless continue if you come into full compliance with these terms, and take practical steps to correct past violations, within 32 days of receiving notice.  Otherwise, all your licenses end immediately.
-
-## No Liability
-
-***As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.***
-
-## Definitions
-
-The **licensor** is the individual or entity offering these terms, and the **software** is the software the licensor makes available under these terms.
-
-**You** refers to the individual or entity agreeing to these terms.
-
-**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization.  **Control** means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise.  Control can be direct or indirect.
-
-**Your licenses** are all the licenses granted to you for the software under these terms.
-
-**Use** means anything you do with the software requiring one of your licenses.
+11. Changes
+The Licensor may update these terms for new versions of the Software. Using a
+new version means you accept its terms.
