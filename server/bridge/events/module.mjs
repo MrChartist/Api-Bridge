@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { defineModule } from "../core/modules.mjs";
 import { addMetrics } from "../core/metrics.mjs";
 import { BridgeError } from "../core/errors.mjs";
+import { localAccessFor } from "../auth/localAccess.mjs";
 import { EVENT_TOPICS } from "./catalog.mjs";
 import { createClientRegistry, createEventsSse, createEventsWs } from "./clients.mjs";
 import { EVENTS_CONFIG_SCHEMA, eventsConfig } from "./config.mjs";
@@ -67,7 +68,7 @@ export function createEventsModule(opts = {}) {
       });
       const webhooks = createWebhookService({ cfg, dir, secrets: deps.secrets, sender, logger: log, now, random: opts.random, setTimer: opts.setTimer, clearTimer: opts.clearTimer });
       const registry = createClientRegistry({ max: cfg.maxClients, maxPerKey: cfg.maxClientsPerKey });
-      const common = { eventLog, keyStore: deps.keyStore, registry, cfg, clock: { now }, logger: log };
+      const common = { eventLog, keyStore: deps.keyStore, registry, cfg, clock: { now }, logger: log, localAccess: localAccessFor(deps) };
       const sse = createEventsSse({ ...common, bus: deps.bus, cors: app.config.cors, setInterval: opts.setInterval, clearInterval: opts.clearInterval });
       const ws = createEventsWs(common);
       states.set(deps, { eventLog, webhooks, registry, ws, offs: [], cfg });

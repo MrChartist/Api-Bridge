@@ -29,6 +29,8 @@ More: [Sources, providers](docs/screenshots/sources-providers-light.webp) · [AP
 - **Shared limits.** The Bridge keeps every broker inside its documented limits and splits the room fairly between your tools. Each API key has its own quota, and a refused request says whose limit it hit and when to retry.
 - **Honest data sources.** Real-time prices come from your own broker. You can switch on free delayed or end-of-day sources, or write a plugin; every answer is labelled with its class, delay and whether the source is official, and such data is never used for orders or alerts.
 - **Paper trading by default.** Every order is a paper order unless you go out of your way to make it live.
+- **No key needed on your own computer.** The dashboard opens signed in, and calls from the same computer work without a key (read, paper and admin access, never live). A tool on another computer uses a key. `server.keylessSignIn` and `server.keylessApi` switch this off.
+- **Trade by hand too.** The dashboard's order ticket places Limit, Market, SL and SL-M orders; Orders, Positions lists what you hold with profit and loss and fills the ticket in to exit.
 - **A dashboard**, plus MCP tools for AI assistants, signed webhooks, SDKs for Node and Python, and integrations for Excel, Google Sheets and AmiBroker.
 
 ## Five minutes to a first answer

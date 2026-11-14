@@ -3153,12 +3153,9 @@ button.gl-btn { --btn-h: 18px; --btn-px: 0; --btn-fs: 11px; --btn-r: 50%; --btn-
 /* === END PAGE: connect === */
 
 /* === PAGE: order ticket and positions (ticket.js, positions.js) === */
-/* A choice that means something takes its colour: Buy green, Sell red, Market and SL-M amber (no price limit). */
-.segmented.has-thumb[data-value="BUY"]::before { background: hsl(var(--success)); }
-.segmented.has-thumb[data-value="SELL"]::before, .segmented.has-thumb[data-value="live"]::before { background: hsl(var(--danger)); }
-.segmented.has-thumb[data-value="MARKET"]::before, .segmented.has-thumb[data-value="SL-M"]::before { background: hsl(var(--warning)); }
-.segmented.has-thumb[data-value="BUY"] button[aria-pressed="true"], .segmented.has-thumb[data-value="SELL"] button[aria-pressed="true"], .segmented.has-thumb[data-value="live"] button[aria-pressed="true"],
-.segmented.has-thumb[data-value="MARKET"] button[aria-pressed="true"], .segmented.has-thumb[data-value="SL-M"] button[aria-pressed="true"] { color: #fff; }
+.order-side[data-side] { display: inline-block; padding: 2px 8px; border-radius: 6px; font: 600 12px/1.4 var(--font-body); letter-spacing: 0.02em; }
+.order-side[data-side="BUY"] { color: hsl(var(--success-ink)); background: hsl(var(--success) / 0.14); }
+.order-side[data-side="SELL"] { color: hsl(var(--danger-ink)); background: hsl(var(--danger) / 0.14); }
 .tk, .tk-form { gap: 14px; }
 .tk .segmented { display: flex; width: 100%; }
 .tk .segmented > button { flex: 1 1 0; min-width: 0; }

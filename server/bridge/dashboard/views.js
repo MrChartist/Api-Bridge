@@ -105,9 +105,6 @@ export function segmented(label, options, initial = options[0][0]) {
   el.classList.add("seg-drag");
   const pick = (v, focus) => {
     value = v;
-    // The track knows what is chosen, so the thumb can take the colour of a choice that has one (BUY green, SELL
-    // red, MARKET amber: app.css, "order ticket and positions").
-    el.dataset.value = v;
     for (const b of buttons) {
       const on = b.dataset.value === v;
       b.setAttribute("aria-pressed", String(on));

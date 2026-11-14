@@ -133,7 +133,7 @@ const usable = (r, t) => Boolean(r) && !r.revokedAt && !(r.expiresAt && Date.par
  * @param {{ eventLog: any, bus: any, keyStore: any, registry: ReturnType<typeof createClientRegistry>, cfg: any, clock: { now(): number },
  *   logger: any, cors?: { allowedOrigins?: string[] }, setInterval?: typeof setInterval, clearInterval?: typeof clearInterval }} opts
  */
-export function createEventsSse({ eventLog, bus, keyStore, registry, cfg, clock, logger, cors, setInterval: setIv = setInterval, clearInterval: clearIv = clearInterval }) {
+export function createEventsSse({ eventLog, bus, keyStore, registry, cfg, clock, logger, cors, localAccess = null, setInterval: setIv = setInterval, clearInterval: clearIv = clearInterval }) {
   const corsCheck = createCors(cors ?? {});
   /** token tag -> { keyId, sub, active, expiresAt }: a token that opened a connection may reconnect the same URL for a while. */
   const grants = new Map();
@@ -163,7 +163,8 @@ export function createEventsSse({ eventLog, bus, keyStore, registry, cfg, clock,
   return async function handle(ctx) {
     const token = ctx.query.get("token");
     const reused = await fromGrant(token, ctx.query);
-    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers, ip: ctx.clientIp });
+    // On this computer a connection with no key acts as "This computer", as on every other route (auth/localAccess.mjs).
+    const key = reused ? reused.record : await authenticateStream({ keyStore, query: ctx.query, headers: ctx.req.headers, ip: ctx.clientIp, local: localAccess ? () => localAccess.recordFor(ctx.req, { publicListener: ctx.viaPublicIngress === true }) : null });
     ctx.key = key;
     const q = parseStreamQuery(ctx.query, typeof ctx.req.headers["last-event-id"] === "string" ? ctx.req.headers["last-event-id"] : undefined);
     if (registry.full()) throw new BridgeError("RATE_LIMITED", "Too many event connections are open on the Bridge. Close one and try again.", { retryAfterMs: 5000 });
@@ -236,14 +237,14 @@ export function createEventsSse({ eventLog, bus, keyStore, registry, cfg, clock,
 /**
  * @param {{ eventLog: any, keyStore: any, registry: ReturnType<typeof createClientRegistry>, cfg: any, clock: { now(): number }, logger: any }} opts
  */
-export function createEventsWs({ eventLog, keyStore, registry, cfg, clock, logger }) {
+export function createEventsWs({ eventLog, keyStore, registry, cfg, clock, logger, localAccess = null }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_CLIENT_FRAME_BYTES, perMessageDeflate: false, clientTracking: false });
 
-  async function handleUpgrade({ req, socket, head, url, reject }) {
+  async function handleUpgrade({ req, socket, head, url, reject, viaPublicIngress = false }) {
     let key;
     let q;
     try {
-      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers, ip: req.socket?.remoteAddress });
+      key = await authenticateStream({ keyStore, query: url.searchParams, headers: req.headers, ip: req.socket?.remoteAddress, local: localAccess ? () => localAccess.recordFor(req, { publicListener: viaPublicIngress }) : null });
       q = parseStreamQuery(url.searchParams, undefined);
     } catch (err) {
       reject(err?.code === "SCOPE_REQUIRED" ? "403 Forbidden" : err?.code === "VALIDATION_FAILED" ? "400 Bad Request" : err?.code === "RATE_LIMITED" ? "429 Too Many Requests" : "401 Unauthorized");
