@@ -162,7 +162,7 @@ is daily anyway. If you had no backup at all, you start from `mc-bridge init`, c
 
 1. Stop the Bridge.
 2. Find the copy made before the upgrade: `mc-bridge backup list` (kind `upgrade`).
-3. Install the previous version by number: `install.sh --version <old>` (Windows: `$env:MCB_VERSION`).
+3. Check out the previous version (`git checkout <old tag or commit>`, then `npm ci`).
 4. `mc-bridge restore <that file>`. Newer data would be misread by an older program, so restore before starting the old
    version.
 5. Start it. Tell us what failed at [the issue tracker](https://github.com/MrChartist/api-bridge-v2/issues) (never paste

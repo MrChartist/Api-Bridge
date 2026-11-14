@@ -40,9 +40,7 @@ Keep API keys out of this: a key stored that way is readable by every program yo
 
 | What | Where |
 |---|---|
-| Settings and data (one-step installer, Setup.exe) | `%APPDATA%\MrChartist\Bridge` (open it with `explorer $env:APPDATA\MrChartist\Bridge`) |
-| The program (one-step installer) | `%LOCALAPPDATA%\MrChartist\Bridge` |
-| Ready-to-run ZIP | the unzipped folder: `bridge.config.json` and the data sit next to `start-windows.bat`, so deleting the folder deletes them too |
+| Settings and data | `%APPDATA%\MrChartist\Bridge` (open it with `explorer $env:APPDATA\MrChartist\Bridge`), unless `MCB_HOME` or a `bridge.config.json` in the repository folder says otherwise |
 | A git checkout | the data folder printed at start (`Data folder: ...`) |
 | AmiBroker key file | `%APPDATA%\MrChartist\Bridge\amibroker.key` (the older `%USERPROFILE%\.mc-bridge\amibroker.key` is still read) |
 

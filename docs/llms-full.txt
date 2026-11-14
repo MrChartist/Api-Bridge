@@ -1030,7 +1030,7 @@ Each answer is short; [troubleshooting.md](troubleshooting.md) has the error cod
 ### `mc-bridge: command not found`
 
 From a git checkout the command is not on your PATH. Run `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`)
-in the repository folder. After an installer, `mc-bridge` is on your PATH. Do not run it through npx
+in the repository folder. Do not run it through npx
 ([why](README.md#running-mc-bridge)).
 
 ### Why do I get 401?
@@ -1203,9 +1203,7 @@ Keep API keys out of this: a key stored that way is readable by every program yo
 
 | What | Where |
 |---|---|
-| Settings and data (one-step installer, Setup.exe) | `%APPDATA%\MrChartist\Bridge` (open it with `explorer $env:APPDATA\MrChartist\Bridge`) |
-| The program (one-step installer) | `%LOCALAPPDATA%\MrChartist\Bridge` |
-| Ready-to-run ZIP | the unzipped folder: `bridge.config.json` and the data sit next to `start-windows.bat`, so deleting the folder deletes them too |
+| Settings and data | `%APPDATA%\MrChartist\Bridge` (open it with `explorer $env:APPDATA\MrChartist\Bridge`), unless `MCB_HOME` or a `bridge.config.json` in the repository folder says otherwise |
 | A git checkout | the data folder printed at start (`Data folder: ...`) |
 | AmiBroker key file | `%APPDATA%\MrChartist\Bridge\amibroker.key` (the older `%USERPROFILE%\.mc-bridge\amibroker.key` is still read) |
 
@@ -2112,7 +2110,7 @@ is daily anyway. If you had no backup at all, you start from `mc-bridge init`, c
 
 1. Stop the Bridge.
 2. Find the copy made before the upgrade: `mc-bridge backup list` (kind `upgrade`).
-3. Install the previous version by number: `install.sh --version <old>` (Windows: `$env:MCB_VERSION`).
+3. Check out the previous version (`git checkout <old tag or commit>`, then `npm ci`).
 4. `mc-bridge restore <that file>`. Newer data would be misread by an older program, so restore before starting the old
    version.
 5. Start it. Tell us what failed at [the issue tracker](https://github.com/MrChartist/api-bridge-v2/issues) (never paste

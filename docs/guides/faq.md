@@ -83,7 +83,7 @@ Each answer is short; [troubleshooting.md](troubleshooting.md) has the error cod
 ### `mc-bridge: command not found`
 
 From a git checkout the command is not on your PATH. Run `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`)
-in the repository folder. After an installer, `mc-bridge` is on your PATH. Do not run it through npx
+in the repository folder. Do not run it through npx
 ([why](README.md#running-mc-bridge)).
 
 ### Why do I get 401?

@@ -78,8 +78,8 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Operating system, Node.js version (`node -v`), and how you run it (start file, npm, Docker).
-      placeholder: "Windows 11, Node 22.12, start-windows.bat"
+      description: Operating system, Node.js version (`node -v`), and how you run it (npm, Docker).
+      placeholder: "Windows 11, Node 22.12, npm run dev"
     validations:
       required: true
   - type: textarea
