@@ -112,7 +112,7 @@ These npm packages are installed with the Bridge (`npm ci --omit=dev`). The lice
 | vary | 1.1.2 | MIT | Copyright (c) 2014-2017 Douglas Christopher Wilson |
 | which | 2.0.2 | ISC | Copyright (c) Isaac Z. Schlueter and Contributors / copyright notice and this permission notice appear in all copies. |
 | wrappy | 1.0.2 | ISC | Copyright (c) Isaac Z. Schlueter and Contributors / copyright notice and this permission notice appear in all copies. |
-| ws | 8.22.1 | MIT | Copyright (c) 2011 Einar Otto Stangvik / Copyright (c) 2013 Arnout Kazemier and contributors |
+| ws | 8.22.2 | MIT | Copyright (c) 2011 Einar Otto Stangvik / Copyright (c) 2013 Arnout Kazemier and contributors |
 | zod | 4.6.7 | MIT | Copyright (c) 2025 Colin McDonnell |
 | zod-to-json-schema | 3.25.2 | ISC | Copyright (c) 2020, Stefan Terdell / copyright notice and this permission notice appear in all copies. |
 
@@ -2124,9 +2124,9 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### 71. ws@8.22.1
+### 71. ws@8.22.2
 
-Applies to: ws@8.22.1
+Applies to: ws@8.22.2
 
 ```text
 Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
