@@ -1,5 +1,5 @@
 /**
- * Paper state persistence — stream S8. One JSON file per account in <dataDir>/paper/<accountId>.json, plus
+ * Paper state persistence. One JSON file per account in <dataDir>/paper/<accountId>.json, plus
  * <dataDir>/paper/_ids.json for the order-id sequence. Every write is atomic (temp file in the same directory, fsync,
  * rename), so a crash leaves either the old file or the new one. Files are created 0600 in a 0700 directory.
  *
@@ -10,8 +10,10 @@
  * The memory store has the same interface for the fake engine and for tests.
  */
 import { existsSync, readFileSync, renameSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { writeFileAtomic } from "../../lib/jsonl.mjs";
+import { loadJsonOrQuarantine } from "../../lib/safeStore.mjs";
+import { registerQuarantine } from "../../lib/storageHealth.mjs";
 
 /** Account ids are validated by core config; re-checked here because they become file names. */
 export const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
@@ -61,6 +63,7 @@ export function createFileStore(dir, { now = () => Date.now() } = {}) {
     const to = `${path}.corrupt-${now()}`;
     try {
       renameSync(path, to);
+      registerQuarantine({ file: path, movedTo: to, what: `paper book ${basename(path, ".json")}`, reason: "could not be read", at: now() });
     } catch {
       /* ignore: nothing more we can do */
     }
@@ -85,14 +88,9 @@ export function createFileStore(dir, { now = () => Date.now() } = {}) {
       writeFileAtomic(fileFor(accountId), JSON.stringify(state));
     },
     loadIds() {
-      const path = join(dir, "_ids.json");
-      if (!existsSync(path)) return null;
-      try {
-        const o = JSON.parse(readFileSync(path, "utf8"));
-        return typeof o?.day === "string" && Number.isInteger(o?.seq) ? { day: o.day, seq: o.seq } : null;
-      } catch {
-        return null;
-      }
+      // A damaged order-id sequence is set aside and reported: starting again at 1 could repeat an id already used.
+      const { value: o } = loadJsonOrQuarantine(join(dir, "_ids.json"), { what: "paper order id sequence", now: now(), validate: (v) => (typeof v?.day === "string" && Number.isInteger(v?.seq)) || "has an unknown format" });
+      return o ? { day: o.day, seq: o.seq } : null;
     },
     saveIds(ids) {
       writeFileAtomic(join(dir, "_ids.json"), JSON.stringify(ids));

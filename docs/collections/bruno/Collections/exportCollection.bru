@@ -1,0 +1,35 @@
+meta {
+  name: A collection as a CSV or JSON file
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/v1/collections/:name/export
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~format: json
+  ~resolved: false
+}
+
+params:path {
+  name: large-caps
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  A collection as a CSV or JSON file
+
+  - An API key with the `read` scope (any key).
+
+  JSON is the definition (a universe stays a universe) and imports back with `POST /v1/collections/import`. CSV is the
+  symbols; for an option universe it is the symbols as they resolve now (`X-Resolved-At`).
+
+  Reference: docs/api/collections/exportCollection.md in the repository.
+}

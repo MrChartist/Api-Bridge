@@ -1,5 +1,5 @@
 /**
- * Order request validation — stream S7.
+ * Order request validation.
  *
  *  1. Shape (zod, matching docs/openapi.yaml exactly): OrderRequest, OrderChanges, the cancel-all body and the list
  *     queries. No default product or order type; exactly one of quantity (units) or lots; unknown fields refused.
@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { fromValidation } from "../core/errors.mjs";
+import { canonicaliseOrderInput } from "./aliases.mjs";
 
 export const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 export const CLIENT_ORDER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -35,7 +36,7 @@ export const orderRequestSchema = z
     side: z.enum(["BUY", "SELL"]),
     quantity: z.number().int().min(1).max(100_000_000).optional(),
     lots: z.number().int().min(1).max(100_000).optional(),
-    /** The lot size the caller has checked; used only when reference lot data is stale (p1-02 §3.6, LOT_SIZE_STALE). */
+    /** The lot size the caller has checked; used only when reference lot data is stale (LOT_SIZE_STALE). */
     lotSizeConfirmed: z.number().int().min(1).max(10_000_000).optional(),
     product: z.enum(PRODUCTS),
     orderType: z.enum(ORDER_TYPES),
@@ -108,9 +109,9 @@ export function parseWith(schema, input, detail) {
 }
 
 /** @param {unknown} input */
-export const parseOrderRequest = (input) => parseWith(orderRequestSchema, input, "The order is missing fields or has fields that are not valid.");
+export const parseOrderRequest = (input) => parseWith(orderRequestSchema, canonicaliseOrderInput(input).input, "The order is missing fields or has fields that are not valid.");
 /** @param {unknown} input */
-export const parseOrderChanges = (input) => parseWith(orderChangesSchema, input, "The change request is not valid.");
+export const parseOrderChanges = (input) => parseWith(orderChangesSchema, canonicaliseOrderInput(input).input, "The change request is not valid.");
 
 // ───────────────────────────── Fingerprints ─────────────────────────────
 
@@ -228,7 +229,7 @@ export function checkInstrumentOrder(req, resolved, quantity, { sliceAboveFreeze
   let legs = [quantity];
   const freeze = resolved.freezeQty;
   // Freeze quantity: the largest quantity the exchange accepts in one order (needs verification per segment against
-  // the exchange's current freeze-limit circular; S4 supplies the number and marks whether it is verified).
+  // the exchange's current freeze-limit circular; symbols supplies the number and marks whether it is verified).
   if (Number.isFinite(freeze) && freeze > 0 && quantity > freeze) {
     const perLeg = Math.floor(freeze / resolved.lotSize) * resolved.lotSize;
     const count = perLeg > 0 ? Math.ceil(quantity / perLeg) : Infinity;

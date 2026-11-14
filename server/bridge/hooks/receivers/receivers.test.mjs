@@ -3,7 +3,6 @@ import { MAX_SIGNALS_PER_ALERT, signalFromObject, signalFromText, toNumber, toOr
 import { parseChartInk } from "./chartink.mjs";
 import { parseGeneric } from "./generic.mjs";
 import { parseGoCharting } from "./gocharting.mjs";
-import { TRADINGVIEW_WEBHOOK_IPS, parseTradingView } from "./tradingview.mjs";
 
 const code = (fn) => {
   try {
@@ -134,29 +133,5 @@ describe("generic", () => {
     expect(code(() => parseGeneric({ signals: Array(MAX_SIGNALS_PER_ALERT + 1).fill(sig) }))).toBe("VALIDATION_FAILED");
     expect(code(() => parseGeneric({ signals: [] }))).toBe("VALIDATION_FAILED");
     expect(code(() => parseGeneric("BUY NSE:INFY 1"))).toBe("VALIDATION_FAILED");
-  });
-});
-
-describe("TradingView", () => {
-  it("reads a filled-in strategy alert: exchange and ticker joined, numbers sent as text", () => {
-    const a = parseTradingView({ symbol: "NSE:RELIANCE", side: "buy", quantity: "10", price: "1402.5", id: "Long", time: "2026-10-19T04:00:00Z" });
-    expect(a.signals).toEqual([{ symbol: "NSE:RELIANCE", side: "BUY", quantity: 10, lots: null, price: 1402.5, triggerPrice: null, orderType: null, product: null, ref: "Long", time: "2026-10-19T04:00:00Z" }]);
-    expect(a.basis).toBe("tv|Long|2026-10-19T04:00:00Z");
-    expect(parseTradingView({ ticker: "INFY", exchange: "NSE", action: "sell", contracts: 2 }).signals[0]).toMatchObject({ symbol: "NSE:INFY", side: "SELL", quantity: 2 });
-  });
-  it("reads a plain-text message, and identifies an alert with no id by its bytes", () => {
-    expect(parseTradingView("SELL NSE:INFY 2 @ 1500").signals[0]).toMatchObject({ side: "SELL", quantity: 2, price: 1500 });
-    expect(parseTradingView({ symbol: "NSE:RELIANCE", side: "buy", quantity: 1 }).basis).toBeNull();
-  });
-  it("refuses a placeholder TradingView did not fill, and anything that is not an object or text", () => {
-    expect(code(() => parseTradingView({ symbol: "{{exchange}}:{{ticker}}", side: "buy" }))).toBe("VALIDATION_FAILED");
-    expect(code(() => parseTradingView("{{strategy.order.action}} NSE:RELIANCE 1"))).toBe("VALIDATION_FAILED");
-    expect(code(() => parseTradingView({ symbol: "NSE:RELIANCE", side: "long" }))).toBe("VALIDATION_FAILED");
-    expect(code(() => parseTradingView([1]))).toBe("VALIDATION_FAILED");
-    expect(code(() => parseTradingView(null))).toBe("VALIDATION_FAILED");
-  });
-  it("lists the sender's addresses as plain IPv4", () => {
-    expect(TRADINGVIEW_WEBHOOK_IPS.length).toBeGreaterThan(0);
-    for (const ip of TRADINGVIEW_WEBHOOK_IPS) expect(ip).toMatch(/^\d{1,3}(\.\d{1,3}){3}$/);
   });
 });

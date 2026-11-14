@@ -1,0 +1,49 @@
+meta {
+  name: Add a broker or paper account (saved to the config file, usable at once)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/accounts
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "broker": "paper",
+    "id": "paper-2",
+    "label": "Second paper account"
+  }
+}
+
+docs {
+  Add a broker or paper account (saved to the config file, usable at once)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Adds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started
+  without one), keeping the file's other content, and starts using it without a restart. New accounts are always
+  paper only: live trading is turned on only by editing the config file. Without `id` the Bridge picks
+  `<broker>-main`, then `<broker>-2` ... (`paper`, `paper-2` ... for paper accounts). Log in afterwards with
+  POST /v1/accounts/{accountId}/session. Admin scope with an admin key that may use every account, this computer
+  only. Audited as `account.added`.
+
+  Demo mode saves a real broker's account for the next normal start instead (`savedForLater: true`,
+  `account: null`): the same paper-only entry is written to the file, nothing is loaded and no broker is
+  contacted. `leaveDemo: true` also removes `"demo": true` from the file. Paper accounts are refused in demo mode
+  (it has its own), and so is everything when the demo dashboard is served to other computers.
+
+  Reference: docs/api/accounts/addAccount.md in the repository.
+}

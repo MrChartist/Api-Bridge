@@ -1,11 +1,11 @@
 /**
- * Trading-day maths over the holiday calendar and the session windows (stream S16, docs/spec/p1-02-reference.md
- * §6.4–6.6, §6.9). Pure: no I/O, no clock. Dates are IST calendar dates "YYYY-MM-DD"; times are IST "HH:MM". India has
+ * Trading-day maths over the holiday calendar and the session windows (the reference module). Pure: no I/O, no clock. Dates are IST calendar dates "YYYY-MM-DD"; times are IST "HH:MM". India has
  * no daylight saving, so IST is a fixed UTC+05:30 offset and the host time zone never matters.
  *
  * Exchanges: the derivatives segments follow their cash exchange's holidays (NFO -> NSE, BFO -> BSE).
  */
-import { DEFAULT_SESSIONS } from "./defaults.mjs";
+import { closeOf, fallbackWindow, ruleFor, segmentOf, windowOfRule } from "./sessions.mjs";
+import { shippedSessionRules } from "./shipped.mjs";
 
 const IST_OFFSET_MS = 330 * 60_000;
 const DAY_MS = 86_400_000;
@@ -102,30 +102,37 @@ export function mergeHolidays(shipped, cfg = {}) {
 }
 
 /**
- * A calendar over holidays, special sessions and session windows.
+ * A calendar over holidays, special sessions and dated session rules.
  * @param {{ holidays?: Array<{ date, label, exchanges, verified, origin? }>,
- *   specialSessions?: Record<string, { open: string|null, close: string|null, label?: string, exchanges?: string[], verified?: boolean, origin?: string }>,
- *   sessions?: Record<string, { preOpen?: string|null, open?: string|null, close?: string|null }> }} [opts]
- *   sessions: per-exchange overrides; a null field keeps the default from reference/defaults.mjs.
+ *   specialSessions?: Record<string, { open: string|null, close: string|null, preOpen?: string|null, derivativesClose?: string|null, cas?: object|null,
+ *     label?: string, exchanges?: string[], verified?: boolean, origin?: string, source?: string|null, readOn?: string|null, note?: string|null }>,
+ *   sessions?: Record<string, { preOpen?: string|null, open?: string|null, close?: string|null }>,
+ *   rules?: { gateFloor: object, rules: object[] } }} [opts]
+ *   sessions: per-exchange overrides from the user's config; a null field keeps the dated rule's time. Overridden times count
+ *   as verified (the user stated them). rules: the dated session table (default: the shipped reference/data/sessions.json).
  */
-export function createCalendar({ holidays = [], specialSessions = {}, sessions = {} } = {}) {
+export function createCalendar({ holidays = [], specialSessions = {}, sessions = {}, rules } = {}) {
   const byDate = new Map();
   for (const h of holidays) byDate.set(h.date, h);
   const specials = new Map(Object.entries(specialSessions ?? {}));
+  const table = rules ?? shippedSessionRules();
+  const floor = table.gateFloor;
 
-  function windowFor(exchange) {
+  /**
+   * The session window of an exchange on an IST date (the newest rule when no date is given):
+   * { preOpen, open, close, expiringIndexClose, cas, verified, ruleId, from, to, circular, url, readOn, note, source, gate }.
+   * `gate` is what the live-order gate may rely on (see reference/sessions.mjs).
+   */
+  function windowFor(exchange, date) {
     const e = String(exchange ?? "NFO").toUpperCase();
-    const base = DEFAULT_SESSIONS[e] && typeof DEFAULT_SESSIONS[e] === "object" ? DEFAULT_SESSIONS[e] : DEFAULT_SESSIONS.NFO;
+    const rule = ruleFor(table.rules, e, date);
+    const base = rule ? windowOfRule(rule, floor) : fallbackWindow(e, floor);
     // NSE/BSE cash windows follow the derivatives overrides of their segment when set (NFO for NSE, BFO for BSE).
     const segment = e === "NSE" ? "NFO" : e === "BSE" ? "BFO" : e;
     const o = sessions?.[segment] ?? {};
-    const configured = Boolean(o.preOpen || o.open || o.close);
-    return {
-      preOpen: o.preOpen ?? base.preOpen,
-      open: o.open ?? base.open,
-      close: o.close ?? base.close,
-      source: configured ? `config: reference.sessions.${segment}` : DEFAULT_SESSIONS.source,
-    };
+    if (!(o.preOpen || o.open || o.close)) return base;
+    const pick = { preOpen: o.preOpen ?? base.preOpen, open: o.open ?? base.open, close: o.close ?? base.close };
+    return { ...base, ...pick, verified: true, source: `config: reference.sessions.${segment}`, gate: { ...pick, expiringIndexClose: base.gate.expiringIndexClose } };
   }
 
   function holidayOn(date, exchange) {
@@ -137,10 +144,45 @@ export function createCalendar({ holidays = [], specialSessions = {}, sessions =
     const s = specials.get(date);
     if (!s) return null;
     const ex = s.exchanges ?? ["NSE", "BSE"];
-    return ex.includes(holidayKeyFor(exchange)) ? { date, open: s.open ?? null, close: s.close ?? null, label: s.label ?? "Special session", verified: s.verified !== false, origin: s.origin ?? "config" } : null;
+    if (!ex.includes(holidayKeyFor(exchange))) return null;
+    const derivatives = segmentOf(exchange) === "derivatives";
+    return {
+      date,
+      open: s.open ?? null,
+      close: (derivatives && s.derivativesClose) || s.close || null,
+      preOpen: s.preOpen ?? null,
+      cas: s.cas ?? null,
+      label: s.label ?? "Special session",
+      verified: s.verified !== false,
+      origin: s.origin ?? "config",
+      source: s.source ?? null,
+      readOn: s.readOn ?? null,
+      note: s.note ?? null,
+    };
   }
 
   const hasTimes = (s) => Boolean(s && s.open && s.close);
+
+  /**
+   * The close that applies on a date: the special session's close, else the dated rule's. gate:true asks for the live-order
+   * view (instrument { kind, expiry } narrows it for an index contract expiring that day).
+   */
+  function closeFor(exchange, date, { gate = false, instrument = null } = {}) {
+    const sp = specialOn(date, exchange);
+    if (hasTimes(sp)) return sp.close;
+    return closeOf(windowFor(exchange, date), date, { gate, instrument });
+  }
+
+  /**
+   * The last moment a contract trades on its own expiry day (read-only: expiry rolls, day-end maths). kind "index": an index
+   * contract expiring that day stops at the rule's expiringIndexClose when it has one; anything else at the segment close.
+   */
+  function expiryCloseFor(exchange, date, kind = null) {
+    const sp = specialOn(date, exchange);
+    if (hasTimes(sp)) return sp.close;
+    const w = windowFor(exchange, date);
+    return kind === "index" && w.expiringIndexClose ? w.expiringIndexClose : w.close;
+  }
 
   function isTradingDay(date, exchange = "NFO") {
     if (hasTimes(specialOn(date, exchange))) return true;
@@ -180,35 +222,48 @@ export function createCalendar({ holidays = [], specialSessions = {}, sessions =
   }
 
   /**
-   * Session state at an instant (§6.5): HOLIDAY, SPECIAL (inside a special session with times), PRE_OPEN, OPEN or
+   * Session state at an instant: HOLIDAY, SPECIAL (inside a special session with times), PRE_OPEN, OPEN or
    * CLOSED. A special session with times wins over a holiday (Muhurat trading is held on a holiday).
+   *
+   * opts.gate: the answer for a LIVE order. The window is the gate window (an unverified rule never lengthens it), and a
+   * special session whose timing is not verified is CLOSED with `unverifiedSpecial: true`, so no live order goes out in it.
+   * opts.instrument { kind, expiry }: narrows the close for an index contract expiring that day (gate only).
+   * Without opts.gate a special session counts as open whatever its flag says, and `special.verified` carries the flag.
    */
-  function sessionAt(exchange, tMs) {
+  function sessionAt(exchange, tMs, opts = {}) {
+    const gate = opts.gate === true;
     const date = istDateOf(tMs);
     const clock = istClockOf(tMs);
-    const w = windowFor(exchange);
+    const win = windowFor(exchange, date);
+    const times = gate ? win.gate : win;
+    const close = closeOf(win, date, { gate, instrument: opts.instrument ?? null });
     const holiday = holidayOn(date, exchange);
     const special = specialOn(date, exchange);
     const base = {
       date,
-      preOpen: w.preOpen,
-      open: w.open,
-      close: w.close,
+      preOpen: times.preOpen,
+      open: times.open,
+      close,
       holiday: holiday ? { label: holiday.label, verified: holiday.verified } : null,
       special: special ? { label: special.label, open: special.open, close: special.close, verified: special.verified } : null,
-      source: w.source,
+      verified: win.verified,
+      source: win.source,
     };
     if (special) {
-      if (hasTimes(special) && clock >= special.open && clock < special.close) return { ...base, state: "SPECIAL", label: `${special.label} (${special.open}–${special.close} IST)` };
+      const note = special.verified ? "" : ", timing unverified";
+      if (hasTimes(special) && clock >= special.open && clock < special.close) {
+        if (gate && !special.verified) return { ...base, state: "CLOSED", unverifiedSpecial: true, label: `${special.label} (${special.open}–${special.close} IST): the timing is not verified, so live orders are refused` };
+        return { ...base, state: "SPECIAL", label: `${special.label} (${special.open}–${special.close} IST${note})` };
+      }
       if (!hasTimes(special) && !holiday) return { ...base, state: "CLOSED", label: `${special.label}: time not announced` };
     }
     if (holiday) return { ...base, state: "HOLIDAY", label: `${holiday.label}${holiday.verified ? "" : " (unverified)"}` };
-    if (special && hasTimes(special)) return { ...base, state: "CLOSED", label: clock < special.open ? `${special.label} opens at ${special.open} IST` : `${special.label} closed` };
+    if (special && hasTimes(special)) return { ...base, state: "CLOSED", label: clock < special.open ? `${special.label} opens at ${special.open} IST${special.verified ? "" : " (timing unverified)"}` : `${special.label} closed` };
     const wd = weekdayOf(date);
     if (wd === 0 || wd === 6) return { ...base, state: "CLOSED", label: "Weekend" };
-    if (clock >= w.preOpen && clock < w.open) return { ...base, state: "PRE_OPEN", label: "Pre-open" };
-    if (clock >= w.open && clock < w.close) return { ...base, state: "OPEN", label: "Open" };
-    return { ...base, state: "CLOSED", label: clock < w.preOpen ? "Before the open" : "After the close" };
+    if (clock >= times.preOpen && clock < times.open) return { ...base, state: "PRE_OPEN", label: "Pre-open" };
+    if (clock >= times.open && clock < close) return { ...base, state: "OPEN", label: "Open" };
+    return { ...base, state: "CLOSED", label: clock < times.preOpen ? "Before the open" : "After the close" };
   }
 
   /** Holidays between two dates (inclusive), optionally for one exchange. */
@@ -216,13 +271,15 @@ export function createCalendar({ holidays = [], specialSessions = {}, sessions =
     return holidays.filter((h) => h.date >= from && h.date <= to && (!exchange || h.exchanges.includes(holidayKeyFor(exchange))));
   }
 
-  /** Trading days from the dataset's asOf date to today (§6.4). */
+  /** Trading days from the dataset's asOf date to today. */
   const staleTradingDays = (asOfDate, today, exchange = "NFO") => (asOfDate ? Math.max(0, tradingDaysBetween(asOfDate, today, exchange)) : null);
 
   return Object.freeze({
     holidays: Object.freeze([...holidays]),
     specialSessions: Object.freeze(Object.fromEntries(specials)),
     windowFor,
+    closeFor,
+    expiryCloseFor,
     holidayOn,
     specialOn,
     isTradingDay,
@@ -249,7 +306,7 @@ export function expiryKinds(dates, { futuresOnly = false } = {}) {
 }
 
 /**
- * Expiry shift explanation (§6.6). The usual weekday w is the most common weekday of the listed weekly expiries (the
+ * Expiry shift explanation. The usual weekday w is the most common weekday of the listed weekly expiries (the
  * monthly ones when none are weekly). For a listed expiry whose weekday differs from w, ruleDate is the next date with
  * weekday w within 6 days; when that day is not a trading day the expiry is `shifted`. Explanation only: the listed
  * date always wins.
@@ -291,7 +348,7 @@ export function expiryShifts(expiries, cal, exchange = "NFO") {
 }
 
 /**
- * Delivery-margin dates for an expiry (§6.9): E-n is the n-th trading day before the expiry.
+ * Delivery-margin dates for an expiry: E-n is the n-th trading day before the expiry.
  * @param {string} expiry
  * @param {Array<{ day: string, pct: number }>} schedule  rows like { day: "E-4", pct: 10 }
  * @param {ReturnType<typeof createCalendar>} cal

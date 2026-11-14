@@ -27,13 +27,29 @@ Compact trading symbols with an exchange code: `RELIANCE` / `NSE`, `NIFTY` / `NS
 | Orders | `placeorder`, `placesmartorder` (towards `position_size`), `basketorder`, `splitorder` (`splitsize`), `modifyorder`, `cancelorder`, `cancelallorder`, `closeposition`, `orderstatus`, `openposition`, `optionsorder` (by `offset` ATM / ITMn / OTMn) |
 | Market data | `quotes`, `multiquotes`, `depth`, `history`, `intervals` |
 | Instruments | `symbol`, `search`, `expiry`, `optionchain`, `optionsymbol` |
+| Margin | `margin` (up to 50 `positions`; the same calculation as `POST /v1/margin/basket`) |
 
-`margin` answers with an error for now. Every endpoint is in [openapi.yaml](../openapi.yaml) under "Compat REST".
+Compat answers have no field that says how current a price is, so they are **never built from a backup data source**
+(Yahoo, a plugin, ...): the market-data and instrument endpoints read from your broker accounts only, whatever
+`sources.autoFallback` says, and choosing a strike for `optionsorder` reads with the `order` purpose (trusted real-time data
+only). When your broker is out of request budget, a recent cached value may still answer; in that rare case the `data` of a
+quote carries `"stale": true`. Use the `/v1` routes when you want labelled backup data.
+
+`margin` takes `positions` (`symbol`, `exchange`, `action`, `product`, `pricetype`, `quantity`, `price`) and answers `total_margin_required`, `span_margin`, `exposure_margin`, `hedge_benefit` and `source` (`broker` or `paper-model`, the approximate paper model) as numbers; see [alert-orders.md](alert-orders.md). Every endpoint is in [openapi.yaml](../openapi.yaml) under "Compat REST".
 
 ## Which account
 
 Calls act on `compat.account` from the config, or else the first account the key may use. A Bridge extension: add
 `"account": "<id>"` to any request body to pick another (the key must be allowed to use it).
+
+## Retrying an order safely
+
+Send an `Idempotency-Key` header (8 to 255 letters, digits or `_ . : -`) with `placeorder`, `placesmartorder`, `basketorder`,
+`splitorder`, `modifyorder`, `cancelorder`, `closeposition` and `optionsorder`. If a call times out, send the same request with the
+same key: the Bridge answers with the first result (header `Idempotency-Replayed: true`) and places nothing a second time. The
+same key with a different request is a 409 `IDEMPOTENCY_KEY_REUSED`. A client that cannot set headers can put the key in the body as
+`"idempotency_key"`. Without a key every call is a new order. A basket, a split or a close-all that partly failed is not stored as
+done, so the retry can finish the rest while the orders that already went through are not placed again.
 
 ## Orders are paper until you say otherwise
 

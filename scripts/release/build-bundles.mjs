@@ -4,15 +4,21 @@
 //
 //   node scripts/release/build-bundles.mjs [--out dist] [--only linux-x64,windows-x64] [--node-dist <url>]
 //
+// It also writes the source archives the one-line installers download (mr-chartist-bridge-<version>-source.tar.gz and
+// .zip: the program files without tests and without node_modules), copies install.sh and install.ps1 next to them, and
+// writes SHA256SUMS.txt over all of it (scripts/release/checksums.mjs). The installers check their download against
+// that list before installing anything.
+//
 // Node.js comes from nodejs.org (newest 22.x), checked against its published SHA-256. The production dependencies are
 // pure JavaScript (the build fails if one ever needs an install script), so one node_modules folder fits every system.
 // Needs `zip` and `tar` on the build machine (GitHub's ubuntu runners have both).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, cpSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SUMS_FILE, checksums } from "./checksums.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const args = process.argv.slice(2);
@@ -134,6 +140,42 @@ export function macAppReadMe(version, nodeVersion) {
   ].join("\n");
 }
 
+/** A file people run directly (a launcher, the CLI, an installer) starts with a "#!" line; it must keep its execute bit. */
+export function startsWithShebang(file) {
+  const fd = openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(2);
+    return readSync(fd, buf, 0, 2, 0) === 2 && buf.toString("latin1") === "#!";
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Copies the listed repository files into `dest` and makes every "#!" script executable there, whatever mode the
+ * checkout gave it (git on Windows, a ZIP of the repository, a filesystem without modes). The ZIP step then keeps
+ * these modes, so double-clicking start-mac.command and running ./start-linux.sh work after unzipping.
+ */
+export function stageFiles(files, fromRoot, dest) {
+  for (const f of files) {
+    mkdirSync(dirname(join(dest, f)), { recursive: true });
+    cpSync(join(fromRoot, f), join(dest, f));
+    if (startsWithShebang(join(dest, f))) chmodSync(join(dest, f), 0o755);
+  }
+}
+
+/** The names of the source archives the installers download: install.sh looks for the .tar.gz, install.ps1 for the .zip. */
+export const sourceArchiveNames = (version) => ({ tar: `mr-chartist-bridge-${version}-source.tar.gz`, zip: `mr-chartist-bridge-${version}-source.zip`, top: `mr-chartist-bridge-${version}` });
+
+/**
+ * The tar command line for a source archive. With GNU tar the file is byte-for-byte repeatable (sorted names, fixed
+ * times and owners, gzip without a name or time); any other tar just makes the archive.
+ */
+export function tarCreateArgs(tarVersionText, outFile, stage, top) {
+  const gnu = /GNU tar/.test(tarVersionText);
+  return gnu ? ["--sort=name", "--mtime=@0", "--owner=0", "--group=0", "--numeric-owner", "--use-compress-program=gzip -n", "-cf", outFile, "-C", stage, top] : ["-czf", outFile, "-C", stage, top];
+}
+
 /** Newest v<major>.x from nodejs.org's index.json. @param {Array<{ version: string }>} index */
 export function pickNode(index, major = 22) {
   const versions = index.map((r) => r.version).filter((v) => new RegExp(`^v${major}\\.\\d+\\.\\d+$`).test(v));
@@ -162,10 +204,19 @@ async function main() {
     // 1. The app: tracked files only (never a developer's local config, keys or data).
     const files = run("git", ["ls-files", "-z"], { cwd: ROOT }).toString().split("\0").filter(Boolean).filter(shipped);
     const app = join(work, "app");
-    for (const f of files) {
-      mkdirSync(dirname(join(app, f)), { recursive: true });
-      cpSync(join(ROOT, f), join(app, f));
-    }
+    stageFiles(files, ROOT, app);
+    // 1b. The source archives the one-line installers download (made before node_modules exists), and the installer scripts.
+    const names = sourceArchiveNames(version);
+    const srcStage = join(work, "source");
+    mkdirSync(srcStage, { recursive: true });
+    cpSync(app, join(srcStage, names.top), { recursive: true });
+    rmSync(join(OUT, names.tar), { force: true });
+    run("tar", tarCreateArgs(run("tar", ["--version"]).toString(), join(OUT, names.tar), srcStage, names.top));
+    rmSync(join(OUT, names.zip), { force: true });
+    run("zip", ["-q", "-r", "-X", join(OUT, names.zip), names.top], { cwd: srcStage });
+    for (const f of ["install.sh", "install.ps1"]) cpSync(join(ROOT, f), join(OUT, f));
+    console.log(`  ${names.tar}\n  ${names.zip}\n  install.sh, install.ps1`);
+
     // 2. Production parts, once for every system.
     run("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: app, stdio: "inherit" });
     const lock = JSON.parse(readFileSync(join(app, "package-lock.json"), "utf8"));
@@ -248,18 +299,10 @@ async function main() {
       });
       console.log(`  ${exeName}`);
     }
-    writeFileSync(join(OUT, "SHA256SUMS.txt"), checksums(OUT), "utf8");
+    writeFileSync(join(OUT, SUMS_FILE), checksums(OUT), "utf8");
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-}
-
-function checksums(dir) {
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".zip") || f.endsWith(".exe"))
-    .sort()
-    .map((f) => `${createHash("sha256").update(readFileSync(join(dir, f))).digest("hex")}  ${f}\n`)
-    .join("");
 }
 
 /** The note at the top of the unzipped folder, in plain words. */

@@ -1,0 +1,41 @@
+meta {
+  name: Connect or log in to the broker
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/accounts/:accountId/session
+  body: json
+  auth: bearer
+}
+
+params:path {
+  accountId: demo-paper
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "values": {
+      "apiKey": "<broker api key>",
+      "clientId": "<client id>"
+    }
+  }
+}
+
+docs {
+  Connect or log in to the broker
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Saves the non-secret values (API key, client id, access token) encrypted at rest, then logs in where the broker
+  needs it. For session-login brokers send the password/PIN and the current 6-digit TOTP code in `secrets`: they
+  are used once for the broker login and never stored, cached or logged. Admin scope, this computer only.
+
+  Reference: docs/api/accounts/connectAccount.md in the repository.
+}

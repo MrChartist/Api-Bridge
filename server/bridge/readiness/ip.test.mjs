@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { normaliseIp, parseLookupBody, sameIp } from "./ip.mjs";
 
-describe("normaliseIp (p1-05 §7.3 reference cases)", () => {
+describe("normaliseIp (reference cases)", () => {
   it("maps IPv4-mapped IPv6 to IPv4, expands IPv6, refuses leading zeros", () => {
     expect(normaliseIp("::ffff:203.0.113.10")).toEqual({ ip: "203.0.113.10", family: "ipv4" });
     expect(normaliseIp("2001:DB8::1")).toEqual({ ip: "2001:db8:0:0:0:0:0:1", family: "ipv6" });

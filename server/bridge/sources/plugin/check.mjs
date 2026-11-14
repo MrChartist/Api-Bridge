@@ -1,0 +1,187 @@
+/**
+ * `mc-bridge sources plugins check <folder>`: validate a plugin folder and run the provider conformance harness against
+ * it, fully offline. The plugin is started for real (the same process, flags and host as in production) but every
+ * request it makes goes through the host-brokered fetch to a scripted upstream built from the plugin's own fixtures.
+ *
+ * The folder needs `fixtures/conformance.json`:
+ *
+ *   {
+ *     "inputs": { "quotes": ["NSE:RELIANCE"] },                       one entry per declared capability (see conformance.mjs)
+ *     "responses": [ { "urlContains": "/v1/quotes", "file": "quotes.json" },
+ *                    { "urlContains": "/v1/status", "json": { "ok": true } } ],   what the vendor answers; a request no entry
+ *                                                                                  matches fails the check
+ *     "config": { "market": "NSE" },                                  optional owner settings
+ *     "hosts": ["quotes.example.com"]                                 optional; concrete host names when allowHosts uses wildcards
+ *   }
+ */
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { effectiveLimits } from "./manifest.mjs";
+import { inspectPluginFolder, loadPlugins } from "./loader.mjs";
+import { createFetchBroker } from "./netbroker.mjs";
+
+export const FIXTURE_FILE = join("fixtures", "conformance.json");
+const CANARY = "CONFORMANCE-CANARY-KEY-123";
+
+const step = (name, ok, detail) => ({ name, ok, ...(detail ? { detail } : {}) });
+
+/** Is `real` (already a real path) the folder `root` or inside it? */
+const inside = (root, real) => {
+  const rel = relative(root, real);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+};
+
+/** Load fixtures/conformance.json; `responses[].file` is read from the fixtures folder (and may not leave it). */
+export function readFixtures(dir) {
+  const file = join(dir, FIXTURE_FILE);
+  // Compare REAL paths, not resolved ones: a link in the fixtures folder must not lead outside the plugin folder. (The
+  // loader already refuses a folder that holds any link; this is the second line.)
+  let realDir;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return { error: "the plugin folder cannot be read" };
+  }
+  if (existsSync(file) && (lstatSync(file).isSymbolicLink() || !inside(realDir, realpathSync(file)))) return { error: `${FIXTURE_FILE} is a symbolic link or resolves outside the plugin folder` };
+  if (!existsSync(file)) return { error: `no ${FIXTURE_FILE}: add one with "inputs" (a value for each declared capability) and "responses" (what the vendor answers). See docs/source-contract.md.` };
+  let json;
+  try {
+    json = JSON.parse(readFileSync(file, "utf8"));
+  } catch (err) {
+    return { error: `${FIXTURE_FILE} is not valid JSON: ${String(err.message).slice(0, 100)}` };
+  }
+  if (!json || typeof json !== "object" || !json.inputs || typeof json.inputs !== "object") return { error: `${FIXTURE_FILE} needs an "inputs" object` };
+  if (!Array.isArray(json.responses) || json.responses.length === 0) return { error: `${FIXTURE_FILE} needs a non-empty "responses" array` };
+  const root = resolve(dir, "fixtures");
+  const realRoot = existsSync(root) ? realpathSync(root) : root;
+  const responses = [];
+  for (const r of json.responses) {
+    if (!r || typeof r.urlContains !== "string" || !r.urlContains) return { error: `every response needs "urlContains"` };
+    let body;
+    if (typeof r.file === "string") {
+      const p = resolve(root, r.file);
+      if (!existsSync(p)) return { error: `fixture file ${r.file} is missing or outside the fixtures folder` };
+      if (lstatSync(p).isSymbolicLink() || !inside(realRoot, realpathSync(p)) || realpathSync(p) === realRoot) return { error: `fixture file ${r.file} is a symbolic link or resolves outside the fixtures folder` };
+      body = readFileSync(p, "utf8");
+    } else if (r.json !== undefined) body = JSON.stringify(r.json);
+    else if (typeof r.text === "string") body = r.text;
+    else return { error: `response for ${r.urlContains} needs "file", "json" or "text"` };
+    responses.push({ urlContains: r.urlContains, status: Number.isInteger(r.status) ? r.status : 200, headers: r.headers ?? {}, body });
+  }
+  return { inputs: json.inputs, responses, config: json.config ?? {}, hosts: Array.isArray(json.hosts) ? json.hosts : null };
+}
+
+/**
+ * @param {string} path  the plugin folder
+ * @param {{ baseDir?: string, harness?: { runProviderConformance: Function, createFakeClock: Function, createScriptedFetch: Function } }} [opts]
+ *   harness: the conformance module; loaded from ../conformance.mjs when not given
+ *   hostOptions: passed to the plugin host (tests inject `spawnImpl` to see the flags). The plugin is started through the SAME
+ *   loader and host as in production, so it gets the same restricted flags: read access to its entry file only, no
+ *   child processes, no workers, an empty environment.
+ *
+ * `check` RUNS the plugin's code (in that sandbox, with a scripted network). Read the manifest and the entry file, and pin
+ * it, before you run it: see docs/source-contract.md.
+ * @returns {Promise<{ ok: boolean, steps: Array<{ name: string, ok: boolean, detail?: string }>, pin?: string, descriptor?: object }>}
+ */
+export async function checkPluginFolder(path, { baseDir = process.cwd(), harness, hostOptions = {} } = {}) {
+  const steps = [];
+  const info = inspectPluginFolder(path, { baseDir });
+  if (!info.ok) {
+    for (const p of info.problems) steps.push(step("manifest", false, p));
+    return { ok: false, steps };
+  }
+  steps.push(step("manifest", true, `${info.manifest.id} ${info.manifest.version}, ${info.descriptor.class}${info.descriptor.delaySec ? ` (${info.descriptor.delaySec} s)` : ""}, ${info.manifest.capabilities.join(", ")}`));
+  steps.push(step("hosts", true, info.manifest.network.allowHosts.length ? `may reach ${info.manifest.network.allowHosts.join(", ")}` : "no network access"));
+
+  let mod = harness;
+  if (!mod) {
+    try {
+      mod = await import("../conformance.mjs");
+    } catch {
+      steps.push(step("conformance harness", false, "server/bridge/sources/conformance.mjs is not available in this build"));
+      return { ok: false, steps, pin: info.pin, descriptor: info.descriptor };
+    }
+  }
+  const fx = readFixtures(info.dir);
+  if (fx.error) {
+    steps.push(step("fixtures", false, fx.error));
+    return { ok: false, steps, pin: info.pin, descriptor: info.descriptor };
+  }
+  steps.push(step("fixtures", true, `${fx.responses.length} scripted response(s)`));
+
+  const clock = mod.createFakeClock();
+  const unmatched = new Set();
+  const scenarios = {
+    ok: (url) => {
+      const hit = fx.responses.find((r) => url.includes(r.urlContains));
+      if (!hit) {
+        unmatched.add(url);
+        return { status: 599, text: "no fixture matches this request" };
+      }
+      return { status: hit.status, headers: hit.headers, text: hit.body };
+    },
+    "rate-limited": () => ({ status: 429, headers: { "retry-after": "30" }, text: "slow down" }),
+    "not-found": () => ({ status: 404, text: "no such symbol" }),
+    upstream: () => ({ status: 500, text: "boom" }),
+    auth: () => ({ status: 401, text: "bad key" }),
+  };
+  const upstream = mod.createScriptedFetch({ clock, scenarios });
+  const transport = async ({ url, method, headers, body, signal }) => {
+    const r = await upstream(url.href, { method, headers, body, signal, redirect: "error" });
+    return { status: r.status, headers: Object.fromEntries(r.headers.entries()), body: await r.text() };
+  };
+  const broker = createFetchBroker({
+    id: info.manifest.id,
+    version: info.manifest.version,
+    allowHosts: info.manifest.network.allowHosts,
+    allowPost: info.manifest.network.allowPost === true,
+    limits: effectiveLimits(info.manifest),
+    clock: clock.now,
+    transport,
+  });
+  const needsKey = info.manifest.secrets?.includes("apiKey");
+  const logs = [];
+  const loaded = loadPlugins({
+    entries: [{ path: info.dir, sha256: info.pin, granted: true, config: fx.config }],
+    broker,
+    clock: clock.now,
+    readSecret: needsKey ? () => CANARY : undefined,
+    ...hostOptions,
+    logger: { debug: (m) => logs.push(m), info: (m) => logs.push(m), warn: (m) => logs.push(m) },
+  });
+  try {
+    if (loaded.problems.length || !loaded.providers.length) {
+      steps.push(step("load", false, loaded.problems.map((p) => p.reason).join("; ") || "the plugin did not load"));
+      return { ok: false, steps, pin: info.pin, descriptor: info.descriptor };
+    }
+    const provider = loaded.providers[0];
+    steps.push(step("load", true, "granted, pinned, descriptor valid"));
+    const hosts = fx.hosts ?? info.manifest.network.allowHosts.filter((h) => !h.startsWith("*."));
+    const report = await mod.runProviderConformance(provider, { clock, upstream, inputs: fx.inputs, hosts, secrets: needsKey ? [CANARY] : [], logs: () => logs });
+    for (const c of report.checks) steps.push(step(`conformance: ${c.name}`, c.ok, c.detail));
+
+    // Determinism: the same fixture twice gives the same answer (no hidden state or clock dependence).
+    const det = [];
+    for (const cap of info.manifest.capabilities) {
+      const args = cap === "quotes" ? [fx.inputs.quotes] : cap === "history" ? [fx.inputs.history] : cap === "expiries" ? [fx.inputs.expiries ?? "NIFTY"] : [fx.inputs.optionChain?.underlying ?? "NIFTY", fx.inputs.optionChain?.expiry];
+      if (args[0] === undefined) continue;
+      try {
+        upstream.setScenario("ok");
+        clock.advance(86_400_000 + 61_000);
+        const first = JSON.stringify(await provider[cap](...args, { now: clock.now() }));
+        clock.advance(61_000);
+        const second = JSON.stringify(await provider[cap](...args, { now: clock.now() }));
+        if (first !== second) det.push(`${cap} gave different answers for the same fixture`);
+      } catch (err) {
+        det.push(`${cap}: ${err?.code ?? err?.name}: ${String(err?.message).slice(0, 80)}`);
+      }
+    }
+    steps.push(step("deterministic", det.length === 0, det.join("; ") || undefined));
+    steps.push(step("requests matched fixtures", unmatched.size === 0, unmatched.size ? `no fixture for: ${[...unmatched].slice(0, 3).join(", ")}` : undefined));
+    const status = provider.health();
+    steps.push(step("plugin stayed healthy", status.state !== "disabled", status.state === "disabled" ? status.lastError : undefined));
+    return { ok: steps.every((s) => s.ok), steps, pin: info.pin, descriptor: info.descriptor };
+  } finally {
+    await loaded.stop();
+  }
+}

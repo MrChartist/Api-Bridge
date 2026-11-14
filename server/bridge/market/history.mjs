@@ -1,5 +1,5 @@
 /**
- * History helpers — stream S5. Pure functions for /v1/history:
+ * History helpers. Pure functions for /v1/history:
  *
  *  - planInterval: map a Bridge interval (1m … 1M) onto what the broker offers (capabilities.historical.intervals).
  *    A broker interval that divides the target evenly is fetched and aggregated (10m from 5m, 1w and 1M from 1d).
@@ -11,6 +11,7 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { DAY_MS, istDate, istDateTime, istDateTimeMinutes, istMidnight, istMonthStart, istWeekStart } from "./time.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
 
 /** Bridge intervals (OpenAPI Interval). */
 export const INTERVALS = Object.freeze(["1m", "3m", "5m", "10m", "15m", "30m", "60m", "1d", "1w", "1M"]);
@@ -24,8 +25,10 @@ export const INTRADAY_MINUTES = Object.freeze({ "1m": 1, "3m": 3, "5m": 5, "10m"
 /** Session open (minutes after IST midnight) used to align intraday buckets. */
 export const SESSION_OPEN_MIN = Object.freeze({ NSE: 555, BSE: 555, NFO: 555, BFO: 555, MCX: 540, CDS: 540 });
 
-/** Trading minutes in a regular session, for countback estimates. */
-const SESSION_MINUTES = Object.freeze({ NSE: 375, BSE: 375, NFO: 375, BFO: 375, MCX: 870, CDS: 480 });
+/** Trading minutes in a regular session for the exchanges the dated session rules do not cover (MCX is handled below), for countback estimates. */
+const SESSION_MINUTES = Object.freeze({ MCX: 870, CDS: 480 });
+
+const toMinutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 /**
  * True while US daylight saving time is in force on this date (second Sunday of March to the first Sunday of
@@ -46,12 +49,52 @@ export function usDstInEffect(ms) {
 }
 
 /**
- * Regular session length in minutes on a date. MCX runs 09:00-23:30 IST during US daylight saving time and
- * 09:00-23:55 otherwise (roughly November to March; needs verification against MCX circulars).
+ * Regular session length in minutes on a date. NSE, BSE, NFO and BFO read the dated session rules of the reference data
+ * (derivatives are 385 minutes from 2026-08-03 and 390 from 2026-12-07; a special session has its own length). MCX runs 09:00-23:30
+ * IST during US daylight saving time and 09:00-23:55 otherwise (roughly November to March; needs verification against MCX circulars).
  */
 export function sessionMinutes(exchange, ms) {
   if (exchange === "MCX") return usDstInEffect(ms) ? 870 : 895;
-  return SESSION_MINUTES[exchange] ?? 375;
+  if (Object.hasOwn(SESSION_MINUTES, exchange)) return SESSION_MINUTES[exchange];
+  const cal = sharedCalendar();
+  const date = istDate(ms);
+  const sp = cal.specialOn(date, exchange);
+  const open = sp?.open && sp?.close ? sp.open : cal.windowFor(exchange, date).open;
+  return toMinutes(cal.closeFor(exchange, date)) - toMinutes(open);
+}
+
+/**
+ * Days one broker call may cover for a base interval.
+ *  - override: the user's explicit per-broker span (config market.history.brokers) wins outright.
+ *  - otherwise the configured default span, capped by what the broker's manifest documents (`historical.maxSpanDays[interval]`),
+ *    and, where the manifest documents a record cap (`historical.maxRecords[interval]`), by the days that fit in it.
+ * @param {{ base: string, override?: number|null, defaults: { intraday: number, daily: number }, manifest?: { maxSpanDays?: object, maxRecords?: object }|null, exchange?: string, ms?: number }} p
+ */
+export function historySpanDays({ base, override = null, defaults, manifest = null, exchange = "NFO", ms = Date.now() }) {
+  if (Number.isFinite(override) && override > 0) return Math.floor(override);
+  const daily = base === "1d";
+  let span = daily ? defaults.daily : defaults.intraday;
+  const cap = manifest?.maxSpanDays?.[base];
+  if (Number.isFinite(cap) && cap > 0) span = Math.min(span, cap);
+  const records = manifest?.maxRecords?.[base];
+  if (!daily && Number.isFinite(records) && records > 0 && INTRADAY_MINUTES[base]) {
+    const perDay = Math.max(1, Math.floor(sessionMinutes(exchange, ms) / INTRADAY_MINUTES[base]));
+    // 5 trading days per 7 calendar days, so the whole window never holds more bars than the cap.
+    span = Math.min(span, Math.max(1, Math.floor((Math.floor(records / perDay) * 7) / 5)));
+  }
+  return Math.max(1, Math.floor(span));
+}
+
+/**
+ * The start of the bar that contains `ms`, for the bars a broker stamps at IST midnight: 1d at 00:00, 1w on Monday, 1M on the 1st.
+ * Intraday intervals are returned unchanged. A request whose `from` falls inside a daily bar (12:00 on that day) must still get
+ * that day's bar, so `from` is floored to this before bars are filtered.
+ */
+export function barStartOf(interval, ms) {
+  if (interval === "1d") return istMidnight(ms);
+  if (interval === "1w") return istWeekStart(ms);
+  if (interval === "1M") return istMonthStart(ms);
+  return ms;
 }
 
 export const isIntraday = (interval) => Object.hasOwn(INTRADAY_MINUTES, interval);

@@ -1,0 +1,38 @@
+meta {
+  name: One order split into pieces
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/splitorder
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "strategy": "my-script",
+    "symbol": "RELIANCE",
+    "exchange": "NSE",
+    "action": "BUY",
+    "quantity": 5,
+    "splitsize": 2,
+    "pricetype": "MARKET",
+    "product": "CNC"
+  }
+}
+
+docs {
+  One order split into pieces
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Reference: docs/api/compat-rest/compatSplitorder.md in the repository.
+}

@@ -1,5 +1,5 @@
 /**
- * S9 routes end to end through the real request pipeline (createApp) with the real SafetyGuard and AuditLog, a
+ * safety routes end to end through the real request pipeline (createApp) with the real SafetyGuard and AuditLog, a
  * fake key store and a fake AccountManager: GET /v1/safety, POST/DELETE /v1/safety/kill-switch, GET /v1/audit and
  * GET /v1/audit/verify, plus "no secret in the audit file" over HTTP.
  */

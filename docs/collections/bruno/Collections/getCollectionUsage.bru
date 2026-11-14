@@ -1,0 +1,29 @@
+meta {
+  name: What is made from this collection
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/v1/collections/:name/usage
+  body: none
+  auth: bearer
+}
+
+params:path {
+  name: large-caps
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  What is made from this collection
+
+  - An API key with the `read` scope (any key).
+
+  The downloads, recordings, auto-record rules and datasets that use it. A kind marked `not-available` in `sources` is kept by a part of the Bridge that is off, so it is not counted.
+
+  Reference: docs/api/collections/getCollectionUsage.md in the repository.
+}

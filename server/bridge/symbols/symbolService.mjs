@@ -1,5 +1,5 @@
 /**
- * SymbolService — stream S4 (docs/STREAMS.md §S4). The contract (methods, argument and return types, rules) is
+ * SymbolService. The contract (methods, argument and return types, rules) is
  * SERVICE_CONTRACTS.symbols in ../core/contracts.mjs.
  *
  *  - parse/format delegate to core/symbolFormat.mjs (the canonical format is a core decision; it is not forked here).
@@ -28,11 +28,14 @@ import {
   parseCompact,
   parseSymbol,
   parseChartTicker,
+  fromChartName,
   toCompact,
   toChartTicker,
 } from "../core/symbolFormat.mjs";
 import { FREEZE_LIST_AS_OF } from "./freezeQuantities.mjs";
 import { createInstrumentStore } from "./instrumentStore.mjs";
+import { decideCandidates } from "./candidates.mjs";
+import { rewriteSymbolInput } from "./inputForms.mjs";
 import { istDay, istTimeOnDay, toIstIso } from "./ist.mjs";
 import { createMasterCache } from "./masterCache.mjs";
 import { SYMBOLS_CONFIG_DEFAULTS } from "./symbolsConfig.mjs";
@@ -57,6 +60,8 @@ const searchSchema = z
     cursor: z.string().max(512).optional(),
   })
   .strict();
+/** The same, with no search text: every instrument, a page at a time (the instrument export). */
+const listSchema = searchSchema.extend({ q: z.string().trim().max(64).default("") });
 
 /** Extract rows from an adapter's fetchInstruments result ({ status, data } or a bare array). */
 export function masterRows(result, brokerId) {
@@ -311,17 +316,52 @@ export function createSymbolService(deps, opts = {}) {
   }
 
   /**
-   * Any accepted input -> canonical string. `from: "auto"` tries, in order: chart ticker, canonical/venue form,
-   * compact, and (with a broker) broker-native, keeping the most useful error.
+   * When a canonical-looking name with "_" is not in the masters (chart tools spell M&M as M_M and BAJAJ-AUTO as
+   * BAJAJ_AUTO), the exchange spelling that IS in the masters. Null when there is nothing to fix. Two different
+   * instruments matching is AMBIGUOUS_SYMBOL: never a guess.
    */
-  function toCanonical(rawInput, { from = "auto", broker = null, exchange } = {}) {
-    const input = checkInput(rawInput);
-    if (!FROM_FORMATS.includes(from)) throw invalid(`from must be one of ${FROM_FORMATS.join(", ")}.`);
-    if (from === "canonical") return parseSymbol(input).canonical;
-    if (from === "chart") return fromChartTicker(input);
-    if (from === "compact") return fromCompact(input, exchange);
-    if (from === "broker") return fromBrokerNative(broker, input, exchange);
+  function chartNameFix(canonical) {
+    const day = today();
+    if (store.get(canonical, day)) return null;
+    let p;
+    try {
+      p = parseSymbol(canonical);
+    } catch {
+      return null;
+    }
+    if (!p.underlying.includes("_")) return null;
+    const forms = [...new Set([fromChartName(p.underlying), p.underlying.replace(/_/g, "&"), p.underlying.replace(/_/g, "-")])];
+    const found = [];
+    for (const underlying of forms) {
+      try {
+        const alt = formatSymbol({ exchange: p.exchange, underlying, kind: p.kind, expiry: p.expiry, strike: p.strike, right: p.right });
+        if (store.get(alt, day)) found.push(alt);
+      } catch {
+        // not a valid symbol in that spelling
+      }
+    }
+    if (found.length > 1) throw new BridgeError("AMBIGUOUS_SYMBOL", `${canonical} could be ${found.join(" or ")}. Send the exchange spelling.`, { fields: { candidates: found.map((symbol) => ({ symbol })) } });
+    return found[0] ?? null;
+  }
 
+  /**
+   * Any accepted input -> { canonical, rules }. `from: "auto"` rewrites known alternative spellings (exchange words
+   * such as NSE_INDEX, index display names, the "-EQ" series tag), then tries, in order: chart ticker,
+   * canonical/venue form, compact, and (with a broker) broker-native, keeping the most useful error. A name written
+   * with "_" that the masters do not know is retried in its exchange spelling (NSE:M_M -> NSE:M&M).
+   * `rules` says in words what was rewritten, so a bad alert can be explained.
+   */
+  function toCanonicalTrace(rawInput, { from = "auto", broker = null, exchange } = {}) {
+    const raw = checkInput(rawInput);
+    if (!FROM_FORMATS.includes(from)) throw invalid(`from must be one of ${FROM_FORMATS.join(", ")}.`);
+    if (from === "canonical") return { canonical: parseSymbol(raw).canonical, rules: [] };
+    if (from === "chart") return { canonical: fromChartTicker(raw), rules: [] };
+    if (from === "compact") return { canonical: fromCompact(raw, exchange), rules: [] };
+    if (from === "broker") return { canonical: fromBrokerNative(broker, raw, exchange), rules: [] };
+
+    const rw = rewriteSymbolInput(raw);
+    const input = rw.input;
+    const rules = [...rw.rules];
     const fmt = detectFormat(input, exchange);
     const attempts = [];
     if (fmt === "chart") attempts.push(() => fromChartTicker(input));
@@ -332,22 +372,27 @@ export function createSymbolService(deps, opts = {}) {
     for (const attempt of attempts) {
       try {
         const c = attempt();
+        const fixed = chartNameFix(c);
+        if (fixed) return { canonical: fixed, rules: [...rules, `chart name ${c} read as ${fixed}`] };
         // A syntactically valid symbol the master does not know may still be a broker token ("NSE:2885").
         if (broker && store.hasMaster(broker) && !store.get(c, today())) {
           try {
-            return fromBrokerNative(broker, input, exchange);
+            return { canonical: fromBrokerNative(broker, raw, exchange), rules: [] };
           } catch {
-            return c;
+            return { canonical: c, rules };
           }
         }
-        return c;
+        return { canonical: c, rules };
       } catch (err) {
+        if (err instanceof BridgeError && err.code === "AMBIGUOUS_SYMBOL") throw err;
         firstError ??= err;
       }
     }
-    if (broker) return fromBrokerNative(broker, input, exchange);
-    throw firstError ?? invalid(`"${input}" is not a symbol the Bridge understands. Examples: NSE:RELIANCE, NFO:NIFTY-2026-10-27-25000-CE, NSE:NIFTY1!.`);
+    if (broker) return { canonical: fromBrokerNative(broker, raw, exchange), rules: [] };
+    throw firstError ?? invalid(`"${raw}" is not a symbol the Bridge understands. Examples: NSE:RELIANCE, NFO:NIFTY-2026-10-27-25000-CE, NSE:NIFTY1!.`);
   }
+
+  const toCanonical = (rawInput, opts) => toCanonicalTrace(rawInput, opts).canonical;
 
   /** Stored live record or a clear SYMBOL_NOT_FOUND (expired, unknown, no lot size, not at this broker). */
   function requireRecord(canonical, broker) {
@@ -476,8 +521,8 @@ export function createSymbolService(deps, opts = {}) {
      * @param {{ q: string, exchange?: string, kind?: string, underlying?: string, expiry?: string, limit?: number, cursor?: string }} params
      * @returns {Promise<{ items: object[], nextCursor: string | null }>}
      */
-    async search(params) {
-      const parsed = searchSchema.safeParse(params ?? {});
+    async search(params, schema = searchSchema) {
+      const parsed = schema.safeParse(params ?? {});
       if (!parsed.success) throw fromValidation(parsed.error);
       const { limit, cursor, ...query } = parsed.data;
       await ensureLoaded();
@@ -504,6 +549,11 @@ export function createSymbolService(deps, opts = {}) {
       return { items: page.map((r) => toResolved(r, { withRefs: false })), nextCursor: next };
     },
 
+    /** Extra (not in the contract): search() without search text, so every live instrument can be listed page by page. */
+    async list(params) {
+      return this.search(params, listSchema);
+    },
+
     /**
      * @param {{ input: string, from?: string, broker?: string, exchange?: string }} req
      * @returns {Promise<{ input: string, canonical: string, aliases: Record<string, string | null> }>}
@@ -519,6 +569,82 @@ export function createSymbolService(deps, opts = {}) {
       const canonical = toCanonical(input, { from: req.from ?? "auto", broker, exchange: req.exchange || undefined });
       const rec = store.get(canonical, today());
       return { input, canonical, aliases: aliasesFor(canonical, rec, broker) };
+    },
+
+    /**
+     * Resolve free text to one instrument, or say why not. Never guesses: two instruments with the same name give
+     * status "ambiguous" with the candidates, and a name that is not an exact match gives "not_found" with the closest
+     * matches. An explicit symbol form (canonical, chart ticker, compact, a known alternative spelling) resolves at
+     * once when the masters know it.
+     * @param {{ q: string, exchange?: string, kind?: string, limit?: number }} req
+     * @returns {Promise<{ input: string, status: "resolved"|"ambiguous"|"not_found", symbol: string | null, instrument: object | null,
+     *   confidence: "exact"|"unique-name"|"none", rule: string, rules: string[], steps: string[],
+     *   candidates: Array<{ instrument: object, reason: string }> }>}
+     */
+    async resolveInput(req) {
+      if (!req || typeof req !== "object") throw invalid("Send { q, exchange?, kind?, limit? }.");
+      const q = checkInput(req.q);
+      let exchange;
+      if (req.exchange !== undefined && req.exchange !== null && req.exchange !== "") {
+        exchange = String(req.exchange).trim().toUpperCase();
+        if (!EXCHANGES.includes(exchange)) throw invalid(`exchange must be one of ${EXCHANGES.join(", ")}.`);
+      }
+      let kind;
+      if (req.kind !== undefined && req.kind !== null && req.kind !== "") {
+        kind = String(req.kind).trim().toUpperCase();
+        if (!KINDS.includes(kind)) throw invalid(`kind must be one of ${KINDS.join(", ")}.`);
+      }
+      const limit = req.limit === undefined ? 10 : req.limit;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw invalid("limit must be a whole number from 1 to 50.");
+      await ensureLoaded();
+      const day = today();
+      const venueOf = { NSE: "NFO", BSE: "BFO" };
+      const out = (status, rec, { confidence, rule, rules = [], candidates }) => ({
+        input: q,
+        status,
+        symbol: rec ? rec.canonical : null,
+        instrument: rec ? toResolved(rec, { withRefs: false }) : null,
+        confidence,
+        rule,
+        rules,
+        steps: [`Read "${q}"${exchange ? ` with exchange ${exchange}` : ""}.`, ...rules, rule],
+        candidates: candidates.map((c) => ({ instrument: toResolved(c.rec, { withRefs: false }), reason: c.reason })),
+      });
+
+      // 1. An explicit symbol form.
+      let explicit = null;
+      try {
+        explicit = toCanonicalTrace(q, { exchange });
+      } catch (err) {
+        if (err instanceof BridgeError && err.code === "AMBIGUOUS_SYMBOL") {
+          const recs = (err.fields?.candidates ?? []).map((c) => store.get(c.symbol, day)).filter(Boolean);
+          return out("ambiguous", null, { confidence: "none", rule: err.detail, candidates: recs.map((rec) => ({ rec, reason: "same name in another spelling" })) });
+        }
+      }
+      if (explicit) {
+        const p = parseSymbol(explicit.canonical);
+        if (exchange && p.exchange !== exchange && venueOf[exchange] !== p.exchange && venueOf[p.exchange] !== exchange) {
+          throw invalid(`The symbol is on ${p.exchange} but exchange=${exchange} was sent. Send one or the other.`);
+        }
+        const rec = store.get(explicit.canonical, day);
+        if (rec && rec.lotSize !== null && rec.tickSize !== null && (!kind || rec.kind === kind)) {
+          return out("resolved", rec, { confidence: "exact", rule: explicit.rules.length ? "written in an alternative spelling that the Bridge reads" : "already a symbol form the Bridge reads", rules: explicit.rules, candidates: [{ rec, reason: "exact symbol" }] });
+        }
+        let why;
+        try {
+          requireRecord(explicit.canonical, null);
+          why = `${explicit.canonical} is not a ${kind}.`;
+        } catch (err) {
+          why = err.detail;
+        }
+        const near = decideCandidates(p.underlying, store.search({ q: p.underlying, exchange, kind, exact: null }, day).slice(0, 200), { limit });
+        return out("not_found", null, { confidence: "none", rule: why, rules: explicit.rules, candidates: near.candidates });
+      }
+
+      // 2. Free text against the instrument masters.
+      const found = store.search({ q, exchange, kind, exact: null }, day).slice(0, 2000);
+      const d = decideCandidates(q, found, { limit });
+      return out(d.status, d.pick, { confidence: d.status === "resolved" ? "unique-name" : "none", rule: d.rule, candidates: d.candidates });
     },
 
     /**

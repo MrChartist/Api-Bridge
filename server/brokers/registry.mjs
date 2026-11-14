@@ -1,5 +1,5 @@
 /**
- * Broker module registry: all 41 adapters, keyed by the broker id the frontend sends.
+ * Broker module registry: all 41 adapters, keyed by the broker id.
  *
  * THE CONTRACT lives in server/brokers/contract.mjs (capabilities, normalised shapes, order gate,
  * validateAdapter) with fixture tests via contractHarness.mjs; docs/broker-contract.md has the
@@ -9,24 +9,20 @@
  * fetchDepth, fetchHistorical, createFeed, fetchPositions, fetchHoldings, fetchFunds,
  * fetchOrderBook, fetchTradeBook, ...). capabilities.auth.kind is one of apiKeyToken,
  * oauthRedirect, requestTokenExchange or sessionLogin; session-login brokers also export
- * login(creds) and are reached through POST /api/broker-session-login.
+ * login(creds); the Bridge's accounts module calls it once at sign-in (see accounts/session.mjs).
  *
- * How the proxy reaches them (proxy-server.mjs + brokerProxyRoutes.mjs):
- *   GET /api/broker-proxy?broker=<id>&endpoint=<e>  — every declared READ capability (option-chain,
- *       expiry-list, ltp, quotes, depth, historical, instruments, positions, holdings, funds,
- *       order-book, trade-book). Undeclared capabilities answer 422 CAPABILITY_UNSUPPORTED.
- *   GET /api/broker-test-connection, GET /api/broker-capabilities.
+ * Every declared READ capability (option-chain, expiry-list, ltp, quotes, depth, historical, instruments,
+ * positions, holdings, funds, order-book, trade-book) is reached through the Bridge's services. An undeclared
+ * capability answers 422 CAPABILITY_UNSUPPORTED.
  *
  * Orders (real money): every adapter's placeOrder/modifyOrder/cancelOrder is wrapped with
- * withOrderGate() and refuses without a valid, unused, broker- and action-bound gate. No route mints
- * a gate for any broker here, and /api/broker-proxy answers 403 ORDER_PATH_BLOCKED for order
- * endpoints, so live orders from these adapters stay blocked pending owner review. Only Dhan places
- * live orders, through 1Cliq on /api/dhan-proxy (live-trading toggle + armed session), and only Dhan
- * has been verified against a live account; the other 40 are fixture-tested (beta).
+ * withOrderGate() and refuses without a valid, unused, broker- and action-bound gate. Only the Bridge's
+ * OrderService mints gates (see orderGate.mjs), and only after SafetyGuard passed. Only Dhan has been
+ * verified against a live account; the other 40 are fixture-tested (beta).
  *
  * Index underlyings: NIFTY | BANKNIFTY | FINNIFTY | MIDCPNIFTY | SENSEX | BANKEX (CANONICAL_UNDERLYINGS),
  * plus stock underlyings where the broker offers them.
- * `creds` is the raw `values` object the user saved in Broker Settings for that broker (field names
+ * `creds` is the raw `values` object the user saved for that broker (field names
  * match brokerCatalogPart*.ts), plus the session fields a session login returned.
  */
 
@@ -72,8 +68,8 @@ import * as icicidirect from "./icicidirect.mjs";
 import * as profitmart from "./profitmart.mjs";
 import * as rupeezy from "./rupeezy.mjs";
 
-// Keys MUST match the broker `id` values in src/lib/brokerConfig.ts — the
-// frontend sends this id verbatim as the `broker` query param / dispatch key.
+// Keys MUST match the broker `id` values in src/lib/brokerCatalog*.ts: the id is used verbatim as
+// the `broker` parameter and dispatch key.
 const MODULES = {
   dhan, zerodha, angelone, upstox, fyers, fivepaisa, aliceblue,
   arrow, compositedge, definedge, firstock, flattrade, groww,

@@ -1,5 +1,5 @@
 /**
- * Readiness monitor and service — stream S20 (docs/spec/p1-05-readiness.md §3). Contract: SERVICE_CONTRACTS.readiness.
+ * Readiness monitor and service. Contract: SERVICE_CONTRACTS.readiness.
  *
  * Checks every non-paper account: broker session (state, stated expiry, a cheap probe call), egress IP against
  * live.registeredIp / backupIp (opt-in lookup), order-rate headroom, daily order and loss headroom, and the kill switch.
@@ -24,10 +24,10 @@ import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { BROKER_NAMES } from "../accounts/brokerInfo.mjs";
 import { createBackgroundGate, MAX_BACKGROUND_SHARE } from "../ratelimit/backgroundGate.mjs";
-import { DEFAULT_NOTIFY_EVENTS } from "../notify/config.mjs";
 import { formatEvent } from "../notify/format.mjs";
 import { createDemoReadiness, DEMO_SAMPLE_AUTOMATIONS } from "../demo/demoReadiness.mjs";
-import { marketSession } from "../../lib/marketHours.mjs";
+import { isTradingDay as sessionTradingDay } from "../../lib/marketHours.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
 import { createAutomationRegistry } from "./automations.mjs";
 import {
   combine,
@@ -58,7 +58,6 @@ import {
 import { readinessConfig, readinessWarnings } from "./config.mjs";
 import { createEgressDetector } from "./egress.mjs";
 import { normaliseIp } from "./ip.mjs";
-import { defaultSessionFor } from "../reference/defaults.mjs";
 import { TRANSITIONS_KEPT, createReadinessStore, freshState } from "./store.mjs";
 
 const TICK_MS = 60_000;
@@ -110,7 +109,7 @@ export function createReadinessService(deps, opts = {}) {
   const jitter = opts.jitterSeconds ?? (sim ? 0 : jitterSecondsFor(dataDir ?? "bridge"));
   const intervalMinutes = sim ? 1 : cfg.intervalMinutes;
   // A passing probe proves the session only while it is recent; an older one (restored from state.json, or left from
-  // before the close) is shown as unknown, never as ready (§2.3, §3.2). It is still kept for the probe cooldown.
+  // before the close) is shown as unknown, never as ready. It is still kept for the probe cooldown.
   const maxProbeAgeMs = Math.max(cfg.staleAfterMinutes, 2 * intervalMinutes) * 60_000;
 
   /** @type {Map<string, any>} per-account memory */
@@ -128,7 +127,7 @@ export function createReadinessService(deps, opts = {}) {
         lastProbe: p.lastProbe && Number.isFinite(p.lastProbe.at) && p.lastProbe.result === "ok" ? { at: p.lastProbe.at, result: "ok" } : null,
         lastNotifiedAt: Number.isFinite(p.lastNotifiedAt) ? p.lastNotifiedAt : null,
         lastNotifiedKey: typeof p.lastNotifiedKey === "string" ? p.lastNotifiedKey : null,
-        // The key of the restored state, so a restart while the same failure stands is not a "change" (§7.7).
+        // The key of the restored state, so a restart while the same failure stands is not a "change".
         key: restoredState ? notifyKey(restoredState, Array.isArray(p.reasons) ? p.reasons : []) : null,
         probing: false,
         inflight: null,
@@ -184,9 +183,9 @@ export function createReadinessService(deps, opts = {}) {
         /* fall back */
       }
     }
-    // lib/marketHours.mjs: weekdays, plus any special session (a Saturday budget day, Muhurat) the operator listed.
+    // The shipped calendar: holidays, weekdays and special sessions (a Sunday budget day, Muhurat).
     try {
-      return marketSession(new Date(istInstant(date, "12:00"))).label !== "Weekend";
+      return sessionTradingDay(date, "NFO");
     } catch {
       const d = new Date(`${date}T00:00:00Z`).getUTCDay();
       return d >= 1 && d <= 5;
@@ -202,8 +201,8 @@ export function createReadinessService(deps, opts = {}) {
         /* fall back */
       }
     }
-    // No reference store (or no usable session): the reference module's labelled default close.
-    return istInstant(d, defaultSessionFor("NFO").close);
+    // No reference store (or no usable session): the dated session rule of the shipped data (special session close included).
+    return istInstant(d, sharedCalendar().closeFor("NFO", d));
   }
 
   const policyCooldown = (account) => {
@@ -504,7 +503,7 @@ export function createReadinessService(deps, opts = {}) {
     if (m.inflight) return m.inflight;
     const run = (async () => {
       try {
-        // Side by side: one evaluation takes max(probe, egress) time, not their sum (§7.5).
+        // Side by side: one evaluation takes max(probe, egress) time, not their sum.
         await Promise.all([doEgress ? refreshEgress(skipped) : null, doProbe ? probe(account, skipped) : null]);
         return computeAndApply(account);
       } catch (err) {
@@ -649,7 +648,7 @@ export function createReadinessService(deps, opts = {}) {
     });
     on("safety.kill_switch", () => {
       // Re-read the kill-switch check at once instead of after the debounce (no probe, no lookup: it costs nothing),
-      // so the GET /v1/readiness the dashboard sends right after an engage or release already sees it (spec §5, §6.3).
+      // so the GET /v1/readiness the dashboard sends right after an engage or release already sees it.
       // The guard emits after it has saved the new state; a microtask keeps this out of the bus dispatch and still runs
       // before the engage/release request answers. A run already in flight recomputes when it settles.
       queueMicrotask(() => {
@@ -727,7 +726,6 @@ export function createReadinessService(deps, opts = {}) {
     const latest = views.reduce((mx, v) => (Number.isFinite(v._checkedAtMs) && v._checkedAtMs > mx ? v._checkedAtMs : mx), -Infinity);
     const autos = registry.list().filter((a) => !want || want.has(a.accountId));
     const stateById = new Map(views.map((v) => [v.accountId, v.state]));
-    const targets = (config.notify?.targets ?? []).filter((x) => x.enabled !== false && (Array.isArray(x.events) && x.events.length ? x.events : DEFAULT_NOTIFY_EVENTS).includes("trading.readiness")).map((x) => x.id);
     const window = sim ? { from: "00:00", to: "23:59" } : cfg.window;
     const egressMode = sim ? (sim.scenario() === "ip-unchecked" ? "off" : "lookup") : cfg.egressIp.mode;
     const simEgress = sim ? sim.egress() : null;
@@ -752,8 +750,8 @@ export function createReadinessService(deps, opts = {}) {
       },
       automations: { total: autos.length, live: autos.filter((a) => a.mode === "live").length, cannotTrade: autos.filter((a) => a.mode === "live" && stateById.get(a.accountId) === "cannot_trade").length },
       notifications: {
-        targetsListening: targets,
-        warning: targets.length ? null : "No notification target listens to trading.readiness. Add it to notify.targets[].events.",
+        targetsListening: [],
+        warning: null,
         demoOff: Boolean(sim),
         ...(sim ? { wouldHaveSent: [...demoSent].reverse() } : {}),
       },
@@ -807,7 +805,7 @@ export function createReadinessService(deps, opts = {}) {
     }
     const snapshot = status({ accountIds: accountId ? [accountId] : Array.isArray(accountIds) ? accountIds : undefined });
     if (timedOut) {
-      // §4.2: the parts still running carry status unknown / "Still checking" (not the previous answer).
+      // The parts still running carry status unknown / "Still checking" (not the previous answer).
       const still = { status: "unknown", message: "Still checking" };
       snapshot.accounts = snapshot.accounts.map((v) => {
         const probing = memFor(v.accountId).probing;
@@ -862,6 +860,12 @@ export function createReadinessService(deps, opts = {}) {
       feedSafety();
       if (!cfg.enabled) return;
       listen();
+      // After a sleep the session and the egress IP are checked again at once, not at the next cycle.
+      const offWake = bus?.on?.("system.resumed", () => {
+        lastCycleAt = null;
+        void tick().catch((err) => log?.warn?.("readiness tick failed", { err: err?.message }));
+      });
+      if (offWake) offs.push(offWake);
       tickHandle = timers.setInterval(() => {
         void tick().catch((err) => log?.warn?.("readiness tick failed", { err: err?.message }));
       }, TICK_MS);

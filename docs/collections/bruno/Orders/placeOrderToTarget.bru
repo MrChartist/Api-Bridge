@@ -1,0 +1,54 @@
+meta {
+  name: Place only the order that gets a position to a target size
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/orders/to-target
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "account": "demo-paper",
+    "symbol": "NSE:RELIANCE",
+    "targetQuantity": 10,
+    "product": "CNC",
+    "orderType": "MARKET",
+    "mode": "paper"
+  }
+}
+
+docs {
+  Place only the order that gets a position to a target size
+
+  - An API key with the `paper` scope (or `live`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  "Be long 3 lots", "be flat", "be short 50 shares", the way a strategy alert says it. The Bridge reads the current
+  position (this symbol, this product), works out the difference and places only that, through the same order
+  service as `POST /v1/orders`: the same safety gates, price checks, mode rules, confirmation rules and
+  idempotency. Paper unless you send `"mode": "live"`.
+
+  A position that cannot be read, or cannot be matched with certainty, is `POSITION_UNKNOWN` (503, safe to retry)
+  and nothing is placed: unknown is never treated as flat. Live delivery (CNC, MTF) that shows in both today's
+  positions and the holdings is also `POSITION_UNKNOWN`. An open order of the Bridge in the same symbol and product that
+  can change the position is `STATE_CONFLICT` unless you send `"openOrders": "ignore"` (a resting stop does not
+  count). `action` `NONE` places nothing and answers 200. With `dryRun` everything is worked out and checked
+  (the `preview` is the same result as `POST /v1/orders/preview`) and nothing is placed.
+
+  The `Idempotency-Key` (or `clientOrderId`) covers the whole request: a retry with the same body gets the first
+  answer back, including "nothing to do". Two requests for one symbol and product are handled one at a time.
+
+  Reference: docs/api/orders/placeOrderToTarget.md in the repository.
+}

@@ -1,5 +1,5 @@
 /**
- * In-memory StreamHub for OTHER streams' tests (S5 streaming-first reads, S10 live bars, S11 MCP). It satisfies
+ * In-memory StreamHub for OTHER modules' tests (market streaming-first reads, integrations live bars, hooks MCP). It satisfies
  * SERVICE_CONTRACTS.streamHub exactly (plus the internal helpers this stream's endpoints use), opens no broker feed and
  * lets a test push ticks and flip the upstream state.
  *

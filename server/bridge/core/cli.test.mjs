@@ -133,6 +133,22 @@ describe("kill switch on a running Bridge", () => {
       expect(await runCli(["kill", "release"], {}, a.io)).toBe(0);
       expect(app.deps.safety.status().killSwitch.engaged).toBe(false);
 
+      // A read key exported as MCB_API_KEY (the quickstart says to) must not stop `kill release` on this computer: the
+      // control token is used first, and only without a token does MCB_API_KEY serve as the fallback.
+      const { key: readKey } = await app.deps.keyStore.create({ label: "read-only", scopes: ["read"], accounts: "*" });
+      a.io.env = { MCB_BRIDGE_URL: `http://127.0.0.1:${port}`, MCB_API_KEY: readKey };
+      expect(await runCli(["kill"], { reason: "with a read key exported" }, a.io)).toBe(0);
+      expect(app.deps.safety.status().killSwitch.engaged).toBe(true);
+      expect(await runCli(["kill", "release"], {}, a.io)).toBe(0);
+      expect(app.deps.safety.status().killSwitch.engaged).toBe(false);
+      a.io.env = { MCB_BRIDGE_URL: `http://127.0.0.1:${port}` };
+
+      // A command that needs a key, run with none: say what to do, not "this API key is not valid" (no key was given).
+      expect(await runCli(["sources", "list"], {}, a.io)).toBe(1);
+      expect(a.err.at(-1)).toMatch(/needs an admin key/);
+      expect(a.err.at(-1)).toMatch(/MCB_ADMIN_KEY/);
+      expect(a.err.at(-1)).not.toMatch(/not valid, has expired or was revoked/);
+
       // The token works only on the kill-switch routes.
       const token = readFileSync(tokenFile, "utf8").trim();
       const keys = await fetch(`http://127.0.0.1:${port}/v1/keys`, { headers: { authorization: `Bearer ${token}` } });
@@ -202,7 +218,7 @@ describe("runDoctor", () => {
   });
 });
 
-describe("doctor: trading readiness checks (p1-05 T15)", () => {
+describe("doctor: trading readiness checks", () => {
   const cfg = (raw) => loadConfig({ raw: { dataDir: mkdtempSync(join(tmpdir(), "mcb-doc-")), ...raw }, env: {} }).config;
   it("warns about a live-enabled account without live.registeredIp, and passes when every live account has one", async () => {
     const bad = cfg({ safety: { liveTrading: true }, accounts: [{ id: "a1", broker: "dhan", live: { enabled: true } }, { id: "a2", broker: "zerodha", live: { enabled: true, registeredIp: "203.0.113.10" } }, { id: "a3", broker: "upstox" }] });
@@ -217,19 +233,6 @@ describe("doctor: trading readiness checks (p1-05 T15)", () => {
     expect(readinessDoctorChecks(good).find((x) => x.check === "static-ip").level).toBe("ok");
     // No live account: nothing to say.
     expect(readinessDoctorChecks(cfg({ accounts: [{ id: "a3", broker: "upstox" }] })).find((x) => x.check === "static-ip")).toBeUndefined();
-  });
-  it("warns when notify targets exist but none listens to trading.readiness", () => {
-    const deaf = cfg({ notify: { targets: [{ id: "phone", kind: "webhook", url: "https://n8n.example.com/a", events: ["scan.alert"] }, { id: "off", kind: "webhook", url: "https://n8n.example.com/b", enabled: false }] } });
-    const c = readinessDoctorChecks(deaf).find((x) => x.check === "readiness-notify");
-    expect(c.level).toBe("warn");
-    expect(c.message).toMatch(/trading\.readiness/);
-    // A target without an events list gets the default list, which includes trading.readiness.
-    const dflt = cfg({ notify: { targets: [{ id: "phone", kind: "webhook", url: "https://n8n.example.com/a" }] } });
-    expect(readinessDoctorChecks(dflt).find((x) => x.check === "readiness-notify")).toMatchObject({ level: "ok", message: expect.stringMatching(/phone/) });
-    const explicit = cfg({ notify: { targets: [{ id: "tg", kind: "webhook", url: "https://n8n.example.com/a", events: ["trading.readiness"] }] } });
-    expect(readinessDoctorChecks(explicit).find((x) => x.check === "readiness-notify").level).toBe("ok");
-    // No targets at all: the check stays quiet (notifications are optional).
-    expect(readinessDoctorChecks(cfg({})).find((x) => x.check === "readiness-notify")).toBeUndefined();
   });
 });
 
@@ -504,7 +507,10 @@ describe("a double-clicked app never gives up on a busy port", async () => {
       expect(text).toContain("The Bridge is running.");
       expect(text).toMatch(new RegExp(`Port ${taken} is used by another program, so the Bridge uses port \\d+\\.`));
       expect(text).not.toContain(`Dashboard:  http://127.0.0.1:${taken}/dashboard`);
-      // Without the app window, the same situation is still an error a person at a terminal can read.
+      // Without the app window, the same situation is still an error a person at a terminal can read. (The first
+      // Bridge is stopped first: two Bridges on one data folder are refused before the port is even looked at.)
+      await started.close();
+      started = null;
       lines.length = 0;
       expect(await runCli(["start"], { config: join(dir, "bridge.config.json") }, { ...io, env: {} })).toBe(1);
       expect(lines.join("\n")).toMatch(/already in use by another program/);

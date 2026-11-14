@@ -1,0 +1,14 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "sessionExpired": {
+    "source": "https://ant.aliceblueonline.com/productdocumentation/",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "Not_Ok",
+        "message": "Session Expired",
+        "errorCode": "EC087"
+      }
+    }
+  }
+}

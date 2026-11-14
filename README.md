@@ -1,227 +1,87 @@
 # API Bridge v2
 
-**Connect your broker APIs in one place, route alerts from TradingView and your own tools to them, and stay inside
-every broker's rate limits.**
+One local API in front of your Indian broker accounts, so every tool you run shares the same connections and stays inside each broker's rate limits.
 
-A small service by Mr. Chartist that runs on your own computer. Paper trading by default. Beta.
+It is for developers, traders and anyone building their own tools (a script, a spreadsheet, an AI assistant, a dashboard) who would rather talk to one steady API than log in to and rate-limit each broker separately.
 
-<p align="center">
-  <img src="docs/screenshots/home-light.webp" width="900"
-       alt="The API Bridge dashboard Home page in demo mode: a blue status widget saying the Bridge is running, a map wiring TradingView on the left through the Bridge to demo and paper broker accounts on the right, the broker API budget for this second and minute, and a list of the latest TradingView alerts marked Placed or Refused with the reason">
+**Status: beta.** Open source (MIT), self-hosted, runs on your own computer; there is no hosted service. Only Dhan is verified with a live account; the other 40 brokers are beta or contract-tested ([BROKERS.md](docs/BROKERS.md)), and orders are paper unless you turn live trading on yourself. This project is independent: it is not affiliated with, sponsored by or endorsed by any broker, exchange or data provider. It is a connection layer, not a trading desk; see [what it does not do](#what-it-does-not-do).
+
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/accounts-dark.webp">
+    <img src="docs/screenshots/accounts-light.webp" alt="The Accounts page of the dashboard, in demo mode, listing a demo market-data account and three paper accounts" width="32%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sources-overview-dark.webp">
+    <img src="docs/screenshots/sources-overview-light.webp" alt="The Sources page, showing how much request room each broker and data source has left" width="32%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/orders-dark.webp">
+    <img src="docs/screenshots/orders-light.webp" alt="The Orders page with a few paper orders, two open and two filled" width="32%">
+  </picture>
 </p>
 
-<p align="center">
-  <a href="docs/media/announcement.mp4">
-    <img src="docs/media/announcement-poster.webp" width="480" alt="Watch the 60-second tour of API Bridge v2 (video)">
-  </a>
-  <br>
-  <a href="docs/media/announcement.mp4"><b>Watch the 60-second tour</b></a>
-</p>
+More: [Sources, providers](docs/screenshots/sources-providers-light.webp) · [API keys](docs/screenshots/api-keys-light.webp) · [Safety](docs/screenshots/safety-light.webp) · [on a phone](docs/screenshots/accounts-phone.webp). All screenshots are demo mode: sample prices, no broker, no real data.
 
-## What it is
+## What you get
 
-On one side, API Bridge takes alerts and API calls from the tools you already use. On the other side, it holds your
-Indian broker accounts: 41 broker adapters, several accounts per broker. In between there is one API, one rate-limit
-budget per broker account that every tool shares, and one set of safety checks. Your tools do not need to know which
-broker they are talking to, and two tools cannot use up the same broker's limit between them.
+- **One API over 41 brokers.** REST and a WebSocket stream for quotes, option chains, history, positions, funds and orders, the same shape whichever broker is behind it. Each broker is ranked on a published ladder (beta, contract-tested, sandbox, live-verified), so you can see which ones have been proven with a real account; the adapters are written from official documentation and tested against recorded responses ([BROKERS.md](docs/BROKERS.md)).
+- **Shared limits.** The Bridge keeps every broker inside its documented limits and splits the room fairly between your tools. Each API key has its own quota, and a refused request says whose limit it hit and when to retry.
+- **Honest data sources.** Real-time prices come from your own broker. You can switch on free delayed or end-of-day sources, or write a plugin; every answer is labelled with its class, delay and whether the source is official, and such data is never used for orders or alerts.
+- **Paper trading by default.** Every order is a paper order unless you go out of your way to make it live.
+- **A dashboard**, plus MCP tools for AI assistants, signed webhooks, SDKs for Node and Python, and integrations for Excel, Google Sheets and AmiBroker.
 
-```mermaid
-flowchart LR
-  subgraph Sources
-    A["TradingView · ChartInk · GoCharting<br/>(webhooks)"]
-    B["Python and Node SDKs · REST · WebSocket"]
-    C["Excel · Google Sheets · AmiBroker"]
-    D["AI assistants (MCP)"]
-  end
-  A & B & C & D --> M["API Bridge<br/>one API · shared rate limits<br/>safety checks · paper trading"]
-  M --> E["Dhan"]
-  M --> F["Zerodha"]
-  M --> G["Upstox"]
-  M --> H["... 41 brokers,<br/>several accounts each"]
-```
+## Five minutes to a first answer
 
-<details>
-<summary>Same diagram as text</summary>
-
-```
- TradingView  ChartInk  GoCharting  ─┐                                  ┌─  Dhan
- Python  Node  REST  WebSocket      ─┤   API Bridge                     ├─  Zerodha
- Excel  Google Sheets  AmiBroker    ─┤   rate limits · safety · paper   ├─  Upstox
- Claude  ChatGPT (MCP)              ─┘                                  └─  ... 41 brokers
-```
-
-</details>
-
-**Who it is for:** traders who send alerts from charting sites to a broker, and developers who run several scripts,
-sheets or bots against the same broker accounts and keep hitting rate limits.
-
-## Quick start
-
-Requires Node.js 22 or newer.
+You need Node.js 22.12 or newer.
 
 ```bash
 git clone https://github.com/MrChartist/api-bridge-v2.git
 cd api-bridge-v2
 npm ci
-npm run dev        # demo mode: sample prices, paper accounts, no broker needed; opens the dashboard
+npm run dev                                   # demo mode: sample data, no broker, opens the dashboard
 ```
 
-When you are ready to use your own accounts:
+In a second terminal, from the same folder:
 
 ```bash
-cp bridge.config.example.json bridge.config.json   # accounts, ports, limits
-npm start          # start the Bridge
-npm run doctor     # check the setup
+npm run bridge -- keys create --label first --scope read,paper     # prints a key once: copy it
+export MCB_API_KEY=mcb_...                                             # the key you were just shown
+curl "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -H "Authorization: Bearer $MCB_API_KEY"
 ```
 
-**No key needed on your own computer.** Scripts, sheets and other tools that call the Bridge from the computer it
-runs on work without an API key for now (read, paper orders and admin; live orders still need a key). To require
-keys, set `"server": { "keylessApi": false }`; see [safety.md](docs/guides/safety.md#tools-on-this-computer-need-no-key).
+On Windows use PowerShell: `$env:MCB_API_KEY = "mcb_..."` and `Invoke-RestMethod "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -Headers @{ Authorization = "Bearer $env:MCB_API_KEY" }` ([windows.md](docs/guides/windows.md)). On another port, set `MCB_BRIDGE_URL` (the commands and SDKs all read it).
 
-The dashboard is at **http://localhost:4300/dashboard**. On the computer the Bridge runs on, it opens without a key
-(`POST /v1/sign-in/local`, loopback only). To always ask for a key instead, set `"server": { "keylessSignIn": false }`;
-see [safety.md](docs/guides/safety.md#signing-in-to-the-dashboard). The health check is at `/v1/health`.
+The full walk-through, with the output of every command (a paper order, the sources list, a WebSocket stream) and fixes for the usual problems, is [docs/guides/quickstart.md](docs/guides/quickstart.md). When something does not work, see [troubleshooting](docs/guides/troubleshooting.md). Demo prices are generated on your computer; they are not market data.
 
-Other commands: `npm test`, `npm run typecheck`, `npm run check:mjs`, `npm run capabilities`, and the CLI with
-`npm run bridge -- <command>`.
+### Docker
 
-## TradingView in two minutes
+`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Set `MCB_DEMO: "1"` in the compose file for demo mode. [docs/guides/docker.md](docs/guides/docker.md) explains the files, commands, backup and upgrade. The [one-step installers](docs/guides/install.md) (no Node.js needed) download from a GitHub release; none has been published yet, so use the steps above until it is.
 
-1. Run the Bridge, open **API → Integrations → TradingView and webhooks** and choose **Create webhook**
-   (the source defaults to TradingView).
-2. Copy the hook URL (shown once; only a hash is kept) and the alert message the Bridge wrote for it.
-3. TradingView only posts to a public HTTPS address on port 443. Turn on the public ingress listener
-   (`server.publicIngress.enabled` in `bridge.config.json`; it serves `/hooks/*` and nothing else) and run your own tunnel to it, for example
-   `cloudflared tunnel --url http://127.0.0.1:4301`.
-4. In TradingView, create an alert, tick **Webhook URL**, paste `https://<tunnel host>/hooks/tradingview/<token>`,
-   and paste the message.
-5. Fire the alert. Home shows it under **Latest alerts** within a few seconds: placed, or refused with the reason.
+## Safety stance
 
-Orders from a hook are paper unless you opt in to live trading. The strategy template carries `id` and `time`, so a
-resent alert never places a second order that day. An unfilled `{{placeholder}}` refuses the alert instead of
-guessing, and a chart on a continuous future (`NIFTY1!`) is resolved to the current front-month contract. Details, ChartInk, GoCharting and signed hooks for your own code:
-[webhooks.md](docs/guides/webhooks.md).
+- **Paper by default.** Live orders need every one of these: `safety.liveTrading` on in the config file, the account marked live, the request source allowed, an API key with the `live` scope (created on this computer), `"mode": "live"` in the request, an idempotency key, and every safety check passing. AI assistants additionally need a human to confirm. A request that misses one is refused, never quietly downgraded. See [safety guide](docs/guides/safety.md).
+- **This computer only.** The Bridge listens on `127.0.0.1` and keeps broker credentials encrypted in its data folder.
+- **Pooling is off.** Spreading reads over several of your own accounts can give you more room, but no broker's terms clearly allow it. It stays off until you accept a notice that names the risk ([rate limits](docs/guides/rate-limits.md)).
+- **Free sources are labelled, not trusted.** A delayed or end-of-day answer says so, and the Bridge refuses to use it for an order, a risk check, a paper fill or an alert ([sources](docs/guides/sources.md)).
 
-## How the shared rate-limit budget works
+## What it does not do
 
-Most broker APIs allow very few requests, often one quote call a second. Ten tools polling on their own break that in
-seconds. The Bridge makes the broker see one careful client:
+- It is a connection layer, not a trading desk: no analytics, scanners, journal or strategies. Build those on top of the API.
+- It gives no financial advice and does not recommend trades.
+- It does not provide free real-time market data. None exists in India that you may redistribute; real-time prices come from your broker account.
+- It does not make a beta broker safe for live trading. Try it in paper mode first and check figures against your broker.
 
-- **One budget per broker account.** Each account has token buckets per kind of call (orders, quotes, depth,
-  history, option chains, portfolio, ...), filled from each broker's documented limits. Every tool draws from the
-  same buckets. Config can only lower these limits, never raise them.
-- **Ask the broker less.** Before a read reaches the broker, the Bridge tries, in order: the live stream (if anyone is
-  streaming the symbol, no broker call), a short freshness cache, joining an identical call already in flight, and
-  batching symbols from different tools into one call.
-- **Queue, never burst.** What is left waits in a priority queue. Orders go first; background work waits. When the
-  broker says "too many requests", only that account and kind of call back off.
-- **When the budget runs out**, you get a cached value labelled `"stale": true`, a per-symbol `UPSTREAM_RATE_LIMITED`
-  with a retry time, or `429` with `Retry-After`. Never a quiet burst over the limit.
-- **Each API key has its own budget too** (50 requests a second by default), so one runaway script cannot starve the rest.
+## Guides
 
-You can watch it: the API capsule in the top bar, the budget card on Home, and **API → Rate limits** (calls per
-second against the limit, calls saved, top consumers). `GET /v1/usage` returns the same figures. Several accounts of
-one holder can share read load if you opt in per account. More in [rate-limits.md](docs/guides/rate-limits.md).
+[Quickstart](docs/guides/quickstart.md) · [FAQ](docs/guides/faq.md) · [One-step installer](docs/guides/install.md) · [Accounts](docs/guides/accounts.md) · [Rate limits](docs/guides/rate-limits.md) · [Sources](docs/guides/sources.md) · [Safety](docs/guides/safety.md) · [Streaming](docs/guides/streaming.md) · [MCP for AI assistants](docs/guides/mcp.md) · [Node SDK](docs/guides/typescript.md) · [Python SDK](docs/guides/python.md) · [Webhooks](docs/guides/webhooks.md) · [Excel and Sheets](docs/guides/excel-sheets.md) · [AmiBroker](docs/guides/amibroker.md)
 
-## Safety
+The [docs home](docs/README.md) sorts everything by what you want to do, and [docs/guides/README.md](docs/guides/README.md) lists every guide. Reference: [one page per endpoint](docs/api/README.md), [openapi.yaml](docs/openapi.yaml), [asyncapi.yaml](docs/asyncapi.yaml), [Postman and Bruno collections](docs/collections/README.md), [ARCHITECTURE.md](docs/ARCHITECTURE.md), [BROKERS.md](docs/BROKERS.md). For AI assistants: [llms.txt](docs/llms.txt) and [llms-full.txt](docs/llms-full.txt).
 
-- **Paper by default.** Every order, webhook and AI tool is paper unless it explicitly asks for live. The paper
-  account is a local simulator priced from market data.
-- **Live trading is off by default** and needs every one of these: `safety.liveTrading: true` in
-  `bridge.config.json`, `live.enabled` on the account, the request source (REST, webhook, MCP, CLI) allowed for that
-  account, an API key with the `live` scope (created on this computer only), `"mode": "live"` in the request, an
-  idempotency key, and human confirmation for AI assistants. Nothing in the API, a webhook or an MCP tool can switch
-  live trading on.
-- **Kill switch.** One click on the Safety page, `POST /v1/safety/kill-switch`, or `mc-bridge kill` stops every new
-  order, including orders already queued.
-- **Checks on every order, paper and live:** 5 orders a second per account, 100 orders and ₹10,000 loss per day,
-  ₹2,00,000 per order, 10 lots per order, limit prices within 3% of LTP, market orders sent as protected limits.
-  All are configurable, and an account can be stricter, never looser.
-- Live orders are mapped for **Dhan** (verified), **Zerodha** and **Upstox** (beta, with a warning on every live
-  order). Other brokers answer live orders with a "use paper mode" error.
-- The Bridge binds `127.0.0.1`, stores broker credentials encrypted, never stores passwords, PINs or TOTP codes, and
-  keeps a hash-chained audit log.
+## Contributing and security
 
-Full model: [safety.md](docs/guides/safety.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) (it has a quick path for a first pull request) and [SUPPORT.md](SUPPORT.md) for where to ask questions. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Screenshots
+## License, trademarks and logos
 
-All taken from demo mode: sample prices and paper accounts, no real broker.
-
-| | |
-|---|---|
-| <img src="docs/screenshots/home-light.webp" alt="Home in light mode: status widget, the map of sources, the Bridge and brokers, broker API budget and latest alerts"> | <img src="docs/screenshots/home-dark.webp" alt="Home in dark mode with the same status widget, map, API budget and latest alerts"> |
-| Home, light | Home, dark |
-| <img src="docs/screenshots/rate-limits.webp" alt="API, Rate limits: calls served from the stream and cache, coalesced and batched, a live calls-per-second chart against the limit, and top consumers"> | <img src="docs/screenshots/tradingview.webp" alt="API, Integrations, TradingView and webhooks: the form to create a webhook, the list of hooks in paper mode, and the TradingView strategy alert message to paste"> |
-| Rate limits | TradingView and webhooks |
-| <img src="docs/screenshots/api-keys.webp" alt="API, Keys: create a key per tool with the least access it needs, and the list of keys with scopes, last use and expiry"> | <img src="docs/screenshots/safety.webp" alt="Safety: the kill switch, trading readiness per account and daily limits per account"> |
-| API keys | Safety |
-| <img src="docs/screenshots/sign-in.webp" alt="The sign-in screen: Continue on this computer without a key, or sign in with an API key"> | <img src="docs/screenshots/home-phone.webp" width="260" alt="Home on a phone: the status widget, the wiring map and the tab bar with Home, Accounts, API, Orders and More"> |
-| Sign-in | Home on a phone |
-
-## Trade by hand
-
-**Orders → New order** opens an order ticket: Buy or Sell with Limit, Market, SL and SL-M, every product (CNC,
-Intraday, Margin, MTF) and Day or IOC. **Check order** shows every warning and block before anything is placed.
-**Orders → Positions** lists open positions and holdings across all accounts with profit and loss, and **Exit**
-fills the ticket in for you.
-
-## Price data for your other projects
-
-The **Data** page is one place to collect price history. It lists every connected account that can give prices,
-backfills up to 50 symbols at once (1 minute to 1 day candles), tries the next source when one cannot answer, and
-downloads everything as one CSV or JSON file. Other projects read the same data with one call
-(the full contract is [data-api.md](docs/guides/data-api.md)):
-
-```bash
-curl "http://127.0.0.1:4300/v1/history?symbol=NSE:RELIANCE&interval=1d&from=2026-01-01&to=2026-06-30&format=csv"
-```
-
-## Order updates to your other projects
-
-Give the Bridge a URL in your project (**API → Integrations → Your project**) and it posts each order update there
-the moment it happens, as signed JSON with retries. No polling. See [forwarding.md](docs/guides/forwarding.md).
-
-## Supported brokers
-
-**41 Indian broker adapters**, several accounts per broker, logged in from the dashboard.
-
-- **Dhan** is verified end to end with a live account.
-- **Every other broker is beta:** written from the broker's official API documentation and tested against recorded
-  sample responses, not yet verified with a live account. Please check results against your broker and report what
-  you find.
-
-The full table (sign-in type, option chain, quotes, live feed, portfolio, orders, status per broker) is in
-[docs/BROKERS.md](docs/BROKERS.md).
-
-## Connect your tools
-
-| Tool | How | Guide |
-|---|---|---|
-| TradingView, ChartInk, GoCharting, your own signed alerts | Webhooks | [webhooks.md](docs/guides/webhooks.md) |
-| Python | SDK in `sdk/python` | [python.md](docs/guides/python.md) |
-| Node and TypeScript | SDK in `sdk/node` | [typescript.md](docs/guides/typescript.md) |
-| Excel, Google Sheets | Read-only `/xl` routes, files in `integrations/` | [excel-sheets.md](docs/guides/excel-sheets.md) |
-| AmiBroker | AFL and ASCII import, files in `integrations/amibroker` | [amibroker.md](docs/guides/amibroker.md) |
-| Claude Desktop, Claude Code, Cursor | MCP | [mcp.md](docs/guides/mcp.md) |
-| ChatGPT and OpenAI function calling | Tools | [chatgpt-openai.md](docs/guides/chatgpt-openai.md) |
-| Existing algo tools | Compat API at `/api/v1` | [compat-api.md](docs/guides/compat-api.md) |
-| Anything else | REST and WebSocket | [openapi.yaml](docs/openapi.yaml), [asyncapi.yaml](docs/asyncapi.yaml), [streaming.md](docs/guides/streaming.md) |
-
-## Docs
-
-- [Accounts](docs/guides/accounts.md): adding brokers and several accounts, sessions.
-- [Rate limits](docs/guides/rate-limits.md), [Safety](docs/guides/safety.md), [Webhooks](docs/guides/webhooks.md).
-- [Deployment](docs/guides/deployment.md): static IP for live orders and the daily login.
-- [Compliance](docs/guides/compliance.md): the SEBI, exchange and broker rules that shape the design.
-- [Architecture](docs/ARCHITECTURE.md), [broker contract](docs/broker-contract.md), [changelog](CHANGELOG.md).
-
-## What is not in v2
-
-v2 is the API connection layer and a small dashboard (Home, Accounts, API, Data, Orders, Safety). Analytics, scanners,
-calendars, the recorder, option desks, the journal, alerts and the other trading-desk features are not part of it.
-The full app lives in [MrChartist/api-bridge](https://github.com/MrChartist/api-bridge).
-
-## License
-
-MIT, see [LICENSE](LICENSE).
+The code and documentation are MIT, see [LICENSE](LICENSE). Broker names and the broker logos shown in the dashboard are trademarks of their owners; they are **not under the MIT licence**, are used only to identify each broker, and do not mean any broker is affiliated with or endorses this project. Licences of the packages that ship with the Bridge are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

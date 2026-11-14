@@ -30,7 +30,7 @@ export function __resetPocketfulAuth() {
 
 function token(creds) {
   const t = String(creds?.accessToken ?? "").trim();
-  if (!t) throw new BrokerInputError("Pocketful: paste today's access token in Broker Settings.");
+  if (!t) throw new BrokerInputError("Pocketful: paste today's access token in the account settings.");
   return t;
 }
 
@@ -78,7 +78,7 @@ export async function resolveClientId(creds) {
   if (clientIds.has(key)) return clientIds.get(key);
   const json = await pfRequest(creds, "/api/v1/user/trading_info");
   const id = String(json?.data?.client_id ?? "").trim();
-  if (!id) throw new BrokerError("Pocketful: could not find your client id; enter it in Broker Settings.");
+  if (!id) throw new BrokerError("Pocketful: could not find your client id; enter it in the account settings.");
   clientIds.set(key, id);
   return id;
 }

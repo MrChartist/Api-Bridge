@@ -1,0 +1,42 @@
+meta {
+  name: Create a hook; the URL with its token is shown once
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/hooks
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "source": "generic",
+    "label": "my alert",
+    "account": "demo-paper",
+    "mode": "paper"
+  }
+}
+
+vars:post-response {
+  hookId: res.body.data.id
+}
+
+docs {
+  Create a hook; the URL with its token is shown once
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Reference: docs/api/webhooks/createHook.md in the repository.
+}

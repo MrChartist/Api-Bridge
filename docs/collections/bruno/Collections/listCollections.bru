@@ -1,0 +1,33 @@
+meta {
+  name: List collections (static lists and option universes)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/collections
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~tag: <tag>
+  ~kind: static
+  ~q: RELIANCE
+  ~limit: 1
+  ~cursor: <cursor>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  List collections (static lists and option universes)
+
+  - An API key with the `read` scope (any key).
+
+  Summaries without symbol lists, ordered by name. `tag` may repeat or be comma separated; a collection must have every tag asked for.
+
+  Reference: docs/api/collections/listCollections.md in the repository.
+}

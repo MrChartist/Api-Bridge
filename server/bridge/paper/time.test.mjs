@@ -1,4 +1,4 @@
-/** S8 IST helpers. */
+/** Paper IST helpers. */
 import { describe, expect, it } from "vitest";
 import { istDay, istDayCompact, istTimeOnDay, toIstIso } from "./time.mjs";
 

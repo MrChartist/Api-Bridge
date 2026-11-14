@@ -1,5 +1,7 @@
 # AI assistants over MCP (Claude Desktop, Claude Code, Cursor)
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge is an MCP server. AI assistants use the same broker connections, rate limits, safety checks and audit log
 as every other tool, and they are **read-only by default**.
 
@@ -7,12 +9,12 @@ Two transports:
 
 - **Streamable HTTP** at `POST /mcp` on the Bridge (this computer only; Host and Origin checked; bearer key).
 - **stdio** through `mc-bridge mcp`, a relay that forwards each message to the running Bridge's `/mcp`. Start the
-  Bridge first (`npx mc-bridge start`).
+  Bridge first (`mc-bridge start`).
 
 Create a key for the assistant:
 
 ```bash
-npx mc-bridge keys create --label claude --scope read --client mcp
+mc-bridge keys create --label claude --scope read --client mcp
 ```
 
 ## Claude Desktop
@@ -24,19 +26,19 @@ Edit `claude_desktop_config.json` (*Settings → Developer → Edit Config*):
   "mcpServers": {
     "mr-chartist-bridge": {
       "command": "node",
-      "args": ["/path/to/api-bridge/bin/mc-bridge.mjs", "mcp"],
+      "args": ["/path/to/api-bridge-v2/bin/mc-bridge.mjs", "mcp"],
       "env": { "MCB_API_KEY": "mcb_..." }
     }
   }
 }
 ```
 
-On Windows use a path such as `"C:\\Users\\you\\api-bridge\\bin\\mc-bridge.mjs"`. Restart Claude Desktop.
+On Windows use a path such as `"C:\\Users\\you\\api-bridge-v2\\bin\\mc-bridge.mjs"`. Restart Claude Desktop.
 
 ## Claude Code
 
 ```bash
-claude mcp add mr-chartist-bridge --env MCB_API_KEY=mcb_... -- node /path/to/api-bridge/bin/mc-bridge.mjs mcp
+claude mcp add mr-chartist-bridge --env MCB_API_KEY=mcb_... -- node /path/to/api-bridge-v2/bin/mc-bridge.mjs mcp
 # or the HTTP transport directly:
 claude mcp add --transport http mr-chartist-bridge http://127.0.0.1:4300/mcp --header "Authorization: Bearer mcb_..."
 ```
@@ -52,11 +54,10 @@ environment); clients that speak Streamable HTTP use `http://127.0.0.1:4300/mcp`
 
 | Toolset | Tools |
 |---|---|
-| `market` | `get_ltp`, `get_quotes`, `get_depth`, `get_history`, `get_expiries`, `get_option_chain`, `search_instruments`, `convert_symbol` |
-| `analytics` | `option_chain_summary`, `history_summary`, `scan_market` (technical scans, see [scanner.md](scanner.md)) |
+| `market` | `get_ltp`, `get_quotes`, `get_depth`, `get_history`, `get_expiries`, `get_option_chain`, `search_instruments`, `convert_symbol`, `resolve_symbol`, `market_status` |
+| `analytics` | `option_chain_summary`, `history_summary` |
 | `account` | `list_accounts`, `get_positions`, `get_holdings`, `get_funds`, `list_orders`, `get_order`, `get_safety_status` |
-| `orders` (off by default) | `prepare_order`, `submit_confirmed_order` |
-| `options` (off by default) | `get_reference` (contract facts), `get_option_snapshots` (option chains the Bridge recorded, with gaps and coverage; see [recorder.md](recorder.md)). More options platform tools (volatility, levels, alerts and guards) are added as they ship. Turn it on with `"toolsets": ["market", "analytics", "account", "options"]`. Tools that create something (for example a guard) also need a key with the `paper` scope. |
+| `orders` (off by default) | `prepare_order`, `check_order_ticket`, `submit_confirmed_order` |
 
 Every result is wrapped as untrusted data (instrument names and broker messages are third-party text) and carries
 freshness labels.
@@ -72,8 +73,22 @@ Order tools appear only when all of these hold:
 and the assistant's key has the `paper` scope (or `live`) and may use that account. Even then:
 
 1. `prepare_order` only opens a **ticket**; nothing is sent.
-2. You confirm the ticket on the dashboard (Pending confirmations) on this computer, within about a minute.
+2. You confirm the ticket on the dashboard (Pending confirmations) on this computer, within about a minute, or you
+   **decline** it there (with an optional reason).
 3. The confirmation gives a one-time code; `submit_confirmed_order` sends exactly the prepared order, once.
+
+If you decline, nothing is sent and nothing can be: the ticket can never be confirmed afterwards. An assistant that asks
+`check_order_ticket` with the `ticketId` gets a plain, machine-readable answer instead of silence:
+
+```json
+{ "ticketId": "tkt_...", "status": "rejected", "reason": "Wrong quantity", "canRetry": false, "nextStep": "..." }
+```
+
+`status` is `open` (you have not decided), `confirmed` (it needs your code), `consumed` (its order was already sent),
+`rejected` (you declined; `reason` holds your words, which the assistant can read), `expired`, or `unknown` (the Bridge
+does not know this ticket for this assistant; other assistants' tickets are never shown). Retrying
+`submit_confirmed_order` for a declined ticket is refused with `STATE_CONFLICT` and `status: rejected`. Over plain REST
+the same ticket ends as `CONFIRMATION_REQUIRED` when its confirmation code or `ticketId` is used.
 
 No tool can change paper/live mode, key scopes or account sessions, or release the kill switch. Client-side approval
 prompts never count as confirmation. AI-placed orders are a regulatory gray area; see [compliance.md](compliance.md).

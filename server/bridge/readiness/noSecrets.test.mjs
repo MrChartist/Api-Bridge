@@ -1,5 +1,5 @@
 /**
- * T-sec-8 (docs/spec/p1-05-readiness.md §3.5, §9, §10.2): after an e2e-like run with a stub broker whose credentials
+ * T-sec-8: after an e2e-like run with a stub broker whose credentials
  * contain TOKEN_SENTINEL_123 and an egress lookup that sees 198.51.100.23, neither string appears in
  * readiness/state.json, the captured logs (debug level), the trading.readiness payloads or the formatted
  * notifications.

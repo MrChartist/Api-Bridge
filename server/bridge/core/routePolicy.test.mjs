@@ -1,9 +1,9 @@
 /**
- * T-sec-2 and T-sec-4 (docs/spec/p1-05-readiness.md §3.9 F1, F4, F5; §10.2). From the real route table:
+ * T-sec-2 and T-sec-4. From the real route table:
  *  - every route authenticates with a key AND names a scope, or is on an explicit allowlist (auth "none": health,
  *    the OpenAPI file, the dashboard pages, and the loopback-only sign-in; auth "custom": webhooks, the compat REST
  *    API and the SSE stream). A new `auth: "none"` write route fails here.
- *  - no non-GET route accepts ?key=; every admin route is this-computer-only except GET /v1/notify (read-only);
+ *  - no non-GET route accepts ?key=; every admin route is this-computer-only except the read-only GET /v1/notify/* routes;
  *  - no route authenticates from a cookie: a request carrying only Cookie gets 401 on a route of every module, and no
  *    file under server/bridge reads headers.cookie.
  */
@@ -12,9 +12,11 @@ import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootSecurityApp, samplePath } from "./__fixtures__/securityApp.mjs";
 
-const NONE_ALLOWED = new Set(["GET /v1/health", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in", "POST /v1/sign-in/local"]);
-const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/];
-const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify"]);
+const NONE_ALLOWED = new Set(["GET /v1/health", "GET /v1/ready", "GET /openapi.yaml", "GET /", "GET /dashboard", "GET /dashboard/:file", "POST /v1/sign-in", "POST /v1/sign-in/local"]);
+const CUSTOM_ALLOWED = [/^POST \/hooks\/:source\/:token$/, /^POST \/api\/v1\/[a-z]+(\/[a-z]+)?$/, /^GET \/v1\/stream\/sse$/, /^GET \/v1\/events\/stream$/];
+const ADMIN_NOT_LOOPBACK = new Set(["GET /v1/notify/status", "GET /v1/notify/targets", "GET /v1/notify/events"]);
+// Events out: reading webhook subscriptions is admin-only but not this-computer-only; adding, changing or removing one (or its dead letters) is.
+const ADMIN_NOT_LOOPBACK_RE = [/^GET \/v1\/events\/status$/, /^GET \/v1\/subscriptions(\/:subscriptionId(\/(deliveries|dead-letters))?)?$/];
 
 let b;
 let routes;
@@ -55,9 +57,20 @@ describe("T-sec-2: route policy", () => {
     expect(routes.filter((r) => r.method !== "GET" && r.options.allowQueryKey).map((r) => `${r.method} ${r.pattern}`)).toEqual([]);
   });
 
-  it("every admin route is this-computer-only, except GET /v1/notify (read-only)", () => {
-    const bad = routes.filter((r) => r.options.scope === "admin" && !r.options.loopbackOnly && !ADMIN_NOT_LOOPBACK.has(`${r.method} ${r.pattern}`));
+  it("every admin route is this-computer-only, except the read-only GET /v1/notify/* routes", () => {
+    const bad = routes.filter((r) => r.options.scope === "admin" && !r.options.loopbackOnly && !ADMIN_NOT_LOOPBACK.has(`${r.method} ${r.pattern}`) && !ADMIN_NOT_LOOPBACK_RE.some((re) => re.test(`${r.method} ${r.pattern}`)));
     expect(bad.map((r) => `${r.method} ${r.pattern}`)).toEqual([]);
+  });
+
+  it("the local control token is accepted only on the kill-switch routes and the downloads routes `mc-bridge download` calls (audit S12a) and order-state acknowledgement", () => {
+    const local = routes.filter((r) => r.options.localControl === true).map((r) => `${r.method} ${r.pattern}`);
+    const allowed = [/^(POST|DELETE) \/v1\/safety\/kill-switch$/, /^[A-Z]+ \/v1\/(downloads|datasets)(\/|$)/, /^GET \/v1\/instruments\/export$/,
+      // Acknowledging a damaged order-records file is what `mc-bridge orders acknowledge-state` does on this computer; with the Bridge
+      // stopped it only needs the data folder, so the control token (also in that folder) grants nothing new.
+      /^POST \/v1\/orders\/state\/acknowledge$/];
+    expect(local.filter((r) => !allowed.some((re) => re.test(r)))).toEqual([]);
+    expect(local.length).toBeGreaterThan(3);
+    for (const r of routes.filter((x) => x.options.localControl === true)) expect(r.options.auth ?? "key", `${r.method} ${r.pattern}`).toBe("key");
   });
 
   it("the readiness routes are read-scoped key routes", () => {

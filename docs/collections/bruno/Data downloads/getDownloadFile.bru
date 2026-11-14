@@ -1,0 +1,30 @@
+meta {
+  name: Stream one file of a job (or manifest.json)
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/v1/downloads/:downloadId/files/:name
+  body: none
+  auth: bearer
+}
+
+params:path {
+  downloadId: {{downloadId}}
+  name: NSE_RELIANCE_1d.csv
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Stream one file of a job (or manifest.json)
+
+  - An API key with the `read` scope (any key).
+
+  The file as the Bridge wrote it. The response headers say what the data is: X-Data-Class (realtime, delayed or eod), X-Data-Source, X-Data-Official and X-Data-Delay-Sec. Data that is delayed or end-of-day must never feed orders, risk checks, paper fills or alerts.
+
+  Reference: docs/api/data-downloads/getDownloadFile.md in the repository.
+}

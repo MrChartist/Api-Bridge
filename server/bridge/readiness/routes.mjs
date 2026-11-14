@@ -1,5 +1,5 @@
 /**
- * Readiness routes — stream S20 (docs/openapi.yaml, tag Readiness; docs/spec/p1-05-readiness.md §4). { data, meta }.
+ * Readiness routes (docs/openapi.yaml, tag Readiness). { data, meta }.
  *
  *   GET  /v1/readiness            read   cached state of each live account the key may see (no broker call)
  *   POST /v1/readiness/check      read   re-check now (probe and egress lookup, each with a 30 s cooldown); ≤ 12 s
@@ -10,9 +10,11 @@
  * this computer or with the admin scope. Everyone else sees only whether they match.
  */
 import { z } from "zod";
+import { isStub } from "../core/contracts.mjs";
 import { BridgeError, fromValidation } from "../core/errors.mjs";
 import { accountFilter } from "../safety/routes.mjs";
 import { DEMO_SCENARIOS } from "../demo/demoReadiness.mjs";
+import { referenceFreshness } from "../reference/freshness.mjs";
 
 const ACCOUNT_ID = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const accountId = z.string().regex(ACCOUNT_ID, "2-32 lowercase letters, digits or hyphens");
@@ -50,6 +52,7 @@ function parseWith(schema, value, detail) {
  */
 export function createReadinessRoutes(deps) {
   const { readiness, config } = deps;
+  const clockNow = () => (deps.clock?.now ? deps.clock.now() : Date.now());
   const known = (id) => (config.accounts ?? []).some((a) => a.id === id);
 
   /** Visible tracked account ids for this caller, after checking any requested ids. */
@@ -63,7 +66,25 @@ export function createReadinessRoutes(deps) {
     return requested?.length ? ids.filter((id) => requested.includes(id)) : ids;
   }
 
-  const shape = (ctx, snap) => (canSeeIp(ctx) ? snap : redactSnapshot(snap));
+  /** The snapshot as this caller may see it, with the freshness of the shipped reference data (plain sentences, no I/O). */
+  const shape = (ctx, snap) => ({ ...(canSeeIp(ctx) ? snap : redactSnapshot(snap)), referenceData: referenceFreshness({ now: clockNow() }), ...orderBookItem(ctx) });
+
+  /** The order-book check as one readiness item (orders/drift.mjs): a summary only; the differences are on GET /v1/orders/drift. */
+  function orderBookItem(ctx) {
+    let svc = null;
+    try {
+      svc = deps.orderDrift && !isStub(deps.orderDrift) ? deps.orderDrift : null;
+    } catch {
+      svc = null;
+    }
+    if (!svc) return {};
+    try {
+      const d = svc.status({ canSee: accountFilter(ctx) });
+      return { orderBook: { state: d.state, summary: d.summary, stale: d.stale, checkedAt: d.checkedAt, nextCheckAt: d.nextCheckAt, differences: d.counts.differences, paused: d.paused, details: "/v1/orders/drift" } };
+    } catch {
+      return {};
+    }
+  }
 
   function readQuery(ctx, allowed) {
     for (const k of new Set([...ctx.query.keys()])) {
@@ -90,7 +111,7 @@ export function createReadinessRoutes(deps) {
         // A known account the monitor does not track (a paper account): nothing to check.
         return { data: shape(ctx, readiness.status({ accountIds: [] })), meta: meta(ctx, { skipped: [] }) };
       }
-      // One call over the ids this key may see; its snapshot carries the 12 s "Still checking" overlay (§4.2), so the
+      // One call over the ids this key may see; its snapshot carries the 12 s "Still checking" overlay, so the
       // answer never shows an earlier probe's result while a probe or lookup is still running.
       const r = await readiness.checkNow(body.account ? { accountId: body.account, reason: "manual" } : { accountIds: ids, reason: "manual" });
       return { data: shape(ctx, r.snapshot), meta: meta(ctx, { skipped: r.skipped }) };

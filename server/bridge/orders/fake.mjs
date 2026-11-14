@@ -1,7 +1,7 @@
 /**
- * In-memory OrderService for OTHER streams' tests (S10 integrations, S11 webhooks and MCP). It satisfies
+ * In-memory OrderService for OTHER modules' tests (integrations, webhooks and MCP). It satisfies
  * SERVICE_CONTRACTS.orders exactly, needs no other service, makes no broker call and touches no disk. It keeps the
- * behaviour those streams depend on, using S7's real building blocks:
+ * behaviour those modules depend on, using the orders module's real building blocks:
  *  - the real OrderRequest/OrderChanges zod schemas (VALIDATION_FAILED with field errors);
  *  - the real idempotency store (Idempotency-Key or clientOrderId; replay, 409 IDEMPOTENCY_KEY_REUSED /
  *    IDEMPOTENCY_IN_PROGRESS / DUPLICATE_CLIENT_ORDER_ID);
@@ -25,8 +25,10 @@ import { assertService } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { isAutomatedContext } from "../core/context.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
+import { createBatchOrders } from "./batchOrders.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
 import { IDEMPOTENCY_KEY_RE, TERMINAL_STATUSES, fingerprint, orderBody, parseOrderChanges, parseOrderRequest } from "./orderValidation.mjs";
+import { createTargetOrders } from "./targetOrders.mjs";
 import { createTicketBook } from "./tickets.mjs";
 import { istDay, istIso } from "./time.mjs";
 
@@ -58,7 +60,7 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
     }
   };
   const emit = (o) => bus?.emit("order.updated", { orderId: o.orderId, accountId: o.accountId, mode: o.mode, status: o.status, filledQuantity: o.filledQuantity, avgPrice: o.avgPrice ?? undefined, source: o.source });
-  const freshness = (accountId) => ({ source: "paper", asOf: istIso(now()), ageMs: 0, stale: false, accountId, broker: "paper" });
+  const freshness = (accountId) => ({ source: "paper", asOf: istIso(now()), ageMs: 0, stale: false, accountId, broker: "paper", class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] });
   const canonical = (s) => {
     try {
       return parseSymbol(s).canonical;
@@ -293,9 +295,21 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
       return { funds: { availableCash: 1_000_000, usedMargin: 0, totalBalance: 1_000_000, collateral: null, withdrawable: null, realisedPnl: 0, unrealisedPnl: 0 }, freshness: freshness(accountId) };
     },
 
-    async tickets(ctx) {
+    async tickets(ctx, { state = "open" } = {}) {
       if (ctx.principal?.kind !== "local" && !ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
-      return tickets.list();
+      return state === "rejected" ? tickets.listRejected() : tickets.list();
+    },
+
+    async rejectTicket(ctx, ticketId, { reason } = {}) {
+      if (ctx.principal?.kind !== "local" && !ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
+      if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can decline an order.");
+      return tickets.reject(String(ticketId), principal(ctx), reason).ticket;
+    },
+
+    async ticketStatus(ctx, ticketId) {
+      const st = tickets.statusOf(ticketId);
+      if (!st || (st.principalId !== principal(ctx) && !ctx.scopes?.has("admin"))) return { ticketId: String(ticketId), status: "unknown", reason: null, expiresAt: null };
+      return { ticketId: st.ticketId, status: st.status, reason: st.reason, expiresAt: st.expiresAt };
     },
 
     async confirmTicket(ctx, ticketId) {
@@ -322,6 +336,18 @@ export function createFakeOrderService({ accounts = ["paper"], liveAccounts = []
     /** Every order, newest last. */
     all: () => [...orders.values()].map((o) => structuredClone(o)),
   };
+  // placeToTarget and placeBatch: the real implementations over this fake (extras.mjs does the same over the real service).
+  const extraDeps = {
+    accounts: { get: (id) => (known(id), { id, broker: liveAccounts.includes(id) ? "fake" : "paper" }) },
+    symbols: {
+      async resolve(symbol) {
+        const p = parseSymbol(symbol);
+        return { canonical: p.canonical, underlying: p.underlying, kind: p.kind, lotSize: lotSizes[p.canonical] ?? 1 };
+      },
+    },
+  };
+  svc.placeToTarget = createTargetOrders({ deps: extraDeps, svc, now }).toTarget;
+  svc.placeBatch = createBatchOrders({ deps: extraDeps, svc, now }).batch;
   assertService("orders", svc);
   return svc;
 }

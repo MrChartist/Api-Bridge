@@ -1,5 +1,5 @@
 /**
- * S5 acceptance (docs/STREAMS.md §S5): with a fake adapter that counts calls and the REAL S3 scheduler on a manual
+ * Market data acceptance: with a fake adapter that counts calls and the REAL ratelimit scheduler on a manual
  * clock, 20 clients polling the same 50 symbols every second cause at most the broker's quote limit of calls, and a
  * live stream tick is served with source "stream" and zero REST calls. Also checks that no one-second window ever
  * carries more calls than the policy allows, including for a broker that takes one instrument per call.

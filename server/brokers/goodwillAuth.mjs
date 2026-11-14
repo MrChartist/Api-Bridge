@@ -29,7 +29,7 @@ import { createSessionCache } from "../lib/boundedCache.mjs";
 export const BASE_URL = "https://api.gwcindia.in/v1";
 export const LOGIN_URL = "https://api.gwcindia.in/v1/login";
 const LABEL = "Goodwill";
-const HINT = `Open ${LOGIN_URL}?api_key=YOUR_API_KEY, log in, and paste the new request_token from the redirect URL in Broker Settings (it works once).`;
+const HINT = `Open ${LOGIN_URL}?api_key=YOUR_API_KEY, log in, and paste the new request_token from the redirect URL in the account settings (it works once).`;
 
 const str = (v) => (v === undefined || v === null ? "" : String(v).trim());
 
@@ -111,7 +111,7 @@ const EMPTY = /no data|no record|not found|no (orders?|trades?|positions?|holdin
  */
 export async function gwRequest(creds, apiName, { method = "GET", body, list = false } = {}) {
   const apiKey = str(creds?.apiKey);
-  if (!apiKey) throw new SessionRequiredError(`${LABEL}: the API key is missing. Add it in Broker Settings.`);
+  if (!apiKey) throw new SessionRequiredError(`${LABEL}: the API key is missing. Add it in the account settings.`);
   const handle = await session.ensure(creds);
   await pace();
   const secrets = secretsOf(creds, [handle.token]);

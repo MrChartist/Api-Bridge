@@ -1,7 +1,7 @@
 /**
- * Test fixtures for stream S5: a counting stub broker adapter, a stub StreamHub, an instrument list with refs for two
- * brokers, and a builder that wires the real MarketDataService to the published fakes of S1 (accounts), S3
- * (scheduler, manual clock) and S4 (symbols). No network, no disk, no sleeps.
+ * Test fixtures for the market module: a counting stub broker adapter, a stub StreamHub, an instrument list with refs for two
+ * brokers, and a builder that wires the real MarketDataService to the published fakes of the accounts, ratelimit
+ * (scheduler, manual clock) and symbols modules. No network, no disk, no sleeps.
  */
 import { notImplementedService } from "../../core/contracts.mjs";
 import { createEventBus } from "../../core/eventBus.mjs";

@@ -1,0 +1,34 @@
+meta {
+  name: Remove an account (from the config file and the running Bridge)
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/v1/accounts/:accountId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  accountId: demo-paper
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Remove an account (from the config file and the running Bridge)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  For an account added by mistake. Removes it from the config file and the running Bridge and deletes its saved
+  keys and session from the encrypted store; its paper-trading history stays in the data folder. Refuses an
+  account with live trading set up in the config file (remove those in the file, on purpose) and the last paper
+  account. Admin scope with an admin key that may use every account, this computer only. Refused in demo mode.
+  Audited as `account.removed`.
+
+  Reference: docs/api/accounts/removeAccount.md in the repository.
+}

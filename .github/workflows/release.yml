@@ -41,8 +41,25 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package.json ($want). Bump the version first." >&2
             exit 1
           fi
+      - name: CHANGELOG.md has the notes for this tag and nothing left under Unreleased
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/release/release-notes.mjs "$GITHUB_REF_NAME" > /dev/null
       - name: Build the downloads
         run: node scripts/release/build-bundles.mjs --out dist
+      - name: Check SHA256SUMS.txt against every file in dist
+        run: node scripts/release/checksums.mjs verify dist
+      # The one-line installer, run against the files just built (laid out like the releases page, no network for the
+      # download itself): it must find the list, check the archive against it and install.
+      - name: The installer accepts the release it was built with
+        run: |
+          set -eu
+          ver="$(node -p 'require("./package.json").version')"
+          work="$(mktemp -d)"
+          mkdir -p "$work/releases/download/v$ver" "$work/home"
+          cp dist/SHA256SUMS.txt dist/*.tar.gz "$work/releases/download/v$ver/"
+          env -i HOME="$work/home" PATH="$PATH" MCB_RELEASE_BASE="$work/releases" sh dist/install.sh --no-start --version "$ver" | tee "$work/install.log"
+          grep -q "Checked: the SHA-256 matches" "$work/install.log"
+          test -f "$work/home/.mc-bridge/app/bin/mc-bridge.mjs"
       - name: Smoke test the Linux download (unzip, start with its own Node.js, health check)
         run: |
           set -eu
@@ -121,7 +138,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="$(awk '/^## \[/{n++} n==1' CHANGELOG.md)"
-          [ -n "$notes" ] || notes="See CHANGELOG.md."
-          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.zip dist/SHA256SUMS.txt \
-            --repo "$GITHUB_REPOSITORY" --title "Mr. Chartist API Bridge $GITHUB_REF_NAME" --notes "$notes" --verify-tag
+          node scripts/release/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          # The list is checked once more here: what is published is exactly what the installers will be checked against.
+          node scripts/release/checksums.mjs verify dist
+          gh release create "$GITHUB_REF_NAME" dist/*.exe dist/*.zip dist/*.tar.gz dist/install.sh dist/install.ps1 dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --title "Mr. Chartist API Bridge $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag

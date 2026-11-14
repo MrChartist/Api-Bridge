@@ -1,5 +1,5 @@
 /**
- * The Bridge's canonical symbol format: pure parsing and formatting, no data. (SymbolService, stream S4, adds the
+ * The Bridge's canonical symbol format: pure parsing and formatting, no data. (SymbolService, the symbols module, adds the
  * instrument masters: lot size, tick size, broker tokens.)
  *
  *   Cash / index   NSE:RELIANCE   NSE:NIFTY   BSE:SENSEX   NSE:BAJAJ-AUTO   NSE:M&M

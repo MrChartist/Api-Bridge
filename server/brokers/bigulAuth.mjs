@@ -15,7 +15,7 @@
  *    10 orders a second).
  *
  * Session login (contract auth.kind "sessionLogin"): the app key, app secret and client code are saved; the user
- * types only the CURRENT 6-digit TOTP code in Broker Settings and login() returns { sessionToken }. The code is never
+ * types only the CURRENT 6-digit TOTP code in the account settings and login() returns { sessionToken }. The code is never
  * stored, cached or logged. A 401 on a data call throws SessionRequiredError; nothing re-logs in automatically.
  *
  * NEVER log creds, the TOTP code or the token — field names and HTTP status codes only.
@@ -93,7 +93,7 @@ export async function bgRequest(creds, path, { method = "POST", body = {}, query
   if (method !== "GET") init.body = JSON.stringify({ source: SOURCE, clientCode: s.clientCode, ...body });
   const res = await brokerFetch(url.toString(), init, { kind, label: LABEL });
   const json = await res.json().catch(() => null);
-  if (res.status === 401) throw new SessionRequiredError("Bigul: your session has expired or was rejected. Log in again from Broker Settings.");
+  if (res.status === 401) throw new SessionRequiredError("Bigul: your session has expired or was rejected. Log in again from the account settings.");
   if (res.ok && json?.status === true) return json.data ?? null;
   const msg = shortMessage(json, res.status);
   if (res.ok && emptyOk && EMPTY_BOOK.test(msg)) return null;

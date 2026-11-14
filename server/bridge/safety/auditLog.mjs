@@ -1,5 +1,5 @@
 /**
- * AuditLog — stream S9 (docs/STREAMS.md §S9, docs/ARCHITECTURE.md §8). Contract: SERVICE_CONTRACTS.audit in
+ * AuditLog (docs/ARCHITECTURE.md §8). Contract: SERVICE_CONTRACTS.audit in
  * ../core/contracts.mjs.
  *
  * Storage: <dataDir>/audit/YYYY-MM-DD.jsonl, one file per IST day, one JSON object per line:

@@ -1,10 +1,10 @@
 asyncapi: 3.0.0
 info:
   title: Mr. Chartist API Bridge — live streams
-  version: 0.1.0
+  version: 2.0.0
   description: |
     Live prices, upstream feed status and order updates from the local Bridge, over a WebSocket (`/v1/stream`) or
-    Server-Sent Events (`/v1/stream/sse`). Owned by stream S6; the REST side is in `docs/openapi.yaml`.
+    Server-Sent Events (`/v1/stream/sse`). The REST side is in `docs/openapi.yaml`.
 
     ## One broker feed, many tools
     The Bridge opens at most one feed per broker account and shares it: if a web app, a chart and a Python script all
@@ -37,6 +37,16 @@ info:
     The same messages as SSE events: `id` is the `seq`, `event` is the `type`, `data` is the JSON message. SSE is one
     way, so the subscription is fixed by the URL (`symbols`, `mode`, `orders=1`); open a new URL to change it. A
     reconnect (EventSource sends `Last-Event-ID`) starts again with a fresh `snapshot`; nothing is replayed.
+
+    ## Which data the stream carries
+    Only real-time data from your own broker accounts. Every `tick` and `snapshot` entry comes from a live broker
+    feed, so its data class is `realtime` and it is official data from your broker. The optional free sources and
+    plugins described in `docs/guides/sources.md` (`GET /v1/sources`) are delayed or end-of-day and are never published
+    on a stream: a stream cannot show a delayed value as if it were live. Their answers appear only in REST responses,
+    where each item's `freshness` says `class`, `delaySec`, `official`, `confidence` and `flags`. Reads for orders, risk
+    checks, paper fills and alerts accept only real-time data, so they never use those sources either.
+    The `budget` message reports your broker accounts' request budgets; per-key quotas and the fair-queue state are on
+    `GET /v1/quotas` and `GET /v1/limits?explain=1`.
 
     ## Symbols
     Canonical Bridge symbols (`NSE:RELIANCE`, `NFO:NIFTY-2026-10-27-25000-CE`). Inputs may be aliases (lower case,
@@ -81,10 +91,6 @@ channels:
       unsubscribe: { $ref: "#/components/messages/unsubscribe" }
       subscribeOrders: { $ref: "#/components/messages/subscribeOrders" }
       unsubscribeOrders: { $ref: "#/components/messages/unsubscribeOrders" }
-      subscribeScans: { $ref: "#/components/messages/subscribeScans" }
-      unsubscribeScans: { $ref: "#/components/messages/unsubscribeScans" }
-      subscribeEvents: { $ref: "#/components/messages/subscribeEvents" }
-      unsubscribeEvents: { $ref: "#/components/messages/unsubscribeEvents" }
       subscribeBudget: { $ref: "#/components/messages/subscribeBudget" }
       unsubscribeBudget: { $ref: "#/components/messages/unsubscribeBudget" }
       ping: { $ref: "#/components/messages/ping" }
@@ -92,8 +98,6 @@ channels:
       snapshot: { $ref: "#/components/messages/snapshot" }
       tick: { $ref: "#/components/messages/tick" }
       order: { $ref: "#/components/messages/order" }
-      scan: { $ref: "#/components/messages/scan" }
-      marketEvent: { $ref: "#/components/messages/marketEvent" }
       budget: { $ref: "#/components/messages/budget" }
       status: { $ref: "#/components/messages/status" }
       error: { $ref: "#/components/messages/error" }
@@ -114,9 +118,8 @@ channels:
     title: Server-Sent Events stream
     description: |
       One-way. Query parameters: `token`, `symbols` (comma-separated, up to `stream.maxSymbolsPerRequest`, default 200),
-      `mode` (ltp | quote | depth, default ltp), `orders=1` to add order updates, `scans=1` to add scanner events,
-      `events=1` (or `events=stock` / `events=option`) to add live market events, `budget=1` to add the API budget.
-      Give `symbols`, `orders=1`, `scans=1`, `events=1`, `budget=1` or any mix.
+      `mode` (ltp | quote | depth, default ltp), `orders=1` to add order updates and `budget=1` to add the API budget.
+      Give `symbols`, `orders=1`, `budget=1` or any mix.
       Each event: `id: <seq>`, `event: <type>`, `data: <message JSON>`.
     servers:
       - $ref: "#/servers/local-http"
@@ -125,12 +128,48 @@ channels:
       snapshot: { $ref: "#/components/messages/snapshot" }
       tick: { $ref: "#/components/messages/tick" }
       order: { $ref: "#/components/messages/order" }
-      scan: { $ref: "#/components/messages/scan" }
-      marketEvent: { $ref: "#/components/messages/marketEvent" }
       budget: { $ref: "#/components/messages/budget" }
       status: { $ref: "#/components/messages/status" }
       error: { $ref: "#/components/messages/error" }
       goAway: { $ref: "#/components/messages/goAway" }
+
+  events:
+    address: /v1/events/ws
+    title: Events WebSocket
+    description: |
+      One-way event feed with cursor replay. Query parameters: `token` (single-use stream token) or an Authorization header,
+      `topics` (default `*`), `accounts` (narrowing) and `since` (a cursor). Messages are JSON text frames; the only frame a
+      client may send is `{"op":"ping"}`. Nothing a client sends changes the Bridge.
+    servers:
+      - $ref: "#/servers/local-ws"
+    messages:
+      eventsReady: { $ref: "#/components/messages/eventsReady" }
+      eventsEvent: { $ref: "#/components/messages/eventsEvent" }
+      eventsGoAway: { $ref: "#/components/messages/eventsGoAway" }
+    bindings:
+      ws:
+        method: GET
+        query:
+          type: object
+          properties:
+            token: { type: string, maxLength: 512, description: Single-use stream token from POST /v1/stream/token. }
+            topics: { type: string, description: "Comma-separated filters: a topic, a prefix such as `order.*`, or `*`." }
+            since: { type: string, description: "A cursor (an event id). Replay the kept events after it, then go live." }
+            accounts: { type: string }
+        bindingVersion: 0.1.0
+  eventsSse:
+    address: /v1/events/stream
+    title: Events over Server-Sent Events
+    description: |
+      The same feed as `events`. Each event: `id: <cursor>`, `event: <topic>`, `data: <envelope JSON>`; the first is
+      `event: ready`. EventSource reconnects with `Last-Event-ID`, which the Bridge treats as `since`, so nothing is missed
+      as long as the cursor is still kept (`ready.gap` says when it is not). A `go_away` event precedes a close.
+    servers:
+      - $ref: "#/servers/local-http"
+    messages:
+      eventsReady: { $ref: "#/components/messages/eventsReady" }
+      eventsEvent: { $ref: "#/components/messages/eventsEvent" }
+      eventsGoAway: { $ref: "#/components/messages/eventsGoAway" }
 
 operations:
   receiveSubscribe:
@@ -158,26 +197,6 @@ operations:
     channel: { $ref: "#/channels/stream" }
     summary: Client stops order updates.
     messages: [{ $ref: "#/channels/stream/messages/unsubscribeOrders" }]
-  receiveSubscribeScans:
-    action: receive
-    channel: { $ref: "#/channels/stream" }
-    summary: Client asks for scanner events (progress, completion, saved-scan alerts) for its key's scans (all scans for an admin key).
-    messages: [{ $ref: "#/channels/stream/messages/subscribeScans" }]
-  receiveUnsubscribeScans:
-    action: receive
-    channel: { $ref: "#/channels/stream" }
-    summary: Client stops scanner events.
-    messages: [{ $ref: "#/channels/stream/messages/unsubscribeScans" }]
-  receiveSubscribeEvents:
-    action: receive
-    channel: { $ref: "#/channels/stream" }
-    summary: Client asks for live market events (S28) as they are detected, optionally only one asset, some kinds or sides. Sending it again replaces the filter.
-    messages: [{ $ref: "#/channels/stream/messages/subscribeEvents" }]
-  receiveUnsubscribeEvents:
-    action: receive
-    channel: { $ref: "#/channels/stream" }
-    summary: Client stops live market events.
-    messages: [{ $ref: "#/channels/stream/messages/unsubscribeEvents" }]
   receiveSubscribeBudget:
     action: receive
     channel: { $ref: "#/channels/stream" }
@@ -219,16 +238,6 @@ operations:
     channel: { $ref: "#/channels/stream" }
     summary: An order changed state.
     messages: [{ $ref: "#/channels/stream/messages/order" }]
-  sendScan:
-    action: send
-    channel: { $ref: "#/channels/stream" }
-    summary: A scan made progress or finished, or a saved scan found new matches.
-    messages: [{ $ref: "#/channels/stream/messages/scan" }]
-  sendMarketEvent:
-    action: send
-    channel: { $ref: "#/channels/stream" }
-    summary: A live market event was detected (action new), or a repeat inside its cool-down raised its count (action update, same id). Conflated per event id.
-    messages: [{ $ref: "#/channels/stream/messages/marketEvent" }]
   sendBudget:
     action: send
     channel: { $ref: "#/channels/stream" }
@@ -261,6 +270,23 @@ operations:
       - $ref: "#/channels/sse/messages/status"
       - $ref: "#/channels/sse/messages/error"
       - $ref: "#/channels/sse/messages/goAway"
+
+  sendEvents:
+    action: send
+    channel: { $ref: "#/channels/events" }
+    summary: Bridge events, after the replay of anything missed. `ready` first, then events in cursor order.
+    messages:
+      - $ref: "#/channels/events/messages/eventsReady"
+      - $ref: "#/channels/events/messages/eventsEvent"
+      - $ref: "#/channels/events/messages/eventsGoAway"
+  sendEventsSse:
+    action: send
+    channel: { $ref: "#/channels/eventsSse" }
+    summary: Bridge events as SSE.
+    messages:
+      - $ref: "#/channels/eventsSse/messages/eventsReady"
+      - $ref: "#/channels/eventsSse/messages/eventsEvent"
+      - $ref: "#/channels/eventsSse/messages/eventsGoAway"
 
 components:
   securitySchemes:
@@ -304,26 +330,6 @@ components:
       name: unsubscribe_orders
       title: Stop order updates
       payload: { $ref: "#/components/schemas/UnsubscribeOrdersOp" }
-    subscribeScans:
-      name: subscribe_scans
-      title: Subscribe to scanner events
-      payload: { $ref: "#/components/schemas/SubscribeScansOp" }
-      examples:
-        - payload: { op: subscribe_scans }
-    unsubscribeScans:
-      name: unsubscribe_scans
-      title: Stop scanner events
-      payload: { $ref: "#/components/schemas/UnsubscribeScansOp" }
-    subscribeEvents:
-      name: subscribe_events
-      title: Subscribe to live market events
-      payload: { $ref: "#/components/schemas/SubscribeEventsOp" }
-      examples:
-        - payload: { op: subscribe_events, asset: stock, sides: [bull] }
-    unsubscribeEvents:
-      name: unsubscribe_events
-      title: Stop live market events
-      payload: { $ref: "#/components/schemas/UnsubscribeEventsOp" }
     subscribeBudget:
       name: subscribe_budget
       title: Subscribe to the API budget
@@ -399,18 +405,6 @@ components:
       payload: { $ref: "#/components/schemas/OrderMessage" }
       examples:
         - payload: { type: order, seq: 120, order: { orderId: PAPER-20261019-0007, clientOrderId: hub-17, accountId: dhan-main, mode: paper, status: filled, filledQuantity: 65, avgPrice: 182.4, source: rest } }
-    scan:
-      name: scan
-      title: Scanner event
-      payload: { $ref: "#/components/schemas/ScanMessage" }
-      examples:
-        - payload: { type: scan, seq: 40, event: alert, savedId: saved_9f2c1a7b3d4e5f60, name: "Breakouts", jobId: scan_1a2b3c4d5e6f7a8b, newMatches: ["NSE:TCS"], at: "2026-10-26T10:35:02.000Z" }
-    marketEvent:
-      name: market_event
-      title: Live market event
-      payload: { $ref: "#/components/schemas/MarketEventMessage" }
-      examples:
-        - payload: { type: market_event, seq: 512, action: new, sentAt: 1793345527120, event: { id: ev_20261030_1k, seq: 56, ts: 1793345527118, time: "2026-10-30T10:42:07+05:30", date: "2026-10-30", symbol: "NSE:BODALCHEM", segment: NSE, name: "Bodal Chemicals", asset: stock, kind: only_buyers, label: Only buyers, category: circuit, side: bull, ltp: 164.52, changePct: 5, strength: 5, context: "upper circuit 5 % at 164.52, 182340 bid", first: true, count: 1 } }
     budget:
       name: budget
       title: API budget
@@ -439,6 +433,28 @@ components:
       payload: { $ref: "#/components/schemas/GoAway" }
       examples:
         - payload: { type: go_away, seq: 9001, reason: shutdown, message: "The Bridge is restarting. Reconnect in a few seconds.", reconnectAfterMs: 3000 }
+
+    # ── events out (docs/guides/events.md) ──
+    eventsReady:
+      name: ready
+      title: Events ready
+      summary: First message. Says where the log is and whether anything was missed.
+      payload: { $ref: "#/components/schemas/EventsReady" }
+      examples:
+        - payload: { type: ready, cursor: "1042", oldest: "37", replayed: 3, gap: false, gapReason: null, topics: ["order.*"] }
+    eventsEvent:
+      name: event
+      title: Bridge event
+      summary: One event. On SSE the `event` name is the topic and `id` the cursor; on the WebSocket `type` is `event`.
+      payload: { $ref: "#/components/schemas/EventsEvent" }
+      examples:
+        - payload: { type: event, id: "1043", topic: order.updated, time: "2026-11-09T04:01:02.000Z", apiVersion: v1, data: { orderId: PAPER-20261109-0003, accountId: paper, mode: paper, status: filled, filledQuantity: 65, avgPrice: 182.4, source: rest } }
+    eventsGoAway:
+      name: go_away
+      title: Events going away
+      payload: { $ref: "#/components/schemas/EventsGoAway" }
+      examples:
+        - payload: { type: go_away, reason: slow_consumer, message: "This connection reads events too slowly. Reconnect with the last cursor you saw.", reconnectAfterMs: 1000 }
 
   schemas:
     Symbol:
@@ -501,37 +517,6 @@ components:
       required: [op]
       properties:
         op: { const: unsubscribe_orders }
-        id: { $ref: "#/components/schemas/OpId" }
-    SubscribeScansOp:
-      type: object
-      additionalProperties: false
-      required: [op]
-      properties:
-        op: { const: subscribe_scans }
-        id: { $ref: "#/components/schemas/OpId" }
-    UnsubscribeScansOp:
-      type: object
-      additionalProperties: false
-      required: [op]
-      properties:
-        op: { const: unsubscribe_scans }
-        id: { $ref: "#/components/schemas/OpId" }
-    SubscribeEventsOp:
-      type: object
-      additionalProperties: false
-      required: [op]
-      properties:
-        op: { const: subscribe_events }
-        asset: { type: string, enum: [stock, option] }
-        kinds: { type: array, maxItems: 60, items: { type: string }, description: "Event kinds from GET /v1/events/catalogue; all when absent." }
-        sides: { type: array, maxItems: 3, items: { type: string, enum: [bull, bear, neutral] } }
-        id: { $ref: "#/components/schemas/OpId" }
-    UnsubscribeEventsOp:
-      type: object
-      additionalProperties: false
-      required: [op]
-      properties:
-        op: { const: unsubscribe_events }
         id: { $ref: "#/components/schemas/OpId" }
     SubscribeBudgetOp:
       type: object
@@ -631,28 +616,6 @@ components:
             ticks: { type: array, description: Latest known value per accepted symbol., items: { $ref: "#/components/schemas/TickFields" } }
             pending: { type: array, description: Accepted symbols with no value yet; their first tick follows., items: { $ref: "#/components/schemas/Symbol" } }
 
-    ScanMessage:
-      allOf:
-        - { $ref: "#/components/schemas/Envelope" }
-        - type: object
-          required: [event]
-          properties:
-            type: { const: scan }
-            event: { type: string, enum: [progress, completed, alert] }
-            jobId: { type: string }
-            savedId: { type: [string, "null"] }
-            status: { type: string, enum: [queued, running, completed, failed, cancelled] }
-            progress:
-              type: object
-              properties:
-                total: { type: integer }
-                done: { type: integer }
-                matched: { type: integer }
-                errors: { type: integer }
-            matched: { type: array, items: { type: string }, description: "completed: the matching symbols" }
-            name: { type: string, description: "alert: the saved scan's name" }
-            newMatches: { type: array, items: { type: string }, description: "alert: symbols the previous run did not match" }
-            at: { type: string, format: date-time }
     BudgetWindow:
       type: [object, "null"]
       description: The fullest window of this length over the account's endpoint classes right now.
@@ -684,41 +647,6 @@ components:
             savedToday: { type: integer, description: Broker calls avoided today by the stream, the cache, shared calls and batching. }
             savings: { type: object }
             stream: { type: object, properties: { feeds: { type: integer }, up: { type: integer }, subscriptions: { type: integer } } }
-            jobs:
-              type: array
-              description: Background jobs spending broker budget now, e.g. the scanner's pre-warm ("Preparing scans").
-              items: { type: object, properties: { id: { type: string }, label: { type: string }, done: { type: integer }, total: { type: integer }, paused: { type: boolean } } }
-    MarketEventMessage:
-      allOf:
-        - { $ref: "#/components/schemas/Envelope" }
-        - type: object
-          required: [action, event]
-          properties:
-            type: { const: market_event }
-            action: { type: string, enum: [new, update] }
-            sentAt: { type: integer, description: Epoch ms when the Bridge queued the message. }
-            event:
-              type: object
-              description: The event record, as GET /v1/events returns it (docs/guides/live-events.md).
-              required: [id, ts, time, symbol, asset, kind, side, count]
-              properties:
-                id: { type: string }
-                seq: { type: integer }
-                ts: { type: integer }
-                time: { type: string }
-                symbol: { type: string }
-                name: { type: [string, "null"] }
-                asset: { type: string, enum: [stock, option] }
-                kind: { type: string }
-                label: { type: string }
-                side: { type: string, enum: [bull, bear, neutral] }
-                ltp: { type: [number, "null"] }
-                changePct: { type: [number, "null"] }
-                strength: { type: [number, "null"] }
-                context: { type: string }
-                first: { type: boolean }
-                count: { type: integer }
-                option: { type: object, description: "Option events: underlying, expiry, strike, right, premium, oi, dOiLots, iv, lot" }
     OrderMessage:
       allOf:
         - { $ref: "#/components/schemas/Envelope" }
@@ -788,3 +716,34 @@ components:
               description: "shutdown: the Bridge is stopping or restarting (WebSocket close 1001). slow_consumer: the client fell too far behind (close 4008). key_revoked: the API key was revoked or expired (close 4001); do not reconnect with it."
             message: { type: string }
             reconnectAfterMs: { type: [integer, "null"], description: Suggested wait before reconnecting; null means do not reconnect. }
+
+    EventsReady:
+      type: object
+      required: [cursor, oldest, replayed, gap, topics]
+      properties:
+        type: { const: ready, description: "WebSocket only." }
+        cursor: { type: string, description: The newest event the Bridge has now. Also the SSE `id` of this message, so a reconnect without events still resumes here. }
+        oldest: { type: [string, "null"], description: The oldest event still kept. }
+        replayed: { type: integer, minimum: 0, description: How many events follow because of `since`. }
+        gap: { type: boolean, description: "true: events between your cursor and `oldest` are gone, or your cursor is newer than anything this Bridge knows. Read your state from REST again." }
+        gapReason: { type: [string, "null"], enum: [retention, cursor_ahead, null] }
+        topics: { type: array, items: { type: string } }
+    EventsEvent:
+      type: object
+      description: Read-only notification. It never carries a secret, a key or an order-approval token.
+      required: [id, topic, time, apiVersion, data]
+      properties:
+        type: { const: event, description: "WebSocket only." }
+        id: { type: string, description: The cursor. Also the id to de-duplicate on. }
+        topic: { type: string, examples: [order.updated] }
+        time: { type: string, format: date-time }
+        apiVersion: { const: v1 }
+        data: { type: object, additionalProperties: true }
+    EventsGoAway:
+      type: object
+      required: [reason, message, reconnectAfterMs]
+      properties:
+        type: { const: go_away, description: "WebSocket only." }
+        reason: { type: string, enum: [shutdown, slow_consumer, key_revoked] }
+        message: { type: string }
+        reconnectAfterMs: { type: [integer, "null"], description: null means do not reconnect with this key. }

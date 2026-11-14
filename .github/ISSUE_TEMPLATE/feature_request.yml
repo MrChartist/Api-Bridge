@@ -5,7 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Want support for a new broker? Use the **New broker** template instead.
+        Want support for a new broker? Use the **New broker request** template instead.
+
+        The Bridge is a connection layer: one local API for your broker accounts, the data behind it and ways for other tools to connect. It does not include scanners, strategy tools, backtesting, charting or a trading desk (see [what it does not do](https://github.com/MrChartist/api-bridge-v2#what-it-does-not-do)); requests for those will be declined, but the API features a tool like that would need are welcome.
   - type: textarea
     id: problem
     attributes:

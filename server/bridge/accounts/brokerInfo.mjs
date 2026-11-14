@@ -1,11 +1,12 @@
 /**
- * Broker metadata for GET /v1/brokers and account summaries (stream S1): display names, verification status, and
- * the broker policy table published by stream S3 (server/bridge/ratelimit/brokerPolicies.mjs, data only).
+ * Broker metadata for GET /v1/brokers and account summaries: display names, verification status, and
+ * the broker policy table published by the ratelimit module (server/bridge/ratelimit/brokerPolicies.mjs, data only).
  *
- * The policy module is loaded lazily and tolerantly: until S3 ships it, every broker's pooling flag reads as
+ * The policy module is loaded lazily and tolerantly: until ratelimit ships it, every broker's pooling flag reads as
  * "unknown", which the Bridge treats as "not allowed" (one user's reads are never spread over accounts).
  */
 import { declaredCapabilities } from "../../brokers/contract.mjs";
+import { liveVerifiedBrokers } from "../../brokers/verification.mjs";
 
 /** Display names, matching docs/BROKERS.md. Unknown ids fall back to the id. */
 export const BROKER_NAMES = Object.freeze({
@@ -52,8 +53,8 @@ export const BROKER_NAMES = Object.freeze({
   axisdirect: "Axis Direct (RAPID APIs)",
 });
 
-/** Brokers checked end to end against a live account (docs/BROKERS.md). Only Dhan today. */
-export const VERIFIED_BROKERS = Object.freeze(["dhan"]);
+/** Brokers checked end to end against a live account: the live-verified entries of server/brokers/verification.json. */
+export const VERIFIED_BROKERS = Object.freeze(liveVerifiedBrokers());
 
 export const PAPER_BROKER = "paper";
 
@@ -66,7 +67,7 @@ export function adapterCapabilities(adapter) {
 }
 
 /**
- * Normalise whatever S3 exports into a lookup: an object keyed by broker id, or an array of { brokerId, ... }.
+ * Normalise whatever ratelimit exports into a lookup: an object keyed by broker id, or an array of { brokerId, ... }.
  * @param {unknown} raw
  * @returns {Readonly<Record<string, import("../core/contracts.mjs").BrokerPolicy>>}
  */
@@ -81,7 +82,7 @@ export function normalisePolicies(raw) {
 }
 
 /**
- * Load BROKER_POLICIES from S3's data module. A missing module (S3 not merged yet) gives an empty table; any other
+ * Load BROKER_POLICIES from ratelimit's data module. A missing module (ratelimit not merged yet) gives an empty table; any other
  * failure is logged and also gives an empty table, so a policy bug can only make pooling stricter, never looser.
  * @param {{ warn(msg: string, f?: object): void }} [logger]
  * @param {() => Promise<any>} [importer] test seam
@@ -101,4 +102,17 @@ export async function loadBrokerPolicies(logger, importer = () => import("../rat
 export function poolingFor(policies, brokerId) {
   const p = policies?.[brokerId]?.pooling;
   return p === "allowed" || p === "not-allowed" ? p : "unknown";
+}
+
+/**
+ * A broker policy entry as it applies to one plan (`tier`, for brokers with documented plans such as Fyers Standard and
+ * Prime), so feed caps and batch sizes follow the plan the account is on. A missing or unknown plan gives the entry
+ * unchanged (its own figures are the default plan's). Nothing is mutated.
+ * @param {object | null} policy
+ * @param {string | undefined} tier
+ */
+export function policyForTier(policy, tier) {
+  if (!policy?.tiers || typeof tier !== "string" || !Object.hasOwn(policy.tiers, tier)) return policy;
+  const t = policy.tiers[tier];
+  return { ...policy, limits: t.limits, groups: t.groups, maxQuoteBatch: t.maxQuoteBatch, feed: t.feed, ...(t.dataEntitlement ? { dataEntitlement: t.dataEntitlement } : {}), tier };
 }

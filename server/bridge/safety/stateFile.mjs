@@ -1,5 +1,5 @@
 /**
- * Small JSON state files for stream S9 (kill switch, daily counters). Writes are atomic (temp file in the same
+ * Small JSON state files for the safety module (kill switch, daily counters). Writes are atomic (temp file in the same
  * directory, fsync, rename) and owner-only (0600 file, 0700 directory), so a crash mid-write leaves either the old
  * or the new state, never half a file.
  */

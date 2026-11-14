@@ -29,7 +29,9 @@ import struct
 import threading
 import time
 import urllib.parse
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Sequence, Union
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple, Union
 
 from .errors import BridgeApiError
 
@@ -189,6 +191,7 @@ class BridgeStream:
         max_backoff: float = 30.0,
         recv_timeout: float = 45.0,
         on_gap: Optional[Callable[[int, int], None]] = None,
+        on_reconnect: Optional[Callable[[int], None]] = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.client = client
@@ -198,8 +201,13 @@ class BridgeStream:
         self.max_backoff = max_backoff
         self.recv_timeout = recv_timeout
         self.on_gap = on_gap
+        self.on_reconnect = on_reconnect
         self.gaps = 0
         self.reconnects = 0
+        self.conflated = 0
+        """Ticks the Bridge replaced with newer ones for this slow reader, summed from its heartbeats (the newest value always arrived)."""
+        self.connected = False
+        self._handlers: Dict[str, List[Callable[[Dict[str, Any]], None]]] = {}
         self._sleep = sleep
         self._ws: Optional[WebSocket] = None
         self._closed = threading.Event()
@@ -222,7 +230,10 @@ class BridgeStream:
         url = self.client.stream_url()
         self._ws = WebSocket(url, timeout=self.recv_timeout)
         self._last_seq = 0
+        self.connected = True
         self._resubscribe()
+        if self.reconnects and self.on_reconnect:
+            self.on_reconnect(self.reconnects)
 
     def _send(self, obj: Dict[str, Any]) -> None:
         ws = self._ws
@@ -271,6 +282,35 @@ class BridgeStream:
         self.reconnects += 1
         self._closed.wait(wait) if self._sleep is time.sleep else self._sleep(wait)
 
+    # callback API
+
+    def on(self, type_: str, handler: Callable[[Dict[str, Any]], None]) -> "BridgeStream":
+        """Register ``handler(message)`` for messages of one ``type`` ("tick", "order", "snapshot", "status", "error",
+        "heartbeat", "go_away", or "*" for all). Returns the stream, so calls chain. Run them with ``run()``."""
+        self._handlers.setdefault(type_, []).append(handler)
+        return self
+
+    def run(self, *, max_messages: Optional[int] = None) -> int:
+        """Iterate the stream and call the registered handlers until ``close()`` (from a handler or another thread) or
+        ``max_messages``. Returns the number of messages handled. A handler that raises stops the run (and closes the stream)."""
+        n = 0
+        try:
+            for msg in self:
+                for h in self._handlers.get(msg.get("type", ""), []) + self._handlers.get("*", []):
+                    h(msg)
+                n += 1
+                if max_messages is not None and n >= max_messages:
+                    break
+        finally:
+            if max_messages is not None and n >= max_messages:
+                self.close()
+        return n
+
+    def events(self) -> Iterator["StreamEvent"]:
+        """Like iterating the stream, but each message is a typed event (``Tick``, ``OrderUpdate``, ``Snapshot`` ...)."""
+        for msg in self:
+            yield parse_event(msg)
+
     def __iter__(self) -> Iterator[Dict[str, Any]]:
         while not self.closed:
             if self._ws is None or self._ws.closed:
@@ -295,6 +335,7 @@ class BridgeStream:
             try:
                 raw = self._ws.recv()  # type: ignore[union-attr]
             except (OSError, WebSocketClosed):
+                self.connected = False
                 if self._ws is not None:
                     self._ws.close()
                 if self.closed or not self.reconnect:
@@ -313,9 +354,139 @@ class BridgeStream:
                     if self.on_gap:
                         self.on_gap(self._last_seq + 1, seq)
                 self._last_seq = seq
+            if msg.get("type") == "heartbeat" and isinstance(msg.get("conflated"), int):
+                self.conflated += msg["conflated"]
             if msg.get("type") == "go_away":
                 try:
                     self._go_away_delay = max(0.0, float(msg.get("reconnectAfterMs") or 0) / 1000.0)
                 except (TypeError, ValueError):
                     self._go_away_delay = None
             yield msg
+
+
+# ── typed events ───────────────────────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class StreamEvent:
+    """Base of the typed events. ``seq`` is the per-connection counter; ``raw`` the message as the Bridge sent it."""
+
+    seq: Optional[int]
+    raw: Dict[str, Any] = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class Tick(StreamEvent):
+    """A price update. Stream data is real-time and official (it comes from a live broker feed): there is no delayed stream."""
+
+    symbol: str = ""
+    ltp: float = 0.0
+    received_at: Optional[datetime] = None
+    exchange_ts: Optional[datetime] = None
+    account_id: Optional[str] = None
+    broker: Optional[str] = None
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: Optional[float] = None
+    change_pct: Optional[float] = None
+    volume: Optional[float] = None
+    oi: Optional[float] = None
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+
+    @property
+    def age_ms(self) -> Optional[float]:
+        """How old this tick is now (since the Bridge received it)."""
+        return None if self.received_at is None else (datetime.now(timezone.utc) - self.received_at).total_seconds() * 1000.0
+
+
+@dataclass(frozen=True)
+class Snapshot(StreamEvent):
+    mode: str = "ltp"
+    symbols: Tuple[str, ...] = ()
+    ticks: Tuple[Tick, ...] = ()
+    pending: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class OrderUpdate(StreamEvent):
+    order_id: str = ""
+    account_id: str = ""
+    status: str = ""
+    mode: str = "paper"
+    client_order_id: Optional[str] = None
+    filled_quantity: Optional[float] = None
+    avg_price: Optional[float] = None
+
+    @property
+    def is_filled(self) -> bool:
+        return self.status == "filled"
+
+
+@dataclass(frozen=True)
+class Heartbeat(StreamEvent):
+    conflated: int = 0
+
+
+@dataclass(frozen=True)
+class FeedStatus(StreamEvent):
+    account_id: str = ""
+    broker: str = ""
+    state: str = ""
+    connected: bool = False
+    reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class StreamProblem(StreamEvent):
+    code: str = ""
+    message: str = ""
+    retryable: bool = False
+
+
+@dataclass(frozen=True)
+class GoAway(StreamEvent):
+    reason: str = ""
+    reconnect_after_ms: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class OtherEvent(StreamEvent):
+    """A message type this library does not model (``budget`` and any newer one). Read ``raw``."""
+
+    type: str = ""
+
+
+def _tick(m: Dict[str, Any], seq: Optional[int]) -> Tick:
+    def n(k: str) -> Optional[float]:
+        v = m.get(k)
+        return None if v is None or isinstance(v, bool) else float(v)
+
+    def ms(k: str) -> Optional[datetime]:
+        v = m.get(k)
+        return None if v is None else datetime.fromtimestamp(float(v) / 1000.0, tz=timezone.utc)
+
+    return Tick(seq, m, str(m.get("symbol")), float(m.get("ltp") or 0), ms("receivedAt"), ms("exchangeTs"), m.get("accountId"), m.get("broker"), n("open"), n("high"), n("low"), n("close"), n("changePct"), n("volume"), n("oi"), n("bid"), n("ask"))
+
+
+def parse_event(m: Dict[str, Any]) -> StreamEvent:
+    """A typed event from a stream message (see docs/asyncapi.yaml)."""
+    t = m.get("type")
+    seq = m.get("seq") if isinstance(m.get("seq"), int) else None
+    if t == "tick":
+        return _tick(m, seq)
+    if t == "snapshot":
+        return Snapshot(seq, m, str(m.get("mode") or "ltp"), tuple(m.get("symbols") or ()), tuple(_tick(x, seq) for x in m.get("ticks") or [] if isinstance(x, dict)), tuple(m.get("pending") or ()))
+    if t == "order" and isinstance(m.get("order"), dict):
+        o = m["order"]
+        return OrderUpdate(seq, m, str(o.get("orderId")), str(o.get("accountId")), str(o.get("status")), str(o.get("mode") or "paper"), o.get("clientOrderId"), o.get("filledQuantity"), o.get("avgPrice"))
+    if t == "heartbeat":
+        return Heartbeat(seq, m, int(m.get("conflated") or 0))
+    if t == "status":
+        return FeedStatus(seq, m, str(m.get("accountId")), str(m.get("broker")), str(m.get("state")), bool(m.get("connected")), m.get("reason"))
+    if t == "error":
+        return StreamProblem(seq, m, str(m.get("code")), str(m.get("message")), bool(m.get("retryable")))
+    if t == "go_away":
+        return GoAway(seq, m, str(m.get("reason")), m.get("reconnectAfterMs"))
+    return OtherEvent(seq, m, str(t))

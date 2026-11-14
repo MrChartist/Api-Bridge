@@ -3,7 +3,7 @@
  * 300-line limit once this section was added). Re-exported from dhan.mjs so
  * every existing import (`fetchFuturesQuotes`, `fetchRolloverData`,
  * `fetchMCXExpiryList` from "./dhan.mjs", and the `dhan.fetchFuturesQuotes`
- * namespace access the generic /api/broker-proxy path uses via registry.mjs)
+ * namespace access used via registry.mjs)
  * keeps working unchanged.
  */
 
@@ -31,8 +31,7 @@ async function downloadFuturesInstruments() {
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(",");
     if (cols.length < 8) continue;
-    // NSE + "D" segment code = NSE_FNO (futures & options) — see SEGMENT_MAP in
-    // proxy-server.mjs's instrument parsing for the full exchange/segment table.
+    // NSE + "D" segment code = NSE_FNO (futures & options).
     if (cols[idx("SEM_EXM_EXCH_ID")]?.trim() !== "NSE" || cols[idx("SEM_SEGMENT")]?.trim() !== "D") continue;
     const instrumentType = cols[idx("SEM_INSTRUMENT_NAME")]?.trim();
     if (instrumentType !== "FUTSTK" && instrumentType !== "FUTIDX") continue;

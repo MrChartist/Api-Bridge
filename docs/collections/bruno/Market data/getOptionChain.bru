@@ -1,0 +1,40 @@
+meta {
+  name: Option chain with IV and Greeks
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/v1/optionchain?underlying=NIFTY&expiry={{expiry}}&strikes=5
+  body: none
+  auth: bearer
+}
+
+params:query {
+  underlying: NIFTY
+  expiry: {{expiry}}
+  strikes: 5
+  ~greeks: true
+  ~ivModel: b76-forward
+  ~backup: false
+  ~purpose: display
+  ~account: demo-paper
+  ~maxAgeMs: 0
+  ~swr: false
+  ~priority: interactive
+  ~strict: false
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Option chain with IV and Greeks
+
+  - An API key with the `read` scope (any key).
+
+  Works for every F&O stock and index the broker lists; `GET /v1/expiries?underlying=` lists the expiries it can answer for.
+
+  Reference: docs/api/market-data/getOptionChain.md in the repository.
+}

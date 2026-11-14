@@ -1,0 +1,25 @@
+meta {
+  name: The one-click presets
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/v1/recordings/presets
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The one-click presets
+
+  - An API key with the `read` scope (any key).
+
+  Record index option chains, and Record my watchlist.
+
+  Reference: docs/api/recordings/listRecordingPresets.md in the repository.
+}

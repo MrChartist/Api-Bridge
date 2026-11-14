@@ -1,0 +1,29 @@
+meta {
+  name: One recording: counters, gaps, disk use, files summary
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/v1/recordings/:recordingId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  recordingId: {{recordingId}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  One recording: counters, gaps, disk use, files summary
+
+  - An API key with the `read` scope (any key).
+
+  gaps lists stretches with no data and why (feed silent, login missing, Bridge stopped, budget in use, disk limit). disk shows its use against its limit and the total limit.
+
+  Reference: docs/api/recordings/getRecording.md in the repository.
+}

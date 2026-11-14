@@ -1,5 +1,5 @@
 /**
- * S8 PaperEngine: state machine, fills from market data and ticks, funds and margin, positions and P&L,
+ * PaperEngine: state machine, fills from market data and ticks, funds and margin, positions and P&L,
  * intraday square-off, session-end expiry, day roll, persistence and restart, ids, pagination and reset.
  *
  * Deterministic: a fake clock, fake timers, the published market-data and symbol fakes (no broker calls) and a real
@@ -195,7 +195,7 @@ describe("MARKET fills", () => {
     await r.engine.place("paper-1", buy(RELIANCE, 1));
     const ltpCall = r.md.calls.find(([m]) => m === "ltp");
     expect(ltpCall[1]).toEqual([RELIANCE]);
-    expect(ltpCall[2]).toMatchObject({ maxAgeMs: 1000, priority: "interactive" });
+    expect(ltpCall[2]).toMatchObject({ maxAgeMs: 1000, priority: "interactive", purpose: "paper" });
   });
 });
 
@@ -556,7 +556,7 @@ describe("time-based behaviour (fake clock)", () => {
     r.md.calls.length = 0;
     await r.engine.runOnce();
     expect((await r.engine.order("paper-1", o.orderId)).status).toBe("filled");
-    expect(r.md.calls[0]).toEqual(["ltp", [RELIANCE], { maxAgeMs: 2000, priority: "interactive" }]);
+    expect(r.md.calls[0]).toEqual(["ltp", [RELIANCE], { maxAgeMs: 2000, priority: "interactive", purpose: "paper" }]);
   });
 
   it("start() is idempotent, polls on the configured interval, and stop() unhooks ticks and timers", async () => {
@@ -833,5 +833,72 @@ describe("daily P&L snapshots and tagged fills (the journal's inputs)", () => {
     expect((await r.engine.daily("paper-1")).length).toBe(1);
     await r.engine.reset("paper-1", {});
     expect((await r.engine.daily("paper-1")).length).toBe(1);
+  });
+});
+
+describe("paper fills are priced only from trusted real-time values", () => {
+  const trusted = (r) => ({ source: "broker", asOf: new Date(r.clock.t).toISOString(), ageMs: 0, stale: false, accountId: null, broker: null, class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] });
+  const UNTRUSTED = [
+    ["stale", (f) => ({ ...f, stale: true, source: "cache", flags: ["stale"] })],
+    ["delayed", (f) => ({ ...f, class: "delayed", delaySec: 900, official: false, source: "backup", flags: ["delayed", "unofficial"] })],
+    ["end of day", (f) => ({ ...f, class: "eod", delaySec: null, source: "backup", flags: ["eod"] })],
+    ["unofficial", (f) => ({ ...f, official: false, flags: ["unofficial"] })],
+    ["from a plugin", (f) => ({ ...f, class: "delayed", delaySec: 60, official: false, source: "backup", flags: ["plugin", "unofficial", "delayed", "untrusted_source"] })],
+    ["labelled realtime but from a backup source", (f) => ({ ...f, source: "backup" })],
+    ["unlabelled", () => undefined],
+  ];
+  const serve = (r, mutate, price = 1300) => {
+    r.md.ltp = async (symbols, opts) => {
+      r.md.calls.push(["ltp", [...symbols], { ...opts }]);
+      const f = mutate(trusted(r));
+      return { items: symbols.map((symbol) => ({ symbol, ltp: price, ...(f ? { freshness: f } : {}) })), errors: [] };
+    };
+  };
+
+  it("asks for purpose paper on every price and depth read", async () => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 1));
+    await r.engine.place("paper-1", { ...buy(RELIANCE, 1), orderType: "LIMIT", price: 1390 });
+    r.advance(5000);
+    await r.engine.runOnce();
+    const reads = r.md.calls.filter(([m]) => m === "ltp" || m === "depth");
+    expect(reads.length).toBeGreaterThan(1);
+    for (const [m, , opts] of reads) expect(opts, m).toMatchObject({ purpose: "paper" });
+  });
+
+  it.each(UNTRUSTED)("a MARKET order is not filled from a price that is %s", async (_n, mutate) => {
+    const r = rig();
+    serve(r, mutate);
+    const o = await r.engine.place("paper-1", buy(RELIANCE, 1));
+    expect(o.status).toBe("rejected");
+    expect(o.statusMessage).toMatch(/No market price/);
+    expect(await r.engine.positions("paper-1")).toEqual([]);
+  });
+
+  it.each(UNTRUSTED)("a pending LIMIT order is not triggered by polling a price that is %s", async (_n, mutate) => {
+    const r = rig();
+    const o = await r.engine.place("paper-1", { ...buy(RELIANCE, 1), orderType: "LIMIT", price: 1390 });
+    expect(o.status).toBe("open");
+    r.advance(5000);
+    serve(r, mutate, 1300); // far through the limit: it would fill if the value were believed
+    await r.engine.runOnce();
+    expect((await r.engine.order("paper-1", o.orderId)).status).toBe("open");
+  });
+
+  it.each(UNTRUSTED)("an open position is not marked to a price that is %s", async (_n, mutate) => {
+    const r = rig();
+    await r.engine.place("paper-1", buy(RELIANCE, 1)); // filled at the good price 1400
+    r.restart();
+    r.advance(10_000);
+    serve(r, mutate, 900);
+    const p = (await r.engine.positions("paper-1"))[0];
+    expect(p.ltp).not.toBe(900);
+  });
+
+  it("a trusted price still fills (the fake would otherwise hide a rule that blocks everything)", async () => {
+    const r = rig();
+    serve(r, (f) => f, 1300);
+    const o = await r.engine.place("paper-1", buy(RELIANCE, 1));
+    expect(o.status).toBe("filled");
   });
 });

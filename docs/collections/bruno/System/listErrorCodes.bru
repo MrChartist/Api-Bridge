@@ -1,0 +1,25 @@
+meta {
+  name: Every error code, what it means and how to fix it
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/v1/errors
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Every error code, what it means and how to fix it
+
+  - An API key with the `read` scope (any key).
+
+  The catalogue of every problem `code` the Bridge can return, with its HTTP status, whether sending the same request again is safe, a plain explanation and the fix. Generated from the Bridge's own error definitions, so it always matches the version you run.
+
+  Reference: docs/api/system/listErrorCodes.md in the repository.
+}

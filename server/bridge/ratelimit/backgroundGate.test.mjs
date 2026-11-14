@@ -1,11 +1,11 @@
 /**
- * backgroundGate (docs/spec/README.md §3.1): background work never leaves any window below 50 % of its limit.
+ * backgroundGate: background work never leaves any window below 50 % of its limit.
  */
 import { describe, expect, it } from "vitest";
 import { createFakeAccountManager } from "../accounts/fake.mjs";
 import { TOPICS, createEventBus } from "../core/eventBus.mjs";
 import { createLogger } from "../core/logger.mjs";
-import { MAX_BACKGROUND_SHARE, createBackgroundGate, floorDecision, gateDecision } from "./backgroundGate.mjs";
+import { MAX_BACKGROUND_SHARE, MAX_BACKGROUND_SHARE_CEILING, createBackgroundGate, floorDecision, gateDecision } from "./backgroundGate.mjs";
 import { createFakeScheduler, createManualClock } from "./fake.mjs";
 import { createScheduler } from "./scheduler.mjs";
 import { createRateLimiter } from "./tokenBucket.mjs";
@@ -36,12 +36,15 @@ describe("gateDecision", () => {
     expect(gateDecision({ windows: [win(10, 9), win(200, 100, 30_000, "1m")] }).ok).toBe(false);
   });
 
-  it("a smaller share is stricter; a share above 50 % is clamped to 50 %", () => {
+  it("a smaller share is stricter; a share above 80 % is clamped to 80 %", () => {
     expect(gateDecision({ windows: [win(10, 6)] }, { share: 0.2 }).ok).toBe(false); // floor 8
     expect(gateDecision({ windows: [win(10, 9)] }, { share: 0.2 }).ok).toBe(true);
-    expect(gateDecision({ windows: [win(10, 5)] }, { share: 1 }).ok).toBe(false); // still floor 5
+    expect(gateDecision({ windows: [win(10, 5)] }, { share: 1 }).ok).toBe(true); // clamped to 0.8: floor 2
+    expect(gateDecision({ windows: [win(10, 2)] }, { share: 1 }).ok).toBe(false); // never below the floor of 2
+    expect(gateDecision({ windows: [win(10, 5)] }, { share: 0.8 }).ok).toBe(true);
     expect(gateDecision({ windows: [win(10, 10)] }, { share: 0 }).ok).toBe(false);
-    expect(MAX_BACKGROUND_SHARE).toBe(0.5);
+    expect(MAX_BACKGROUND_SHARE).toBe(0.5); // the default
+    expect(MAX_BACKGROUND_SHARE_CEILING).toBe(0.8);
   });
 
   it("refuses while the class backs off and reports when to look again", () => {
@@ -73,7 +76,7 @@ describe("floorDecision (the guaranteed share on a 1-call-a-second class)", () =
   });
 });
 
-describe("property: background callers never leave a window below 50 %", () => {
+describe("property: background callers never leave a window below (1 - share), share at most 80 %", () => {
   it("over 10,000 random schedules of user and background calls on multi-window class + group buckets", () => {
     const rand = rng(20261029);
     let backgroundTakes = 0;
@@ -111,7 +114,7 @@ describe("property: background callers never leave a window below 50 %", () => {
           for (const l of lims) {
             for (const w of l.windows(t)) {
               const remaining = w.limit - w.used;
-              if (remaining < Math.ceil(0.5 * w.limit)) throw new Error(`run ${run} step ${i}: window ${w.window} left ${remaining} of ${w.limit}`);
+              if (remaining < Math.ceil((1 - Math.min(share, 0.8)) * w.limit)) throw new Error(`run ${run} step ${i}: window ${w.window} left ${remaining} of ${w.limit}`);
             }
           }
         }
@@ -199,7 +202,7 @@ describe("property: background callers never leave a window below 50 %", () => {
     s.stop();
   });
 
-  it("schedule() validates backgroundShare and clamps it to 50 %", async () => {
+  it("schedule() validates backgroundShare and clamps it to 80 %", async () => {
     const clock = createManualClock();
     const logger = createLogger({ write: () => {} });
     const bus = createEventBus({ logger, topics: TOPICS });
@@ -209,11 +212,11 @@ describe("property: background callers never leave a window below 50 %", () => {
     const s = createScheduler({ config: { ratelimit: {} }, logger, bus, clock, accounts }, { policies });
     await expect(s.schedule({ accountId: "s1", endpointClass: "quote", backgroundShare: 0.5 }, async () => 1)).rejects.toThrow(/background/);
     await expect(s.schedule({ accountId: "s1", endpointClass: "quote", priority: "background", backgroundShare: "x" }, async () => 1)).rejects.toThrow(TypeError);
-    // share 1 is clamped to 0.5: of 4 per second, background may use 2.
+    // share 1 is clamped to 0.8: of 4 per second the floor is 1, so background may use 3.
     const runs = Array.from({ length: 3 }, () => s.schedule({ accountId: "s1", endpointClass: "quote", priority: "background", backgroundShare: 1, maxWaitMs: 10_000 }, async () => 1));
     await Promise.resolve();
     await Promise.resolve();
-    expect(s.headroomWindows("s1", "quote").windows[0].used).toBe(2);
+    expect(s.headroomWindows("s1", "quote").windows[0].used).toBe(3);
     await clock.advance(1100);
     await Promise.all(runs);
     s.stop();

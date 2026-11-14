@@ -4,6 +4,7 @@
 // "Check order" asks POST /v1/orders/preview and shows each warning and block before anything is placed.
 import { api, h, modal, optional, plainBrokerMessage, toast } from "./app.js";
 import { formatFixed, formatInt } from "./format.js";
+import { createOrderKeys } from "./orders-core.js";
 import { field, segField, segmented } from "./views.js";
 
 /** [value, label on the control, what it means in plain words]. */
@@ -141,6 +142,7 @@ export async function openOrderTicket({ accounts, side: firstSide = "BUY", symbo
   const checks = h("div", { class: "tk-checks", "aria-live": "polite" });
   const err = h("p", { class: "bad-text", role: "alert", hidden: true });
 
+  const keys = createOrderKeys();
   let lotSize = 1;
   let known = new Map();
   const inputs = { account, symbol, size, price, trigger, tag };
@@ -259,7 +261,8 @@ export async function openOrderTicket({ accounts, side: firstSide = "BUY", symbo
     if (o.error) return mark(o.error.field, o.error.message);
     let placed;
     try {
-      placed = (await api("/v1/orders", { method: "POST", body: o.body })).data?.data;
+      // The same order pressed twice is one order: the key is the same for the same ticket contents.
+      placed = (await api("/v1/orders", { method: "POST", body: o.body, idempotencyKey: keys.keyFor(o.body) })).data?.data;
     } catch (e) {
       return refused(e);
     }

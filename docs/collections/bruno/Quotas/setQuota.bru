@@ -1,0 +1,37 @@
+meta {
+  name: Override one key's quota or weight
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/v1/quotas/:keyId
+  body: json
+  auth: bearer
+}
+
+params:path {
+  keyId: {{keyId}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "perSecond": 5,
+    "burst": 10
+  }
+}
+
+docs {
+  Override one key's quota or weight
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Only the fields you send change. `perDay: null` removes the daily cap. The override survives a restart.
+
+  Reference: docs/api/quotas/setQuota.md in the repository.
+}

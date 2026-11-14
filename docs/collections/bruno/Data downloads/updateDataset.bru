@@ -1,0 +1,34 @@
+meta {
+  name: Fetch what is new since the last stored bar
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/v1/datasets/:name/update
+  body: none
+  auth: bearer
+}
+
+params:path {
+  name: large-caps-1d
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Fetch what is new since the last stored bar
+
+  - An API key with the `read` scope (any key).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Starts a job that continues every series of the dataset from its last stored bar. When an update of this dataset is already running, that job is returned and `meta.existing` is true.
+
+  Reference: docs/api/data-downloads/updateDataset.md in the repository.
+}

@@ -12,7 +12,7 @@
  *  - Access tokens last 24 hours; an expired token answers 401 Unauthorized.
  *
  * Session login (contract auth.kind "sessionLogin"): the user types the password and the CURRENT 6-digit TOTP
- * code in Broker Settings; login() returns only { sessionToken }. Nothing re-logs in automatically: a 401 on a
+ * code in the account settings; login() returns only { sessionToken }. Nothing re-logs in automatically: a 401 on a
  * data call throws SessionRequiredError and the user logs in again.
  *
  * NEVER log creds, the password, the TOTP code or the access token — field names / HTTP status codes only.
@@ -94,7 +94,7 @@ export async function tjRequest(creds, path, { method = "GET", query, form } = {
   }
   const res = await brokerFetch(url.toString(), { method, headers, body });
   const json = await res.json().catch(() => null);
-  if (res.status === 401) throw new SessionRequiredError("Tradejini: your session has expired or was rejected. Log in again from Broker Settings.");
+  if (res.status === 401) throw new SessionRequiredError("Tradejini: your session has expired or was rejected. Log in again from the account settings.");
   if (json?.s === "no-data") return null;
   if (!res.ok || !json || json.s !== "ok") {
     const msg = String(json?.msg || json?.d?.msg || `HTTP ${res.status}`).slice(0, 200);

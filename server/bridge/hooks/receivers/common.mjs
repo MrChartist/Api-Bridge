@@ -1,5 +1,5 @@
 /**
- * Shared parsing for inbound alerts — stream S11.
+ * Shared parsing for inbound alerts.
  *
  * Every receiver turns an alert into one or more Signals. A Signal is only what the alert ASKED for; the worker
  * then applies the hook's fixed mapping and caps (account, allowed symbols, lots cap, product, order type, side,
@@ -8,8 +8,12 @@
  * guessing, because a guessed order is worse than no order.
  *
  * @typedef {{ symbol: string, side: "BUY"|"SELL"|null, quantity: number|null, lots: number|null, price: number|null,
- *   triggerPrice: number|null, orderType: "LIMIT"|"MARKET"|"SL"|"SL-M"|null, product: "CNC"|"INTRADAY"|"MARGIN"|null, ref: string|null, time: string|null }} Signal
+ *   triggerPrice: number|null, orderType: "LIMIT"|"MARKET"|"SL"|"SL-M"|null, product: "CNC"|"INTRADAY"|"MARGIN"|null, ref: string|null, time: string|null } & SignalExtras} Signal
  *   ref + time: the sender's own identity for the signal (for example an order id plus the alert time).
+ *   TradingView alerts also fill: account, mode ("paper"|"live"), marketPosition ("long"|"flat"|"short"), positionSize,
+ *   timeMs (time as epoch milliseconds) and symbolFrom ("chart": the symbol is a charting-platform ticker).
+ * @typedef {{ account?: string | null, mode?: "paper"|"live" | null, marketPosition?: "long"|"flat"|"short" | null,
+ *   positionSize?: number | null, timeMs?: number | null, symbolFrom?: "chart" | null }} SignalExtras
  * @typedef {{ signals: Signal[], basis: string | null, dropped: number }} ParsedAlert
  *   basis: a stable identity for the alert when the sender supplies one (order id + time);
  *   null means "identify the alert by its exact bytes inside the dedupe window".

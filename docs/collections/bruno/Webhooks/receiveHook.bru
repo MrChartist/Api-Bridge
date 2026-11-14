@@ -1,0 +1,53 @@
+meta {
+  name: Inbound alert (TradingView, signed generic, ChartInk or GoCharting)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/hooks/:source/:token
+  body: json
+  auth: none
+}
+
+params:path {
+  source: generic
+  token: <hook token>
+}
+
+headers {
+  ~X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256>
+}
+
+body:json {
+  {
+    "symbol": "NSE:RELIANCE",
+    "side": "BUY",
+    "quantity": 1,
+    "orderType": "MARKET",
+    "id": "sig-1"
+  }
+}
+
+docs {
+  Inbound alert (TradingView, signed generic, ChartInk or GoCharting)
+
+  - No Bridge key. The hook token in the URL is the credential (generic hooks also need a signature).
+  - Served on the public ingress listener when it is enabled.
+
+  Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background,
+  through the same preview and safety checks as any order. The hook decides what an alert may do (account,
+  symbols, quantity caps, paper or live, whether a human must confirm). `generic` hooks must send
+  `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`; requests older than 5 minutes or
+  replayed are refused. Served on the public ingress listener when it is enabled.
+
+  `tradingview` hooks cannot sign (TradingView cannot add headers): the credential is the secret URL plus a
+  `passphrase` field inside the alert message (a JSON field, or `passphrase=...` in a plain-text alert), checked in
+  constant time before anything else is read. Wrong or missing: 401. The message is JSON (when TradingView sends
+  `application/json`) or one line of text (`text/plain`); see the `TradingViewAlert` schema. An alert older than
+  the hook's `maxAgeSec` (from its `time`) is refused with 400; a repeat of the same id + time + symbol + side is
+  acknowledged as `duplicate: true`. A rejected order after the 202 is shown in
+  `GET /v1/hooks/{hookId}/signals` and announced on the event bus as `hook.rejected`.
+
+  Reference: docs/api/webhooks/receiveHook.md in the repository.
+}

@@ -1,0 +1,9 @@
+{
+ "chart": {
+  "result": null,
+  "error": {
+   "code": "Unprocessable Entity",
+   "description": "The requested range must be within the last 30 days."
+  }
+ }
+}

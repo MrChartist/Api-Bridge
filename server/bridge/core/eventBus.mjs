@@ -12,71 +12,86 @@
  *  stream.status       { accountId, broker, connected, state: "up"|"stale"|"down", detail?, reason?, subscriptions }
  *  account.status      { accountId, broker, session: "connected"|"expired"|"missing"|"error", expiresAt?, message? }
  *  account.session_rejected { accountId, broker, code }   scheduler saw a session error; AccountManager marks it expired
+ *  account.login_needed { accountId, label, broker, method, reason, kind, endsAt? }   morning reminder (accounts/morningLogin.mjs):
+ *                        reason missing|expired|error|ends_before_close, kind preopen|ending_soon; no secrets, label only
  *  order.updated       { orderId, clientOrderId?, accountId, mode, status, brokerStatus?, filledQuantity, avgPrice?, source,
  *                        realisedPnl? }   realisedPnl: P&L realised by this fill (paper), for daily-loss tracking
  *  order.outcome_unknown { orderId, accountId, clientOrderId?, since }
+ *  orders.drift        { accountId, state: "drift"|"ok", previous, count, kinds: { kind: n }, differences: [{ kind, orderId, brokerOrderId, symbol, side, message }], checkedAt }
+ *                      the read-only order-book check (orders/drift.mjs) found a different set of differences between the Bridge's live orders
+ *                      and the broker's order book for an account (state "ok": the last differences are gone). Only compares; changes nothing.
  *  safety.kill_switch  { engaged, reason, by, at, cancelOpenOrders }   OrderService listens and runs cancelAll when asked
  *  safety.limit        { accountId, limit, value, threshold }
  *  limits.throttled    { accountId, endpointClass, retryAfterMs, upstream: boolean }
  *  audit.appended      { seq, type, accountId? }
  *  config.warning      { message }
+ *  backup.completed    { kind, at, path, bytes, files, includesSecrets }   a backup was written (no file contents)
+ *  backup.failed       { kind, at, message }                               a backup could not be written
+ *  download.progress   { id, name, status, reason, total, done, failed, rows, bytes, etaSec, current, dataset }   a download job moved (throttled)
+ *  download.done       { id, name, files, rows, bytes, dataClass, source, dataset }   a download job finished
+ *  download.failed     { id, name, reason, message, failed, dataset }   a download job ended with failed items, or stopped (disk limit)
  *  key.revoked         { keyId }                    StreamHub closes WS/SSE connections opened with this key
  *  ticket.confirmed    { ticketId, accountId, principal }   a person confirmed an order ticket (no token in the payload)
- *  position.converted  { accountId, mode, symbol, from, to, quantity, at }   units moved between products (the trigger
- *                        engine carries a position's stops and targets with them)
- *  scan.progress       { keyId, jobId, savedId, status, progress: { total, done, matched, errors } }   scanner, at most 1/s per job
- *  scan.completed      { keyId, jobId, savedId, status, matched: string[], progress }
- *  scan.alert          { keyId, savedId, name, jobId, newMatches: string[], at }   a saved scan found symbols its last run did not
- *
- * Phase 1 options topics (added together by F0, docs/spec/README.md §3.1; each owning spec defines its payload):
- *  recorder.status       recorder state change, at most 1/s (p1-01)
- *  recorder.snapshot     a recorded chain snapshot was written (p1-01)
- *  reference.updated     { dataset, asOf, source, changed: boolean }   (p1-02)
- *  vol.captured          one per underlying per daily capture run (p1-03)
- *  trading.readiness     account readiness change; notify only when `notify: true` (p1-05 §3.4)
- *  fno.sweep.progress    { jobId, status, progress }, at most 1/s (p1-06)
- *  fno.sweep.completed   { jobId, status, chains, failed, durationMs } (p1-06)
- *  exposure.levels       gamma levels, emitted only on change (p1-08)
- *  settlement.update     running / final settlement estimate (p1-09 §4.6)
- *  charges.plan_changed  { accountId }   (p1-10)
- *  option.alert          an alert rule fired (p1-11)
- *  strategy.guard        guard state change (p1-12 §3.3)
- *  participants.updated  { date, source, changed }   (p1-12)
- *  market.event          { type: "new" | "update", event }   a live event record or a repeat inside its cool-down (S28 events)
+ *  ticket.rejected     { ticketId, accountId, principal }   a person declined an order ticket (principal: who prepared it)
+ *  hook.rejected       { hookId, label, source, signalId, stage: "order"|"receive", outcome, code, reason, symbol, side, accountId, mode, at }
+ *                      a webhook alert that was accepted (202) but did not end in an order (rejected, failed, outcome unknown,
+ *                      dropped), or was refused at the door as stale, unreadable or because the queue was full; never a test alert
+ *                      and never a wrong passphrase. No alert body, token or passphrase is in it.
+ *  position.converted  { accountId, mode, symbol, from, to, quantity, at }   units moved between products
+ *  trading.readiness   account readiness change; notify only when `notify: true`
+ *  ticket.prepared     { ticketId, accountId, mode, symbol, side, quantity, estimatedValue, source, client, expiresAt }   an order waits for a
+ *                      person to approve it (never carries a confirm token)
+ *  hook.stale          { hookId?, label?, source?, reason?, symbol?, side? }          an alert was too old to trade on
+ *  hook.failed         { hookId?, label?, source?, reason, code?, symbol?, side? }    an accepted alert's order could not be made
+ *  collection.changed  { action: "created"|"updated"|"renamed"|"deleted", id, name, kind, tags, from?, imported? }   a collection was written (no symbol lists)
+ *  recording.started|stopped|gap|disk_low  { id, name, kind, ... }                                                              (recorder module)
+ *  The events module (events/catalog.mjs) offers most of these topics to other programs; ticks and key events are never offered.
+ *  recording.started   { id, name, auto, ruleId?, kind, everySec, date }          a recording began (by hand), or an auto-record rule began its day
+ *  recording.stopped   { id, name, auto, ruleId?, reason, rows, bytes, gaps }     stopped by hand, session end of a rule, rule off, deleted
+ *  recording.gap       { id, name, state: "open"|"closed", gapId, from, to, reason, message }   no data was saved for a stretch (feed silent, login missing ...)
+ *  storage.status      { level: "ok"|"low"|"critical", previous, freeMb, minFreeMb, hardFreeMb, writeFailures, message }   free space on the data folder's disk changed level
+ *  system.resumed      { sleptMs, from, to }   the computer slept, or the Bridge was frozen, for about sleptMs (core/powerEvents.mjs)
+ *  system.clock_changed { deltaMs, from, to }  the computer's clock jumped by deltaMs (a time sync, or a person changed it)
+ *  data.quarantined    { what, file, movedTo, reason, at }   a damaged state file was moved aside (paths relative to the data folder); the store started empty
+ *  recording.disk_low  { id|null, name|null, scope: "recording"|"total"|"volume", level: "warning"|"stopped", stopped, usedMb?, limitMb?, freeMb?, message }
  */
 export const TOPICS = Object.freeze([
   "tick",
   "stream.status",
   "account.status",
   "account.session_rejected",
+  "account.login_needed",
   "order.updated",
   "order.outcome_unknown",
+  "orders.drift",
   "safety.kill_switch",
   "safety.limit",
   "limits.throttled",
   "audit.appended",
   "config.warning",
+  "backup.completed",
+  "backup.failed",
+  "download.progress",
+  "download.done",
+  "download.failed",
   "key.revoked",
   "ticket.confirmed",
+  "ticket.rejected",
+  "hook.rejected",
   "position.converted",
-  "scan.progress",
-  "scan.completed",
-  "scan.alert",
-  "recorder.status",
-  "recorder.snapshot",
-  "reference.updated",
-  "vol.captured",
   "trading.readiness",
-  "fno.sweep.progress",
-  "fno.sweep.completed",
-  "exposure.levels",
-  "settlement.update",
-  "charges.plan_changed",
-  "option.alert",
-  "strategy.guard",
-  "participants.updated",
-  "market.event",
-  "analytics.alert",
+  "ticket.prepared",
+  "hook.stale",
+  "hook.failed",
+  "collection.changed",
+  "recording.started",
+  "recording.stopped",
+  "recording.gap",
+  "recording.disk_low",
+  "storage.status",
+  "data.quarantined",
+  "system.resumed",
+  "system.clock_changed",
 ]);
 
 /**

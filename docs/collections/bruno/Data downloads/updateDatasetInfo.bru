@@ -1,0 +1,36 @@
+meta {
+  name: Rename a dataset or change its tags and title
+  type: http
+  seq: 16
+}
+
+patch {
+  url: {{baseUrl}}/v1/datasets/:name
+  body: json
+  auth: bearer
+}
+
+params:path {
+  name: large-caps-1d
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "title": "Large caps, daily",
+    "tags": [
+      "core"
+    ]
+  }
+}
+
+docs {
+  Rename a dataset or change its tags and title
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/data-downloads/updateDatasetInfo.md in the repository.
+}

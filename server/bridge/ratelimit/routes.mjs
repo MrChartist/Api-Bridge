@@ -1,10 +1,22 @@
 /**
- * Route handlers for stream S3 (docs/openapi.yaml, tag Limits): GET /v1/limits and GET /v1/usage.
- * Both answer { data, meta } and only show accounts the caller's key may use.
+ * Route handlers for the ratelimit module (docs/openapi.yaml, tag Limits): GET /v1/limits, GET /v1/usage and the per-key
+ * quotas (GET /v1/quotas, PUT and DELETE /v1/quotas/{keyId}). All answer { data, meta }; limits and usage only show
+ * accounts the caller's key may use.
+ *
+ * GET /v1/limits?explain=1 adds to the usual answer (which is otherwise unchanged, byte for byte):
+ *   pools      the adaptive state of every budget pool the caller may see: { group, accountId, broker, classes, accounts,
+ *              spare, remaining, limit, ceiling, backoffFactor, backoffMs, episodesLastHour, frozen }
+ *   consumers  who is competing for the broker queue now: { id, label, kind, weight, queued, inFlight, share } (all of
+ *              them for admin keys and this computer, else only the caller's own)
+ *   you        the caller's own quota: { keyId, source, perSecond, burst, perDay, weight, usage }
+ *   savedCalls broker calls not made today: { day, total, byReason } from data already on disk (market/savedCalls.mjs),
+ *              and `scheduler` (stream, cache, coalesced, batched); `totalToday` is the sum
  */
 import { effectiveAccountLimits } from "../core/config.mjs";
-import { BridgeError } from "../core/errors.mjs";
+import { BridgeError, NotImplementedError } from "../core/errors.mjs";
+import { snapshot as savedCallsSnapshot } from "../market/savedCalls.mjs";
 import { budgetSummary } from "./budget.mjs";
+import { DEFAULT_KIND_WEIGHTS } from "./consumer.mjs";
 
 const ACCOUNT_ID = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
@@ -21,12 +33,80 @@ const canSee = (visible, id) => visible === "*" || visible.has(id);
 /** JSON has no Infinity: unlimited (paper) budgets are reported as null. */
 const finite = (n) => (Number.isFinite(n) ? n : null);
 
+const KEY_ID = /^[a-z0-9]{4,32}$/;
+const isAdmin = (ctx) => ctx.principal?.kind === "local" || Boolean(ctx.scopes?.has?.("admin"));
+/**
+ * The least the only active admin key may be given. Anything lower could lock it out of the API (a quota applies to the key,
+ * not to this computer's control token), leaving the control token / `mc-bridge` CLI as the only way to undo it.
+ */
+export const LAST_ADMIN_FLOOR = Object.freeze({ perSecond: 1, perDay: 1000 });
+const truthy = (v) => ["1", "true"].includes(String(v ?? "").toLowerCase());
+
 /**
  * @param {object} deps  register() deps: config and the scheduler (this stream's own service).
  */
 export function createLimitRoutes(deps) {
   const { config } = deps;
   const scheduler = deps.scheduler;
+
+  function needQuotas() {
+    if (!scheduler?.quotas) throw new NotImplementedError("The per-key quotas");
+    return scheduler.quotas;
+  }
+
+  /** One key's row of GET /v1/quotas. `rec` is a key record ({ id, label, clientKind }). */
+  function quotaRow(rec) {
+    const q = needQuotas().resolve(rec.id);
+    const kinds = scheduler.clientWeights?.() ?? DEFAULT_KIND_WEIGHTS;
+    return {
+      keyId: rec.id,
+      label: rec.label ?? null,
+      clientKind: rec.clientKind ?? "other",
+      weight: q.weight ?? kinds[rec.clientKind ?? "other"] ?? kinds.other,
+      perSecond: q.perSecond,
+      burst: q.burst,
+      perDay: q.perDay,
+      usage: scheduler.clientUsage(rec.id),
+      source: q.source,
+    };
+  }
+
+  /** A usable (not revoked, not expired) key record, or null. */
+  async function findKey(keyId) {
+    if (typeof keyId !== "string" || !KEY_ID.test(keyId)) return null;
+    let rec = null;
+    try {
+      rec = await deps.keyStore.get(keyId);
+    } catch {
+      return null; // key store not built: no key can be named
+    }
+    if (!rec || rec.revokedAt) return null;
+    if (rec.expiresAt && Date.parse(rec.expiresAt) <= (deps.clock?.now?.() ?? Date.now())) return null;
+    return rec;
+  }
+
+  /** Is this key admin-scoped with no other active admin-scoped key? (Keys that cannot be listed count as "not the last".) */
+  async function isLastAdmin(rec) {
+    if (!rec.scopes?.includes?.("admin")) return false;
+    let all;
+    try {
+      all = await deps.keyStore.list();
+    } catch {
+      return false;
+    }
+    const now = deps.clock?.now?.() ?? Date.now();
+    const active = (Array.isArray(all) ? all : []).filter((k) => k && !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) <= now) && k.scopes?.includes?.("admin"));
+    return !active.some((k) => k.id !== rec.id);
+  }
+
+  async function audit(ctx, type, data) {
+    try {
+      await deps.audit.append({ type, actor: { kind: ctx.principal.kind, id: ctx.principal.id }, source: ctx.source, requestId: ctx.requestId, data });
+    } catch (err) {
+      if (err instanceof NotImplementedError) ctx.log.warn("audit log not built yet; quota change not audited", { type, keyId: data.keyId });
+      else ctx.log.error("audit append failed for quota change", { type, keyId: data.keyId, err });
+    }
+  }
 
   function selectedAccounts(ctx) {
     const param = ctx.query.get("account");
@@ -72,10 +152,85 @@ export function createLimitRoutes(deps) {
         if (b) accounts.push(b);
       }
       const c = scheduler.clientBudget(ctx);
+      const data = { safety, brokers, client: { perSecond: c.perSecond, burst: c.burst, remaining: c.remaining }, accounts };
+      if (truthy(ctx.query.get("explain"))) {
+        const ids = list.filter((a) => a.broker !== "paper").map((a) => a.id);
+        data.pools = typeof scheduler.pools === "function" ? scheduler.pools({ accountIds: ids }) : [];
+        const own = ctx.key?.id ? `key:${ctx.key.id}` : null;
+        data.consumers = (typeof scheduler.consumers === "function" ? scheduler.consumers() : []).filter((x) => isAdmin(ctx) || x.id === own);
+        if (ctx.key?.id && scheduler.quotas) data.you = quotaRow(ctx.key);
+        const saved = savedCallsSnapshot();
+        const s = (typeof scheduler.usage === "function" ? scheduler.usage().savings : null) ?? {};
+        const sched = { servedFromStream: s.servedFromStream ?? 0, servedFromCache: s.servedFromCache ?? 0, coalesced: s.coalesced ?? 0, batched: s.batched ?? 0 };
+        data.savedCalls = { ...saved, scheduler: sched, totalToday: saved.total + sched.servedFromStream + sched.servedFromCache + sched.coalesced + sched.batched };
+      }
+      return { data, meta: { requestId: ctx.requestId, accountId } };
+    },
+
+    /**
+     * GET /v1/quotas: the default budget, the weight of each client kind and one row per API key (rate, burst, daily cap,
+     * fair-queue weight, usage today and which layer set it). Only admin keys and this computer see every key; any
+     * other key sees its own row.
+     */
+    async getQuotas(ctx) {
+      const quotas = needQuotas();
+      const d = quotas.defaults();
+      let records = [];
+      try {
+        records = await deps.keyStore.list();
+      } catch {
+        // key store not built: show the keys that have settings
+        records = [...new Set([...quotas.configIds(), ...quotas.overrideIds()])].map((id) => ({ id, label: null, clientKind: "other" }));
+      }
+      const t = deps.clock?.now?.() ?? Date.now();
+      const active = records.filter((r) => !r.revokedAt && !(r.expiresAt && Date.parse(r.expiresAt) <= t));
+      const shown = isAdmin(ctx) ? active : active.filter((r) => r.id === ctx.key?.id);
       return {
-        data: { safety, brokers, client: { perSecond: c.perSecond, burst: c.burst, remaining: c.remaining }, accounts },
-        meta: { requestId: ctx.requestId, accountId },
+        data: {
+          default: { perSecond: d.perSecond, burst: d.burst, perDay: d.perDay, maxConcurrent: d.maxConcurrent ?? scheduler.clientLimits().maxConcurrent },
+          kinds: scheduler.clientWeights?.() ?? { ...DEFAULT_KIND_WEIGHTS },
+          keys: shown.map(quotaRow),
+        },
+        meta: { requestId: ctx.requestId },
       };
+    },
+
+    /**
+     * PUT /v1/quotas/{keyId} (admin, this computer): replace the key's override with { perSecond?, burst?, weight?, perDay? }.
+     * Fields left out fall back to the config entry or the default. Persisted in quotas.json; effective at once.
+     */
+    async putQuota(ctx) {
+      const quotas = needQuotas();
+      const keyId = ctx.params.keyId;
+      const rec = await findKey(keyId);
+      if (!rec) throw new BridgeError("NOT_FOUND", `There is no active API key with id "${String(keyId).slice(0, 40)}".`);
+      const before = quotas.override(keyId);
+      const r = quotas.set(keyId, ctx.body);
+      if (!r.ok) throw new BridgeError("VALIDATION_FAILED", "The quota is not valid.", { errors: r.errors });
+      if (await isLastAdmin(rec)) {
+        const q = quotas.resolve(keyId);
+        const low = [];
+        if (q.perSecond < LAST_ADMIN_FLOOR.perSecond) low.push({ path: "perSecond", message: `the only admin key needs at least ${LAST_ADMIN_FLOOR.perSecond} request a second` });
+        if (q.perDay !== null && q.perDay < LAST_ADMIN_FLOOR.perDay) low.push({ path: "perDay", message: `the only admin key needs at least ${LAST_ADMIN_FLOOR.perDay} requests a day (or none)` });
+        if (low.length) {
+          if (before) quotas.set(keyId, before);
+          else quotas.clear(keyId);
+          throw new BridgeError("VALIDATION_FAILED", "That quota could lock out the only active admin key, so it was not applied. Create a second admin key first, or keep the quota above these floors. (If a key is ever locked out, this computer's control token is not limited: `mc-bridge` run on this computer, or the dashboard opened with `mc-bridge open`, can still change or delete the quota.)", { errors: low });
+        }
+      }
+      await audit(ctx, "quota.set", { keyId, quota: quotas.override(keyId) });
+      return { data: quotaRow(rec), meta: { requestId: ctx.requestId } };
+    },
+
+    /** DELETE /v1/quotas/{keyId} (admin, this computer): remove the override; the config entry or the default applies again. */
+    async deleteQuota(ctx) {
+      const quotas = needQuotas();
+      const keyId = ctx.params.keyId;
+      const rec = await findKey(keyId);
+      if (!rec) throw new BridgeError("NOT_FOUND", `There is no active API key with id "${String(keyId).slice(0, 40)}".`);
+      const had = quotas.clear(keyId);
+      if (had) await audit(ctx, "quota.cleared", { keyId });
+      return { data: quotaRow(rec), meta: { requestId: ctx.requestId } };
     },
 
     /**
@@ -105,7 +260,8 @@ export function createLimitRoutes(deps) {
           ),
         }));
       const admin = ctx.principal?.kind === "local" || Boolean(ctx.scopes?.has?.("admin"));
-      const data = { accounts: rows, savings: report.savings, generatedAt: report.generatedAt };
+      // servedFromLocal: calls not made because the data was already on disk (a dataset or a recording): counted by the market module, not the scheduler.
+      const data = { accounts: rows, savings: { ...report.savings, servedFromLocal: savedCallsSnapshot().total }, generatedAt: report.generatedAt };
       if (admin && Array.isArray(report.consumers)) data.consumers = report.consumers;
       return { data, meta: { requestId: ctx.requestId } };
     },

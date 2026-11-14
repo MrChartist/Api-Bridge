@@ -1,0 +1,32 @@
+meta {
+  name: Turn auto-record on or off
+  type: http
+  seq: 7
+}
+
+put {
+  url: {{baseUrl}}/v1/recordings/auto
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "enabled": false
+  }
+}
+
+docs {
+  Turn auto-record on or off
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Off until a person turns it on. Turning it off stops every rule's recording (the files stay); turning it on starts the enabled rules at their next session.
+
+  Reference: docs/api/recordings/putRecordingAuto.md in the repository.
+}

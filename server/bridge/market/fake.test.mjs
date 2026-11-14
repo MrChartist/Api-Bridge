@@ -1,5 +1,5 @@
 /**
- * The published in-memory MarketDataService (fake.mjs) other streams test against: contract shape, deterministic
+ * The published in-memory MarketDataService (fake.mjs) other modules test against: contract shape, deterministic
  * data, per-item errors, call recording.
  */
 import { describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ describe("createFakeMarketData", () => {
     md.setQuote("NSE:INFY", { ltp: 1500, close: 1480, bid: 1499.9, ask: 1500.1 });
     md.fail("NSE:RELIANCE", "UPSTREAM_RATE_LIMITED");
     const r = await md.ltp(["NSE:NIFTY", "NSE:RELIANCE", "NSE:TCS", "bad sym", "NSE:NIFTY"], { maxAgeMs: 0 });
-    expect(r.items).toEqual([{ symbol: "NSE:NIFTY", ltp: 25010, freshness: { source: "broker", asOf: "2026-10-19T10:00:00.000+05:30", ageMs: 0, stale: false, accountId: "fake-1", broker: "fake" } }]);
+    expect(r.items).toEqual([{ symbol: "NSE:NIFTY", ltp: 25010, freshness: { source: "broker", asOf: "2026-10-19T10:00:00.000+05:30", ageMs: 0, stale: false, accountId: "fake-1", broker: "fake", class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] } }]);
     expect(r.errors.map((e) => [e.symbol, e.code])).toEqual([
       ["NSE:RELIANCE", "UPSTREAM_RATE_LIMITED"],
       ["NSE:TCS", "SYMBOL_NOT_FOUND"],

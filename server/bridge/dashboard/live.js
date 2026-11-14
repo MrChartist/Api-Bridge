@@ -1,5 +1,5 @@
-// One live connection per browser tab (WebSocket /v1/stream), shared by every page: the chain, OI, Strategy and
-// Positions watch their symbols here instead of each polling the Bridge, and the budget indicator listens for
+// One live connection per browser tab (WebSocket /v1/stream), shared by every page: pages that poll a price watch
+// their symbols here instead (api() in app.js does this for repeated reads), and the budget indicator listens for
 // `budget` messages. A symbol watched by three pages is subscribed once; a symbol nobody watches any more is
 // unsubscribed after a short linger, so switching pages back and forth does not churn the broker feed.
 //
@@ -14,8 +14,8 @@ export const LINGER_MS = 15_000;
 export const OP_CHUNK = 200;
 /**
  * Ticks are handed to a page at most this often by default. A broker feed sends a burst of ticks over a few frames;
- * one delivery per burst means one redraw of a page that redraws a whole view (OI Analysis, the Strategy Builder)
- * instead of four. A page that patches only the cells a tick changed asks for every frame (watch(..., { minGapMs: 0 })).
+ * one delivery per burst means one redraw of a page that redraws a whole view instead of four. A page that
+ * patches only the cells a tick changed asks for every frame (watch(..., { minGapMs: 0 })).
  */
 export const DELIVER_MIN_MS = 150;
 
@@ -52,10 +52,6 @@ const lingering = new Map(); // symbol -> { mode, until }
 const onWire = new Map(); // symbol -> mode
 const latest = new Map(); // symbol -> merged tick
 const budgetListeners = new Set();
-/** Saved-scan alerts (subscribe_scans): fn(msg) for each { type: "scan", event: "alert" }. */
-const scanListeners = new Set();
-/** Live market events (subscribe_events, S28): { onEvent(msg), onReconnect?(), opened } per listener. */
-const eventListeners = new Set();
 const statusListeners = new Set();
 let lastBudget = null;
 let ws = null;
@@ -68,15 +64,7 @@ let lingerTimer = null;
 
 const inBrowser = () => typeof window !== "undefined" && typeof WebSocket !== "undefined";
 
-function safely(fn) {
-  try {
-    fn();
-  } catch {
-    /* one listener's error must not stop the others */
-  }
-}
-
-const wantsConnection = () => watchers.size > 0 || budgetListeners.size > 0 || scanListeners.size > 0 || eventListeners.size > 0;
+const wantsConnection = () => watchers.size > 0 || budgetListeners.size > 0;
 
 function setState(s) {
   if (s === state) return;
@@ -241,13 +229,6 @@ async function connect() {
     onWire.clear();
     setState("live");
     if (budgetListeners.size) send({ op: "subscribe_budget" });
-    if (scanListeners.size) send({ op: "subscribe_scans" });
-    if (eventListeners.size) send({ op: "subscribe_events" });
-    // A listener that was already listening before this connection missed what happened while it was down.
-    for (const l of eventListeners) {
-      if (l.opened) safely(() => l.onReconnect?.());
-      l.opened = true;
-    }
     queueSync();
   };
   sock.onmessage = (m) => {
@@ -268,16 +249,6 @@ async function connect() {
           /* keep going */
         }
       }
-    } else if (msg.type === "scan" && msg.event === "alert") {
-      for (const fn of scanListeners) {
-        try {
-          fn(msg);
-        } catch {
-          /* keep going */
-        }
-      }
-    } else if (msg.type === "market_event") {
-      for (const l of eventListeners) safely(() => l.onEvent(msg));
     } else if (msg.type === "error" && msg.op === "subscribe" && Array.isArray(msg.symbols)) {
       // Over a subscription cap: those symbols stay with polling (the pages keep their REST refresh).
       for (const s of msg.symbols) onWire.delete(s);
@@ -303,7 +274,7 @@ function later() {
  * Watch symbols. `onTicks(Map<symbol, tick>)` runs at most once per animation frame with the newest tick of each
  * changed symbol (merged with what was known), and no sooner than `minGapMs` after its last delivery
  * (DELIVER_MIN_MS by default: a page that redraws a whole view per delivery; 0 for a page that patches only the
- * cells a tick changed, such as the option chain). Returns { update(symbols), stop(), last(symbol) }.
+ * cells a tick changed). Returns { update(symbols), stop(), last(symbol) }.
  * @param {string[]} symbols canonical symbols
  * @param {"ltp"|"quote"|"depth"} mode
  * @param {(ticks: Map<string, object>) => void} onTicks
@@ -342,9 +313,6 @@ export function watch(symbols, mode, onTicks, { minGapMs = DELIVER_MIN_MS } = {}
   };
 }
 
-/** The newest tick known for a symbol, or null. */
-export const lastTick = (s) => latest.get(s) ?? null;
-
 /** Listen for API budget messages (ratelimit/budget.mjs). Returns an unsubscribe function. */
 export function onBudget(fn) {
   budgetListeners.add(fn);
@@ -357,31 +325,3 @@ export function onBudget(fn) {
   };
 }
 
-/**
- * Listen for live market events (op subscribe_events, docs/asyncapi.yaml) on the tab's one connection.
- * `onEvent(msg)` gets each { type: "market_event", action, event }; `onReconnect()` runs when the connection came
- * back after a drop (fetch what was missed). Returns an unsubscribe function.
- * @param {(msg: object) => void} onEvent
- * @param {{ onReconnect?: () => void }} [opts]
- */
-export function onMarketEvents(onEvent, { onReconnect } = {}) {
-  const l = { onEvent, onReconnect, opened: ws?.readyState === 1 };
-  eventListeners.add(l);
-  if (ws?.readyState === 1 && eventListeners.size === 1) send({ op: "subscribe_events" });
-  queueSync();
-  return () => {
-    if (!eventListeners.delete(l)) return;
-    if (!eventListeners.size) send({ op: "unsubscribe_events" });
-  };
-}
-
-/** Listen for saved-scan alerts (new matches). Returns an unsubscribe function. */
-export function onScanAlerts(fn) {
-  scanListeners.add(fn);
-  if (ws?.readyState === 1 && scanListeners.size === 1) send({ op: "subscribe_scans" });
-  queueSync();
-  return () => {
-    scanListeners.delete(fn);
-    if (!scanListeners.size) send({ op: "unsubscribe_scans" });
-  };
-}

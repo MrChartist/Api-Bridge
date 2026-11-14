@@ -26,6 +26,15 @@ describe("auth on /xl", () => {
     expect((await get(`/xl/ltp?symbol=NSE:NIFTY&key=${KEYS.READ}`, {})).status).toBe(401); // not created with allowQuery
     expect((await get(`/xl/ltp?symbol=NSE:NIFTY&key=${KEYS.PAPER_Q}`, {})).status).toBe(401); // more than read
   });
+  it("a valid read key without Allow in URLs is told how to make one, not that it is wrong or expired", async () => {
+    const r = await get(`/xl/quotes?symbols=NSE:NIFTY&key=${KEYS.READ}`, {});
+    expect(r.status).toBe(401);
+    expect(r.raw).toMatch(/web address/);
+    expect(r.raw).toMatch(/--allow-query/);
+    expect(r.raw).not.toMatch(/wrong, expired or revoked/);
+    const wrong = await get("/xl/quotes?symbols=NSE:NIFTY&key=mcb_nope000000_aaaaaaaaaaaaaaaaaaaa", {});
+    expect(wrong.raw).toMatch(/wrong, expired or revoked/);
+  });
   it("a pinned account outside the key's list is refused before any read", async () => {
     const before = t.marketData.calls.length;
     const r = await get("/xl/ltp?symbol=NSE:NIFTY&account=zerodha-family", bearer(KEYS.ONE_ACCOUNT));
@@ -165,6 +174,45 @@ describe("integrations config reaches the routes", () => {
       expect(Array.isArray((await g("/xl/chain?underlying=NIFTY&expiry=2026-10-27")).json)).toBe(true);
     } finally {
       await t2.close();
+    }
+  });
+});
+
+describe("backup data sources are never used on the spreadsheet and AmiBroker routes", () => {
+  // A bare number or a fixed table has no field for how current a value is, so these routes never take a backup source.
+  const reads = [
+    ["/xl/ltp?symbol=NSE:NIFTY", "ltp"],
+    ["/xl/quote?symbol=NSE:RELIANCE&field=bid", "quotes"],
+    ["/xl/chain?underlying=NIFTY&expiry=2026-10-27", "optionChain"],
+    ["/xl/history?symbol=NSE:NIFTY&interval=1d&countback=5", "history"],
+  ];
+
+  it.each(reads)("%s reads with allowBackup false", async (path, method) => {
+    const before = t.marketData.calls.length;
+    await get(path);
+    const call = t.marketData.calls.slice(before).find((c) => c[0] === method);
+    expect(call).toBeDefined();
+    expect(call.at(-1).allowBackup).toBe(false);
+  });
+
+  it.each(reads)("%s refuses ?backup=true with a plain message and does not read", async (path) => {
+    const before = t.marketData.calls.length;
+    const r = await get(`${path}&backup=true`);
+    expect(r.status).toBe(400);
+    expect(r.headers["x-error-code"] ?? r.json?.code).toBe("VALIDATION_FAILED");
+    expect(`${r.raw}${JSON.stringify(r.headers)}`).toMatch(/#N\/A|backup sources are not available/);
+    expect(t.marketData.calls.length).toBe(before);
+  });
+
+  it("?backup=false is accepted (it is what these routes do anyway), and the dead config key has no effect", async () => {
+    expect((await get("/xl/ltp?symbol=NSE:NIFTY&backup=false")).status).toBe(200);
+    const withKey = await startTestApp({});
+    try {
+      const before = withKey.marketData.calls.length;
+      await withKey.request("/xl/ltp?symbol=NSE:NIFTY", { headers: R });
+      expect(withKey.marketData.calls.slice(before)[0].at(-1).allowBackup).toBe(false);
+    } finally {
+      await withKey.close();
     }
   });
 });

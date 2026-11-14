@@ -2,7 +2,7 @@
  * Black-Scholes IV solver + Greeks — for brokers whose quote APIs don't return
  * implied volatility or Greeks natively (Zerodha, 5paisa, Alice Blue).
  *
- * Output convention matches Dhan's option-chain response (the app's reference
+ * Output convention matches Dhan's option-chain response (the reference
  * schema): iv as a percentage number (e.g. 14.2, not 0.142), delta/gamma/theta
  * raw decimals, vega per 1% change in vol, theta per calendar day.
  */

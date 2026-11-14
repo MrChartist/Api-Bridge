@@ -49,7 +49,14 @@ export const capabilities = {
   ltp: true,
   quotes: true,
   depth: true,
-  historical: { intervals: ["1m", "3m", "5m", "15m", "30m", "60m", "1d"] },
+  // Days per request, and the record cap of one-minute requests, from the broker's release note on its developer forum (the
+  // docs page itself could not be read). One-minute data is capped at 8000 records, which the chunk planner turns into fewer days.
+  historical: {
+    intervals: ["1m", "3m", "5m", "15m", "30m", "60m", "1d"],
+    maxSpanDays: { "1m": 30, "3m": 60, "5m": 100, "15m": 200, "30m": 200, "60m": 400, "1d": 2000 },
+    maxRecords: { "1m": 8000 },
+    limitsSource: { url: "https://smartapi.angelone.in/smartapi/forum/topic/4012/release-note-free-historical-data-access-for-indices-nse-nfo-bse-bfo-mcx-and-cds-with-smartapi", readOn: "2026-11-10", kind: "official release note" },
+  },
   positions: true,
   holdings: true,
   funds: true,

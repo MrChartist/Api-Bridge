@@ -1,5 +1,5 @@
 /**
- * paper module — stream S8: Paper trading engine. Owned files and tasks: docs/STREAMS.md §S8.
+ * paper module: Paper trading engine.
  * The routes below are the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  * Config section `paper` (optional; see config.mjs): starting capital (₹10,00,000), slippage (5 bps), depth use,
@@ -28,7 +28,6 @@ export const ROUTES = Object.freeze([
 
 export default defineModule({
   name: "paper",
-  stream: "S8",
   configKey: "paper",
   configSchema: PAPER_CONFIG_SCHEMA,
   services: { paper: (deps) => createPaperEngine(deps) },

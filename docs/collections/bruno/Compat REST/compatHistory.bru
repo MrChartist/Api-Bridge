@@ -1,0 +1,30 @@
+meta {
+  name: Candles
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{baseUrl}}/api/v1/history
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "symbol": "RELIANCE",
+    "exchange": "NSE",
+    "interval": "5m",
+    "start_date": "2026-11-02",
+    "end_date": "2026-11-06"
+  }
+}
+
+docs {
+  Candles
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatHistory.md in the repository.
+}

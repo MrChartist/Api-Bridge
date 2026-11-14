@@ -43,19 +43,35 @@ use**).
 ## Market data
 
 Broker API terms generally allow market data for the account holder's personal use only (for example Kite Connect).
-By default the Bridge serves only you, on loopback, has no multi-user mode, and spreads reads across accounts only
-when they share one `holder` in your config (a family member is a different user), the calling key may use them, and
-the broker's policy entry says pooling is allowed; every broker is treated as not allowed today (**needs
-verification per broker**).
+By default the Bridge serves only you, on loopback, and has no multi-user mode. It spreads reads across accounts
+(pooling) only when you have accepted a versioned notice for them, they share one `holder` in your config (a family
+member is a different user), the calling key may use them, and the broker's policy entry does not say `not-allowed`.
+The notice says that no broker's published terms clearly allow pooling and none clearly forbids it, and that you are
+responsible for your brokers' terms; every broker's entry is `unknown` today, so pooling also needs
+`poolingWhenTermsUnknown` on the account (**needs verification per broker**; a legal read is recommended before turning
+it on). Orders are never pooled.
+
+### Other data sources
+
+The Bridge can read from optional free sources and plugins you switch on. Each states the vendor's terms and shows them
+before you turn it on; an unofficial or terms-sensitive source needs you to acknowledge a versioned notice first. Their
+data is labelled `delayed` or `eod`, with an `official` flag and a confidence, and is never used for orders, risk checks,
+paper fills or alerts. Free sources are for your own cross-checks and history, not a replacement for a licensed feed.
+The Bridge does not redistribute any of it, and you must not pass it on. Anyone who builds something for other people on
+top of this data should get a legal read on exchange data rules first. A plugin is code you run on your computer: the
+Bridge limits what it can reach, but you decide whether to trust it ([sources.md](sources.md)).
 
 ### Tunnels and public endpoints
 
 The Bridge itself never opens a public data endpoint, but **you can**. The Google Sheets route
 ([integrations/google-sheets/README.md](../../integrations/google-sheets/README.md), [excel-sheets.md](excel-sheets.md))
-asks you to put a tunnel in front of the main API so Google's servers can fetch prices. Be clear about what that means:
+needs a tunnel so Google's servers can fetch prices. Point it at the optional **Sheets listener**
+(`server.sheetsIngress`, set up by `mc-bridge expose sheets`, [expose-alerts.md](expose-alerts.md)), which serves only
+`GET /xl/*` for read-only keys; never at the main API. Be clear about what that means:
 
-- A tunnel to the main API **is a public endpoint**. Anyone who learns its URL and a key can read your market data,
-  positions and orders list. A read key can also engage the kill switch (it cannot cancel orders).
+- A tunnel **is a public endpoint**. Anyone who learns its URL and a read key can read what `/xl` serves (market data and
+  read-only account views). On the main port a read key would reach far more, and can also engage the kill switch (it cannot
+  cancel orders): that is why the separate listener exists.
 - Your broker's market data then passes through a third party's servers (Google, and the tunnel provider). Broker data
   terms, such as Kite Connect's personal-use clause, may not allow redistribution to, or storage on, third-party
   servers, even for your own sheet (**needs verification per broker**). You carry that risk; if your broker's terms

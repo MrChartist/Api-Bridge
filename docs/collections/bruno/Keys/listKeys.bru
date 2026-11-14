@@ -1,0 +1,31 @@
+meta {
+  name: List API keys (never the key itself)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/keys
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~limit: 1
+  ~cursor: <cursor>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  List API keys (never the key itself)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  An admin key limited to some accounts lists only keys limited to those same accounts.
+
+  Reference: docs/api/keys/listKeys.md in the repository.
+}

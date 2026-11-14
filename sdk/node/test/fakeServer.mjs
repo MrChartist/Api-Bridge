@@ -18,6 +18,7 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import { createDataRoutes } from "./fakeData.mjs";
 
 export const TEST_KEY = "mcb_test_key";
 
@@ -36,6 +37,7 @@ export function createFakeBridge() {
   const sockets = new Set();
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Set();
+  const data = createDataRoutes(problem);
 
   const envelope = (data, extra = {}) => ({ status: 200, body: { data, meta: { requestId: "req_fake", ...extra.meta }, ...(extra.errors ? { errors: extra.errors } : {}) } });
   const freshness = { source: "stream", asOf: "2026-10-16T15:00:00+05:30", ageMs: 5, stale: false, accountId: "dhan-main", broker: "dhan" };
@@ -79,6 +81,8 @@ export function createFakeBridge() {
     const q = url.searchParams;
     if (req.method === "GET" && p === "/v1/health") return { status: 200, body: { status: "ok", version: "0.0.0-fake", apiVersion: "v1" } };
     if (req.headers.authorization !== `Bearer ${TEST_KEY}`) return problem(401, "UNAUTHENTICATED", "A valid API key is required.");
+    const routed = data.route(req.method, p, Object.fromEntries(q), body, req.headers);
+    if (routed) return routed;
     if (req.method === "GET" && p === "/v1/ltp") {
       const syms = (q.get("symbols") ?? "").split(",").filter(Boolean);
       const items = syms.filter((s) => s !== "NSE:NOPE").map((s) => ({ symbol: s.toUpperCase(), ltp: 25000.5, freshness }));
@@ -107,15 +111,6 @@ export function createFakeBridge() {
     if (m && req.method === "GET") return envelope(orderFrom({}, decodeURIComponent(m[1])));
     if (m && req.method === "PATCH") return idempotent(req, body, () => ({ ...orderFrom({}, decodeURIComponent(m[1])), price: body?.price ?? null }));
     if (m && req.method === "DELETE") return idempotent(req, body, () => ({ ...orderFrom({}, decodeURIComponent(m[1])), status: "cancelled" }));
-    if (req.method === "GET" && p === "/v1/backup/quotes") {
-      const items = (q.get("symbols") ?? "").split(",").map((s) => ({ symbol: s, ltp: 1201.8, freshness: { ...freshness, source: "backup", provider: "yahoo", accountId: null, broker: null } }));
-      return envelope(items, { errors: [] });
-    }
-    if (req.method === "POST" && p === "/v1/scanner/jobs") {
-      const job = { id: "scan_0123456789abcdef", status: "completed", request: body, progress: { total: 2, done: 2, matched: 1, errors: 0 }, results: [{ symbol: "NSE:TCS", values: { close: 4000, "rsi(14)": 61.2 }, source: "broker", accountId: "dhan-main" }], errors: [] };
-      return { status: q.get("waitMs") ? 200 : 202, body: { data: q.get("waitMs") ? job : { ...job, status: "running", results: [] }, meta: { requestId: "req_fake" } } };
-    }
-    if (req.method === "GET" && p === "/v1/scanner/jobs/scan_0123456789abcdef") return envelope({ id: "scan_0123456789abcdef", status: "completed", progress: { total: 2, done: 2, matched: 1, errors: 0 }, results: [], errors: [] });
     if (req.method === "POST" && p === "/v1/safety/kill-switch") return envelope({ engaged: true, reason: body?.reason ?? null, by: "key", at: "2026-10-16T15:00:00+05:30" });
     if (req.method === "POST" && p === "/v1/stream/token") {
       const token = `st_${randomUUID()}`;
@@ -127,7 +122,20 @@ export function createFakeBridge() {
 
   function send(res, reply) {
     const headers = { ...(reply.headers ?? {}) };
+    if (reply.frames) {
+      // Server-Sent Events: write the frames, then end the reply (the connection closes).
+      res.writeHead(reply.status, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", ...headers });
+      for (const f of reply.frames) res.write(f);
+      res.end();
+      return;
+    }
     let text = reply.body;
+    if (Buffer.isBuffer(text)) {
+      headers["Content-Length"] = text.length;
+      res.writeHead(reply.status, headers);
+      res.end(text);
+      return;
+    }
     if (typeof text !== "string") {
       text = JSON.stringify(text);
       headers["Content-Type"] ??= "application/json; charset=utf-8";
@@ -246,7 +254,10 @@ export function createFakeBridge() {
       requests = [];
       scripts = new Map();
       idem = new Map();
+      data.reset();
     },
+    /** The data routes' state and switches (see fakeData.mjs). */
+    data,
     script(method, path, responses) {
       scripts.set(`${method.toUpperCase()} ${path}`, [...responses]);
     },

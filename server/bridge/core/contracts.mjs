@@ -1,10 +1,10 @@
 /**
- * Service contracts: the interfaces the 11 streams build against (docs/STREAMS.md).
+ * Service contracts: the interfaces the modules build against.
  *
- * Each shared service lives in `deps` under a fixed key (SERVICE_CONTRACTS below), is owned by exactly one stream,
+ * Each shared service lives in `deps` under a fixed key (SERVICE_CONTRACTS below), is owned by exactly one module group,
  * and must expose exactly the listed methods. app.mjs checks every service with assertService() at boot, so a
- * stream can change HOW a method works but not WHICH methods exist; changing this file is a core change made by
- * the lead. Until a stream lands, its service is a stub from notImplementedService(): it boots, and every call
+ * module can change HOW a method works but not WHICH methods exist; changing this file is a core change made by
+ * the maintainers. Until a module lands, its service is a stub from notImplementedService(): it boots, and every call
  * throws NotImplementedError (HTTP 501 NOT_IMPLEMENTED).
  *
  * Conventions every implementation follows:
@@ -29,11 +29,18 @@ import { NotImplementedError } from "./errors.mjs";
  * @typedef {ParsedSymbol & { name: string | null, lotSize: number, tickSize: number, freezeQty: number | null,
  *   isin: string | null, refs: Record<string, BrokerRef> }} ResolvedInstrument   refs keyed by broker id.
  *
+ * @typedef {"realtime"|"delayed"|"eod"} DataClass
  * @typedef {{ source: "stream"|"cache"|"broker"|"paper"|"backup", asOf: string, ageMs: number, stale: boolean,
- *   accountId: string | null, broker: string | null, provider?: string }} Freshness
+ *   accountId: string | null, broker: string | null, provider?: string, class: DataClass, delaySec: number | null,
+ *   official: boolean, confidence: "high"|"medium"|"low", flags: string[] }} Freshness
  *   Attached to every market-data item. `asOf` is ISO-8601 with offset (+05:30). `stale` = older than the freshness
- *   target the caller asked for (maxAgeMs) or than the endpoint default. source "backup" = a free public source
- *   (BackupDataService, named in `provider`), used only when no broker account could answer; accountId/broker null.
+ *   target the caller asked for (maxAgeMs) or than the endpoint default; it is a different label from `class`.
+ *   source "backup" = a data source other than the user's broker accounts (BackupDataService, named in `provider`):
+ *   used only when the read allows backup (or sources.autoFallback is on) and the data class fits the read's purpose;
+ *   accountId/broker are null. `class`: realtime (broker, stream, cache), delayed (slow by nature, `delaySec` says by
+ *   how much) or eod; a composite answer (a chain, a many-symbol quote) takes the least current class of its parts.
+ *   `official` = a documented API from the data's owner. `confidence` and `flags` (for example "unofficial", "plugin",
+ *   "stale") say how far to trust it.
  * @typedef {{ symbol: string, ltp: number, freshness: Freshness }} LtpItem
  * @typedef {{ symbol: string, ltp: number, open: number|null, high: number|null, low: number|null, close: number|null,
  *   change: number|null, changePct: number|null, volume: number|null, oi: number|null, bid: number|null, ask: number|null,
@@ -49,10 +56,16 @@ import { NotImplementedError } from "./errors.mjs";
  *   greeksSource: "broker"|"computed"|null }} ChainLeg   iv in percent.
  * @typedef {{ underlying: string, expiry: string, underlyingLtp: number|null, atmStrike: number|null, lotSize: number|null,
  *   rows: ChainRow[], freshness: Freshness }} OptionChain
- * @typedef {{ accountId?: string, maxAgeMs?: number, priority?: Priority, signal?: AbortSignal, allowBackup?: boolean }} ReadOptions
- *   accountId pins the read to one account (no pooling). maxAgeMs: freshest acceptable data (0 = must hit stream/broker).
- *   allowBackup: an unpinned read that no broker account could answer may be served by BackupDataService. Default
- *   false, so orders, paper fills and safety checks never see backup prices; routes for people and tools opt in.
+ * @typedef {"display"|"analysis"|"alert"|"paper"|"risk"|"order"} Purpose   What a read is for. The last four accept only
+ *   trusted real-time data: never a delayed or end-of-day source, never a stale cached value.
+ * @typedef {{ accountId?: string, maxAgeMs?: number, priority?: Priority, signal?: AbortSignal, allowBackup?: boolean,
+ *   purpose?: Purpose, allowedAccounts?: string[] }} ReadOptions
+ *   accountId pins the read to one account (no pooling, never a data source). maxAgeMs: freshest acceptable data
+ *   (0 = must hit stream/broker); a source whose delay exceeds it cannot answer. allowBackup: an unpinned read may
+ *   be served by an enabled data source when no broker account can answer (or a source ranks first); the source
+ *   router decides which. Default false, so orders, paper fills and safety checks never see backup prices; routes for
+ *   people and tools opt in (?backup=true, or sources.autoFallback). purpose defaults to "display". allowedAccounts:
+ *   the accounts the caller's key may use for an unpinned read.
  *
  * @typedef {"order"|"quote"|"depth"|"history"|"chain"|"portfolio"|"master"|"other"} EndpointClass
  * @typedef {"order"|"live"|"interactive"|"background"} Priority   Highest first.
@@ -90,12 +103,12 @@ import { NotImplementedError } from "./errors.mjs";
  *   estimatedValue: number | null, ltp: number | null, confirmToken: string | null, confirmExpiresAt: string | null,
  *   requiresHumanConfirmation: boolean, ticketId: string | null }} PreviewResult
  * @typedef {{ ok: boolean, mode: "paper"|"live", reasons: Array<{ code: string, message: string }>, warnings: string[],
- *   checks?: Array<{ code: string, message: string }> }} Verdict   checks: warnings that carry their own code (p1-06 ban rule)
+ *   checks?: Array<{ code: string, message: string }> }} Verdict   checks: warnings that carry their own code (the F&O ban rule)
  * @typedef {{ accountId: string, mode: "paper"|"live", action: "place"|"modify"|"cancel", order: OrderRequest | null,
  *   orderId?: string, source: string, keyId: string | null, quantity: number | null, value: number | null, ltp: number | null,
  *   underlyingKind?: "stock"|"index"|null, underlying?: string, heldQty?: number | null, banQuantity?: number,
  *   ban?: { inBan: boolean, mwplPct?: number|null, forDate?: string|null } | null }} SafetyIntent
- *   underlyingKind/underlying/ban/heldQty (p1-06 §2.8): set for NFO/BFO derivatives; heldQty (signed units held in that
+ *   underlyingKind/underlying/ban/heldQty: set for NFO/BFO derivatives; heldQty (signed units held in that
  *   contract, null when unreadable) only when the stock is in the F&O ban period. banQuantity (modify only): the
  *   order's unfilled remainder, the quantity the ban rule weighs against heldQty.
  * @typedef {{ engaged: boolean, reason: string | null, by: string | null, at: string | null }} KillSwitchState
@@ -127,12 +140,12 @@ export const PRIORITIES = Object.freeze(["order", "live", "interactive", "backgr
 // ───────────────────────────── Service contracts ─────────────────────────────
 
 /**
- * deps key -> { iface, stream, requires, methods }. `requires` lists the deps keys the factory may use (besides the
+ * deps key -> { iface, requires, methods }. `requires` lists the deps keys the factory may use (besides the
  * core deps config, logger, bus, clock, paths). The method docs are the contract; see each stub file for detail.
  */
 export const SERVICE_CONTRACTS = Object.freeze({
   /**
-   * SecretStore — S2. AES-256-GCM encrypted JSON file (dataDir/secrets.enc). Key from MCB_MASTER_KEY (base64, 32 bytes)
+   * SecretStore. AES-256-GCM encrypted JSON file (dataDir/secrets.enc). Key from MCB_MASTER_KEY (base64, 32 bytes)
    * or a key file created with 0600 permissions. Values are JSON objects; names are like "account:<id>".
    *  get(name) -> Promise<object | null>
    *  set(name, value: object) -> Promise<void>       atomic write (temp file + rename), registers values with logger.addSecret
@@ -140,10 +153,10 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  list() -> Promise<string[]>                      names only
    *  status() -> { keySource: "env"|"file"|"none", path: string, entries: number }
    */
-  secrets: { iface: "SecretStore", stream: "S2", requires: [], methods: ["get", "set", "delete", "list", "status"] },
+  secrets: { iface: "SecretStore", requires: [], methods: ["get", "set", "delete", "list", "status"] },
 
   /**
-   * KeyStore — S2. API keys "mcb_<keyId>_<secret>"; only a scrypt hash is stored (dataDir/keys.json).
+   * KeyStore. API keys "mcb_<keyId>_<secret>"; only a scrypt hash is stored (dataDir/keys.json).
    *  create({ label, scopes, accounts?: string[]|"*", expiresAt?, allowQuery?, clientKind? }) -> Promise<{ key: string, record: KeyRecord }>
    *      key is returned ONCE. allowQuery only with scopes ["read"]. "live" and "admin" keys need loopback creation (CLI or admin route).
    *  list() -> Promise<KeyRecord[]>
@@ -157,21 +170,20 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   keyStore: {
     iface: "KeyStore",
-    stream: "S2",
     requires: [],
     methods: ["create", "list", "get", "revoke", "authenticate", "issueStreamToken", "verifyStreamToken"],
   },
 
   /**
-   * AuditLog — S9. Append-only, hash-chained JSON lines (dataDir/audit/YYYY-MM-DD.jsonl, IST days). Never rewrites a line.
+   * AuditLog. Append-only, hash-chained JSON lines (dataDir/audit/YYYY-MM-DD.jsonl, IST days). Never rewrites a line.
    *  append(input: AuditInput) -> Promise<AuditRecord>   redacts data; emits "audit.appended"
    *  query({ from?, to?, type?, accountId?, limit?, cursor? }) -> Promise<Page>
    *  verify({ day? }) -> Promise<{ ok: boolean, checked: number, brokenAt: number | null }>
    */
-  audit: { iface: "AuditLog", stream: "S9", requires: [], methods: ["append", "query", "verify"] },
+  audit: { iface: "AuditLog", requires: [], methods: ["append", "query", "verify"] },
 
   /**
-   * AccountManager — S1. The user's broker accounts from config.accounts, their sessions and adapters.
+   * AccountManager. The user's broker accounts from config.accounts, their sessions and adapters.
    *  list() -> AccountSummary[]
    *  get(accountId) -> AccountSummary                         throws ACCOUNT_NOT_FOUND
    *  adapter(accountId) -> object                             the broker adapter module (server/brokers/registry.mjs)
@@ -183,23 +195,28 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  disconnect(accountId) -> Promise<SessionState>
    *  testConnection(accountId) -> Promise<{ ok: boolean, message: string }>
    *  capabilities(accountId) -> { capabilities: string[], policy: BrokerPolicy | null }
-   *  marketDataCandidates({ capability: string, accountId?: string }) -> string[]
+   *  marketDataCandidates({ capability: string, accountId?: string, allowedAccounts?: string[] }) -> string[]
    *      accounts that may serve an UNPINNED market-data read: connected, capability declared, account.marketData.pooling
-   *      true and broker policy pooling "allowed". When none qualifies, the single primary account: the first enabled,
-   *      connected account in config order that declares the capability (so nothing is spread, but reads still work).
+   *      true, a holder named, broker policy pooling "allowed" (or "unknown" with poolingWhenTermsUnknown; never
+   *      "not-allowed"), and the owner's versioned pooling consent covering the account (sources/pooling.mjs). When none
+   *      qualifies, the single primary account: the first enabled, connected account in config order that declares the
+   *      capability (so nothing is spread, but reads still work). allowedAccounts limits the answer to the calling key's accounts.
    *      With accountId: just that account (if it has the capability). Empty array = no account can serve it.
    */
   accounts: {
     iface: "AccountManager",
-    stream: "S1",
     requires: ["secrets"],
     methods: ["list", "get", "adapter", "creds", "status", "connect", "disconnect", "testConnection", "capabilities", "marketDataCandidates"],
   },
 
   /**
-   * Scheduler (rate-limit engine) — S3. Per-account, per-endpoint-class token buckets (second/minute/day windows),
-   * priority queues (order > live > interactive > background, with ageing), singleflight coalescing, upstream
-   * back-off, and account choice for pooled reads. Never exceeds a BrokerPolicy limit.
+   * Scheduler (rate-limit engine). Per-account, per-endpoint-class token buckets (second/minute/day windows),
+   * priority queues (order > live > interactive > background, with ageing) that share each lane fairly between
+   * consumers (API keys, background jobs) by weight, singleflight coalescing, upstream back-off per budget pool with an
+   * adaptive scale below the policy ceiling (halved by a throttle, restored slowly), per-key client quotas (rate, burst,
+   * daily cap, weight, concurrency; runtime overrides in quotaStore.mjs), and account choice for pooled reads. Never
+   * exceeds a BrokerPolicy limit. A refusal is a BridgeError with `scope` ("client" | "consumer-cap" | "queue" |
+   * "upstream"), `retryAfterMs` and `limit: { name, remaining, resetMs }`.
    *  schedule({ accountId, endpointClass, priority?, coalesceKey?, cost?, signal? }, fn: () => Promise<T>) -> Promise<T>
    *      waits for budget, then runs fn; callers with the same coalesceKey share one in-flight run
    *      a session error from fn emits "account.session_rejected"; a throttling error triggers back-off; errors are rethrown
@@ -218,13 +235,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   scheduler: {
     iface: "Scheduler",
-    stream: "S3",
     requires: ["accounts"],
     methods: ["schedule", "tryAcquire", "headroom", "pickAccount", "noteUpstreamThrottle", "policyFor", "usage", "checkClient"],
   },
 
   /**
-   * SymbolService — S4. Canonical symbols <-> broker instruments, built from each connected broker's instrument master
+   * SymbolService. Canonical symbols <-> broker instruments, built from each connected broker's instrument master
    * (cached per IST day in dataDir/instruments/). Pure parsing lives in core/symbolFormat.mjs; this adds data.
    *  parse(input: string) -> ParsedSymbol                     canonical or alias syntax; throws VALIDATION_FAILED
    *  format(parts) -> string                                  canonical string
@@ -240,13 +256,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   symbols: {
     iface: "SymbolService",
-    stream: "S4",
     requires: ["accounts", "scheduler"],
     methods: ["parse", "format", "resolve", "toBroker", "fromBroker", "search", "convert", "refresh", "status"],
   },
 
   /**
-   * ReferenceData — S16 (docs/spec/p1-02-reference.md §2.2). Contract calendar, sessions, holidays, lots with effective
+   * ReferenceData. Contract calendar, sessions, holidays, lots with effective
    * dates, freeze quantities, ban list, MWPL, F&O universe by date, corporate actions, delivery-margin schedule, rate and
    * charges, from the masters (via symbols), shipped files, config and (opt-in) NSE archive files. Never calls a broker.
    * Every dataset value carries source, asOf and quality; unavailable data answers available: false with a reason.
@@ -270,75 +285,16 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  sync({ datasets, reason }) -> Promise<{ jobId, results }>   (CAPABILITY_UNSUPPORTED in demo mode)
    *  archives() -> { enabled: boolean, setBy: "config"|"user"|"demo"|null, client: NseArchiveClient | null }
    *      (the NSE archive switch and the shared, rate-limited archive client; client is null while the switch is off.
-   *      Other streams that fetch NSE archive files, e.g. participants S26, fetch through this client only.)
+   *      Any module that fetches NSE archive files goes through this client only.)
    */
   reference: {
     iface: "ReferenceData",
-    stream: "S16",
     requires: ["symbols"],
     methods: ["session", "calendar", "rate", "lotFor", "freezeFor", "banStatus", "universe", "corporateActions", "events", "charges", "deliveryMargin", "status", "bundle", "sync", "archives"],
   },
 
   /**
-   * ParticipantOI — S26 (docs/spec/p1-12-guard-participants.md §4.2.1). NSE participant-wise open interest (store S4):
-   * one file a day from the NSE archives (behind the reference service's archive switch), a resumable back-fill and a
-   * deterministic demo history. No broker calls. NSE only.
-   *  latest({ exchange: "NSE"|"BSE" }) -> { available: true, asOfDate, source: "nse-participant-oi"|"demo", unit: "contracts",
-   *      quality, rows: [{ participant: "CLIENT"|"DII"|"FII"|"PRO", instrument: "IDX_FUT"|"IDX_CE"|"IDX_PE"|"STK_FUT"|"STK_CE"|"STK_PE", long, short }] }
-   *    | { available: false, reason: "NO_PARTICIPANT_DATA"|"PARTICIPANT_STALE"|"NOT_FOR_BSE"|"SOURCE_OFF", detail }
-   *      (the shape p1-08 §3.5 reads; stale = asOfDate older than the previous trading day)
-   *  series({ from, to, participants?, instruments? }) -> Array<ParticipantDay>
-   *  status() -> ParticipantStatus
-   *  sync({ date?, backfill? }) -> Promise<{ fetched: string[], noFile: string[], failed: Array<{ date, code }> }>
-   * `reference` may be a stub: the service then reports SOURCE_UNAVAILABLE in real mode instead of failing.
-   */
-  participants: { iface: "ParticipantOI", stream: "S26", requires: ["reference"], methods: ["latest", "series", "status", "sync"] },
-
-  /**
-   * VolService — S18 (docs/spec/p1-03-pricing-vol.md §2.2). The vol-time clock, the daily vol store (S2), IV rank and
-   * percentile, IV history, VIX and the prediction log (S9). IVs in vol points; every row carries quality and source.
-   *  clock({ underlying, expiries?, at? }) -> { settings, holidays, expiries: ClockResult[] }
-   *  snapshot({ underlying, expiries? }, opts?) -> live S2-shaped rows + cm30 + quick rank (cached snapshotTtlSeconds)
-   *  history({ underlying, basis, expiry?, from, to, series, quality, clock, cursor, limit }) -> { items, gaps, coverage, nextCursor, method }
-   *  rank({ underlying, basis, lookbacks, quality, clock, expiry? }) -> { current, lookbacks, sameDte, vix, definitions }
-   *  summary({ underlyings, lookback }) -> memory-only rank lines for the screener
-   *  status() -> capture state, coverage, capacity, sources, back-fill job, disk
-   *  capture({ underlyings, replace, trigger }) -> per-underlying results of a capture run
-   *  backfill({ sources, from, to, underlyings }) -> { jobId, days, files, estimateMinutes }
-   *  cancelBackfill() -> stops after the current file
-   *  predictions({ from, to, underlying, metric }) -> S9 rows
-   *  logPredictions(rows) -> { ids }   validates metric against an open list; P1-9 is the first external caller
-   */
-  vol: {
-    iface: "VolService",
-    stream: "S18",
-    requires: ["marketData", "reference", "symbols", "scheduler", "recorder"],
-    methods: ["clock", "snapshot", "history", "rank", "summary", "status", "capture", "backfill", "cancelBackfill", "predictions", "logPredictions"],
-  },
-
-  /**
-   * OptionsRecorder — S17 (docs/spec/p1-01-recorder.md §2.1, §4). Records configured option chains every minute
-   * (indices) or every 5 minutes (opted-in stocks) in session from ONE data account, stream first, REST inside a hard
-   * 50 % slice of the broker budget; S1 snapshots and gaps on disk, S3 daily rows. Never places orders.
-   *  status() -> RecorderStatus (state, account, session, plan, budget, today, disk, coverage, sources, warnings)
-   *  plan(section?) -> { ok, message, plan, budget, capacity }      dry run over the current config merged with section
-   *  snapshots({ underlying, expiry, fromMs?, toMs?, fields?, strikes?, every?, includeSuspect?, limit?, cursor? })
-   *      -> { underlying, expiry, exchange, units, fields, snapshots, gaps, coverage, unavailable, method, nextCursor }
-   *      (stored records; slots and ts as epoch ms; routes render IST ISO strings)
-   *  latest({ underlying, expiry, fields?, strikes? }) -> snapshot | null   from memory
-   *  daily({ underlying, from, to, expiry? }) -> S3 rows, oldest first
-   *  configure(section, { persist }) -> Promise<{ persisted, status }>   CAPACITY_EXCEEDED / CONFIRMATION_REQUIRED
-   *  Extras: start(), stop(), demo(), events for "recorder.status" and "recorder.snapshot".
-   */
-  recorder: {
-    iface: "OptionsRecorder",
-    stream: "S17",
-    requires: ["marketData", "streamHub", "accounts", "scheduler", "symbols", "reference", "backupData"],
-    methods: ["status", "plan", "snapshots", "latest", "daily", "configure"],
-  },
-
-  /**
-   * StreamHub — S6. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
+   * StreamHub. One upstream feed per account (adapter.createFeed), reference-counted subscriptions across all
    * local clients, mode = max demand, broker subscription caps enforced (SUBSCRIPTION_LIMIT, never silent drops),
    * resubscribe after reconnect/re-login. Emits "tick" and "stream.status".
    *  subscribe(clientId: string, symbols: string[], mode: StreamMode) -> Promise<{ accepted: string[], rejected: Array<{ symbol, code, message }> }>
@@ -352,27 +308,36 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   streamHub: {
     iface: "StreamHub",
-    stream: "S6",
     requires: ["accounts", "symbols"],
     methods: ["subscribe", "unsubscribe", "dropClient", "lastTick", "isLive", "stats"],
   },
 
   /**
-   * BackupDataService — S12. Free public market data (Yahoo Finance chart API, NSE India website JSON) for when no
-   * broker account can answer. Off unless config.backup.enabled; always off in demo mode. Per-provider pacing and a
-   * circuit breaker; every result names its provider and the provider's own timestamp.
-   *  quotes(symbols: string[], { maxAgeMs? }) -> Promise<{ items: Array<{ symbol, fields, at, provider }>, errors }>   cash and index only
-   *  history({ symbol, interval, fromMs, toMs }) -> Promise<{ symbol, interval, candles, partial, provider, at }>
-   *  expiries(underlying) -> Promise<{ underlying, expiries: string[], provider, at }>   NSE derivatives
-   *  optionChain(underlying, expiry) -> Promise<{ underlying, expiry, rows, underlyingLtp, provider, at }>   legs without greeks
+   * BackupDataService, provided by the sources module (server/bridge/sources/). Market data from sources other than the
+   * user's own broker accounts: the enabled, configured, non-broker sources in the source registry (built-in free
+   * providers, demo sources and plugins the owner granted). The market service asks the source router which source to
+   * use and passes its choice as `sourceId`; the facade then asks that source only (it must still be enabled, able to
+   * do the thing, fit the `purpose` and the delay fit `maxAgeMs`). Every answer names its source in `provider` and
+   * carries `class` (realtime|delayed|eod), `delaySec` and `official`, so callers label it honestly. Orders, risk
+   * checks, paper fills and alerts never get anything but a realtime source. The same service also has the management
+   * API (list, describe, setEnabled, setConfig, test, consentFor) used by the /v1/sources routes, and attachHealth(tracker)
+   * so `list()` shows the health of real calls (a plugin's own health() is merged in). Keys live in the secrets store
+   * under `source:<id>` and are never returned or logged.
+   *  quotes(symbols: string[], { maxAgeMs?, purpose?, sourceId?, signal? }) -> Promise<{ items: Array<{ symbol, fields, at, provider, class, delaySec, official }>, errors: Array<{ symbol, code, message }> }>   cash and index only
+   *  history({ symbol, interval, fromMs, toMs, sourceId? }, { purpose?, sourceId?, signal? }) -> Promise<{ symbol, interval, candles, partial, provider, at, class, delaySec, official }>
+   *  expiries(underlying, { purpose?, sourceId?, signal? }) -> Promise<{ underlying, expiries: string[], provider, at, class, delaySec, official }>
+   *  optionChain(underlying, expiry, { purpose?, sourceId?, signal? }) -> Promise<{ underlying, expiry, rows, underlyingLtp, provider, at, class, delaySec, official }>   legs without greeks
    *  status() -> { enabled, autoFallback, providers: [...], order, cacheMs }
-   *  Extra: autoFallback() -> boolean
+   *  autoFallback() -> boolean
    */
-  backupData: { iface: "BackupDataService", stream: "S12", requires: [], methods: ["quotes", "history", "expiries", "optionChain", "status"] },
+  backupData: { iface: "BackupDataService", requires: ["secrets"], methods: ["quotes", "history", "expiries", "optionChain", "status", "autoFallback"] },
 
   /**
-   * MarketDataService — S5. Streaming-first, then freshness cache, then a scheduled broker call (batched and coalesced),
-   * routed to a pinned account or a pooled candidate. Every item carries Freshness.
+   * MarketDataService. Streaming-first, then freshness cache, then a scheduled broker call (batched per consumer and
+   * coalesced), routed to a pinned account or, for an unpinned read, to the candidates the source router picks: the
+   * caller's broker accounts (pooling only with the owner's consent) and, when the read allows backup, enabled data
+   * sources. At most two are tried. Every item carries Freshness (source, class, delay, official, confidence, flags).
+   * Non-contract: sourceRouter, sourceHealth and failureCache, shared with GET /v1/sources/trace.
    *  ltp(symbols: string[], opts?: ReadOptions) -> Promise<{ items: LtpItem[], errors: Array<{ symbol, code, message }> }>
    *  quotes(symbols: string[], opts?: ReadOptions) -> Promise<{ items: QuoteItem[], errors: Array<{ symbol, code, message }> }>
    *  depth(symbol: string, opts?: ReadOptions) -> Promise<DepthItem>
@@ -382,13 +347,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   marketData: {
     iface: "MarketDataService",
-    stream: "S5",
     requires: ["accounts", "scheduler", "symbols", "streamHub", "backupData", "reference"],
     methods: ["ltp", "quotes", "depth", "history", "expiries", "optionChain"],
   },
 
   /**
-   * SafetyGuard — S9. Every order intent (paper and live) passes check() before anything is sent. Persists daily
+   * SafetyGuard. Every order intent (paper and live) passes check() before anything is sent. Persists daily
    * counters and kill-switch state in dataDir/safety/. The kill switch can be engaged by any authenticated caller and
    * released only by an admin from loopback.
    *  check(ctx, intent: SafetyIntent) -> Promise<Verdict>        kill switch, live enablement (config + key scope + source),
@@ -406,13 +370,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   safety: {
     iface: "SafetyGuard",
-    stream: "S9",
     requires: ["audit", "accounts", "reference"],
     methods: ["check", "acquireOrderSlot", "recordOrderEvent", "killSwitchStatus", "engageKillSwitch", "releaseKillSwitch", "limits"],
   },
 
   /**
-   * PaperEngine — S8. Local simulator priced from MarketDataService (LTP/depth), per account, persisted in dataDir/paper/.
+   * PaperEngine. Local simulator priced from MarketDataService (LTP/depth), per account, persisted in dataDir/paper/.
    * Order ids start with "PAPER-". Fill model documented in docs/ARCHITECTURE.md §7.
    *  place(accountId, order: OrderRequest & { quantity: number, resolved: ResolvedInstrument }) -> Promise<OrderResult>
    *  modify(accountId, orderId, changes: { price?, triggerPrice?, quantity?, orderType? }) -> Promise<OrderResult>
@@ -427,13 +390,12 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   paper: {
     iface: "PaperEngine",
-    stream: "S8",
     requires: ["marketData", "symbols", "reference"],
     methods: ["place", "modify", "cancel", "order", "orders", "trades", "positions", "funds", "account", "reset"],
   },
 
   /**
-   * OrderService — S7. The only path to an order, paper or live. preview -> safety check -> idempotency -> route to
+   * OrderService. The only path to an order, paper or live. preview -> safety check -> idempotency -> route to
    * PaperEngine or (live) mint an order gate (server/brokers/orderGate.mjs issueOrderGate) and call the adapter through
    * scheduler.schedule({ endpointClass: "order", priority: "order" }). Timeouts become OUTCOME_UNKNOWN and are
    * reconciled from the broker order book, never retried blindly. Everything is audited.
@@ -453,11 +415,13 @@ export const SERVICE_CONTRACTS = Object.freeze({
    *  positions(ctx, accountId, { mode? }) -> Promise<{ items: object[], freshness: Freshness }>
    *  holdings(ctx, accountId) -> Promise<{ items: object[], freshness: Freshness }>
    *  funds(ctx, accountId, { mode? }) -> Promise<{ funds: object, freshness: Freshness }>
-   *  tickets(ctx) -> Promise<object[]>                             pending human confirmations (OpenAPI Ticket)
+   *  tickets(ctx, { state? }) -> Promise<object[]>                 pending human confirmations (OpenAPI Ticket); state "rejected": recently declined
    *  confirmTicket(ctx, ticketId) -> Promise<{ confirmToken: string, expiresAt: string }>   human confirmation (loopback admin)
+   *  rejectTicket(ctx, ticketId, { reason? }) -> Promise<object>   human decline of an open ticket (loopback admin); 409 otherwise
+   *  ticketStatus(ctx, ticketId) -> Promise<{ ticketId, status, reason, expiresAt }>   open|confirmed|consumed|rejected|expired|unknown
    */
   /**
-   * Readiness — S20 (docs/spec/p1-05-readiness.md §3.3). Whether each live-enabled account can trade right now (H5),
+   * Readiness. Whether each live-enabled account can trade right now,
    * for people (badge, notify) and for automation (guards, alert actions, webhooks). Never sends or engages anything.
    *  status({ accountIds? }) -> ReadinessSnapshot                     cached; no I/O
    *  canTrade(accountId, { mode }) -> { ok, state, reasons, checkedAt, stale }   cached; mode "paper" is always ok
@@ -469,25 +433,118 @@ export const SERVICE_CONTRACTS = Object.freeze({
    */
   readiness: {
     iface: "Readiness",
-    stream: "S20",
     requires: ["accounts", "scheduler", "safety", "audit", "reference"],
     methods: ["status", "canTrade", "ensureFresh", "check", "registerAutomation"],
   },
 
   orders: {
     iface: "OrderService",
-    stream: "S7",
     requires: ["accounts", "scheduler", "symbols", "safety", "audit", "paper", "marketData", "reference", "readiness"],
-    methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket"],
+    methods: ["preview", "place", "modify", "cancel", "cancelAll", "get", "getByClientId", "list", "trades", "positions", "holdings", "funds", "tickets", "confirmTicket", "rejectTicket", "ticketStatus"],
+  },
+
+  /**
+   * OrderDriftService (module orders). A read-only, periodic compare of the Bridge's own record of live orders with the
+   * broker's order book. Reports differences; never changes, places or cancels anything. Runs only while live trading is on, a
+   * live account is logged in and (default) the market is open, at most every orders.drift.intervalMinutes, at the lowest
+   * scheduler priority. Reported by GET /v1/orders/drift, the readiness answer (`orderBook`), the bus topic `orders.drift`,
+   * a Telegram line and the Safety page.
+   *  status({ canSee? }) -> { enabled, state: "off"|"idle"|"waiting"|"ok"|"drift"|"unavailable", summary, checkedAt, nextCheckAt,
+   *      counts, accounts: [...], differences: [{ kind, accountId, orderId, brokerOrderId, symbol, side, bridge, broker, message }] }
+   *  Extras: checkNow (honours the interval and the budget gate), eligibility, start, close.
+   */
+  orderDrift: {
+    iface: "OrderDriftService",
+    requires: ["accounts", "scheduler", "orders"],
+    methods: ["status"],
+  },
+
+  /**
+   * NotifyService. Bridge events to Telegram (a durable outbox, retries, pacing, digests, quiet hours) and a few
+   * read-only commands back. Nothing depends on it: it listens to the event bus. Tokens and chat ids live in the secret
+   * store and never leave it (responses carry masked hints and a short chat key).
+   *  status() -> Promise<{ enabled, targets, queue: { depth, held, dropped, oldestAt }, lastDeliveryAt, counters, quietHours, reminders }>
+   *  listTargets() -> Promise<Target[]>                       masked
+   *  events() -> { events: Array<{ key, label, help, enabled, default, critical }>, quietHours, morning }
+   *  publish({ key, text, group?, dedupe? }, { critical?, bypassQuiet?, noCoalesce? }) -> Promise<{ queued: number, reason?: string }>
+   *      queue a ready-made message through the same switches (a module that wants to say something)
+   *  testTarget(targetId, { chatKey? }) -> Promise<{ ok, delivered, results, message }>
+   *  Extras: addTarget, removeTarget, findChats, addChat, removeChat, setChatCommands, setEvents, pump, start, stop.
+   */
+  notify: {
+    iface: "NotifyService",
+    requires: ["secrets", "audit", "accounts", "safety", "marketData", "orders", "readiness", "backupData"],
+    methods: ["status", "listTargets", "events", "publish", "testTarget"],
+  },
+
+  /**
+   * LibraryService. Named, tagged collections of instruments: static lists, and option universes that are worked out when
+   * they are used (rolling expiries, the at-the-money strike from the live price). Downloads, recordings, the Excel and
+   * Sheets routes and the Python library call resolve() when they run. Stored in dataDir/collections.json.
+   *  list({ tag?, kind?, q? }) -> Collection[]                       summaries, no symbol lists
+   *  get(nameOrId) -> Collection                                     throws NOT_FOUND; an earlier name of a renamed collection still finds it
+   *  resolve(nameOrId, { spot?, allowStale?, requireLive?, priority?, signal?, accountId?, allowedAccounts? }) -> Promise<{ id, name, kind,
+   *      resolvedAt, rule, symbols: string[], count, atmSource, underlying, expiries, strikeSource, warnings: string[] }>
+   *      atmSource: "not-needed" | "live" | "last-close" | "supplied" | "stale" | "delayed" | "eod"; a stale, delayed or end-of-day
+   *      price is refused (an error) unless allowStale is true, and then it is labelled. requireLive refuses anything but live.
+   *  estimate(nameOrId, intervals: string[] | string, days: number) -> Promise<{ symbols, rows, bytes, brokerCalls, ... }>
+   *  Extras: create, update, remove, duplicate, exportData, importData, usage, registerUsageProvider(kind, fn), status.
+   *  Emits the bus topic "collection.changed".
+   */
+  library: {
+    iface: "LibraryService",
+    requires: ["symbols", "marketData"],
+    methods: ["list", "get", "resolve", "estimate"],
+  },
+
+  /**
+   * DownloadService (module downloads). History downloads that run in the background and save files under
+   * dataDir/downloads/, and datasets that grow by incremental updates. Every broker call goes through
+   * deps.marketData.history() at priority "background", paced to downloads.maxBudgetShare of the account's budget; a
+   * job is saved after every window and continues after a pause, a restart, a kill switch or a lost session.
+   *  estimate(request, { allowedAccounts? }) -> Promise<{ brokerCalls, callsSaved, rows, bytes, etaSec, ... }>   starts nothing
+   *  create(request, { allowedAccounts? }) -> Promise<{ job: Job, existing: boolean }>
+   *  get(id) -> Job                                      throws NOT_FOUND
+   *  list({ status?, tag?, items? }) -> Job[]            newest first
+   *  pause(id) | resume(id) | cancel(id) -> Promise<Job>
+   *  remove(id) -> Promise<void>                          deletes the job's files (never a dataset's)
+   *  updateDataset(name, { allowedAccounts? }) -> Promise<{ job: Job, existing: boolean }>   continues from the last stored bar
+   *  Extras: files, fileOf, patchJob, listDatasets, getDataset, patchDataset, removeDataset, attachLibrary, start, stop.
+   */
+  downloads: {
+    iface: "DownloadService",
+    requires: ["accounts", "scheduler", "marketData", "safety", "symbols"],
+    methods: ["estimate", "create", "get", "list", "pause", "resume", "cancel", "remove", "updateDataset"],
+  },
+
+  /**
+   * RecorderService. Saves the Bridge's own real-time data going forward (quotes, option chains) to files on this
+   * computer, by hand or by rules every trading day. Real-time class only; delayed and end-of-day answers are refused.
+   * Reads from the live feed first, then the cache, then background-priority broker calls inside a share cap.
+   *  create(input, { who? }) -> Promise<RecordingView>       a manual recording (POST /v1/recordings)
+   *  list() -> RecordingView[]
+   *  get(id) -> RecordingView                                with files summary and recent gaps
+   *  pause(id) | resume(id) | stop(id) -> RecordingView
+   *  remove(id) -> void                                      deletes the files too
+   *  files(id) -> Array<{ name, date, symbol, format, compressed, bytes, rows, url }>
+   *  status() -> { line, today, recordings, disk, apiCalls, ... }   the plain status line ("Recording today: 3 rules, ...")
+   *  Extras: rules (listRules, createRule, patchRule, deleteRule), auto/setAuto, presets/applyPreset, openFile, callsToday,
+   *  attach({ library }), start, close.
+   */
+  recorder: {
+    iface: "RecorderService",
+    requires: ["accounts", "scheduler", "symbols", "streamHub", "marketData"],
+    methods: ["create", "list", "get", "pause", "resume", "stop", "remove", "files", "status"],
   },
 });
 
 /** Core deps every factory receives in addition to its `requires`. */
 /**
- * API Bridge v2 has no provider for these contract services (their streams are not part of v2). Kept code may still list
- * them in `requires`; they resolve to stubs. Health, doctor and the module tests skip them.
+ * API Bridge v2 has no provider for these contract services. Kept code may still list them in `requires` and reads
+ * them as an optional extra (the order, paper, safety and readiness services all work without them); they resolve to
+ * stubs. Health, doctor and the module tests skip them.
  */
-export const SERVICES_NOT_IN_V2 = Object.freeze(["reference", "participants", "vol", "recorder", "backupData"]);
+export const SERVICES_NOT_IN_V2 = Object.freeze(["reference"]);
 
 export const CORE_DEPS = Object.freeze(["config", "logger", "bus", "clock", "paths", "brokers"]);
 
@@ -503,7 +560,7 @@ export function notImplementedService(name) {
   const svc = {};
   for (const m of spec.methods) {
     svc[m] = () => {
-      throw new NotImplementedError(`${spec.iface}.${m}() (stream ${spec.stream})`);
+      throw new NotImplementedError(`${spec.iface}.${m}()`);
     };
   }
   Object.defineProperty(svc, STUB, { value: true });
@@ -516,7 +573,7 @@ export function isStub(svc) {
 
 /**
  * Check that `impl` exposes every method of the named contract. Extra methods are allowed (internal helpers), but
- * other streams must only call contract methods.
+ * other modules must only call contract methods.
  * @returns {void} throws Error listing what is missing
  */
 export function assertService(name, impl) {

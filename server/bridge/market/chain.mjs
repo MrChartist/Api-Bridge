@@ -1,5 +1,5 @@
 /**
- * Option-chain helpers — stream S5. Pure functions that turn a broker's chain (contract OptionChainResult, Dhan-shaped
+ * Option-chain helpers. Pure functions that turn a broker's chain (contract OptionChainResult, Dhan-shaped
  * legs) or a list of option quotes into the OpenAPI OptionChain rows, pick the ATM strike, trim to N strikes each side
  * and fill in computed IV and Greeks (server/lib/blackScholes.mjs) where the broker sent none.
  *
@@ -8,13 +8,13 @@
  * percent; theta per calendar day; vega per one vol point. Every leg says where its Greeks came from (greeksSource).
  * That is the legacy model (`ivModel=legacy-bs-spot`, still the default until 2027-05-01).
  *
- * `ivModel=b76-forward` (docs/spec/p1-03-pricing-vol.md §3.9) prices every leg through dashboard/pricing.js, the same
+ * `ivModel=b76-forward` prices every leg through calc/pricing.js, the same
  * code the dashboard runs: Black-76 on the 5-strike parity forward, mid prices, the vol-time clock for σ√T and calendar
  * time for interest. Theta is per trading-day unit. The broker's own IV, if it sent one, is kept as `brokerIv`.
  */
 import { computeIVAndGreeks, daysBetween } from "../../lib/blackScholes.mjs";
 import { formatSymbol } from "../core/symbolFormat.mjs";
-import { greeks76, legIv, parityForward, volTime } from "../dashboard/pricing.js";
+import { greeks76, legIv, parityForward, volTime } from "../calc/pricing.js";
 import { GREEK_KEYS, chainLegFields, legLacksGreeks, stripGreeks } from "./normalise.mjs";
 
 /** BSE index underlyings trade on BFO; everything else defaults to NFO. */
@@ -30,15 +30,27 @@ export function legSymbol(exchange, underlying, expiry, strike, right) {
   return formatSymbol({ exchange, underlying, expiry, strike, right, kind: "OPT" });
 }
 
+/** Strikes on each side of the one nearest to spot that decide the near-the-money step (see strikeStepOf). */
+export const NEAR_MONEY_STRIKES = 10;
+
 /**
- * Strike step (docs/spec/p1-06-stocks.md §6.1): the most common positive gap between consecutive distinct listed
+ * Strike step: the most common positive gap between consecutive distinct listed
  * strikes of one expiry; the smaller gap wins a tie; null with fewer than 3 strikes. Inferred, so callers label it.
  * [1360, 1380, 1400, 1410, 1420, 1440, 1460] → 20 (the off-grid 1410 is typical after a corporate action).
+ *
+ * With `spot` the step is read from the strikes within `around` listed strikes of the one nearest to spot only. A ladder
+ * that is finer near the money than far out (or the other way round) then reports the step that matters for the
+ * contracts a trader is looking at, not the most common gap of the whole ladder.
  * @param {number[]} strikes
+ * @param {{ spot?: number|null, around?: number }} [o]
  */
-export function strikeStepOf(strikes) {
-  const xs = [...new Set((strikes ?? []).filter((k) => typeof k === "number" && Number.isFinite(k) && k > 0))].sort((a, b) => a - b);
+export function strikeStepOf(strikes, { spot = null, around = NEAR_MONEY_STRIKES } = {}) {
+  let xs = [...new Set((strikes ?? []).filter((k) => typeof k === "number" && Number.isFinite(k) && k > 0))].sort((a, b) => a - b);
   if (xs.length < 3) return null;
+  if (typeof spot === "number" && spot > 0 && xs.length > 2 * around + 1) {
+    const i = xs.indexOf(atmStrike(xs, spot));
+    xs = xs.slice(Math.max(0, i - around), i + around + 1);
+  }
   const counts = new Map();
   for (let i = 1; i < xs.length; i += 1) {
     const gap = Math.round((xs[i] - xs[i - 1]) * 10_000) / 10_000;
@@ -184,7 +196,7 @@ export function applyB76(chain, { ctx, nowMs, rate, rateQuality = null }) {
     if (!(T > 0)) return { ...out, ivReason: "SETTLED" };
     if (!(F > 0)) return { ...out, ivReason: "NOFORWARD" };
     const r = legIv(q, F, strike, right, { years: T, df, basis: "mid", settling: clock.settling });
-    // Why a leg has no IV (§6.1: SETTLING inside the expiry-day settlement window), so clients can tell it from no quote.
+    // Why a leg has no IV (SETTLING inside the expiry-day settlement window), so clients can tell it from no quote.
     if (!r) return { ...out, ivReason: "NOQUOTE" };
     if (r.iv === null) return { ...out, ivReason: String(r.out ?? "noquote").toUpperCase() };
     const g = greeks76(F, strike, T, r.iv, right, { yearBasis });

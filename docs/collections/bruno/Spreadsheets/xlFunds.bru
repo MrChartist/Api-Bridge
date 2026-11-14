@@ -1,0 +1,34 @@
+meta {
+  name: Funds, one row per account
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/xl/funds
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~account: demo-paper
+  ~mode: paper
+  ~limit: 1
+  ~format: csv
+  ~cache: false
+  ~errors: 200
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Funds, one row per account
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  Columns are fixed - account, mode, available_cash, used_margin, total_balance, collateral, withdrawable, realised_pnl, unrealised_pnl, as_of, age_s, class, source, stale, error.
+
+  Reference: docs/api/spreadsheets/xlFunds.md in the repository.
+}

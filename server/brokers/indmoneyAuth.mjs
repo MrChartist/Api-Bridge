@@ -15,7 +15,7 @@
  *  - Rate limits: Order APIs 10/s; Data/Quote APIs 5/s (100,000/day); Non-Trading 15/s (100,000/day).
  *
  * Path 2 is a session login (capabilities.auth.kind "sessionLogin"): the user types the MPIN and the
- * CURRENT 6-digit code in the Broker Settings "Log in" dialog; login() returns only { accessToken }. The
+ * CURRENT 6-digit code in the the account settings "Log in" dialog; login() returns only { accessToken }. The
  * MPIN and code are never stored, cached, logged or retried. A pasted token (path 1) is used the same way.
  * Token rejection throws SessionRequiredError: the user logs in (or pastes) again; there is no auto re-login.
  */
@@ -121,7 +121,7 @@ export async function indRequest(creds, path, { method = "GET", params, body, ra
   let json = null;
   try { json = JSON.parse(text); } catch { /* CSV or non-JSON error */ }
   if (isTokenRejection(res.status, json)) {
-    throw new SessionRequiredError(`${NAME}: the access token was rejected or has expired (tokens last 24 hours). Log in again from Broker Settings.`);
+    throw new SessionRequiredError(`${NAME}: the access token was rejected or has expired (tokens last 24 hours). Log in again from the account settings.`);
   }
   if (!res.ok) throw upstreamError(res.status, json, text, path, token);
   if (raw) {

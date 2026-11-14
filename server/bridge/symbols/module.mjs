@@ -1,5 +1,5 @@
 /**
- * symbols module — stream S4: Symbology and instruments. Owned files and tasks: docs/STREAMS.md §S4.
+ * symbols module: Symbology and instruments.
  * The routes below are the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  * Config section `symbols` (optional; see symbolsConfig.mjs). On start the module warms the instrument masters of
@@ -18,11 +18,13 @@ export const ROUTES = Object.freeze([
   ["GET", "/v1/instruments/:symbol", { scope: "read", summary: "Resolve one instrument (lot size, tick size, freeze quantity)" }, "instrument"],
   ["GET", "/v1/symbols/convert", { scope: "read", summary: "Convert one symbol between formats" }, "convertOne"],
   ["POST", "/v1/symbols/convert", { scope: "read", summary: "Convert up to 200 symbols in one call" }, "convertMany"],
+  ["GET", "/v1/symbols/resolve", { scope: "read", summary: "Resolve a name to one instrument with the reason; ambiguous names return candidates" }, "resolve"],
+  ["GET", "/v1/symbols/validate", { scope: "read", summary: "Check one symbol: canonical form, lot size, tradable" }, "validateOne"],
+  ["POST", "/v1/symbols/validate", { scope: "read", summary: "Check up to 200 symbols in one call" }, "validateMany"],
 ]);
 
 export default defineModule({
   name: "symbols",
-  stream: "S4",
   configKey: "symbols",
   configSchema: SYMBOLS_CONFIG_SCHEMA,
   services: { symbols: (deps) => createSymbolService(deps) },

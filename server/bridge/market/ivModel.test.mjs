@@ -1,7 +1,7 @@
 /**
- * /v1/optionchain ivModel (docs/spec/p1-03-pricing-vol.md §3.9, §10, §9.3): the legacy default is byte-for-byte the
+ * /v1/optionchain ivModel: the legacy default is byte-for-byte the
  * output before this change (fixture generated from the p1-integration base with the same helpers); b76-forward
- * reprices every leg through dashboard/pricing.js, keeps the broker's IV as brokerIv and adds `pricing`; the
+ * reprices every leg through calc/pricing.js, keeps the broker's IV as brokerIv and adds `pricing`; the
  * Deprecation and Link headers appear only when the legacy model was the implicit default; config flips the default.
  */
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -11,8 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../core/app.mjs";
 import { loadConfig } from "../core/config.mjs";
 import { createNullLogger } from "../core/logger.mjs";
-import { atmIvAt, greeks76, parityForward, smilePoints, volTime } from "../dashboard/pricing.js";
-import { repriceLeg } from "../dashboard/options.js";
+import { atmIvAt, greeks76, parityForward, smilePoints, volTime } from "../calc/pricing.js";
 import { pricingContext } from "../vol/context.mjs";
 import { applyB76 } from "./chain.mjs";
 import { buildMarket } from "./__fixtures__/helpers.mjs";
@@ -33,11 +32,16 @@ async function chains(model, marketCfg = {}) {
   return out;
 }
 
-/** The P1-6 contract-fact fields are additive (docs/spec/p1-06-stocks.md §3.7); every legacy byte is still compared. */
+/** The contract-fact fields are additive; every legacy byte is still compared. */
 const P1_6_FIELDS = ["underlyingKind", "settlement", "strikeStep", "tickSize"];
+/** The data-quality fields added to every Freshness label are additive as well. */
+const QUALITY_FIELDS = ["class", "delaySec", "official", "confidence", "flags"];
 function legacyOnly(out) {
   const copy = {};
-  for (const [k, c] of Object.entries(out)) copy[k] = Object.fromEntries(Object.entries(c).filter(([f]) => !P1_6_FIELDS.includes(f)));
+  for (const [k, c] of Object.entries(out)) {
+    copy[k] = Object.fromEntries(Object.entries(c).filter(([f]) => !P1_6_FIELDS.includes(f)));
+    if (copy[k].freshness) copy[k].freshness = Object.fromEntries(Object.entries(copy[k].freshness).filter(([f]) => !QUALITY_FIELDS.includes(f)));
+  }
   return copy;
 }
 
@@ -77,32 +81,6 @@ describe("ivModel on the service", () => {
       expect(row.pe.brokerIv).toBeNull();
     }
     expect(atmIvAt(pts, F)).not.toBeNull();
-  });
-
-  it("the dashboard's live-tick reprice (options.js repriceLeg) gives the chain's own figures from its pricing block", async () => {
-    const { md } = buildMarket();
-    const c = await md.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", ivModel: "b76-forward" });
-    let solved = 0;
-    for (const row of c.rows) {
-      for (const side of ["ce", "pe"]) {
-        const leg = row[side];
-        const again = repriceLeg(leg, row.strike, side.toUpperCase(), c.pricing);
-        if (leg.iv === null) {
-          expect(again.iv).toBeNull();
-          continue;
-        }
-        solved += 1;
-        // The forward in `pricing` is rounded to 4 decimals: the same IV and Greeks to well under a display digit.
-        expect(Math.abs(again.iv - leg.iv)).toBeLessThan(1e-3);
-        for (const k of ["delta", "gamma", "theta", "vega"]) expect(Math.abs(again[k] - leg[k])).toBeLessThan(1e-3 * Math.max(1, Math.abs(leg[k])));
-      }
-    }
-    expect(solved).toBeGreaterThan(4);
-    // A dearer call (bid and ask up) solves to a higher IV; no b76 pricing block leaves the leg as it was.
-    const row = c.rows.find((r) => r.ce?.iv !== null && r.ce?.bid > 0);
-    const up = repriceLeg({ ...row.ce, bid: row.ce.bid + 5, ask: row.ce.ask + 5 }, row.strike, "CE", c.pricing);
-    expect(up.iv).toBeGreaterThan(row.ce.iv);
-    expect(repriceLeg(row.ce, row.strike, "CE", null)).toBe(row.ce);
   });
 
   it("greeks=false stays without Greeks under either model", async () => {
@@ -172,7 +150,7 @@ describe("ivModel over HTTP (demo)", () => {
     expect(implicit.status).toBe(200);
     expect(implicit.headers.get("deprecation")).toBe(`@${LEGACY_IV_DEPRECATION}`);
     expect(LEGACY_IV_DEPRECATION).toBe(1809109800);
-    expect(implicit.headers.get("link")).toBe('</docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"');
+    expect(implicit.headers.get("link")).toBe('</docs/API-DEPRECATIONS.md#optionchain-ivmodel>; rel="deprecation"');
     expect((await implicit.json()).data.pricing).toBeUndefined();
     const explicit = await get(`/v1/optionchain?underlying=NIFTY&expiry=${exp}&strikes=5&ivModel=legacy-bs-spot`);
     expect(explicit.headers.get("deprecation")).toBeNull();

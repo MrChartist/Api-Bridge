@@ -93,6 +93,28 @@ describe("authenticateStream", () => {
     expect((await authenticateStream({ keyStore: ks, query: new URLSearchParams(), headers: { "x-api-key": key } })).id).toBe(record.id);
   });
 
+  it("counts bad keys against the caller's address, like every other route (audit S8)", async () => {
+    const { createKeyStore, generateKeyId, parseApiKey } = await import("../auth/keyStore.mjs");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { createNullLogger } = await import("../core/logger.mjs");
+    const ks = createKeyStore({ logger: createNullLogger(), clock: { now: () => Date.now() }, paths: { dataDir: mkdtempSync(join(tmpdir(), "mcb-stream-keys-")) } }, { scryptParams: { N: 2 ** 14, r: 8, p: 1 } });
+    const good = await ks.create({ label: "good", scopes: ["read"] });
+    const other = await ks.create({ label: "other", scopes: ["read"] });
+    const stale = `mcb_${generateKeyId()}_${"S".repeat(43)}`;
+    const results = [];
+    for (let i = 0; i < 40; i += 1) {
+      results.push(await authenticateStream({ keyStore: ks, query: new URLSearchParams(), headers: { authorization: `Bearer ${stale}` }, ip: "127.0.0.1" }).then(() => "ok", (e) => e.code));
+    }
+    expect(results.slice(0, 30)).toEqual(Array(30).fill("UNAUTHENTICATED"));
+    expect(results.slice(30)).toEqual(Array(10).fill("RATE_LIMITED")); // before the fix every one of the 40 was a plain 401
+    // other keys on the same address are not locked out, on the stream or elsewhere
+    expect((await authenticateStream({ keyStore: ks, query: new URLSearchParams(), headers: { authorization: `Bearer ${good.key}` }, ip: "127.0.0.1" })).id).toBe(good.record.id);
+    expect(await ks.authenticate(other.key, { ip: "127.0.0.1" })).not.toBeNull();
+    void parseApiKey;
+  });
+
   it("refuses missing or bad credentials, API keys in the URL and keys without read", async () => {
     const ks = createFakeKeyStore();
     const { key } = ks.addKey({ scopes: ["read"] });
@@ -313,12 +335,12 @@ describe("docs/asyncapi.yaml stays in step with the code", async () => {
 
   it("documents every client op", () => {
     const ops = clientOpSchema.options.map((o) => o.shape.op.value);
-    expect(ops).toEqual(["subscribe", "unsubscribe", "subscribe_orders", "unsubscribe_orders", "subscribe_scans", "unsubscribe_scans", "subscribe_events", "unsubscribe_events", "subscribe_budget", "unsubscribe_budget", "ping"]);
+    expect(ops).toEqual(["subscribe", "unsubscribe", "subscribe_orders", "unsubscribe_orders", "subscribe_budget", "unsubscribe_budget", "ping"]);
     for (const op of ops) expect(spec).toContain(`op: { const: ${op} }`);
   });
 
   it("documents every server message type and go_away reason", () => {
-    for (const type of ["heartbeat", "snapshot", "tick", "order", "scan", "market_event", "budget", "status", "error", "go_away"]) expect(spec).toContain(`type: { const: ${type} }`);
+    for (const type of ["heartbeat", "snapshot", "tick", "order", "budget", "status", "error", "go_away"]) expect(spec).toContain(`type: { const: ${type} }`);
     expect(spec).toContain("enum: [shutdown, slow_consumer, key_revoked]");
     expect(spec).toMatch(/^asyncapi: 3\.0\.0$/m);
   });

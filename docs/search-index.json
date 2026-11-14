@@ -1,0 +1,3094 @@
+{
+  "generatedBy": "scripts/gen-docs-index.mjs",
+  "pages": [
+    {
+      "headings": [
+        "Quick path for a first pull request",
+        "Development setup",
+        "Ground rules",
+        "Adding or improving a broker",
+        "Adding a data source or a plugin",
+        "Pull requests"
+      ],
+      "kind": "doc",
+      "path": "CONTRIBUTING.md",
+      "text": "Thanks for helping. This project is a connection layer: one local API in front of Indian broker accounts, with the prices and data behind it and ways for other projects to connect. It does not include analytics, scanners, strategy tools or a trading desk (see what it does not...",
+      "title": "Contributing"
+    },
+    {
+      "headings": [
+        "What you get",
+        "Five minutes to a first answer",
+        "Docker",
+        "Safety stance",
+        "What it does not do",
+        "Guides",
+        "Contributing and security",
+        "License, trademarks and logos"
+      ],
+      "kind": "doc",
+      "path": "README.md",
+      "text": "One local API in front of your Indian broker accounts, so every tool you run shares the same connections and stays inside each broker's rate limits. It is for developers, traders and anyone building their own tools (a script, a spreadsheet, an AI assistant, a dashboard) who...",
+      "title": "API Bridge v2"
+    },
+    {
+      "headings": [
+        "Open for contribution"
+      ],
+      "kind": "doc",
+      "path": "ROADMAP.md",
+      "text": "API Bridge v2 is a local connection layer for Indian broker APIs. This file lists the directions the project is open to; day-to-day work is tracked in GitHub issues. Broker verification. Only Dhan is verified with a live account. Trying the other brokers in paper mode and...",
+      "title": "Roadmap"
+    },
+    {
+      "headings": [
+        "Reporting a vulnerability",
+        "Supported versions",
+        "Scope",
+        "Keeping your setup safe"
+      ],
+      "kind": "doc",
+      "path": "SECURITY.md",
+      "text": "The Bridge holds your broker credentials and can place orders, so we take security reports seriously. Please do not open a public issue. Report it privately through GitHub's private vulnerability reporting: Go to the repository's Security tab. Click Report a vulnerability...",
+      "title": "Security policy"
+    },
+    {
+      "headings": [
+        "paper-margin-portfolio",
+        "optionchain-ivmodel"
+      ],
+      "kind": "doc",
+      "path": "docs/API-DEPRECATIONS.md",
+      "text": "API changes that need a migration window. (Release notes are in the main changelog.) Each entry keeps its anchor so Link headers can point at it. Paper accounts margin F&O legs together per underlying (paper.margin.model, default \"portfolio\"), with the approximate SPAN-like scan...",
+      "title": "API deprecations and migrations"
+    },
+    {
+      "headings": [
+        "1. What the Bridge is",
+        "2. Process model",
+        "3. Module map",
+        "4. Request pipeline and data flow",
+        "5. Multi-account model",
+        "6. Rate-limit engine and streaming",
+        "7. Orders and paper trading",
+        "8. Safety and security model",
+        "9. Symbology",
+        "10. Integrations",
+        "11. API conventions",
+        "12. Compliance notes",
+        "13. What we will not do",
+        "14. Configuration and environment",
+        "15. Decisions"
+      ],
+      "kind": "doc",
+      "path": "docs/ARCHITECTURE.md",
+      "text": "Status: v2 design. The code contracts this document describes live in server/bridge/core/ and are enforced by tests; the HTTP contract is openapi.yaml. Anything marked (needs verification) must be checked against a primary source before it ships to users. One local service that...",
+      "title": "Mr. Chartist API Bridge: architecture"
+    },
+    {
+      "headings": [
+        "Capability table",
+        "Legend",
+        "Verification ladder",
+        "Order-safety contract cases",
+        "Limits, live feed and data plans",
+        "What the brokers' terms say about pooling",
+        "Sign-in methods",
+        "Notes on the newer beta brokers",
+        "Using a broker through the Bridge"
+      ],
+      "kind": "doc",
+      "path": "docs/BROKERS.md",
+      "text": "The Bridge can read option chains, quotes, history and your portfolio from 41 Indian brokers, and can hold several accounts per broker. Broker keys are saved encrypted on your own machine (data/secrets.enc, sealed with the master key) and go only from the Bridge to the broker...",
+      "title": "Supported brokers"
+    },
+    {
+      "headings": [
+        "Trade on paper",
+        "Connect a broker",
+        "Connect a tool",
+        "Get alerts in",
+        "Receive events",
+        "Write your own program",
+        "Save data",
+        "Run it for weeks",
+        "Stuck, or a word you do not know?",
+        "For AI assistants and search",
+        "Reference",
+        "Generated files"
+      ],
+      "kind": "doc",
+      "path": "docs/README.md",
+      "text": "API Bridge v2 is one local API in front of your Indian broker accounts. It is open source (MIT), runs on your own computer and has no hosted service. These pages are for people who run it and people who build on it. Everything works in demo mode first: sample prices, no broker,...",
+      "title": "Documentation"
+    },
+    {
+      "headings": [
+        "System",
+        "Accounts",
+        "Keys",
+        "Instruments",
+        "Collections",
+        "Market data",
+        "Streaming",
+        "Events",
+        "Portfolio",
+        "Orders",
+        "Paper",
+        "Limits",
+        "Sources",
+        "Pooling",
+        "Quotas",
+        "Notifications",
+        "Recordings",
+        "Safety",
+        "Readiness",
+        "Data downloads",
+        "Backup",
+        "Spreadsheets",
+        "Webhooks",
+        "AI (MCP)",
+        "Compat REST"
+      ],
+      "kind": "doc",
+      "path": "docs/api/README.md",
+      "text": "223 operations, generated from openapi.yaml. Each page lists the scope, whether it works only from this computer, parameters, request and response fields, error codes, and a curl and Python example. Streams are in asyncapi.yaml; error codes in errors.md. Every call except...",
+      "title": "API reference: one page per endpoint"
+    },
+    {
+      "headings": [
+        "POST /v1/accounts"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/addAccount.md",
+      "text": "POST /v1/accounts. Adds the account to the config file the Bridge loaded (or creates the per-user bridge.config.json when it started without one), keeping the file's other content, and starts using it without a restart.",
+      "title": "Add a broker or paper account (saved to the config file, usable at once)"
+    },
+    {
+      "headings": [
+        "POST /v1/accounts/{accountId}/session"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/connectAccount.md",
+      "text": "POST /v1/accounts/{accountId}/session. Saves the non-secret values (API key, client id, access token) encrypted at rest, then logs in where the broker needs it.",
+      "title": "Connect or log in to the broker"
+    },
+    {
+      "headings": [
+        "DELETE /v1/accounts/{accountId}/session"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/disconnectAccount.md",
+      "text": "DELETE /v1/accounts/{accountId}/session.",
+      "title": "Forget the broker session (saved keys stay)"
+    },
+    {
+      "headings": [
+        "GET /v1/accounts/{accountId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/getAccount.md",
+      "text": "GET /v1/accounts/{accountId}.",
+      "title": "One account"
+    },
+    {
+      "headings": [
+        "GET /v1/accounts"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/listAccounts.md",
+      "text": "GET /v1/accounts. Only accounts this key may use are listed.",
+      "title": "Your configured accounts and their session state"
+    },
+    {
+      "headings": [
+        "GET /v1/brokers"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/listBrokers.md",
+      "text": "GET /v1/brokers. Capabilities come from each adapter's declared contract; limits from the Bridge's broker policy table (each number marked verified or not).",
+      "title": "Supported brokers and what each can do"
+    },
+    {
+      "headings": [
+        "DELETE /v1/accounts/{accountId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/removeAccount.md",
+      "text": "DELETE /v1/accounts/{accountId}. For an account added by mistake.",
+      "title": "Remove an account (from the config file and the running Bridge)"
+    },
+    {
+      "headings": [
+        "POST /v1/accounts/{accountId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/accounts/testAccount.md",
+      "text": "POST /v1/accounts/{accountId}/test.",
+      "title": "Make one cheap authenticated broker call"
+    },
+    {
+      "headings": [
+        "POST /mcp"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/ai-mcp/mcp.md",
+      "text": "POST /mcp. JSON-RPC 2.0 per the Model Context Protocol.",
+      "title": "MCP Streamable HTTP endpoint for AI assistants"
+    },
+    {
+      "headings": [
+        "POST /v1/backup"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/backup/createBackup.md",
+      "text": "POST /v1/backup. This computer only, admin key.",
+      "title": "Make a backup now"
+    },
+    {
+      "headings": [
+        "GET /v1/backup"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/backup/getBackup.md",
+      "text": "GET /v1/backup. This computer only, admin key.",
+      "title": "The last backup, the schedule and the copies kept on this computer"
+    },
+    {
+      "headings": [
+        "POST /v1/collections"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/createCollection.md",
+      "text": "POST /v1/collections. A static collection holds a list of symbols.",
+      "title": "Create a collection"
+    },
+    {
+      "headings": [
+        "DELETE /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/deleteCollection.md",
+      "text": "DELETE /v1/collections/{name}. Refused with 409 while a download, recording or rule that is running uses it, unless force=true.",
+      "title": "Delete a collection"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/{name}/duplicate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/duplicateCollection.md",
+      "text": "POST /v1/collections/{name}/duplicate. Without a name the copy is called -copy (then -copy2 ...).",
+      "title": "Copy a collection under a new name"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/estimate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/estimateCollection.md",
+      "text": "GET /v1/collections/{name}/estimate. Rows, bytes and broker calls before you start.",
+      "title": "Size of downloading a collection (symbols x intervals x days)"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/export"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/exportCollection.md",
+      "text": "GET /v1/collections/{name}/export. JSON is the definition (a universe stays a universe) and imports back with POST /v1/collections/import.",
+      "title": "A collection as a CSV or JSON file"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/getCollection.md",
+      "text": "GET /v1/collections/{name}.",
+      "title": "One collection with its symbols or universe"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/usage"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/getCollectionUsage.md",
+      "text": "GET /v1/collections/{name}/usage. The downloads, recordings, auto-record rules and datasets that use it.",
+      "title": "What is made from this collection"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/import"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/importCollections.md",
+      "text": "POST /v1/collections/import. JSON: a collection ({ name, kind, symbols | universe }), a plain list of symbols (with name in the query), a file that GET /v1/collections/{name}/export wrote, or { collections: [...] }.",
+      "title": "Make collections from CSV or JSON"
+    },
+    {
+      "headings": [
+        "GET /v1/collections"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/listCollections.md",
+      "text": "GET /v1/collections. Summaries without symbol lists, ordered by name.",
+      "title": "List collections (static lists and option universes)"
+    },
+    {
+      "headings": [
+        "GET /v1/collections/{name}/resolve"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/resolveCollection.md",
+      "text": "GET /v1/collections/{name}/resolve. A static collection answers its list.",
+      "title": "The concrete symbols of a collection right now"
+    },
+    {
+      "headings": [
+        "POST /v1/collections/resolve"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/resolveCollectionDraft.md",
+      "text": "POST /v1/collections/resolve. The preview behind the collection builder: the same work as GET /v1/collections/{name}/resolve, for a universe you are still editing.",
+      "title": "The concrete symbols of an option universe that is not saved yet"
+    },
+    {
+      "headings": [
+        "PATCH /v1/collections/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/collections/updateCollection.md",
+      "text": "PATCH /v1/collections/{name}. A rename keeps the collection's id and its old name keeps working.",
+      "title": "Change a collection, or rename it (send `name`)"
+    },
+    {
+      "headings": [
+        "POST /api/v1/analyzer"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatAnalyzer.md",
+      "text": "POST /api/v1/analyzer.",
+      "title": "Analyzer (paper) mode status for this key"
+    },
+    {
+      "headings": [
+        "POST /api/v1/analyzer/toggle"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatAnalyzerToggle.md",
+      "text": "POST /api/v1/analyzer/toggle.",
+      "title": "Switch analyzer mode for this key (off needs a live key)"
+    },
+    {
+      "headings": [
+        "POST /api/v1/basketorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatBasketorder.md",
+      "text": "POST /api/v1/basketorder.",
+      "title": "Several orders in one call"
+    },
+    {
+      "headings": [
+        "POST /api/v1/cancelallorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatCancelallorder.md",
+      "text": "POST /api/v1/cancelallorder.",
+      "title": "Cancel every open order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/cancelorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatCancelorder.md",
+      "text": "POST /api/v1/cancelorder.",
+      "title": "Cancel an order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/closeposition"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatCloseposition.md",
+      "text": "POST /api/v1/closeposition.",
+      "title": "Square off every open position"
+    },
+    {
+      "headings": [
+        "POST /api/v1/depth"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatDepth.md",
+      "text": "POST /api/v1/depth.",
+      "title": "Market depth"
+    },
+    {
+      "headings": [
+        "POST /api/v1/expiry"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatExpiry.md",
+      "text": "POST /api/v1/expiry.",
+      "title": "Expiry dates"
+    },
+    {
+      "headings": [
+        "POST /api/v1/funds"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatFunds.md",
+      "text": "POST /api/v1/funds.",
+      "title": "Funds"
+    },
+    {
+      "headings": [
+        "POST /api/v1/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatHistory.md",
+      "text": "POST /api/v1/history.",
+      "title": "Candles"
+    },
+    {
+      "headings": [
+        "POST /api/v1/holdings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatHoldings.md",
+      "text": "POST /api/v1/holdings.",
+      "title": "Holdings with statistics"
+    },
+    {
+      "headings": [
+        "POST /api/v1/intervals"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatIntervals.md",
+      "text": "POST /api/v1/intervals.",
+      "title": "Supported candle intervals"
+    },
+    {
+      "headings": [
+        "POST /api/v1/margin"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatMargin.md",
+      "text": "POST /api/v1/margin.",
+      "title": "Margin calculation (not available yet)"
+    },
+    {
+      "headings": [
+        "POST /api/v1/modifyorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatModifyorder.md",
+      "text": "POST /api/v1/modifyorder.",
+      "title": "Modify an open order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/multiquotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatMultiquotes.md",
+      "text": "POST /api/v1/multiquotes.",
+      "title": "Quotes for up to 200 symbols"
+    },
+    {
+      "headings": [
+        "POST /api/v1/openposition"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOpenposition.md",
+      "text": "POST /api/v1/openposition.",
+      "title": "Net quantity for one symbol and product"
+    },
+    {
+      "headings": [
+        "POST /api/v1/optionchain"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOptionchain.md",
+      "text": "POST /api/v1/optionchain.",
+      "title": "Option chain"
+    },
+    {
+      "headings": [
+        "POST /api/v1/optionsorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOptionsorder.md",
+      "text": "POST /api/v1/optionsorder.",
+      "title": "Order an option by offset (ATM, ITM2, OTM1 ...)"
+    },
+    {
+      "headings": [
+        "POST /api/v1/optionsymbol"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOptionsymbol.md",
+      "text": "POST /api/v1/optionsymbol.",
+      "title": "Option symbol for an offset"
+    },
+    {
+      "headings": [
+        "POST /api/v1/orderbook"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOrderbook.md",
+      "text": "POST /api/v1/orderbook.",
+      "title": "Order book with statistics"
+    },
+    {
+      "headings": [
+        "POST /api/v1/orderstatus"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatOrderstatus.md",
+      "text": "POST /api/v1/orderstatus.",
+      "title": "One order's status"
+    },
+    {
+      "headings": [
+        "POST /api/v1/ping"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPing.md",
+      "text": "POST /api/v1/ping.",
+      "title": "Check the key and the account the calls act on"
+    },
+    {
+      "headings": [
+        "POST /api/v1/placeorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPlaceorder.md",
+      "text": "POST /api/v1/placeorder.",
+      "title": "Place an order"
+    },
+    {
+      "headings": [
+        "POST /api/v1/placesmartorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPlacesmartorder.md",
+      "text": "POST /api/v1/placesmartorder.",
+      "title": "Order towards a target position size"
+    },
+    {
+      "headings": [
+        "POST /api/v1/positionbook"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatPositionbook.md",
+      "text": "POST /api/v1/positionbook.",
+      "title": "Positions"
+    },
+    {
+      "headings": [
+        "POST /api/v1/quotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatQuotes.md",
+      "text": "POST /api/v1/quotes.",
+      "title": "Quote for one symbol"
+    },
+    {
+      "headings": [
+        "POST /api/v1/search"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatSearch.md",
+      "text": "POST /api/v1/search.",
+      "title": "Instrument search"
+    },
+    {
+      "headings": [
+        "POST /api/v1/splitorder"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatSplitorder.md",
+      "text": "POST /api/v1/splitorder.",
+      "title": "One order split into pieces"
+    },
+    {
+      "headings": [
+        "POST /api/v1/symbol"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatSymbol.md",
+      "text": "POST /api/v1/symbol.",
+      "title": "Instrument details"
+    },
+    {
+      "headings": [
+        "POST /api/v1/tradebook"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/compat-rest/compatTradebook.md",
+      "text": "POST /api/v1/tradebook.",
+      "title": "Trade book"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{downloadId}/cancel"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/cancelDownload.md",
+      "text": "POST /v1/downloads/{downloadId}/cancel. Files of items that were already whole are kept; half-written parts are dropped.",
+      "title": "Cancel a job"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/createDownload.md",
+      "text": "POST /v1/downloads. Saves candles to files on this computer as a background job.",
+      "title": "Start a history download, or only estimate it with dryRun=1"
+    },
+    {
+      "headings": [
+        "DELETE /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/deleteDataset.md",
+      "text": "DELETE /v1/datasets/{name}. This computer only, admin key.",
+      "title": "Delete a dataset and its files"
+    },
+    {
+      "headings": [
+        "DELETE /v1/downloads/{downloadId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/deleteDownload.md",
+      "text": "DELETE /v1/downloads/{downloadId}. This computer only, admin key.",
+      "title": "Delete a job and its files"
+    },
+    {
+      "headings": [
+        "GET /v1/instruments/export"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/exportInstruments.md",
+      "text": "GET /v1/instruments/export. Streams every instrument the connected brokers' masters hold (symbol, exchange, kind, underlying, name, expiry, strike, right, lot size, tick size, freeze quantity, ISIN), optionally for one exchange or kind.",
+      "title": "The instrument master as a CSV or JSONL file"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDataset.md",
+      "text": "GET /v1/datasets/{name}. Each file lists its coverage (the stretch already fetched and stored) and its gaps (places inside it where bars are missing; a thin stock has no bar for a minute with no trade, so a gap is reported and never filled with a made-up bar).",
+      "title": "One dataset with its files, coverage and gaps"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets/{name}/files/{file}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDatasetFile.md",
+      "text": "GET /v1/datasets/{name}/files/{file}. One series file, by the name (and url) that GET /v1/datasets/{name} lists.",
+      "title": "Stream one file of a dataset"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{downloadId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDownload.md",
+      "text": "GET /v1/downloads/{downloadId}.",
+      "title": "One download job with its progress and items"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{downloadId}/files/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDownloadFile.md",
+      "text": "GET /v1/downloads/{downloadId}/files/{name}. The file as the Bridge wrote it.",
+      "title": "Stream one file of a job (or manifest.json)"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/settings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/getDownloadSettings.md",
+      "text": "GET /v1/downloads/settings. The values in force (the config values unless changed here), the config defaults and the allowed range.",
+      "title": "The budget share and the after-hours switch downloads use now"
+    },
+    {
+      "headings": [
+        "GET /v1/datasets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDatasets.md",
+      "text": "GET /v1/datasets. A dataset is a named set of files (one per symbol and interval) that grows by incremental updates.",
+      "title": "Datasets stored on this computer"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads/{downloadId}/files"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDownloadFiles.md",
+      "text": "GET /v1/downloads/{downloadId}/files.",
+      "title": "The files of a job, as listed in its manifest"
+    },
+    {
+      "headings": [
+        "GET /v1/downloads"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/listDownloads.md",
+      "text": "GET /v1/downloads. The list leaves out each job's items unless include=items.",
+      "title": "Download jobs, newest first"
+    },
+    {
+      "headings": [
+        "PATCH /v1/downloads/settings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/patchDownloadSettings.md",
+      "text": "PATCH /v1/downloads/settings. Applies at once to running and waiting jobs (the next broker call reads it), is kept in a small file in the data folder (not in bridge.config.json) and survives a restart.",
+      "title": "Change the budget share or the after-hours switch while the Bridge runs"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{downloadId}/pause"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/pauseDownload.md",
+      "text": "POST /v1/downloads/{downloadId}/pause. The job keeps what it has written and continues from there when resumed.",
+      "title": "Pause a queued or running job"
+    },
+    {
+      "headings": [
+        "POST /v1/downloads/{downloadId}/resume"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/resumeDownload.md",
+      "text": "POST /v1/downloads/{downloadId}/resume.",
+      "title": "Resume a paused job, or retry the failed items of a failed job"
+    },
+    {
+      "headings": [
+        "POST /v1/datasets/{name}/update"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDataset.md",
+      "text": "POST /v1/datasets/{name}/update. Starts a job that continues every series of the dataset from its last stored bar.",
+      "title": "Fetch what is new since the last stored bar"
+    },
+    {
+      "headings": [
+        "PATCH /v1/datasets/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDatasetInfo.md",
+      "text": "PATCH /v1/datasets/{name}.",
+      "title": "Rename a dataset or change its tags and title"
+    },
+    {
+      "headings": [
+        "PATCH /v1/downloads/{downloadId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/data-downloads/updateDownload.md",
+      "text": "PATCH /v1/downloads/{downloadId}.",
+      "title": "Rename a job or change its tags"
+    },
+    {
+      "headings": [],
+      "kind": "doc",
+      "path": "docs/api/errors.md",
+      "text": "Every error is application/problem+json with code, status, detail, retryable and requestId. The code is stable (codes are added, never renamed); detail is for people. retryable answers one question: is it safe to send exactly this request again? A write whose outcome is unknown...",
+      "title": "Error codes"
+    },
+    {
+      "headings": [
+        "DELETE /v1/subscriptions/{subscriptionId}/dead-letters"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/clearSubscriptionDeadLetters.md",
+      "text": "DELETE /v1/subscriptions/{subscriptionId}/dead-letters.",
+      "title": "Forget this subscription's dead letters"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/createSubscription.md",
+      "text": "POST /v1/subscriptions. The target is an outside URL, so this works from this computer only.",
+      "title": "Send events to a URL, signed (this computer only)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/deleteSubscription.md",
+      "text": "DELETE /v1/subscriptions/{subscriptionId}.",
+      "title": "Remove a subscription, its queue, dead letters, log and stored secret"
+    },
+    {
+      "headings": [
+        "GET /v1/events/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/getEventsStatus.md",
+      "text": "GET /v1/events/status.",
+      "title": "The event log, open connections and the webhook queue"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/getSubscription.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}.",
+      "title": "One webhook subscription with its health"
+    },
+    {
+      "headings": [
+        "GET /v1/events/topics"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listEventTopics.md",
+      "text": "GET /v1/events/topics. A read key sees no admin-only topic.",
+      "title": "The topics this key may receive"
+    },
+    {
+      "headings": [
+        "GET /v1/events"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listEvents.md",
+      "text": "GET /v1/events. The same events, filters and cursor as the stream, in one answer.",
+      "title": "Replay events as JSON (the polling twin of the stream)"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}/dead-letters"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptionDeadLetters.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}/dead-letters.",
+      "title": "Events that could not be delivered, newest first"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions/{subscriptionId}/deliveries"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptionDeliveries.md",
+      "text": "GET /v1/subscriptions/{subscriptionId}/deliveries. Every attempt with its outcome, HTTP status and a short failure code.",
+      "title": "The delivery log, newest first"
+    },
+    {
+      "headings": [
+        "GET /v1/subscriptions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/listSubscriptions.md",
+      "text": "GET /v1/subscriptions. The URL's path and the signing secret are never returned, only the host.",
+      "title": "Webhook subscriptions"
+    },
+    {
+      "headings": [
+        "GET /v1/events/ws"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/openEventSocket.md",
+      "text": "GET /v1/events/ws. ws://127.0.0.1:4300/v1/events/ws?token=&topics=order.*&since=.",
+      "title": "WebSocket stream of Bridge events (upgrade), same events and cursor as the SSE stream"
+    },
+    {
+      "headings": [
+        "GET /v1/events/stream"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/openEventStream.md",
+      "text": "GET /v1/events/stream. GET /v1/events/stream?token=&topics=order.,download.&since=.",
+      "title": "Server-Sent Events stream of Bridge events, with replay from a cursor"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/retrySubscriptionDeadLetter.md",
+      "text": "POST /v1/subscriptions/{subscriptionId}/dead-letters/{deliveryId}/retry.",
+      "title": "Put a dead letter back in the queue (this computer only)"
+    },
+    {
+      "headings": [
+        "POST /v1/subscriptions/{subscriptionId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/testSubscription.md",
+      "text": "POST /v1/subscriptions/{subscriptionId}/test. One attempt, not queued and not retried; it appears in the delivery log.",
+      "title": "Send one signed test event now (this computer only)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/subscriptions/{subscriptionId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/events/updateSubscription.md",
+      "text": "PATCH /v1/subscriptions/{subscriptionId}. Only the fields sent change.",
+      "title": "Change a subscription (this computer only)"
+    },
+    {
+      "headings": [
+        "GET /v1/symbols/convert"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/convertSymbolGet.md",
+      "text": "GET /v1/symbols/convert.",
+      "title": "Convert one symbol between formats"
+    },
+    {
+      "headings": [
+        "POST /v1/symbols/convert"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/convertSymbols.md",
+      "text": "POST /v1/symbols/convert.",
+      "title": "Convert up to 200 symbols in one call"
+    },
+    {
+      "headings": [
+        "GET /v1/instruments/{symbol}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/getInstrument.md",
+      "text": "GET /v1/instruments/{symbol}.",
+      "title": "Resolve one instrument (lot size, tick size, freeze quantity)"
+    },
+    {
+      "headings": [
+        "GET /v1/symbols/resolve"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/resolveSymbol.md",
+      "text": "GET /v1/symbols/resolve. Reads what chart tools, spreadsheets and alerts write (NSE:MM, NSEINDEX:NIFTY 50, NSE:RELIANCE-EQ, Reliance) and answers the one instrument it means, how it got there (rule, rules) and the ranked candidates.",
+      "title": "Resolve a name to one instrument, with the reason"
+    },
+    {
+      "headings": [
+        "GET /v1/instruments/search"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/searchInstruments.md",
+      "text": "GET /v1/instruments/search.",
+      "title": "Search instruments across connected brokers' masters"
+    },
+    {
+      "headings": [
+        "GET /v1/symbols/validate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/validateSymbolGet.md",
+      "text": "GET /v1/symbols/validate. For a spreadsheet or an alert author: type a symbol, see the exact canonical form the Bridge will use and its lot size.",
+      "title": "Check one symbol (canonical form, lot size, tradable)"
+    },
+    {
+      "headings": [
+        "POST /v1/symbols/validate"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/instruments/validateSymbols.md",
+      "text": "POST /v1/symbols/validate.",
+      "title": "Check up to 200 symbols in one call"
+    },
+    {
+      "headings": [
+        "POST /v1/keys"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/createKey.md",
+      "text": "POST /v1/keys. The key is in the response once and cannot be shown again; only a scrypt hash is stored.",
+      "title": "Create an API key"
+    },
+    {
+      "headings": [
+        "GET /v1/keys"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/listKeys.md",
+      "text": "GET /v1/keys. An admin key limited to some accounts lists only keys limited to those same accounts.",
+      "title": "List API keys (never the key itself)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/keys/{keyId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/revokeKey.md",
+      "text": "DELETE /v1/keys/{keyId}. An admin key limited to some accounts can revoke only keys limited to those accounts; any other key answers 404, as an unknown id does.",
+      "title": "Revoke a key (takes effect immediately)"
+    },
+    {
+      "headings": [
+        "POST /v1/sign-in"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/signIn.md",
+      "text": "POST /v1/sign-in. Used by the dashboard when it is opened from mc-bridge start --open or mc-bridge open, whose link carries a one-time code in the URL fragment (/dashboard#signin=, never sent to the server in a URL).",
+      "title": "Exchange a one-time sign-in code for a dashboard key"
+    },
+    {
+      "headings": [
+        "POST /v1/sign-in/local"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/keys/signInLocal.md",
+      "text": "POST /v1/sign-in/local. Used by the dashboard when it is opened on the computer the Bridge runs on with no key and no sign-in link.",
+      "title": "Sign the dashboard on this computer in without a key"
+    },
+    {
+      "headings": [
+        "GET /v1/limits"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/limits/getLimits.md",
+      "text": "GET /v1/limits. With explain=1 the report also says why a request may have been slow or refused, in numbers instead of log lines (pools, consumers).",
+      "title": "Broker limits, safety limits and current budgets per account"
+    },
+    {
+      "headings": [
+        "GET /v1/usage"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/limits/getUsage.md",
+      "text": "GET /v1/usage. Per account and endpoint class: the binding window, every window (windows: this second, this minute, today) and today's counters.",
+      "title": "How much of each budget is used, queued and saved by streaming, caching and coalescing"
+    },
+    {
+      "headings": [
+        "GET /v1/calendar/holidays"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getCalendarHolidays.md",
+      "text": "GET /v1/calendar/holidays. From the holiday list shipped with the Bridge (the NSE and BSE circulars; the list's date and source are in calendar).",
+      "title": "Trading holidays of a year for an exchange"
+    },
+    {
+      "headings": [
+        "GET /v1/calendar/sessions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getCalendarSessions.md",
+      "text": "GET /v1/calendar/sessions. Whether the date is a trading day and why not when it is not (weekend, holiday), the pre-open, open and close times (IST), a special session such as Muhurat trading, and the neighbouring trading days.",
+      "title": "The session of one date (trading day or not, and the times)"
+    },
+    {
+      "headings": [
+        "GET /v1/calendar/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getCalendarStatus.md",
+      "text": "GET /v1/calendar/status. open, pre-open or closed, by the Bridge's clock in IST, with the reason (a holiday is named), when it closes or opens and the next regular or special open.",
+      "title": "Is the exchange open now, and when does it next open"
+    },
+    {
+      "headings": [
+        "GET /v1/depth"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getDepth.md",
+      "text": "GET /v1/depth.",
+      "title": "Market depth (5 levels where the broker offers it)"
+    },
+    {
+      "headings": [
+        "GET /v1/expiries"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getExpiries.md",
+      "text": "GET /v1/expiries. See /v1/reference/expiries for kind, lot and holiday shifts.",
+      "title": "Expiry dates for an underlying"
+    },
+    {
+      "headings": [
+        "GET /v1/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getHistory.md",
+      "text": "GET /v1/history. Give from+to, or to+countback.",
+      "title": "Historical candles, automatically split across broker limits"
+    },
+    {
+      "headings": [
+        "GET /v1/ltp"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getLtp.md",
+      "text": "GET /v1/ltp.",
+      "title": "Last traded price for up to 200 symbols"
+    },
+    {
+      "headings": [
+        "GET /v1/optionchain"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getOptionChain.md",
+      "text": "GET /v1/optionchain. Works for every F&O stock and index the broker lists; GET /v1/expiries?underlying= lists the expiries it can answer for.",
+      "title": "Option chain with IV and Greeks"
+    },
+    {
+      "headings": [
+        "GET /v1/quotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/market-data/getQuotes.md",
+      "text": "GET /v1/quotes.",
+      "title": "Full quotes for up to 200 symbols"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets/{targetId}/chats"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/addNotifyChat.md",
+      "text": "POST /v1/notify/targets/{targetId}/chats.",
+      "title": "Put a chat on the list (alerts, and optionally commands)"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/createNotifyTarget.md",
+      "text": "POST /v1/notify/targets. The token is checked with Telegram (getMe) and stored encrypted in the secrets store.",
+      "title": "Add a Telegram bot (or replace the token of the same bot)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/notify/targets/{targetId}/chats/{chatKey}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/deleteNotifyChat.md",
+      "text": "DELETE /v1/notify/targets/{targetId}/chats/{chatKey}.",
+      "title": "Remove a chat from the list"
+    },
+    {
+      "headings": [
+        "DELETE /v1/notify/targets/{targetId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/deleteNotifyTarget.md",
+      "text": "DELETE /v1/notify/targets/{targetId}.",
+      "title": "Remove a bot and forget its token and chats"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets/{targetId}/find-chat"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/findNotifyChat.md",
+      "text": "POST /v1/notify/targets/{targetId}/find-chat. The person sends the bot a message (for example /start); the Bridge reads it and offers the chat to confirm.",
+      "title": "Find chats that recently wrote to the bot"
+    },
+    {
+      "headings": [
+        "GET /v1/notify/events"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/getNotifyEvents.md",
+      "text": "GET /v1/notify/events.",
+      "title": "Every event with its plain label and whether it is on"
+    },
+    {
+      "headings": [
+        "GET /v1/notify/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/getNotifyStatus.md",
+      "text": "GET /v1/notify/status. Plain-words state for the dashboard and mc-bridge doctor.",
+      "title": "Notification health: queue, last delivery, last error per target"
+    },
+    {
+      "headings": [
+        "GET /v1/notify/targets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/listNotifyTargets.md",
+      "text": "GET /v1/notify/targets. The bot token and chat ids are never returned: only a token hint, the bot name, a chat name and the last four digits of each chat id.",
+      "title": "List Telegram bots and their chats (masked)"
+    },
+    {
+      "headings": [
+        "PUT /v1/notify/events"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/putNotifyEvents.md",
+      "text": "PUT /v1/notify/events. Only the fields sent change.",
+      "title": "Choose which events are sent, quiet hours and the morning reminder"
+    },
+    {
+      "headings": [
+        "POST /v1/notify/targets/{targetId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/testNotifyTarget.md",
+      "text": "POST /v1/notify/targets/{targetId}/test.",
+      "title": "Send a test message and report delivery per chat"
+    },
+    {
+      "headings": [
+        "PATCH /v1/notify/targets/{targetId}/chats/{chatKey}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/notifications/updateNotifyChat.md",
+      "text": "PATCH /v1/notify/targets/{targetId}/chats/{chatKey}.",
+      "title": "Allow or stop commands from a chat"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/state/acknowledge"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/acknowledgeOrderState.md",
+      "text": "POST /v1/orders/state/acknowledge. When the Bridge's record of sent orders (orders/state.json) is damaged it is set aside and live orders are refused (ORDERSTATEDAMAGED); paper orders keep working.",
+      "title": "Allow live orders again after the order records were damaged"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/cancel-all"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/cancelAllOrders.md",
+      "text": "POST /v1/orders/cancel-all.",
+      "title": "Cancel every open order for an account (or all accounts this key may use)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/orders/{orderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/cancelOrder.md",
+      "text": "DELETE /v1/orders/{orderId}.",
+      "title": "Cancel an open order"
+    },
+    {
+      "headings": [
+        "POST /v1/tickets/{ticketId}/confirm"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/confirmTicket.md",
+      "text": "POST /v1/tickets/{ticketId}/confirm. Used by the Bridge's own confirmation page on this computer.",
+      "title": "Human confirmation of an order prepared by an AI assistant or webhook"
+    },
+    {
+      "headings": [
+        "GET /v1/orders/{orderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/getOrder.md",
+      "text": "GET /v1/orders/{orderId}.",
+      "title": "One order (refreshed from the broker for live orders)"
+    },
+    {
+      "headings": [
+        "GET /v1/orders/by-client-id/{clientOrderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/getOrderByClientId.md",
+      "text": "GET /v1/orders/by-client-id/{clientOrderId}.",
+      "title": "Look up an order by your own clientOrderId"
+    },
+    {
+      "headings": [
+        "GET /v1/orders/drift"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/getOrderDrift.md",
+      "text": "GET /v1/orders/drift. The last result of the order-book check.",
+      "title": "Does the broker's order book match the Bridge's live orders? (read-only check)"
+    },
+    {
+      "headings": [
+        "GET /v1/orders"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/listOrders.md",
+      "text": "GET /v1/orders.",
+      "title": "Orders (newest first)"
+    },
+    {
+      "headings": [
+        "GET /v1/tickets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/listTickets.md",
+      "text": "GET /v1/tickets. The dashboard's \"Pending confirmations\" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks.",
+      "title": "Orders waiting for a human confirmation"
+    },
+    {
+      "headings": [
+        "GET /v1/trades"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/listTrades.md",
+      "text": "GET /v1/trades.",
+      "title": "Executions (trade book)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/orders/{orderId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/modifyOrder.md",
+      "text": "PATCH /v1/orders/{orderId}. Counts towards the order-rate cap.",
+      "title": "Modify an open order"
+    },
+    {
+      "headings": [
+        "POST /v1/orders"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/placeOrder.md",
+      "text": "POST /v1/orders. Every order passes the safety checks.",
+      "title": "Place an order (paper unless you ask for live)"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/batch"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/placeOrderBatch.md",
+      "text": "POST /v1/orders/batch. A convenience for alerts that need two legs (a hedge and a main order), not a strategy engine: the legs do not know about each other and nothing is rolled back.",
+      "title": "Place up to 20 independent orders in one call"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/to-target"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/placeOrderToTarget.md",
+      "text": "POST /v1/orders/to-target. \"Be long 3 lots\", \"be flat\", \"be short 50 shares\", the way a strategy alert says it.",
+      "title": "Place only the order that gets a position to a target size"
+    },
+    {
+      "headings": [
+        "POST /v1/orders/preview"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/previewOrder.md",
+      "text": "POST /v1/orders/preview. Resolves the symbol and lot size, runs every safety check, and returns warnings and the estimated value.",
+      "title": "Check an order without sending it"
+    },
+    {
+      "headings": [
+        "POST /v1/tickets/{ticketId}/reject"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/orders/rejectTicket.md",
+      "text": "POST /v1/tickets/{ticketId}/reject. The \"no\" that goes with confirm.",
+      "title": "A person declines an order prepared by an AI assistant or webhook"
+    },
+    {
+      "headings": [
+        "GET /v1/paper/accounts/{accountId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/getPaperAccount.md",
+      "text": "GET /v1/paper/accounts/{accountId}.",
+      "title": "Paper account summary"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/margin"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/paperBasketMargin.md",
+      "text": "POST /v1/paper/accounts/{accountId}/margin. Portfolio model (server/bridge/calc/span-margin.js): approximate, not the exchange's SPAN.",
+      "title": "Margin of a basket against the paper book (approximate, nothing is placed)"
+    },
+    {
+      "headings": [
+        "GET /v1/paper/accounts/{accountId}/daily"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/paperDailyPnl.md",
+      "text": "GET /v1/paper/accounts/{accountId}/daily. One row per IST day: equity, realised, unrealised, charges, the day's change in equity (pnl), used margin and open positions.",
+      "title": "Daily P&L snapshots of a paper account, oldest first"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/daily"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/paperDailySnapshot.md",
+      "text": "POST /v1/paper/accounts/{accountId}/daily. Marks the book to the latest prices and stores today's row.",
+      "title": "Take today's P&L snapshot now"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/reset"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/resetPaperAccount.md",
+      "text": "POST /v1/paper/accounts/{accountId}/reset.",
+      "title": "Clear paper orders and positions and start again"
+    },
+    {
+      "headings": [
+        "POST /v1/paper/accounts/{accountId}/reset/undo"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/paper/undoPaperReset.md",
+      "text": "POST /v1/paper/accounts/{accountId}/reset/undo. Works for 2 minutes after a reset and only while no order has been placed since.",
+      "title": "Put back the paper book from before the last reset"
+    },
+    {
+      "headings": [
+        "PUT /v1/pooling/consent"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/pooling/acceptPooling.md",
+      "text": "PUT /v1/pooling/consent. acknowledge must equal the current notice.version.",
+      "title": "Accept the pooling notice for chosen accounts"
+    },
+    {
+      "headings": [
+        "GET /v1/pooling"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/pooling/getPooling.md",
+      "text": "GET /v1/pooling. Pooling is off until you accept the notice.",
+      "title": "Whether market-data reads may be spread over your own accounts"
+    },
+    {
+      "headings": [
+        "DELETE /v1/pooling/consent"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/pooling/revokePooling.md",
+      "text": "DELETE /v1/pooling/consent. Each account serves only its own reads again.",
+      "title": "Withdraw the pooling consent"
+    },
+    {
+      "headings": [
+        "POST /v1/positions/convert"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/convertPosition.md",
+      "text": "POST /v1/positions/convert. Paper: moves the quantity to the other product at its average price (no order, no fill, no charge); refused into Intraday after the square-off time, while the kill switch is on, when the other product holds the opposite side, or into a product the cont",
+      "title": "Convert a position between Intraday (MIS) and carry (NRML)"
+    },
+    {
+      "headings": [
+        "GET /v1/funds"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/getFunds.md",
+      "text": "GET /v1/funds.",
+      "title": "Funds and margin for one account"
+    },
+    {
+      "headings": [
+        "GET /v1/holdings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/getHoldings.md",
+      "text": "GET /v1/holdings.",
+      "title": "Demat holdings for one account"
+    },
+    {
+      "headings": [
+        "GET /v1/positions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/getPositions.md",
+      "text": "GET /v1/positions.",
+      "title": "Positions for one account (live from the broker, or paper)"
+    },
+    {
+      "headings": [
+        "POST /v1/margin/basket"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/portfolio/marginBasket.md",
+      "text": "POST /v1/margin/basket. What the positions would need together, before anything is placed.",
+      "title": "Margin for up to 50 prospective positions (read only)"
+    },
+    {
+      "headings": [
+        "DELETE /v1/quotas/{keyId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/quotas/clearQuota.md",
+      "text": "DELETE /v1/quotas/{keyId}. The key goes back to the quota from the configuration, or the default for its client kind.",
+      "title": "Remove a key's override"
+    },
+    {
+      "headings": [
+        "GET /v1/quotas"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/quotas/getQuotas.md",
+      "text": "GET /v1/quotas. Every key has a request quota (a token bucket) and a weight in the fair queue, so one runaway spreadsheet cannot starve an AI assistant.",
+      "title": "Each API key's share of the Bridge"
+    },
+    {
+      "headings": [
+        "PUT /v1/quotas/{keyId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/quotas/setQuota.md",
+      "text": "PUT /v1/quotas/{keyId}. Only the fields you send change.",
+      "title": "Override one key's quota or weight"
+    },
+    {
+      "headings": [
+        "POST /v1/readiness/check"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/checkReadiness.md",
+      "text": "POST /v1/readiness/check. Runs the checks at once for one account (or every account this key may see).",
+      "title": "Re-check now (probe and egress lookup, each with a 30 s cooldown)"
+    },
+    {
+      "headings": [
+        "POST /v1/demo/readiness"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/demoReadinessScenario.md",
+      "text": "POST /v1/demo/readiness. Exists only when the Bridge runs in demo mode.",
+      "title": "Demo mode only - simulate a readiness failure on the demo account (restores itself after 10 minutes)"
+    },
+    {
+      "headings": [
+        "GET /v1/readiness"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/getReadiness.md",
+      "text": "GET /v1/readiness. One state per account (ready, warn, cannottrade, paperonly, unknown) with plain-English reasons and the facts each check used.",
+      "title": "Trading readiness of each live account (cached; no broker call)"
+    },
+    {
+      "headings": [
+        "GET /v1/readiness/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/readiness/getReadinessHistory.md",
+      "text": "GET /v1/readiness/history.",
+      "title": "Recent readiness transitions (newest first)"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/presets/{presetId}/apply"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/applyRecordingPreset.md",
+      "text": "POST /v1/recordings/presets/{presetId}/apply. Applying a preset again does not duplicate its rule (answers 200).",
+      "title": "Create the preset's rule and turn auto-record on"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/createRecording.md",
+      "text": "POST /v1/recordings. Real-time class only: a dataClass other than realtime is refused, and a delayed or end-of-day answer is never written.",
+      "title": "Start a recording of quotes or an option chain"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/rules"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/createRecordingRule.md",
+      "text": "POST /v1/recordings/rules. For example: every trading day, record NIFTY and BANKNIFTY option chains, ATM +/- 10, current weekly expiry, every 30 seconds, during market hours.",
+      "title": "Add an auto-record rule"
+    },
+    {
+      "headings": [
+        "DELETE /v1/recordings/{recordingId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/deleteRecording.md",
+      "text": "DELETE /v1/recordings/{recordingId}. A recording that belongs to a rule is deleted by deleting the rule (409 otherwise).",
+      "title": "Delete a recording and its files"
+    },
+    {
+      "headings": [
+        "DELETE /v1/recordings/rules/{ruleId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/deleteRecordingRule.md",
+      "text": "DELETE /v1/recordings/rules/{ruleId}.",
+      "title": "Delete a rule (its files stay unless deleteFiles=true)"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/{recordingId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecording.md",
+      "text": "GET /v1/recordings/{recordingId}. gaps lists stretches with no data and why (feed silent, login missing, Bridge stopped, budget in use, disk limit).",
+      "title": "One recording: counters, gaps, disk use, files summary"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/auto"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingAuto.md",
+      "text": "GET /v1/recordings/auto.",
+      "title": "Whether auto-record is on"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/{recordingId}/files/{name}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingFile.md",
+      "text": "GET /v1/recordings/{recordingId}/files/{name}. Only names from the file list open.",
+      "title": "Download one day file as it is on disk"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/rules/{ruleId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingRule.md",
+      "text": "GET /v1/recordings/rules/{ruleId}.",
+      "title": "One rule with today's state"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/settings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingSettings.md",
+      "text": "GET /v1/recordings/settings. The value in force (the config value unless changed here), the config default and the allowed range.",
+      "title": "The budget share recordings use now"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/status"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/getRecordingsStatus.md",
+      "text": "GET /v1/recordings/status. For example: Recording today: 3 rules, 41 symbols, 18 MB, last write 09:31:02.",
+      "title": "One plain line about today's recording, and the numbers behind it"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/{recordingId}/files"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordingFiles.md",
+      "text": "GET /v1/recordings/{recordingId}/files. One file per symbol per IST trading day, named YYYY-MM-DDEXCHANGESYMBOL.csv (or .jsonl; .gz after compression).",
+      "title": "The day files of a recording"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/presets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordingPresets.md",
+      "text": "GET /v1/recordings/presets. Record index option chains, and Record my watchlist.",
+      "title": "The one-click presets"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings/rules"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordingRules.md",
+      "text": "GET /v1/recordings/rules. Rules from this computer's data folder and from recorder.autoRecord.rules in the config file (source config, read-only here).",
+      "title": "The auto-record rules"
+    },
+    {
+      "headings": [
+        "GET /v1/recordings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/listRecordings.md",
+      "text": "GET /v1/recordings. A recording saves this Bridge's own real-time data going forward, because brokers give no history for option chains, open interest snapshots or ticks.",
+      "title": "List recordings (meta.status is a plain status line)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/recordings/rules/{ruleId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/patchRecordingRule.md",
+      "text": "PATCH /v1/recordings/rules/{ruleId}. Only the fields sent change.",
+      "title": "Change a rule"
+    },
+    {
+      "headings": [
+        "PATCH /v1/recordings/settings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/patchRecordingSettings.md",
+      "text": "PATCH /v1/recordings/settings. Applies at the next broker read, is kept in recordings/settings.json in the data folder and survives a restart.",
+      "title": "Change the budget share while the Bridge runs"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/{recordingId}/pause"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/pauseRecording.md",
+      "text": "POST /v1/recordings/{recordingId}/pause.",
+      "title": "Pause a recording"
+    },
+    {
+      "headings": [
+        "PUT /v1/recordings/auto"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/putRecordingAuto.md",
+      "text": "PUT /v1/recordings/auto. Off until a person turns it on.",
+      "title": "Turn auto-record on or off"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/{recordingId}/resume"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/resumeRecording.md",
+      "text": "POST /v1/recordings/{recordingId}/resume.",
+      "title": "Resume a paused recording"
+    },
+    {
+      "headings": [
+        "POST /v1/recordings/{recordingId}/stop"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/recordings/stopRecording.md",
+      "text": "POST /v1/recordings/{recordingId}/stop. A recording that belongs to a rule is changed through the rule (409 otherwise).",
+      "title": "Stop a recording (final; the files stay)"
+    },
+    {
+      "headings": [
+        "POST /v1/safety/kill-switch"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/engageKillSwitch.md",
+      "text": "POST /v1/safety/kill-switch. Any key may stop trading; an empty body works (reason \"manual\").",
+      "title": "Stop all orders now (any key may do this)"
+    },
+    {
+      "headings": [
+        "GET /v1/safety"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/getSafety.md",
+      "text": "GET /v1/safety.",
+      "title": "Kill switch, live-trading state and today's safety counters"
+    },
+    {
+      "headings": [
+        "GET /v1/audit"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/queryAudit.md",
+      "text": "GET /v1/audit.",
+      "title": "Read the append-only audit log"
+    },
+    {
+      "headings": [
+        "DELETE /v1/safety/kill-switch"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/releaseKillSwitch.md",
+      "text": "DELETE /v1/safety/kill-switch.",
+      "title": "Release the kill switch (admin, this computer only)"
+    },
+    {
+      "headings": [
+        "GET /v1/audit/verify"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/safety/verifyAudit.md",
+      "text": "GET /v1/audit/verify.",
+      "title": "Check the audit log's hash chain"
+    },
+    {
+      "headings": [
+        "PUT /v1/sources/{id}/config"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/configureSource.md",
+      "text": "PUT /v1/sources/{id}/config. The key goes into the encrypted secrets store under source: and is never returned, logged or put in the configuration file.",
+      "title": "Store the API key of a source that needs one"
+    },
+    {
+      "headings": [
+        "GET /v1/sources"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/listSources.md",
+      "text": "GET /v1/sources. Every place the Bridge can read market data from: your broker accounts (kind: broker, always first for real-time data), the built-in free providers, and plugins you granted.",
+      "title": "Data sources, what each one is, and whether it is on"
+    },
+    {
+      "headings": [
+        "POST /v1/sources/{id}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/testSource.md",
+      "text": "POST /v1/sources/{id}/test. Makes one small call through the source's own test (a status or sample request) and reports the result.",
+      "title": "Check that a source answers"
+    },
+    {
+      "headings": [
+        "GET /v1/sources/trace"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/traceSources.md",
+      "text": "GET /v1/sources/trace. Runs the router's decision for a read and explains it: every candidate (your pooled broker accounts and the enabled sources), with the verdict (chosen, fallback or skipped), the reason, the score and the spare budget.",
+      "title": "Why a read would be served by one source and not another (dry run)"
+    },
+    {
+      "headings": [
+        "PATCH /v1/sources/{id}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/updateSource.md",
+      "text": "PATCH /v1/sources/{id}. enabled: true turns a source on.",
+      "title": "Turn a source on or off"
+    },
+    {
+      "headings": [
+        "PATCH /v1/sources/settings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/sources/updateSourcesSettings.md",
+      "text": "PATCH /v1/sources/settings. autoFallback: true lets a read that no broker account can answer go to a source you turned on, without the read asking for backup=true.",
+      "title": "Use free sources automatically when your brokers cannot answer"
+    },
+    {
+      "headings": [
+        "GET /xl/chain"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlChain.md",
+      "text": "GET /xl/chain.",
+      "title": "Flat option chain table (CSV or JSON records) for Power Query and Sheets"
+    },
+    {
+      "headings": [
+        "GET /xl/funds"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlFunds.md",
+      "text": "GET /xl/funds. Columns are fixed - account, mode, availablecash, usedmargin, totalbalance, collateral, withdrawable, realisedpnl, unrealisedpnl, asof, age_s, class, source, stale, error.",
+      "title": "Funds, one row per account"
+    },
+    {
+      "headings": [
+        "GET /xl/history"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlHistory.md",
+      "text": "GET /xl/history.",
+      "title": "Candles as CSV (layout=amibroker matches the shipped AmiBroker import format)"
+    },
+    {
+      "headings": [
+        "GET /xl/holdings"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlHoldings.md",
+      "text": "GET /xl/holdings. Columns are fixed - account, mode, symbol, isin, qty, avgprice, ltp, pnl, asof, age_s, class, source, stale, error.",
+      "title": "Holdings as one table"
+    },
+    {
+      "headings": [
+        "GET /xl/instrument"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlInstrument.md",
+      "text": "GET /xl/instrument. One symbol with one field and no format gives a bare value (text/plain, #N/A on error) for a single cell.",
+      "title": "Lot size, tick size and freeze quantity"
+    },
+    {
+      "headings": [
+        "GET /xl/ltp"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlLtp.md",
+      "text": "GET /xl/ltp. =WEBSERVICE(\"http://127.0.0.1:4300/xl/ltp?symbol=\"&ENCODEURL(A1)&\"&key=...\").",
+      "title": "One number as plain text, for Excel WEBSERVICE and AmiBroker"
+    },
+    {
+      "headings": [
+        "GET /xl/orders"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlOrders.md",
+      "text": "GET /xl/orders. Columns are fixed - account, mode, orderid, clientorderid, symbol, side, product, ordertype, qty, filledqty, avgprice, price, triggerprice, status, statusmessage, placedat, updatedat (IST), then asof, ages, class, source, stale, error.",
+      "title": "Orders as one table, newest first"
+    },
+    {
+      "headings": [
+        "GET /xl/positions"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlPositions.md",
+      "text": "GET /xl/positions. Columns are fixed - account, mode, symbol, product, qty, avgprice, ltp, pnl, realisedpnl, unrealisedpnl, asof, age_s, class, source, stale, error.",
+      "title": "Positions of every account the key may use, as one table"
+    },
+    {
+      "headings": [
+        "GET /xl/quote"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlQuote.md",
+      "text": "GET /xl/quote.",
+      "title": "One quote field as plain text"
+    },
+    {
+      "headings": [
+        "GET /xl/quotes"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/spreadsheets/xlQuotes.md",
+      "text": "GET /xl/quotes. symbols is a comma-separated list (at most integrations.xl.maxSymbols, default 100); one row per symbol in the order asked, duplicates included.",
+      "title": "Prices for a whole sheet as one table (one request, one row per symbol)"
+    },
+    {
+      "headings": [
+        "POST /v1/stream/token"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/createStreamToken.md",
+      "text": "POST /v1/stream/token. Use it as ?token= on /v1/stream or /v1/stream/sse so your API key never appears in a URL or a log.",
+      "title": "Short-lived token for WebSocket and SSE URLs"
+    },
+    {
+      "headings": [
+        "GET /v1/stream/stats"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/getStreamStats.md",
+      "text": "GET /v1/stream/stats.",
+      "title": "Upstream feeds, subscriptions and clients"
+    },
+    {
+      "headings": [
+        "GET /v1/stream/sse"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/openSse.md",
+      "text": "GET /v1/stream/sse. GET /v1/stream/sse?token=&symbols=NSE:NIFTY,NSE:RELIANCE&mode=ltp.",
+      "title": "Server-Sent Events stream (same messages as the WebSocket)"
+    },
+    {
+      "headings": [
+        "GET /v1/stream"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/streaming/openStream.md",
+      "text": "GET /v1/stream. Connect with ws://127.0.0.1:4300/v1/stream?token= (or an Authorization header from scripts).",
+      "title": "WebSocket stream (upgrade)"
+    },
+    {
+      "headings": [
+        "POST /v1/expose/check"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/checkExposure.md",
+      "text": "POST /v1/expose/check. Sends a few probe requests from this computer to each enabled public listener on 127.0.0.1 and reports whether the dashboard and the API stay hidden, foreign host names and web pages are refused and the body cap holds.",
+      "title": "Check that only the intended routes answer on the public listeners"
+    },
+    {
+      "headings": [
+        "GET /dashboard"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getDashboard.md",
+      "text": "GET /dashboard. Welcome checklist, accounts and the broker directory, a test console, live rate-limit usage, orders and pending confirmations, the kill switch, API keys, integration snippets and the request and audit logs.",
+      "title": "Local dashboard (HTML; this computer only)"
+    },
+    {
+      "headings": [
+        "GET /dashboard/{file}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getDashboardAsset.md",
+      "text": "GET /dashboard/{file}.",
+      "title": "Dashboard scripts, stylesheet and logo"
+    },
+    {
+      "headings": [
+        "GET /v1/expose"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getExposure.md",
+      "text": "GET /v1/expose. Plain-words state of the two optional public listeners (server.publicIngress for webhook alerts, server.sheetsIngress for Google Sheets), the address patterns to use, and the exposure checks that mc-bridge doctor also runs, each with a one-line fix.",
+      "title": "What is set up to be reached from outside this computer"
+    },
+    {
+      "headings": [
+        "GET /v1/health"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getHealth.md",
+      "text": "GET /v1/health. No key needed.",
+      "title": "Liveness check"
+    },
+    {
+      "headings": [
+        "GET /v1/meta"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getMeta.md",
+      "text": "GET /v1/meta.",
+      "title": "Versions, brokers, modules and routes"
+    },
+    {
+      "headings": [
+        "GET /v1/metrics"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getMetrics.md",
+      "text": "GET /v1/metrics. This computer only, admin key.",
+      "title": "The Bridge's own numbers (Prometheus text)"
+    },
+    {
+      "headings": [
+        "GET /openapi.yaml"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getOpenApi.md",
+      "text": "GET /openapi.yaml.",
+      "title": "This document"
+    },
+    {
+      "headings": [
+        "GET /v1/ready"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getReady.md",
+      "text": "GET /v1/ready. No key needed.",
+      "title": "Ready to take work (503 while starting or when the disk is full)"
+    },
+    {
+      "headings": [
+        "GET /"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/getRoot.md",
+      "text": "GET /.",
+      "title": "Redirect to the local dashboard"
+    },
+    {
+      "headings": [
+        "GET /v1/errors"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/listErrorCodes.md",
+      "text": "GET /v1/errors. The catalogue of every problem code the Bridge can return, with its HTTP status, whether sending the same request again is safe, a plain explanation and the fix.",
+      "title": "Every error code, what it means and how to fix it"
+    },
+    {
+      "headings": [
+        "GET /v1/requests"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/system/listRecentRequests.md",
+      "text": "GET /v1/requests. The last 200 requests, kept in memory only (method, path without the query string, status, time taken, key id).",
+      "title": "Recent requests to this Bridge (newest first)"
+    },
+    {
+      "headings": [
+        "POST /v1/hooks"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/createHook.md",
+      "text": "POST /v1/hooks.",
+      "title": "Create a hook; the URL with its token is shown once"
+    },
+    {
+      "headings": [
+        "DELETE /v1/hooks/{hookId}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/deleteHook.md",
+      "text": "DELETE /v1/hooks/{hookId}. An admin key limited to some accounts can delete only the hooks of those accounts; any other hook answers 404.",
+      "title": "Delete a hook (its URL stops working immediately)"
+    },
+    {
+      "headings": [
+        "GET /v1/hooks/presets"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/getHookPresets.md",
+      "text": "GET /v1/hooks/presets. What the hook creator needs to show: the editable TradingView sender-address list (with the date it was last checked and where it came from), hooks.clientIpHeader (the header trusted for the real client address behind a local tunnel; null means the address ",
+      "title": "Address presets, trusted-tunnel header and public hosts, for building a hook"
+    },
+    {
+      "headings": [
+        "GET /v1/hooks/{hookId}/signals"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/listHookSignals.md",
+      "text": "GET /v1/hooks/{hookId}/signals. Newest first, bounded (hooks.signalsKept, memory only: the audit log is the durable record).",
+      "title": "Recent alerts of one hook, with what happened to each"
+    },
+    {
+      "headings": [
+        "GET /v1/hooks"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/listHooks.md",
+      "text": "GET /v1/hooks. An admin key limited to some accounts lists only the hooks of those accounts.",
+      "title": "List configured hooks (never the token)"
+    },
+    {
+      "headings": [
+        "POST /hooks/{source}/{token}"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/receiveHook.md",
+      "text": "POST /hooks/{source}/{token}. Answers within milliseconds (alert services give up after a few seconds) and processes the signal in the background, through the same preview and safety checks as any order.",
+      "title": "Inbound alert (TradingView, signed generic, ChartInk or GoCharting)"
+    },
+    {
+      "headings": [
+        "POST /v1/hooks/{hookId}/test"
+      ],
+      "kind": "endpoint",
+      "path": "docs/api/webhooks/testHook.md",
+      "text": "POST /v1/hooks/{hookId}/test. Builds a realistic alert for this hook (or reads the one you paste) and runs it through the same parsing, checks and order path as a real alert, always as a PAPER order, never needing a confirmation, even on a live hook.",
+      "title": "Send a test alert through the real pipeline, as a paper order"
+    },
+    {
+      "headings": [
+        "0. Sources rule (read first)",
+        "1. Files",
+        "2. Adapter shape",
+        "Capabilities",
+        "Auth kinds",
+        "3. Errors: the 422/502 convention",
+        "4. Order gate (real money)",
+        "5. Session login (password/PIN + current TOTP)",
+        "6. Fixtures and the harness",
+        "7. Current status",
+        "8. Per-broker checklist (copy into your PR description)",
+        "Order-safety rules every adapter is held to"
+      ],
+      "kind": "doc",
+      "path": "docs/broker-contract.md",
+      "text": "How every one of the 41 broker adapters in server/brokers/ should look, how to prove it, and what each broker engineer fills in. The code is the source of truth: server/brokers/contract.mjs (with orderGate.mjs), contractShapes.mjs, contractHarness.mjs and sessionLogin.mjs. Dhan...",
+      "title": "Broker adapter contract (v1)"
+    },
+    {
+      "headings": [
+        "A. Close the gaps (no account needed)",
+        "B. Check against a sandbox or a real account",
+        "What to redact before you share results",
+        "Record it"
+      ],
+      "kind": "doc",
+      "path": "docs/broker-verification.md",
+      "text": "Every broker adapter sits on a four-step ladder. The level of each one is recorded in server/brokers/verification.json and shown in the dashboard, in GET /v1/brokers (verification.level) and in the generated tables of BROKERS.md. beta and contract are rewritten by node...",
+      "title": "Verify a broker"
+    },
+    {
+      "headings": [
+        "Postman",
+        "Bruno",
+        "Regenerating"
+      ],
+      "kind": "doc",
+      "path": "docs/collections/README.md",
+      "text": "Import these into Postman or Bruno to try every call of the Bridge without writing code. They are generated from docs/openapi.yaml, so they list exactly the operations the Bridge serves. 218 requests in 25 folders (one folder per area: System, Accounts, Keys, Instruments,...",
+      "title": "API collections"
+    },
+    {
+      "headings": [
+        "Running mc-bridge"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/README.md",
+      "text": "Start with the quickstart (five minutes, demo mode, no broker needed) or the docs home, which sorts the guides by what you want to do. These guides go deeper, one topic each. Commands in these guides start with mc-bridge. That command is on your PATH after you use one of the...",
+      "title": "Mr. Chartist API Bridge: guides"
+    },
+    {
+      "headings": [
+        "1. Declare accounts in bridge.config.json",
+        "2. Log in",
+        "3. Sessions",
+        "4. Family accounts",
+        "5. Choosing an account per request",
+        "6. Pooling needs your consent",
+        "7. Data beyond your accounts"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/accounts.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its own rate-limit budget and its own credentials; one account's...",
+      "title": "Brokers and multiple accounts"
+    },
+    {
+      "headings": [
+        "Words the order routes understand",
+        "Check a symbol: /v1/symbols/validate and /v1/symbols/resolve",
+        "Be at a target size: POST /v1/orders/to-target",
+        "Several orders at once: POST /v1/orders/batch",
+        "What will it cost: POST /v1/margin/basket",
+        "Is the market open: /v1/calendar/*",
+        "For spreadsheet authors"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/alert-orders.md",
+      "text": "Strategy alerts, spreadsheets and Telegram bots do not say \"buy 1 share\". They say \"be long 3 lots\", \"send these two orders together\", \"is the market open?\" and \"can I afford this?\". This guide covers the routes that answer those, and the small conveniences that let people type...",
+      "title": "Orders for alerts, sheets and scripts"
+    },
+    {
+      "headings": [
+        "Live values in AFL",
+        "History via ASCII import"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/amibroker.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Everything AmiBroker can reach is read-only: /xl/* cannot place orders. Full instructions and the files: integrations/amibroker. Copy...",
+      "title": "AmiBroker"
+    },
+    {
+      "headings": [
+        "What a backup holds, and what it never holds",
+        "Make a backup",
+        "Restore",
+        "A copy before every upgrade",
+        "Daily backup (optional)",
+        "Recovery runbook",
+        "The disk died (you have a backup file elsewhere)",
+        "An upgrade went wrong",
+        "You moved to another computer",
+        "Docker",
+        "Settings reference"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/backup.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge keeps everything you cannot make again in one data folder: your API key records, accounts, safety and quota state, paper books, order records, audit log and source...",
+      "title": "Backup and restore"
+    },
+    {
+      "headings": [
+        "ChatGPT connectors",
+        "OpenAI function calling from your own script"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/chatgpt-openai.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). ChatGPT's connectors (custom connectors and apps) call MCP servers over the public internet, over HTTPS and usually with OAuth. The Bridge keeps /mcp on this computer on purpose...",
+      "title": "ChatGPT and OpenAI"
+    },
+    {
+      "headings": [
+        "Which commands need a key",
+        "What is where",
+        "Exit codes",
+        "Where the Bridge looks"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/cli.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). mc-bridge --help lists every command with its options. This page says what each group is for and, because it trips people up, which credential each one needs. Most commands run...",
+      "title": "The command line"
+    },
+    {
+      "headings": [
+        "Five minutes",
+        "The option universe",
+        "How the expiry is chosen",
+        "How the strikes and the at-the-money strike are chosen",
+        "How honest it is about the price",
+        "Using a collection",
+        "In Excel and Google Sheets",
+        "Tags",
+        "All the operations",
+        "For other parts of the Bridge",
+        "Settings",
+        "Limits, and what is not done"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/collections.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). A collection is a named, tagged list of instruments. Make it once; downloads, recordings, spreadsheets and the Python library can then say collection: \"nifty-weekly\" instead of...",
+      "title": "Collections: lists of instruments and option universes"
+    },
+    {
+      "headings": [
+        "Symbols",
+        "Endpoints",
+        "Which account",
+        "Retrying an order safely",
+        "Orders are paper until you say otherwise",
+        "WebSocket",
+        "Settings"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/compat-api.md",
+      "text": "Many Indian algo tools, SDKs, AmiBroker and Excel add-ins and alert bridges speak one common REST style: POST a JSON body to /api/v1/ with the API key in the body as apikey, and read { \"status\": \"success\", ... } or { \"status\": \"error\", \"message\": ... } back. The Bridge speaks it...",
+      "title": "Compat REST and WebSocket API (/api/v1)"
+    },
+    {
+      "headings": [
+        "What the Bridge is",
+        "SEBI retail algo framework",
+        "Who may use it",
+        "Market data",
+        "Other data sources",
+        "Tunnels and public endpoints",
+        "AI assistants",
+        "Brokers"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/compliance.md",
+      "text": "Not legal advice. These notes record how we read the rules that shape the Bridge's design, as of October 2026. Anything marked needs verification must be checked against the primary SEBI, NSE and BSE circulars and each broker's current notices before you rely on it. The detailed...",
+      "title": "Compliance notes"
+    },
+    {
+      "headings": [
+        "How the file is read",
+        "Environment variables",
+        "Settings that no longer exist",
+        "Sections",
+        "general",
+        "server",
+        "cors",
+        "logging",
+        "accounts",
+        "safety",
+        "morningLogin",
+        "ratelimit",
+        "symbols",
+        "market",
+        "stream",
+        "orders",
+        "paper",
+        "readiness",
+        "integrations",
+        "hooks",
+        "mcp",
+        "compat",
+        "sources",
+        "backup",
+        "notify",
+        "library",
+        "events",
+        "downloads",
+        "recorder",
+        "storage"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/config.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Every setting of bridge.config.json: what it is, its type, its default and what it does. This page is generated from the Bridge's own settings checker and...",
+      "title": "Configuration reference"
+    },
+    {
+      "headings": [
+        "What each tool gets",
+        "Simple and Advanced view",
+        "Something wrong?",
+        "Words you do not know"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/connect.md",
+      "text": "The dashboard's Connect a tool page (#/connect, in the sidebar under Bridge, on the Accounts page and in the search palette) gives Excel, an AI assistant or a script its own key and the setup to paste, in three steps: Choose the tool: Excel or Google Sheets, an AI assistant...",
+      "title": "Connect a tool"
+    },
+    {
+      "headings": [
+        "Connect",
+        "The calls",
+        "Reading an answer",
+        "When a call fails",
+        "Live prices without polling",
+        "Rate limits",
+        "Collect history in bulk",
+        "What stays the same"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/data-api.md",
+      "text": "Point every project at the Bridge and it reads prices, history, option chains and instruments from whichever broker accounts are connected, through one set of calls. Your projects never hold a broker token, never deal with a broker's symbol names, and share one rate-limit...",
+      "title": "The data API: one place for market data"
+    },
+    {
+      "headings": [
+        "Which part for which data",
+        "What you get, and what it says about itself",
+        "Your API budget stays yours",
+        "Recipe 1: two years of 5-minute bars for a watchlist",
+        "Recipe 2: record index option chains every day, and read them back in Python",
+        "Recipe 3: keep a dataset up to date with a scheduled command",
+        "When something is off"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/data.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can keep data for you as plain files on your own computer. This page ties the four parts together, says which one to use for what, and walks through three jobs from...",
+      "title": "Saving data: downloads, recordings, collections and datasets"
+    },
+    {
+      "headings": [
+        "1. Why it matters",
+        "2. Options for a fixed address",
+        "3. Register the address with your broker, then tell the Bridge",
+        "4. Turn on the readiness lookup",
+        "5. The daily routine and what the badge means",
+        "6. Clock",
+        "7. Phones",
+        "8. Troubleshooting"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/deployment.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Paper trading works from any computer and any connection. Live API orders do not. This guide explains why, the ways to give the Bridge a fixed internet address, and how the...",
+      "title": "Deployment: static IP, daily login and the readiness check"
+    },
+    {
+      "headings": [
+        "Start in five minutes",
+        "Auth and scopes",
+        "Limits and retries",
+        "Errors",
+        "Pagination",
+        "A parameter the Bridge does not know",
+        "Times and time zones",
+        "Big answers: fields, ETag and gzip",
+        "Idempotency",
+        "Events",
+        "Data downloads",
+        "The versioning promise",
+        "Where next"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/developers.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). This is the short path for someone who writes code against the Bridge: a working call in five minutes, which key to use, what to do when something fails, and what will not...",
+      "title": "Building on the Bridge: the developer guide"
+    },
+    {
+      "headings": [
+        "What you need from Dhan",
+        "1. Add the account",
+        "2. Log in",
+        "3. Test it",
+        "4. A first real price",
+        "What the Dhan adapter does",
+        "Limits, and how the Bridge keeps inside them",
+        "The daily routine",
+        "Going live",
+        "When it does not work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/dhan.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Dhan is the broker this project has checked end to end with a real account (the project maintainer did that before the verification ladder existed; the date was not recorded,...",
+      "title": "Connect Dhan, step by step"
+    },
+    {
+      "headings": [
+        "Start",
+        "What the compose file sets up",
+        "The dashboard and \"this computer only\"",
+        "Running commands in the container",
+        "Add a broker, turn on live trading",
+        "Where things are, logs and the clock",
+        "Back up and restore",
+        "Upgrade",
+        "When it does not work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/docker.md",
+      "text": "> mc-bridge ... on this page means the command inside the container: docker compose exec bridge mc-bridge ... (running it in other set-ups). The repository has a Dockerfile and a docker-compose.yml. They run the Bridge in a container on your own computer, reachable on...",
+      "title": "Docker"
+    },
+    {
+      "headings": [
+        "Start one",
+        "Know the cost first",
+        "Your API budget",
+        "Jobs",
+        "Files and the manifest",
+        "Datasets: update, do not download again",
+        "Stored ranges (local first)",
+        "Collections",
+        "Instrument master as a file",
+        "Limits and settings",
+        "Command line"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/downloads.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can save history to files on this computer: candles for many symbols and intervals, as CSV, JSONL or an AmiBroker import file. A download is a background job. It runs...",
+      "title": "Data downloads"
+    },
+    {
+      "headings": [
+        "Listen live: SSE and WebSocket",
+        "Cursors and replay",
+        "Which events, and who sees them",
+        "Webhooks: the Bridge calls you",
+        "What your server receives",
+        "Check the signature",
+        "Retries, dead letters and the log",
+        "Where a webhook may point",
+        "The secret",
+        "Settings",
+        "Troubleshooting"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/events.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can tell your own programs when something happens: an order was filled, a broker login ended, a data download finished, the kill switch was turned on. You can listen...",
+      "title": "Events out: react to the Bridge without polling"
+    },
+    {
+      "headings": [
+        "The Excel workbook",
+        "A collection instead of typed symbols",
+        "The key",
+        "Refreshing, and how often",
+        "What a sheet costs, measured",
+        "Google Sheets",
+        "The routes (for Power Query, curl, your own script)",
+        "When something is wrong",
+        "Power Query (Windows and Mac)",
+        "Sharing a template",
+        "Formula safety"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/excel-sheets.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Prices and your own book in a spreadsheet, with one request per refresh instead of one per cell. Nothing a spreadsheet can call is able to place, change or cancel an order:...",
+      "title": "Excel and Google Sheets"
+    },
+    {
+      "headings": [
+        "1. The safe layout",
+        "What not to do",
+        "2. Where orders come from (the static IP rule)",
+        "3. The three settings that make a listener safe",
+        "4. The wizard: mc-bridge expose",
+        "5. Provider recipes",
+        "A. Cloudflare Tunnel, named (recommended at home)",
+        "B. Cloudflare quick tunnel (first test only)",
+        "C. ngrok (reserved domain)",
+        "D. Caddy reverse proxy on a VPS",
+        "E. A plain port forward on your router (not recommended)",
+        "6. Google Sheets",
+        "7. Test it",
+        "8. Turn it off",
+        "9. What mc-bridge doctor checks",
+        "10. When it does not work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/expose-alerts.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). TradingView sends an alert from its own servers, and Google Sheets fetches prices from Google's servers. Neither can reach a Bridge that listens on 127.0.0.1. This guide shows...",
+      "title": "Letting TradingView (and a Google Sheet) reach the Bridge safely"
+    },
+    {
+      "headings": [
+        "Is it free?",
+        "Is my broker supported?",
+        "Why is pooling off?",
+        "Why can't I get real-time data from Yahoo?",
+        "Is paper trading safe?",
+        "Where is my data stored?",
+        "How do I reset?",
+        "Common problems",
+        "mc-bridge: command not found",
+        "Why do I get 401?",
+        "Why do I get 403 SCOPE_REQUIRED?",
+        "Why is my order refused with PAPER_ONLY?",
+        "I typed a symbol and got SYMBOLNOTFOUND",
+        "Why is a price old, or marked stale, delayed or eod?",
+        "Why does the guide say \"API > Keys\" when my dashboard has no API page?",
+        "The first example in a guide did not work on Windows",
+        "Google Sheets cannot read my prices",
+        "My Excel ?key= link answers 401",
+        "LOOPBACK_ONLY through a tunnel",
+        "More questions"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/faq.md",
+      "text": "Short answers, each pointing at the guide that has the details. The Bridge is free, open-source software under the MIT License. There is no hosted service and no account with us: it runs on your computer. What can cost money is outside the Bridge. Some brokers charge for their...",
+      "title": "FAQ"
+    },
+    {
+      "headings": [
+        "Words the dashboard explains",
+        "Words the guides use"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/glossary.md",
+      "text": "Short meanings for the words these guides and the dashboard use. The dashboard shows the first group as a small ? next to the word; the second group is words the guides use that the dashboard does not mark. This page is generated from server/bridge/dashboard/glossary.js (run npm...",
+      "title": "Glossary"
+    },
+    {
+      "headings": [
+        "Windows: Setup.exe",
+        "Ready-to-run download",
+        "Mac: the app",
+        "Mac and Linux: one line",
+        "Windows: one line",
+        "Android (Termux)",
+        "After installing",
+        "Updating safely",
+        "Checking that the download is genuine",
+        "Uninstalling",
+        "If something goes wrong"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/install.md",
+      "text": "You do not need to know anything about programming. Pick one way below. Each takes a few minutes and needs no admin password. You never have to install Node.js yourself, and you never have to copy a key: the dashboard opens in your browser already signed in. Everything stays on...",
+      "title": "Installing the Bridge"
+    },
+    {
+      "headings": [
+        "Claude Desktop",
+        "Claude Code",
+        "Cursor and other clients",
+        "Tools",
+        "Letting an assistant prepare orders"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/mcp.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge is an MCP server. AI assistants use the same broker connections, rate limits, safety checks and audit log as every other tool, and they are read-only by default. Two...",
+      "title": "AI assistants over MCP (Claude Desktop, Claude Code, Cursor)"
+    },
+    {
+      "headings": [
+        "How a message travels",
+        "Settings",
+        "Files",
+        "Routes",
+        "For module authors: events the notify module listens to"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/notifications.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge listens to its own events (orders, tickets, the kill switch, broker sessions, webhook alerts, safety limits, data sources) and turns the ones you chose into short...",
+      "title": "Notifications: how the Bridge tells you things"
+    },
+    {
+      "headings": [
+        "One Bridge per data folder",
+        "Stopping",
+        "A damaged file",
+        "Disk space",
+        "Health, readiness and numbers",
+        "Logs",
+        "Webhooks that do not answer",
+        "Sleep and wake",
+        "The audit log"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/operations.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). What the Bridge does to stay up, what it tells you when something is wrong, and what to do about it. Everything here is for a Bridge on your own computer or server. Run...",
+      "title": "Running the Bridge day to day"
+    },
+    {
+      "headings": [
+        "When it runs",
+        "What it reports",
+        "Where you see it",
+        "What it does not do"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/orders-drift.md",
+      "text": "The Bridge keeps its own record of the live orders it sent. Your broker keeps the real order book. They can disagree: you cancel an order in the broker app, an order fills while the computer was asleep, or an order was placed outside the Bridge. The order-book check compares the...",
+      "title": "Order-book check"
+    },
+    {
+      "headings": [
+        "Paper first",
+        "Place a paper order",
+        "The words you can write",
+        "Check an order before you send it",
+        "Live orders",
+        "Tickets: approval stays on this computer",
+        "Be at a size, or send several orders",
+        "Idempotency: a retry must not place a second order",
+        "Statuses",
+        "OUTCOME_UNKNOWN: the broker did not say",
+        "If something goes wrong"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/orders.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). On Windows, curl in PowerShell is something else: see windows.md. This page is the whole story of an order in one place: how to send a paper order, what live trading needs, when...",
+      "title": "Orders: paper, live, confirmation and what to do when the result is unknown"
+    },
+    {
+      "headings": [
+        "What it does",
+        "Examples (NIFTY at 26344, lot 65, 3 November expiry, demo prices)",
+        "Where you see it",
+        "Settings",
+        "What it does not model"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/paper-margin.md",
+      "text": "Approximate, not the exchange's SPAN. The paper engine, the order preview and the margin route all use one function, portfolioMargin() in server/bridge/calc/span-margin.js, so they always agree. Your broker's figure is the one that counts for live orders. Legs are grouped by...",
+      "title": "Paper margin: how the Bridge estimates it"
+    },
+    {
+      "headings": [
+        "Connect",
+        "Market data and freshness",
+        "Orders",
+        "Streams",
+        "asyncio",
+        "pandas, CSV and spreadsheets",
+        "Downloads, datasets and recordings",
+        "Candles over any range, and saving API calls",
+        "Events and webhooks",
+        "Rate limits and many symbols",
+        "Alerts",
+        "The original client"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/python.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Python library uses the standard library only (Python 3.9+): HTTP, a small WebSocket client and an asyncio client are built in. It is typed (py.typed), pleasant in...",
+      "title": "Python"
+    },
+    {
+      "headings": [
+        "1. Get the code and start the Bridge",
+        "2. Make an API key",
+        "3. Ask for health and a price",
+        "4. Place a paper order",
+        "5. See where data comes from",
+        "6. Watch a live stream",
+        "7. Stop and clean up",
+        "Next steps",
+        "Troubleshooting",
+        "Port already in use",
+        "Node version",
+        "The key is not accepted (401)",
+        "The dashboard asks you to sign in",
+        "Requests are refused with 429"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/quickstart.md",
+      "text": "This guide takes you from a fresh clone to a price, a paper order, a list of data sources and a live stream. It runs in demo mode, so you need no broker account and no money. Every command and output below was run on a clean checkout; long output is trimmed with ... and the keys...",
+      "title": "Quickstart: five minutes to a first answer"
+    },
+    {
+      "headings": [
+        "The read path",
+        "Token buckets and priorities",
+        "Sharing fairly between your tools",
+        "When a broker says \"too many requests\"",
+        "When the budget runs out",
+        "Spreading reads across your own accounts (pooling)",
+        "Broker plans (Fyers)",
+        "Your own budget: quotas per key",
+        "Asking for less: stale-while-revalidate and prefetch priority",
+        "Seeing it work"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/rate-limits.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Every broker API has request limits, and most are tight: often one quote request a second, sometimes one instrument per call. Ten tools each polling on their own break those...",
+      "title": "How the Bridge handles broker rate limits"
+    },
+    {
+      "headings": [
+        "Start in one minute",
+        "What is recorded",
+        "Market hours",
+        "Auto-record rules",
+        "Presets",
+        "Status in plain words",
+        "Gaps",
+        "Files",
+        "Reading them back",
+        "Disk safety and retention",
+        "Saving API calls",
+        "Settings",
+        "Routes and events",
+        "Questions"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/recording.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Brokers give you old candles, but they do not give you old option chains, old open-interest snapshots or old tick-by-tick prices. If you want those later, someone has to write...",
+      "title": "Recording: save prices and option chains as they happen"
+    },
+    {
+      "headings": [
+        "Paper first",
+        "Live orders need every one of these",
+        "Trading readiness",
+        "Checks on every order (paper and live)",
+        "Idempotency",
+        "Keys",
+        "Network",
+        "Secrets",
+        "Declining a pending confirmation",
+        "Audit log",
+        "Logs",
+        "Signing in to the dashboard",
+        "Tools on this computer need no key"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/safety.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge is built so that a mistake (a buggy script, a runaway alert, a confused AI assistant, a leaked key) costs as little as possible. Everything below is on by default....",
+      "title": "Safety model"
+    },
+    {
+      "headings": [
+        "What you get from each kind of source",
+        "What the labels mean",
+        "Turning a source on",
+        "The built-in sources",
+        "When the Bridge uses a source",
+        "Seeing what answered a request",
+        "How pooling and quotas fit",
+        "Plugins",
+        "Configuration",
+        "Questions"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/sources.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Your broker accounts are the Bridge's main source of market data. They give real-time prices and option chains, and they are the only sources that orders, risk checks, paper...",
+      "title": "Data sources: where prices come from, and how the Bridge labels them"
+    },
+    {
+      "headings": [
+        "Authenticate without putting your key in a URL",
+        "WebSocket",
+        "SSE",
+        "Behaviour worth knowing"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/streaming.md",
+      "text": "One port serves both. Messages are described in asyncapi.yaml (a file in the repository; the Bridge serves /openapi.yaml but not this one). This page is about prices; for events (orders, logins, downloads, the kill switch) with replay and signed webhooks, see events.md. The...",
+      "title": "Live streaming: WebSocket and SSE"
+    },
+    {
+      "headings": [
+        "The format",
+        "Find or convert a symbol",
+        "Expiries and strikes",
+        "When a symbol is refused"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/symbols.md",
+      "text": "Every instrument has one name in the Bridge, whichever broker is behind it. This page says how it is written, how to find a symbol you only half know, and why a derivative stops working on its expiry day. EXCHANGE:UNDERLYING, and for a derivative EXCHANGE:UNDERLYING-YYYY-MM-DD...",
+      "title": "Symbols"
+    },
+    {
+      "headings": [
+        "What it does, and what it never does",
+        "Set it up",
+        "1. Make a bot with BotFather",
+        "2. Give the token to the Bridge, on this computer",
+        "3. Find your chat",
+        "4. Choose what you get, and send a test",
+        "Which events",
+        "Reminders and quiet hours",
+        "Commands",
+        "The safety stance, in one place",
+        "When Telegram is slow or down",
+        "Telegram's limits (from Telegram's own documentation)",
+        "Troubleshooting",
+        "Settings"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/telegram.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can send you a short Telegram message when something needs you (an order was rejected, a broker is logged out, the kill switch went on) and can answer a few read-only...",
+      "title": "Telegram: alerts on your phone, and prices when you ask"
+    },
+    {
+      "headings": [
+        "What TradingView needs",
+        "1. Make a paper hook, and test it without TradingView",
+        "2. Let TradingView reach it",
+        "TradingView's sender addresses",
+        "3. The alert in TradingView",
+        "4. Is it working?",
+        "5. Live"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/tradingview.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). On Windows curl in PowerShell is something else: see windows.md. This is the short path from nothing to a TradingView alert that places a paper order, with the exact messages to...",
+      "title": "TradingView alerts in ten minutes"
+    },
+    {
+      "headings": [
+        "By what you see",
+        "By error code",
+        "UNAUTHENTICATED (401)",
+        "SCOPE_REQUIRED (403)",
+        "VALIDATION_FAILED (400): a missing or short Idempotency-Key",
+        "PAPER_ONLY (403)",
+        "SYMBOLNOTFOUND (404, or an entry in errors[])",
+        "INVALID_ORDER (422): the order was too big, or failed another check",
+        "MARKET_CLOSED (403)",
+        "RATE_LIMITED (429)",
+        "KILLSWITCHACTIVE (423)",
+        "LOOPBACK_ONLY (403)",
+        "CANNOT_TRADE (403)",
+        "Other codes"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/troubleshooting.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Find what you see, then read the cause and the fix. The first part is by symptom, the second by the error code the Bridge returns. Every error has a stable code, so switch on...",
+      "title": "Troubleshooting"
+    },
+    {
+      "headings": [
+        "What the data is for, and smaller answers",
+        "Downloads, recordings, collections, history and events",
+        "Browser apps"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/typescript.md",
+      "text": "A small client with no runtime dependencies (Node 20+), with TypeScript types in src/index.d.ts. Streaming uses Node 22's built-in WebSocket or the ws package. Full method list: sdk/node/README.md. The client reads MCBBRIDGEURL (when the Bridge is not at http://127.0.0.1:4300)...",
+      "title": "TypeScript and Node"
+    },
+    {
+      "headings": [
+        "Which version you have",
+        "Before you upgrade",
+        "What the Bridge does by itself",
+        "Upgrade",
+        "Settings that a new version no longer accepts",
+        "Go back",
+        "Quick checks when an upgrade does not start"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/upgrading.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). How to move to a newer version of the Bridge without losing anything, how the Bridge protects your data while you do it, and how to go back. Your settings, keys, paper books,...",
+      "title": "Upgrading"
+    },
+    {
+      "headings": [
+        "1. Choose and prepare the server",
+        "2. Harden it",
+        "3. Install the Bridge",
+        "4. Or with Docker",
+        "5. Reach the dashboard (never over the internet)",
+        "6. Let TradingView in",
+        "7. Register the static address, and plan changes",
+        "8. Updating",
+        "9. Backups",
+        "10. Keep an eye on it",
+        "Checklist"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/vps.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). For live trading, SEBI's retail algo framework needs orders to come from a static IP registered with your broker (needs verification against the circular and your broker's...",
+      "title": "Running the Bridge on a VPS"
+    },
+    {
+      "headings": [
+        "TradingView",
+        "What TradingView does (checked against TradingView's own pages)",
+        "Set it up",
+        "The alert message",
+        "Names: chart tickers, products",
+        "What protects a TradingView hook",
+        "Where to look when it does not work",
+        "Settings for TradingView hooks",
+        "1. Create a hook",
+        "2. Make the URL reachable",
+        "3. Alert messages",
+        "Signed generic hook (your own code)",
+        "TradingView",
+        "ChartInk",
+        "GoCharting",
+        "4. What happens to a signal"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/webhooks.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). An alert from your own code or a charting site becomes an order through a hook: a URL with a secret token, tied to one account and a set of limits. Every signal goes through the...",
+      "title": "Alerts: TradingView, signed generic hooks, ChartInk and GoCharting"
+    },
+    {
+      "headings": [
+        "Bash and PowerShell side by side",
+        "Where things are",
+        "Protecting the master key file",
+        "Firewall and ports",
+        "Running at login",
+        "If the one-line installer is blocked",
+        "Files for Excel and AmiBroker"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/windows.md",
+      "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). Most examples in these guides are written for a Mac or Linux shell (bash or zsh). On Windows use PowerShell (the blue window; type PowerShell in the Start menu), not Command...",
+      "title": "Windows notes"
+    },
+    {
+      "headings": [
+        "What the verified flag means",
+        "The files",
+        "One source for session times",
+        "How to update a file",
+        "Checks"
+      ],
+      "kind": "doc",
+      "path": "docs/reference-data.md",
+      "text": "The Bridge ships a few tables of market facts: the holiday calendar, the trading hours, special sessions such as Muhurat trading, freeze quantities, statutory charges and the delivery-margin schedule. They are plain JSON files in server/bridge/reference/data/. This page says...",
+      "title": "Reference data"
+    },
+    {
+      "headings": [
+        "Version rules",
+        "Cutting a release",
+        "If something goes wrong",
+        "What a release does not do"
+      ],
+      "kind": "doc",
+      "path": "docs/release-process.md",
+      "text": "For the maintainers. A release is a version tag; the Release workflow builds the downloads from that tag and publishes them. Nothing here is done by a contributor's pull request, and nothing publishes by itself when you merge. No release exists yet: the first one has not been...",
+      "title": "Release process"
+    },
+    {
+      "headings": [
+        "1. What a source is",
+        "2. The descriptor",
+        "Tiers and data classes in practice",
+        "3. The provider: methods and shapes",
+        "quotes",
+        "history",
+        "expiries and optionChain",
+        "Labels the Bridge adds",
+        "4. Errors",
+        "5. Limits",
+        "6. Plugins",
+        "The manifest",
+        "Granting a plugin",
+        "Writing the entry file (Node)",
+        "The wire protocol: bridge-source/1",
+        "The brokered network",
+        "The sandbox model, and its honest limits",
+        "7. Conformance",
+        "The checklist, and where each item is checked",
+        "8. A worked example",
+        "9. Writing a built-in provider",
+        "10. Versioning"
+      ],
+      "kind": "doc",
+      "path": "docs/source-contract.md",
+      "text": "For developers who write a data source for the Bridge: a built-in provider in this repository, or a plugin that someone installs. The design and its reasons are in sources-architecture.md; traders read guides/sources.md. The code is the source of truth: A source answers...",
+      "title": "The data-source contract"
+    },
+    {
+      "headings": [
+        "Goals",
+        "What a source is",
+        "Data class on every answer",
+        "Routing",
+        "Limits and quotas",
+        "Pooling",
+        "Plugins",
+        "Terms and licensing"
+      ],
+      "kind": "doc",
+      "path": "docs/sources-architecture.md",
+      "text": "The Bridge answers market-data reads from more than one place and says honestly where each answer came from. This page is the design every part of that system follows. The code is the source of truth; this is the map. Use every legitimate source a person has. A trader often...",
+      "title": "Data sources, routing and quotas"
+    }
+  ]
+}

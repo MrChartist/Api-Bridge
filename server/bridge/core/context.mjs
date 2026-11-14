@@ -16,7 +16,7 @@ const IMPLIES = Object.freeze({ read: ["read"], paper: ["paper", "read"], live: 
 
 /**
  * Sources that are automations, never a person: they may not confirm an order ticket (the human confirmation gate).
- * "guard" and "alert" are the Phase 1 automations (strategy guards, alert actions).
+ * "guard" and "alert" are the automated rule sources (strategy guards, alert actions).
  */
 export const AUTOMATED_SOURCES = Object.freeze(["mcp", "webhook", "guard", "alert"]);
 /** Principal kinds that are automations (hooks and in-process guards). */
@@ -52,10 +52,10 @@ export function hasScope(granted, needed) {
  *   Public view of an API key. Never holds the key or its hash.
  * @typedef {{ kind: "key", id: string, label: string } | { kind: "hook", id: string, label?: string } |
  *   { kind: "guard", id: string, label?: string } | { kind: "local", id: "cli" } | { kind: "anonymous", id: "anonymous" }} Principal
- *   A "guard" principal is built in-process only (strategy guards, docs/spec/p1-12); like a hook it may use only the
+ *   A "guard" principal is built in-process only (strategy guards); like a hook it may use only the
  *   accounts in ctx.hookAccounts.
  * @typedef {"rest" | "webhook" | "mcp" | "cli" | "stream" | "system" | "guard" | "alert"} Source
- *   "guard" and "alert" are automated sources (strategy guards and alert actions, Phase 1); live orders from them
+ *   "guard" and "alert" are automated sources (strategy guards and alert actions); live orders from them
  *   still need the source in the account's live.allowedSources.
  *
  * @typedef {object} RequestContext
@@ -87,6 +87,10 @@ export function hasScope(granted, needed) {
  * @property {boolean} [confirmationRequired]  Set for webhook signals whose hook requires a person to confirm each
  *   order (OrderService then opens a ticket instead of placing).
  * @property {string[]} [hookAccounts]   Accounts a webhook principal may use.
+ * @property {{ from: "stream"|"cache"|"shared"|"live"|"stale", source?: string, sourceName?: string, class: string, delaySec: number }} [route]
+ *   Set by a market-data route when it has answered: what served the read (market/routeInfo.mjs). The request log
+ *   (GET /v1/requests) copies it onto the entry for the request.
+ * @property {number} [routeShared]   Items of this request that joined a call another caller had already started.
  */
 
 export function newRequestId() {

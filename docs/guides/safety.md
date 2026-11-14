@@ -1,5 +1,7 @@
 # Safety model
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge is built so that a mistake (a buggy script, a runaway alert, a confused AI assistant, a leaked key) costs
 as little as possible. Everything below is on by default.
 
@@ -21,7 +23,8 @@ as little as possible. Everything below is on by default.
 5. `"mode": "live"` in the request;
 6. human confirmation for AI assistants and for hooks with `requireConfirmation`. "AI assistant" means a key created
    with `--client mcp`, on **every** route (REST included), not only the MCP endpoint; such a key cannot have the
-   admin scope, and the client that prepared a ticket can never confirm it;
+   admin scope, and the client that prepared a ticket can never confirm it. The person can also **decline** a ticket
+   (see below);
 7. an `Idempotency-Key` header or a `clientOrderId` (a live order without one is refused, so a retry cannot double it);
 8. every safety check below.
 
@@ -38,7 +41,7 @@ page and a card on the Safety page; `get_safety_status` (MCP) includes it.
 
 | Order | While its account is `cannot_trade` |
 |---|---|
-| Automated live order (webhook; later guards and alert actions) | **Refused** with `CANNOT_TRADE`; no broker call is made. A stale reading is refreshed first (up to 5 s) |
+| Automated live order (webhook) | **Refused** with `CANNOT_TRADE`; no broker call is made. A stale reading is refreshed first (up to 5 s) |
 | Live order a person sends (REST, CLI, a confirmed MCP ticket) | Sent through the usual checks, with a `READINESS` warning |
 | Paper order | No readiness line (paper never needs the broker session) |
 
@@ -58,7 +61,7 @@ refusal into a warning with `readiness.gateAutomated: false`. Static IP and the 
 | Lots per order | 10, on every place and every modify (paper and live) |
 | Price band | Limit and trigger prices within 3% of LTP, on every place and every modify, paper and live (a live modify without an LTP is refused) |
 | Market orders | `protect`: sent as a limit order at LTP ± 2% (or the broker's native protection); `reject`: refused |
-| Market hours | Live orders outside NSE/BSE hours are refused; MCX (09:00 to 23:55) and CDS (09:00 to 17:00) by weekday window (**needs verification**, holidays not known); paper orders only warn |
+| Market hours | Live orders outside NSE/BSE hours are refused; MCX (09:00 to 23:30, the shorter of its two seasonal closes) and CDS (09:00 to 17:00) by a weekday window that is **unverified** and kept short on purpose (holidays not known); a live order on a date outside the years the shipped holiday list covers carries a loud warning; paper orders only warn |
 | Unverified live adapters | Live orders on brokers verified only against fixtures (today Zerodha and Upstox) carry a warning on every preview and place |
 | Freeze quantity | Orders above the exchange freeze quantity are refused (or sliced, if `orders.sliceAboveFreeze` is on). A modify cannot be sliced, so a change above the freeze quantity is refused |
 
@@ -75,7 +78,7 @@ Send an `Idempotency-Key` header on every write (the SDKs do it for you); live o
 `clientOrderId`) are refused. The same key, from the same key holder,
 never reaches a broker twice; a repeat returns the first result with `Idempotency-Replayed: true`. A live call that
 times out becomes `outcome_unknown`; the Bridge then checks the broker's order book and updates the order. It never
-retries an order write blindly.
+retries an order write blindly. A separate, read-only [order-book check](orders-drift.md) compares the Bridge's live orders with the broker's order book every few minutes and tells you about differences; it never changes or cancels anything.
 
 ## Keys
 
@@ -87,7 +90,10 @@ retries an order write blindly.
   itself (an admin key pasted into the dashboard cannot open a live trading path on its own). The CLI, run on this
   computer, is not limited. `key.created` and `hook.created` audit records name the creating key.
 - Malformed keys and unknown key ids are refused without any hashing; at most two scrypt checks run at a time, and an
-  address that sends 30 bad keys in a minute is refused for the rest of that minute.
+  address that sends 30 bad attempts at one key id in a minute is refused for that key id for the rest of the minute (the
+  event stream counts the same way). The count is per address and key id, so one stale key in a sheet on this computer
+  does not lock out the dashboard or other apps, and a key that worked in the last ten minutes needs ten times as many
+  bad attempts. One address that makes 300 wrong guesses at real key ids in a minute is refused for keys that did not work lately.
 - Optional account list and expiry per key. `mc-bridge keys revoke <id>` takes effect on the next request and closes
   the key's open streams.
 - `?key=` in a URL only for read-only keys created with `--allow-query` (Excel, AmiBroker).
@@ -109,14 +115,34 @@ retries an order write blindly.
   cannot be read (you can always log in again).
 - Keep the master key **out of the data folder**. The default `data/master.key` sits next to `secrets.enc`, so one
   backup, cloud sync or zip of the folder leaks both. Set `MCB_MASTER_KEY_FILE` to, for example,
-  `~/.config/mc-bridge/master.key` (Windows: a file under `%APPDATA%` restricted with
-  `icacls <file> /inheritance:r /grant:r %USERNAME%:F`; the Bridge cannot check Windows permissions).
+  `~/.config/mc-bridge/master.key` (Windows: a file under `%APPDATA%`, restricted with `icacls`; the Bridge cannot check
+  Windows permissions. In PowerShell: `icacls <file> /inheritance:r /grant:r "${env:USERNAME}:F"`; in Command Prompt:
+  `icacls <file> /inheritance:r /grant:r %USERNAME%:F`. See [windows.md](windows.md)).
   `mc-bridge doctor` warns while they share a folder.
 - Passwords, PINs and TOTP codes are used once for a broker login and never stored.
 
+## Declining a pending confirmation
+
+A ticket that waits in Pending confirmations can be confirmed or declined. **Decline** (dashboard, with an optional short
+reason, or `POST /v1/tickets/{ticketId}/reject` with an admin key from this computer, body empty or
+`{"reason": "Wrong quantity"}`, 200 characters at most) ends the ticket at once, on the server:
+
+- Only an **open** ticket can be declined. Declining one that is already declined answers 200 with the same state.
+  A ticket that was confirmed, already used to send its order, or has expired answers **409** with
+  `state: "confirmed" | "consumed" | "expired"`; an id the Bridge does not know answers 404.
+- A declined ticket can never yield a confirmation code, whichever request comes second: confirming it afterwards is a
+  409 with `state: "rejected"`, and declining a ticket someone just confirmed is a 409 with `state: "confirmed"`.
+- It leaves `GET /v1/tickets`. The last ones declined stay readable for 15 minutes in memory
+  (`GET /v1/tickets?state=rejected`; the dashboard shows them as "Recently declined") and are forgotten on restart.
+- It is in the audit log as `ticket.rejected` (ticket id, account, symbol, side, mode, who declined, the reason you gave;
+  never a code or key), and announced as the `ticket.rejected` event. An AI assistant that checks the ticket sees
+  `status: "rejected"` and the reason ([mcp.md](mcp.md)); a webhook signal that was waiting on it ends as `rejected`
+  (code `TICKET_REJECTED`).
+- The same rules as confirming apply: admin key, this computer, and never an AI assistant, webhook or other automation.
+
 ## Audit log
 
-Every key change, login, order step, confirmation, kill-switch action and webhook signal is appended to
+Every key change, login, order step, confirmation or decline, kill-switch action and webhook signal is appended to
 `data/audit/YYYY-MM-DD.jsonl` (IST days), redacted and hash-chained. `GET /v1/audit` (admin, this computer) queries it;
 `GET /v1/audit/verify` checks the chain.
 

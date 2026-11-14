@@ -1,5 +1,5 @@
 /**
- * auth module — stream S2: API keys, secrets and stream tokens. Owned files and tasks: docs/STREAMS.md §S2.
+ * auth module: API keys, secrets and stream tokens.
  * Routes follow docs/openapi.yaml (method, path, auth, scope); responses use the { data, meta } envelope.
  *
  *  GET    /v1/keys            admin, loopback only   list keys (never the key or its hash); an account-limited admin key
@@ -11,12 +11,13 @@
  *  POST   /v1/sign-in/local   none, loopback only    the dashboard page on this computer signs in without a key or a code
  *                                                    that expires in 30 days; audited key.created
  *
- * Audit: key events go to deps.audit (S9). While S9 is a stub the action still succeeds and a warning is logged,
+ * Audit: key events go to deps.audit (safety). While safety is a stub the action still succeeds and a warning is logged,
  * matching the CLI; any other audit failure is logged as an error (the key change itself has already happened).
  */
 import { keylessSignInAllowed } from "../core/config.mjs";
 import { BridgeError, NotImplementedError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { defineModule } from "../core/modules.mjs";
 import { isSameOrigin } from "../core/security.mjs";
 import { createKeyStore, KEY_ID_RE } from "./keyStore.mjs";
@@ -37,12 +38,12 @@ export const ROUTES = Object.freeze([
 /** Label of the admin key a sign-in creates (the dashboard's welcome checklist does not count these as tool keys). */
 export const SIGN_IN_KEY_LABEL = "Dashboard sign-in";
 /** The one answer for a sign-in code that is wrong, expired or already used. */
-export const SIGN_IN_FAILED = "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open.";
+export const SIGN_IN_FAILED = "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open (in a git checkout: npm run bridge -- open).";
 /** Failed sign-in attempts allowed per minute (all callers are on this computer) before the route refuses for a while. */
 export const MAX_FAILED_SIGN_IN = 20;
 const SIGN_IN_WINDOW_MS = 60_000;
 
-const meta = (ctx) => ({ requestId: ctx.requestId });
+const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
 /** A key record the caller may see and revoke: its accounts are all ones the caller holds. */
 const visible = (ctx, record) => ctx.canAccessAccounts?.(record.accounts) ?? true;
 
@@ -77,7 +78,10 @@ export function createHandlers(deps) {
     async listKeys(ctx) {
       // An account-limited admin key sees only keys limited to accounts it holds (never the unlimited ones).
       const all = await deps.keyStore.list();
-      return { data: all.filter((k) => visible(ctx, k)), meta: meta(ctx) };
+      const { limit, cursor } = pageParams(ctx.query);
+      const mine = all.filter((k) => visible(ctx, k));
+      const { items, nextCursor } = paginate(mine, { limit, cursor, keyOf: (k) => k.id });
+      return { data: items, meta: meta(ctx, { nextCursor }) };
     },
     async createKey(ctx) {
       if (ctx.body === undefined || ctx.body === null || typeof ctx.body !== "object" || Array.isArray(ctx.body)) {
@@ -143,7 +147,7 @@ export function createHandlers(deps) {
       const t = now();
       while (failedSignIns.length && failedSignIns[0] <= t - SIGN_IN_WINDOW_MS) failedSignIns.shift();
       if (failedSignIns.length >= MAX_FAILED_SIGN_IN) {
-        throw new BridgeError("RATE_LIMITED", "Too many sign-in attempts. Wait a minute, then open the Bridge again from its shortcut, or run mc-bridge open.", { retryAfterMs: failedSignIns[0] + SIGN_IN_WINDOW_MS - t });
+        throw new BridgeError("RATE_LIMITED", "Too many sign-in attempts. Wait a minute, then open the Bridge again from its shortcut, or run mc-bridge open (in a git checkout: npm run bridge -- open).", { retryAfterMs: failedSignIns[0] + SIGN_IN_WINDOW_MS - t });
       }
       const body = ctx.body;
       const code = body && typeof body === "object" && !Array.isArray(body) ? body.code : undefined;
@@ -174,7 +178,6 @@ const HANDLER_FOR = Object.freeze({
 
 export default defineModule({
   name: "auth",
-  stream: "S2",
   services: { secrets: (deps) => (deps.config.demo ? createDemoSecretStore() : createSecretStore(deps)), keyStore: (deps) => createKeyStore(deps) },
   register(app, deps) {
     const handlers = createHandlers(deps);

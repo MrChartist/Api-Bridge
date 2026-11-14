@@ -8,6 +8,15 @@
  * Wire format (application/problem+json):
  *   { type, title, status, detail, code, retryable, requestId, broker?: { id, code, message }, errors?: [...] }
  *
+ * Rate-limit refusals (HTTP 429) say WHOSE limit was hit, so a client can react correctly:
+ *   RATE_LIMITED           the caller's own quota or caps (scope "client": the key's rate, daily cap or concurrency;
+ *                          scope "consumer-cap": too many of its own requests waiting for the broker)
+ *   UPSTREAM_RATE_LIMITED  the shared broker budget (scope "upstream": the budget cannot serve the request in time;
+ *                          scope "queue": the shared queue is full)
+ *   + scope, retryAfterMs (the true wait, in ms) and limit: { name, remaining, resetMs } (the budget that said no).
+ * The Retry-After header is the same wait in whole seconds, jittered 0 to 25 % upward so waiting clients do not
+ * all come back in the same second, and never below the true wait. Clients must not parse `detail`.
+ *
  * Broker adapter errors (server/brokers/contract.mjs BrokerError: 422 = we refused, 502 = upstream) are
  * converted with fromBrokerError(), which keeps the broker's own code in `broker.code`.
  */
@@ -28,6 +37,7 @@ export const ERROR_CODES = Object.freeze({
   NOT_FOUND: { status: 404, title: "Not found", retryable: false },
   ACCOUNT_NOT_FOUND: { status: 404, title: "No account with this id", retryable: false },
   SYMBOL_NOT_FOUND: { status: 404, title: "The symbol could not be resolved", retryable: false },
+  AMBIGUOUS_SYMBOL: { status: 409, title: "The symbol matches more than one instrument. Choose one of the candidates", retryable: false },
   ORDER_NOT_FOUND: { status: 404, title: "No order with this id", retryable: false },
   METHOD_NOT_ALLOWED: { status: 405, title: "Method not allowed", retryable: false },
   IDEMPOTENCY_KEY_REUSED: { status: 409, title: "This idempotency key was already used with different parameters", retryable: false },
@@ -38,11 +48,9 @@ export const ERROR_CODES = Object.freeze({
   CAPABILITY_UNSUPPORTED: { status: 422, title: "This broker does not support this request", retryable: false },
   INVALID_ORDER: { status: 422, title: "The order failed a pre-trade check", retryable: false },
   SESSION_EXPIRED: { status: 422, title: "The broker session has expired. Log in again", retryable: false },
+  POSITION_UNKNOWN: { status: 503, title: "The current position could not be read, so nothing was placed", retryable: true },
   CONFIRMATION_REQUIRED: { status: 422, title: "This order needs a human confirmation first", retryable: false },
-  CAPACITY_EXCEEDED: { status: 422, title: "This request is more than the account's capacity can carry", retryable: false },
-  ALERT_LIMIT: { status: 422, title: "The alert limit has been reached", retryable: false },
   STATE_CONFLICT: { status: 409, title: "The item changed or is busy; read it again", retryable: true },
-  COMPUTE_LIMIT: { status: 422, title: "The calculation is larger than its limits allow", retryable: false },
   // Safety refusals
   PAPER_ONLY: { status: 403, title: "Live trading is not enabled for this account", retryable: false },
   ORDER_GATE_CLOSED: { status: 403, title: "The live order gate refused this order. No order was sent", retryable: false },
@@ -50,21 +58,35 @@ export const ERROR_CODES = Object.freeze({
   MARKET_CLOSED: { status: 403, title: "The market is closed for this instrument", retryable: false },
   KILL_SWITCH_ACTIVE: { status: 423, title: "The kill switch is on. No orders are being sent", retryable: false },
   CANNOT_TRADE: { status: 403, title: "This account cannot trade right now (trading readiness)", retryable: false },
-  AUTOMATION_NOT_ALLOWED: { status: 403, title: "Automation is not allowed on this account (family definition)", retryable: false },
   // Throttling (retry after Retry-After)
   RATE_LIMITED: { status: 429, title: "Too many requests from this API key", retryable: true },
   ORDER_RATE_LIMITED: { status: 429, title: "Order rate cap for this account reached", retryable: true },
   UPSTREAM_RATE_LIMITED: { status: 429, title: "The broker's rate limit was reached", retryable: true },
   SUBSCRIPTION_LIMIT: { status: 429, title: "The broker feed subscription limit was reached", retryable: false },
   // Server and upstream
+  DISK_FULL: { status: 507, title: "The Bridge's disk is full, so nothing could be saved", retryable: true },
+  ORDER_STATE_DAMAGED: { status: 503, title: "The record of sent orders was damaged, so live orders are refused until you check the order book", retryable: false },
   INTERNAL: { status: 500, title: "Internal error", retryable: false },
   NOT_IMPLEMENTED: { status: 501, title: "This part of the Bridge is not built yet", retryable: false },
   UPSTREAM_ERROR: { status: 502, title: "The broker returned an error", retryable: false },
   BROKER_UNAVAILABLE: { status: 503, title: "The broker is not reachable right now", retryable: true },
   UPSTREAM_TIMEOUT: { status: 504, title: "The broker did not respond in time", retryable: true },
-  COMPUTE_TIMEOUT: { status: 504, title: "The calculation did not finish within its time limit", retryable: false },
   OUTCOME_UNKNOWN: { status: 504, title: "The order outcome is unknown. Check the order book before sending it again", retryable: false },
 });
+
+/** Where a rate-limit refusal came from (see the file comment). */
+export const REFUSAL_SCOPES = Object.freeze(["client", "upstream", "queue", "consumer-cap"]);
+
+/**
+ * Retry-After in whole seconds for a wait of `retryAfterMs`: rounded up, then 0 to 25 % added so that clients that
+ * were refused together do not retry together. Never less than the true wait.
+ * @param {number} retryAfterMs
+ * @param {() => number} [random] 0 <= r < 1 (tests)
+ */
+export function jitteredRetryAfterSeconds(retryAfterMs, random = Math.random) {
+  const ms = Math.max(0, Number(retryAfterMs) || 0);
+  return Math.max(1, Math.ceil((ms * (1 + 0.25 * random())) / 1000));
+}
 
 export const PROBLEM_TYPE_BASE = "https://bridge.mrchartist.local/errors/";
 
@@ -73,11 +95,11 @@ export class BridgeError extends Error {
   /**
    * @param {keyof typeof ERROR_CODES | string} code
    * @param {string} [detail] Human text in Indian English. Clients must not parse it.
-   * @param {{ status?: number, retryable?: boolean, retryAfterMs?: number, broker?: { id?: string, code?: string, message?: string },
+   * @param {{ status?: number, retryable?: boolean, retryAfterMs?: number, scope?: "client"|"upstream"|"queue"|"consumer-cap",
+   *           limit?: { name: string, remaining: number, resetMs: number }, broker?: { id?: string, code?: string, message?: string },
    *           errors?: Array<{ path: string, message: string }>, headers?: Record<string, string>, cause?: unknown,
    *           fields?: Record<string, unknown> }} [extra]
-   *   fields: extra documented problem members for one code (CAPACITY_EXCEEDED: canCarry, refused); they never
-   *   replace the standard members.
+   *   fields: extra documented problem members for one code; they never replace the standard members.
    */
   constructor(code, detail, extra = {}) {
     const spec = ERROR_CODES[code] ?? ERROR_CODES.INTERNAL;
@@ -88,6 +110,11 @@ export class BridgeError extends Error {
     this.retryable = extra.retryable ?? spec.retryable;
     this.detail = detail ?? spec.title;
     if (extra.retryAfterMs !== undefined) this.retryAfterMs = extra.retryAfterMs;
+    if (extra.scope !== undefined) {
+      if (!REFUSAL_SCOPES.includes(extra.scope)) throw new RangeError(`Unknown refusal scope "${extra.scope}"`);
+      this.scope = extra.scope;
+    }
+    if (extra.limit) this.limit = extra.limit;
     if (extra.broker) this.broker = extra.broker;
     if (extra.errors) this.errors = extra.errors;
     if (extra.headers) this.headers = extra.headers;
@@ -95,7 +122,7 @@ export class BridgeError extends Error {
   }
 }
 
-/** Thrown by stub services until the owning stream builds them. */
+/** Thrown by stub services until the owning module builds them. */
 export class NotImplementedError extends BridgeError {
   constructor(what) {
     super("NOT_IMPLEMENTED", `${what} is not built yet.`);
@@ -130,7 +157,9 @@ export function fromBrokerError(err, { brokerId, write = false } = {}) {
   // A write that failed upstream without a clear refusal may still have reached the exchange.
   if (write && code === "UPSTREAM_ERROR") code = "OUTCOME_UNKNOWN";
   const message = typeof err?.message === "string" ? err.message.slice(0, 240) : undefined;
-  return new BridgeError(code, message, { broker: { id: brokerId, code: brokerCode, message }, cause: err });
+  // A request the broker refused as malformed still answers with an errors[] list, so a caller can branch the same way as for a field problem.
+  const errors = code === "VALIDATION_FAILED" && message ? [{ path: "(request)", code: "broker_rejected", message }] : undefined;
+  return new BridgeError(code, message, { broker: { id: brokerId, code: brokerCode, message }, cause: err, ...(errors ? { errors } : {}) });
 }
 
 /**
@@ -152,21 +181,79 @@ export function toProblem(err, { requestId, instance } = {}) {
   if (requestId) problem.requestId = requestId;
   if (instance) problem.instance = instance;
   if (e.retryAfterMs !== undefined) problem.retryAfterMs = e.retryAfterMs;
+  if (e.scope !== undefined) problem.scope = e.scope;
+  if (e.limit) problem.limit = e.limit;
   if (e.broker) problem.broker = e.broker;
   if (e.errors) problem.errors = e.errors;
   if (e.fields) for (const [k, v] of Object.entries(e.fields)) if (!(k in problem)) problem[k] = v;
   return problem;
 }
 
-/** Response headers that go with an error (Retry-After in whole seconds, plus anything the thrower set). */
+/**
+ * Response headers that go with an error (Retry-After in whole seconds, plus anything the thrower set). Rate-limit
+ * refusals that carry a `scope` get the jittered Retry-After (jitteredRetryAfterSeconds); other errors the plain one.
+ */
 export function problemHeaders(err) {
   const h = { ...(err instanceof BridgeError && err.headers ? err.headers : {}) };
-  if (err instanceof BridgeError && err.retryAfterMs !== undefined) h["Retry-After"] = String(Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
+  if (err instanceof BridgeError && err.retryAfterMs !== undefined) {
+    h["Retry-After"] = String(err.scope !== undefined ? jitteredRetryAfterSeconds(err.retryAfterMs) : Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
+  }
+  // RFC 9110: a 401 names the way to authenticate.
+  if (err instanceof BridgeError && err.status === 401 && h["WWW-Authenticate"] === undefined) h["WWW-Authenticate"] = 'Bearer realm="mc-bridge"';
   return h;
 }
 
-/** Convert a zod error (or any { issues: [{ path, message }] }) into VALIDATION_FAILED. */
+/** Machine codes of one entry of `errors[]` (add, never rename). */
+export const FIELD_ERROR_CODES = Object.freeze(["required", "invalid_type", "invalid_enum", "invalid_value", "too_small", "too_big", "invalid_format", "unknown_field", "invalid", "broker_rejected"]);
+
+const ALLOWED_MAX = 50;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+/**
+ * One validation issue as { path, code, message, allowed? }. `code` is for programs (a field that is missing is `required`,
+ * a value outside a list is `invalid_enum` with the list in `allowed`); `message` is for people. A message somebody wrote on
+ * purpose is kept as it is; only the library's stock wording ("Invalid input: expected string, received undefined") is
+ * replaced by plain words.
+ * @param {{ code?: string, path?: unknown[], message?: unknown, expected?: string, values?: unknown[], keys?: string[], minimum?: unknown, maximum?: unknown, origin?: string, format?: string }} i
+ */
+export function fieldError(i) {
+  const path = (i.path ?? []).join(".") || "(root)";
+  const text = String(i.message);
+  const stock = /^(Invalid input|Invalid option|Too small|Too big|Invalid string|Unrecognized key)/.test(text);
+  switch (i.code) {
+    case "invalid_type": {
+      const missing = / received undefined$/.test(text);
+      const expected = i.expected === "int" ? "a whole number" : i.expected ? `a ${i.expected}` : "a different type";
+      if (missing) return { path, code: "required", message: stock ? "This field is required." : text };
+      if (i.expected === "int" && stock) return { path, code: "invalid_type", message: "Must be a whole number." };
+      const got = /received (\w+)$/.exec(text)?.[1];
+      return { path, code: "invalid_type", message: stock ? `Expected ${expected}${got ? `, got ${got === "null" ? "null" : `a ${got}`}` : ""}.` : text };
+    }
+    case "invalid_value": {
+      const allowed = Array.isArray(i.values) ? i.values.filter((v) => ["string", "number", "boolean"].includes(typeof v)).slice(0, ALLOWED_MAX) : undefined;
+      const out = { path, code: allowed && allowed.length > 1 ? "invalid_enum" : "invalid_value", message: stock && allowed?.length ? `Must be ${allowed.length === 1 ? "exactly " : "one of: "}${allowed.join(", ")}.` : text };
+      if (allowed && allowed.length > 1) out.allowed = allowed;
+      return out;
+    }
+    case "too_small":
+      return { path, code: "too_small", message: stock ? `Too small: at least ${i.origin === "string" ? plural(Number(i.minimum), "character") : i.origin === "array" || i.origin === "set" ? plural(Number(i.minimum), "item") : String(i.minimum)}${i.inclusive === false ? " (more than that)" : ""} is needed.` : text };
+    case "too_big":
+      return { path, code: "too_big", message: stock ? `Too big: at most ${i.origin === "string" ? plural(Number(i.maximum), "character") : i.origin === "array" || i.origin === "set" ? plural(Number(i.maximum), "item") : String(i.maximum)} is allowed.` : text };
+    case "invalid_format":
+      return { path, code: "invalid_format", message: stock ? (i.format === "regex" ? "Not in the expected format." : `Not a valid ${i.format ?? "value"}.`) : text };
+    case "unrecognized_keys": {
+      const keys = Array.isArray(i.keys) ? i.keys.slice(0, 10) : [];
+      return { path: keys.length === 1 ? [...(i.path ?? []), keys[0]].join(".") : path, code: "unknown_field", message: stock ? `Unknown field${keys.length === 1 ? "" : "s"}: ${keys.join(", ")}.` : text };
+    }
+    case "custom":
+      return { path, code: "invalid", message: text };
+    default:
+      return { path, code: "invalid", message: stock ? (i.code === "invalid_union" ? "Not one of the accepted forms." : "Not valid.") : text };
+  }
+}
+
+/** Convert a zod error (or any { issues: [{ path, message }] }) into VALIDATION_FAILED. Each entry has { path, code, message, allowed? }. */
 export function fromValidation(zodError, detail = "Some fields are missing or not valid.") {
-  const errors = (zodError?.issues ?? []).slice(0, 20).map((i) => ({ path: (i.path ?? []).join(".") || "(root)", message: String(i.message) }));
+  const errors = (zodError?.issues ?? []).slice(0, 20).map(fieldError);
   return new BridgeError("VALIDATION_FAILED", detail, { errors });
 }

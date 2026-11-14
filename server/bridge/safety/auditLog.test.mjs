@@ -1,5 +1,5 @@
 /**
- * AuditLog (S9): hash chain across IST-day files, redaction, query with cursor, verify() pinpointing tampering,
+ * AuditLog (safety): hash chain across IST-day files, redaction, query with cursor, verify() pinpointing tampering,
  * restart continuity and crash/clock edge cases. Real files in a temp dir; a hand-driven clock.
  */
 import { appendFileSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";

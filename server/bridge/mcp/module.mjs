@@ -1,5 +1,5 @@
 /**
- * mcp module — stream S11: MCP server for AI assistants. Owned files and tasks: docs/STREAMS.md §S11.
+ * mcp module: MCP server for AI assistants.
  * The route below is the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  *   POST /mcp     Streamable HTTP (stateless JSON mode); key with "read" scope; tools depend on key + config
@@ -35,7 +35,6 @@ function packageVersion(root) {
 
 export default defineModule({
   name: "mcp",
-  stream: "S11",
   configKey: "mcp",
   configSchema: MCP_CONFIG_SCHEMA,
   register(app, deps) {

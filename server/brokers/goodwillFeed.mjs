@@ -27,7 +27,7 @@ const keyOf = (r) => `${r.exchange}|${String(r.token)}`;
  */
 export function createFeed(creds, { onTick = () => {}, onStatus = () => {} } = {}, { WebSocketImpl = WebSocket } = {}) {
   if (!String(creds?.accessToken ?? "").trim() && !String(creds?.requestToken ?? "").trim()) {
-    throw new SessionRequiredError("Goodwill: no session for the live feed. Paste today's request_token (or an access token) in Broker Settings.");
+    throw new SessionRequiredError("Goodwill: no session for the live feed. Paste today's request_token (or an access token) in the account settings.");
   }
   const wanted = new Map();
   const state = new Map();
@@ -53,7 +53,7 @@ export function createFeed(creds, { onTick = () => {}, onStatus = () => {} } = {
     }
     if (!ids.userSessionId || !ids.clientId) {
       closed = true;
-      onStatus({ connected: false, reason: "Goodwill: the feed needs your client ID and user session ID. Log in again with a fresh request_token, or add both in Broker Settings." });
+      onStatus({ connected: false, reason: "Goodwill: the feed needs your client ID and user session ID. Log in again with a fresh request_token, or add both in the account settings." });
       return;
     }
     if (closed) return;

@@ -1,0 +1,27 @@
+meta {
+  name: Market depth
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/api/v1/depth
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "symbol": "RELIANCE",
+    "exchange": "NSE"
+  }
+}
+
+docs {
+  Market depth
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatDepth.md in the repository.
+}

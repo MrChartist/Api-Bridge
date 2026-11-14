@@ -1,5 +1,5 @@
 /**
- * S4 routes end to end through the real request pipeline (createApp): fixture masters behind stub adapters, the fake
+ * symbols routes end to end through the real request pipeline (createApp): fixture masters behind stub adapters, the fake
  * AccountManager, a recording scheduler and a fake key store. Checks the OpenAPI shapes ({ data, meta },
  * Instrument.symbol, ConvertResult, ItemError), auth and scope, validation and problem codes.
  */
@@ -84,12 +84,15 @@ afterAll(async () => {
 });
 
 describe("route table", () => {
-  it("matches the contract: four read-scoped routes", () => {
+  it("matches the contract: seven read-scoped routes", () => {
     expect(ROUTES.map(([m, p, o]) => [m, p, o.scope])).toEqual([
       ["GET", "/v1/instruments/search", "read"],
       ["GET", "/v1/instruments/:symbol", "read"],
       ["GET", "/v1/symbols/convert", "read"],
       ["POST", "/v1/symbols/convert", "read"],
+      ["GET", "/v1/symbols/resolve", "read"],
+      ["GET", "/v1/symbols/validate", "read"],
+      ["POST", "/v1/symbols/validate", "read"],
     ]);
   });
 
@@ -155,6 +158,19 @@ describe("GET /v1/instruments/search", () => {
     const second = await call("GET", `/v1/instruments/search?q=nifty&limit=2&cursor=${enc(first.json.meta.nextCursor)}`);
     expect(second.json.data).toHaveLength(2);
     expect(second.json.data[0].symbol).not.toBe(first.json.data[0].symbol);
+  });
+
+  it("fields= keeps only the named columns (symbol always) and says so in meta.fields", async () => {
+    const r = await call("GET", "/v1/instruments/search?q=nifty&limit=2&fields=lotSize,tickSize");
+    expect(r.status).toBe(200);
+    expect(r.json.data.map((i) => Object.keys(i))).toEqual([["symbol", "lotSize", "tickSize"], ["symbol", "lotSize", "tickSize"]]);
+    expect(r.json.meta.fields).toEqual(["lotSize", "tickSize"]);
+    const full = await call("GET", "/v1/instruments/search?q=nifty&limit=2");
+    expect(r.json.data[0].lotSize).toBe(full.json.data[0].lotSize);
+    expect(full.json.meta).not.toHaveProperty("fields");
+    const bad = await call("GET", "/v1/instruments/search?q=nifty&fields=lotsize");
+    expect(bad.status).toBe(400);
+    expect(bad.json.detail).toMatch(/lotsize.*Allowed: symbol, exchange/);
   });
 
   it("filters by exchange, kind and expiry (case-insensitive enums)", async () => {

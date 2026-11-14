@@ -3,8 +3,8 @@ import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { normalisePolicies, poolingFor } from "../accounts/brokerInfo.mjs";
 import { ENDPOINT_CLASSES } from "../core/contracts.mjs";
 import { SEBI_UNREGISTERED_OPS_CEILING } from "../core/config.mjs";
-import { BROKER_POLICIES, DEFAULT_CLASS_LIMITS, PAPER_POLICY } from "./brokerPolicies.mjs";
-import { bucketPlan, effectiveClassSpec, lowerSpec, overrideProblems, resolvePolicy } from "./policy.mjs";
+import { BROKER_POLICIES, DATA_ENTITLEMENTS, DEFAULT_CLASS_LIMITS, PAPER_POLICY, POLICY_TABLE_CHECKED, POOLING_NOT_REVIEWED } from "./brokerPolicies.mjs";
+import { bucketPlan, chooseTier, effectiveClassSpec, lowerSpec, overrideProblems, policyTableProblems, resolvePolicy } from "./policy.mjs";
 
 const WINDOWS = ["perSecond", "perMinute", "perDay"];
 const ids = Object.keys(BROKER_POLICIES);
@@ -36,7 +36,7 @@ describe("BROKER_POLICIES table", () => {
 
   it("keeps pooling unknown (treated as not allowed) until a broker's terms clearly allow it", () => {
     for (const id of ids) expect(BROKER_POLICIES[id].pooling).toBe("unknown");
-    // S1 reads the table through its own helpers; check they see it the same way.
+    // accounts reads the table through its own helpers; check they see it the same way.
     const table = normalisePolicies(BROKER_POLICIES);
     expect(Object.keys(table)).toHaveLength(41);
     expect(poolingFor(table, "zerodha")).toBe("unknown");
@@ -49,7 +49,7 @@ describe("BROKER_POLICIES table", () => {
       expect(p.feed).toHaveProperty("maxSubscriptions");
       expect(p.maxModificationsPerOrder === null || Number.isInteger(p.maxModificationsPerOrder)).toBe(true);
     }
-    expect(BROKER_POLICIES.zerodha.feed).toEqual({ maxConnections: 3, maxSubscriptions: 3000 });
+    expect(BROKER_POLICIES.zerodha.feed).toMatchObject({ maxConnections: 3, maxSubscriptions: 3000, verified: true });
     expect(BROKER_POLICIES.dhan.maxQuoteBatch).toBe(1000);
   });
 
@@ -93,8 +93,8 @@ describe("effective policies", () => {
     }
     // Shoonya's approximate 10/s quotes are unverified: defaults apply.
     expect(resolvePolicy("shoonya").limits.quote).toMatchObject({ perSecond: 1, verified: false });
-    // Dhan's unverified chain figure (1 per 3 s) is lower than the default, so it stays.
-    expect(resolvePolicy("dhan").limits.chain).toMatchObject({ perSecond: 1, perMinute: 20, verified: false });
+    // Dhan's option chain is "one unique request every 3 seconds" (verified on its docs page): a 3-second window of 1.
+    expect(resolvePolicy("dhan").limits.chain).toMatchObject({ perSecond: 1, derivedPerSecond: true, extraWindows: [{ windowMs: 3000, limit: 1 }], verified: true });
     expect(effectiveClassSpec("portfolio", undefined)).toMatchObject({ perSecond: 2, verified: false, defaulted: true });
   });
 

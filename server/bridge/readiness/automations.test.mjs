@@ -3,7 +3,7 @@ import { createAutomationRegistry } from "./automations.mjs";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-describe("automation registry (p1-05 §3.8)", () => {
+describe("automation registry", () => {
   it("register, update (moves between accounts), remove", () => {
     const reg = createAutomationRegistry();
     const h = reg.register({ id: "g1", kind: "guard", accountId: "a", mode: "live", label: "Guard 1" });

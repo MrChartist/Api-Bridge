@@ -1,5 +1,5 @@
 /**
- * Today's safety counters and runtime-tightened limits, per account and per mode (stream S9), persisted in
+ * Today's safety counters and runtime-tightened limits, per account and per mode, persisted in
  * <dataDir>/safety/counters.json so a restart during the day keeps them.
  *
  * The file holds ONE IST day. The first access after IST midnight starts a new day: counters go back to zero and

@@ -1,0 +1,33 @@
+meta {
+  name: Check that only the intended routes answer on the public listeners
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/v1/expose/check
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Check that only the intended routes answer on the public listeners
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Sends a few probe requests from this computer to each enabled public listener on 127.0.0.1 and reports whether the
+  dashboard and the API stay hidden, foreign host names and web pages are refused and the body cap holds. With
+  `publicUrl` it also looks up that host name and calls the public address from this computer, but only when
+  `allowOutbound` is true; otherwise no name lookup and no outbound request is made.
+
+  Reference: docs/api/system/checkExposure.md in the repository.
+}

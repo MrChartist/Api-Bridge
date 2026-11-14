@@ -28,7 +28,7 @@ export function authHeader(creds) {
   const appId = String(creds?.appId ?? "").trim();
   const accessToken = String(creds?.accessToken ?? "").trim();
   if (!appId || !accessToken) {
-    throw new SessionRequiredError("Fyers: App ID or today's access token is missing. Log in on Fyers and paste a fresh access token in Broker Settings.");
+    throw new SessionRequiredError("Fyers: App ID or today's access token is missing. Log in on Fyers and paste a fresh access token in the account settings.");
   }
   return `${appId}:${accessToken}`;
 }
@@ -38,7 +38,7 @@ export function fyersError(status, json, path) {
   const code = Number(json?.code);
   const msg = String(json?.message || "").slice(0, 200);
   if (status === 401 || SESSION_CODES.has(code)) {
-    return new SessionRequiredError("Fyers rejected the access token (it expires daily at 6:30 AM). Log in on Fyers and paste a fresh token in Broker Settings.");
+    return new SessionRequiredError("Fyers rejected the access token (it expires daily at 6:30 AM). Log in on Fyers and paste a fresh token in the account settings.");
   }
   if (status === 429 || RATE_CODES.has(code)) {
     return new BrokerError(`Fyers rate limit reached on ${path}. Wait a minute before retrying.`, { code: "UPSTREAM_RATE_LIMIT" });

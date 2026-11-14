@@ -14,10 +14,11 @@
  */
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { cliCommand } from "./cliName.mjs";
 import { BridgeError } from "./errors.mjs";
 
@@ -177,7 +178,7 @@ export async function runInit(flags, io, deps) {
     const cfg = buildConfig({ example, accounts, masterKeyFile: io.env.MCB_MASTER_KEY ? keyPath : mk.path, configDir, demo, docker });
     if (io.env.MCB_MASTER_KEY) delete cfg.masterKeyFile;
     mkdirSync(configDir, { recursive: true });
-    writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
+    writeFileAtomic(configPath, `${JSON.stringify(cfg, null, 2)}\n`);
     say(`Config: wrote ${configPath} (${accounts.length} account(s)${demo ? ", demo mode on" : ""}; live trading off).`);
   }
 

@@ -18,7 +18,7 @@
  * Every real-money call is wrapped with withOrderGate(); no route mints Nubra gates today.
  */
 
-import { BrokerInputError, ORDER_BOOK_HINT, withOrderGate } from "./contract.mjs";
+import { BrokerInputError, withOrderGate, OrderIdMissingError } from "./contract.mjs";
 import { nubraFetch } from "./nubraAuth.mjs";
 import { contractExchange, isDerivativeRow } from "./nubraInstruments.mjs";
 
@@ -91,7 +91,7 @@ async function placeOrderImpl(creds, order, resolvedLotSize) {
   const json = await nubraFetch(creds, "/sentinel/orders/create", { method: "POST", body: buildOrderBody(order, resolvedLotSize), what: "place order" });
   const o = Array.isArray(json?.orders) ? json.orders[0] : null;
   const orderId = o?.intentOrderId !== undefined ? String(o.intentOrderId) : "";
-  if (!orderId) throw new BrokerInputError(`Nubra accepted the request but returned no order id. ${ORDER_BOOK_HINT}`);
+  if (!orderId) throw new OrderIdMissingError("Nubra accepted the request but returned no order id.");
   return { orderId, orderStatus: mapStatus(String(o.status || "").toLowerCase(), o) };
 }
 

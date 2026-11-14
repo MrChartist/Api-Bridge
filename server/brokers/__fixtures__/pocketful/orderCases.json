@@ -1,0 +1,27 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error body",
+      "source": "https://api.pocketful.in/docs/curl/login",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "error",
+          "error_code": 44000,
+          "message": "Order rejected"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://api.pocketful.in/docs/curl/login",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": "error",
+        "message": "Invalid, expired, or missing access token"
+      }
+    }
+  }
+}

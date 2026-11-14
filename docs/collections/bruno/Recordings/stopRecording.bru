@@ -1,0 +1,30 @@
+meta {
+  name: Stop a recording (final; the files stay)
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/v1/recordings/:recordingId/stop
+  body: none
+  auth: bearer
+}
+
+params:path {
+  recordingId: {{recordingId}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Stop a recording (final; the files stay)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  A recording that belongs to a rule is changed through the rule (409 otherwise).
+
+  Reference: docs/api/recordings/stopRecording.md in the repository.
+}

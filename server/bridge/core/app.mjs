@@ -26,21 +26,35 @@ import { withAddableAccounts } from "./config.mjs";
 import { SERVICE_CONTRACTS, SERVICES_NOT_IN_V2, isStub } from "./contracts.mjs";
 import { createHttpContext, expandScopes, newRequestId } from "./context.mjs";
 import { BridgeError, problemHeaders, toProblem } from "./errors.mjs";
+import { errorCatalogue } from "./errorCatalogue.mjs";
 import { createEventBus } from "./eventBus.mjs";
+import { createWriteIdempotency, fingerprint as requestFingerprint, hasIdempotencyKeyHeader, ignoresIdempotencyKey, isIdempotentRoute, pipelineChecksIdempotencyKey, readIdempotencyKey } from "./idempotency.mjs";
 import { armStartup, openStartup, startupStatus } from "./startup.mjs";
 import { isControlToken, removeControlToken, writeControlToken } from "./controlToken.mjs";
-import { Reply, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
+import { acquireInstanceLock } from "./instanceLock.mjs";
+import { createPowerWatcher } from "./powerEvents.mjs";
+import { createLoopLag, renderMetrics } from "./metrics.mjs";
+import { healthProblems, notReadyReasons } from "./healthProblems.mjs";
+import { isDiskFull, onQuarantine } from "../../lib/storageHealth.mjs";
+import { Reply, json, noContent, parseBody, readBody, send, sendProblem, text } from "./http.mjs";
 import { createLogger } from "./logger.mjs";
+import { createResponseEncoder } from "./responseEncoding.mjs";
+import { MIN_COMPRESS_BYTES, createCompressionCache, etagFor, ifNoneMatches, isCompressible, negotiateEncoding } from "./staticCompress.mjs";
 import { applyModuleConfig, buildServices, validateModules } from "./modules.mjs";
 import { createRouter } from "./router.mjs";
+import { registerExposeRoutes, sheetsAdmits, createSheetsLimiter } from "./exposeRoutes.mjs";
 import { BASE_HEADERS, assertNotCrossSiteWrite, assertTransportAllowed, createCors, createHostCheck, isLocalRequest } from "./security.mjs";
 import { registerDemoRoutes } from "../demo/routes.mjs";
+import { backupHealth } from "../backup/health.mjs";
+import { storageMonitorOf } from "../storage/registry.mjs";
 import { httpConsumer, runAsConsumer } from "../ratelimit/consumer.mjs";
 import { DEMO_ACCOUNT_HINT, DEMO_HEADER, DEMO_MARKET_ACCOUNT, DEMO_NOTICE, createDemoRegistry, labelDemoResult } from "../demo/demoMode.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 export const BRIDGE_VERSION = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8")).version;
 export const API_VERSION = "v1";
+/** The longest one module may take to stop (downloads, recordings and the webhook queue write their state in it). */
+export const MODULE_STOP_MS = 5000;
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
 
 /** Pull the raw API key from a request. Returns { key, viaQuery } or null. */
@@ -72,61 +86,61 @@ export function safeLogPath(pathname, isPublic = false) {
 
 /**
  * Files the local dashboard serves (name -> Content-Type). A fixed allowlist: no request can name another path. Every
- * new dashboard page or shared module is added here (and to dashboard/format.test.mjs).
+ * new dashboard page or shared module is added here (dashboard/dashboardFiles.test.mjs checks the list against what
+ * the page loads).
  */
 export const DASHBOARD_FILES = Object.freeze({
   "index.html": "text/html; charset=utf-8",
   "app.js": "text/javascript; charset=utf-8",
+  "boot.js": "text/javascript; charset=utf-8",
   "views.js": "text/javascript; charset=utf-8",
-  "home.js": "text/javascript; charset=utf-8",
-  "data.js": "text/javascript; charset=utf-8",
   "ticket.js": "text/javascript; charset=utf-8",
   "positions.js": "text/javascript; charset=utf-8",
-  "chart-lite.js": "text/javascript; charset=utf-8",
-  "chart-lite-core.js": "text/javascript; charset=utf-8",
-  "chart-specs.js": "text/javascript; charset=utf-8",
-  "trigger-core.js": "text/javascript; charset=utf-8",
-  "triggers.js": "text/javascript; charset=utf-8",
   "orders-core.js": "text/javascript; charset=utf-8",
   "reasons-core.js": "text/javascript; charset=utf-8",
-  "statement-core.js": "text/javascript; charset=utf-8",
-  "statement.js": "text/javascript; charset=utf-8",
   "orders-book.js": "text/javascript; charset=utf-8",
   "snippets.js": "text/javascript; charset=utf-8",
   "flows.js": "text/javascript; charset=utf-8",
+  "easy-core.js": "text/javascript; charset=utf-8",
+  "glossary.js": "text/javascript; charset=utf-8",
+  "help.js": "text/javascript; charset=utf-8",
+  "connect.js": "text/javascript; charset=utf-8",
+  "developers.js": "text/javascript; charset=utf-8",
+  "developers-core.js": "text/javascript; charset=utf-8",
+  "practice.js": "text/javascript; charset=utf-8",
   "motion.js": "text/javascript; charset=utf-8",
   "palette.js": "text/javascript; charset=utf-8",
   "format.js": "text/javascript; charset=utf-8",
-  "options.js": "text/javascript; charset=utf-8",
-  "pricing.js": "text/javascript; charset=utf-8",
-  "expiry-costs.js": "text/javascript; charset=utf-8",
-  "span-margin.js": "text/javascript; charset=utf-8",
-  "alert-core.js": "text/javascript; charset=utf-8",
-  "alerts.js": "text/javascript; charset=utf-8",
   "workbook.js": "text/javascript; charset=utf-8",
   "workbook-core.js": "text/javascript; charset=utf-8",
   "xlsx-core.js": "text/javascript; charset=utf-8",
+  "sheets-panel.js": "text/javascript; charset=utf-8",
+  "sheets-script.js": "text/javascript; charset=utf-8",
   "today-core.js": "text/javascript; charset=utf-8",
-  "trade-intent.js": "text/javascript; charset=utf-8",
-  "journal.js": "text/javascript; charset=utf-8",
-  "journal-core.js": "text/javascript; charset=utf-8",
-  "basket-core.js": "text/javascript; charset=utf-8",
   "reference.js": "text/javascript; charset=utf-8",
+  "charges.js": "text/javascript; charset=utf-8",
   "readiness.js": "text/javascript; charset=utf-8",
-  "viz.js": "text/javascript; charset=utf-8",
+  "backup-card.js": "text/javascript; charset=utf-8",
+  "drift-card.js": "text/javascript; charset=utf-8",
   "layout-prefs.js": "text/javascript; charset=utf-8",
   "live.js": "text/javascript; charset=utf-8",
-  "analyticsViews.js": "text/javascript; charset=utf-8",
-  "analyticsMore.js": "text/javascript; charset=utf-8",
-  "workspace.js": "text/javascript; charset=utf-8",
-  "terminal.js": "text/javascript; charset=utf-8",
-  "export.js": "text/javascript; charset=utf-8",
-  "help.js": "text/javascript; charset=utf-8",
   "budget.js": "text/javascript; charset=utf-8",
-  "motion.min.js": "text/javascript; charset=utf-8",
+  "sources-core.js": "text/javascript; charset=utf-8",
+  "sources-ui.js": "text/javascript; charset=utf-8",
+  "sources-page.js": "text/javascript; charset=utf-8",
+  "sources-providers.js": "text/javascript; charset=utf-8",
+  "quotas-view.js": "text/javascript; charset=utf-8",
+  "data-core.js": "text/javascript; charset=utf-8",
+  "data-page.js": "text/javascript; charset=utf-8",
+  "getstarted.js": "text/javascript; charset=utf-8",
+  "getstarted-core.js": "text/javascript; charset=utf-8",
+  "telegram-card.js": "text/javascript; charset=utf-8",
+  "telegram-core.js": "text/javascript; charset=utf-8",
+  "morning.js": "text/javascript; charset=utf-8",
+  "morning-core.js": "text/javascript; charset=utf-8",
+  "connection.js": "text/javascript; charset=utf-8",
+  "expose-card.js": "text/javascript; charset=utf-8",
   "palette.css": "text/css; charset=utf-8",
-  "home.css": "text/css; charset=utf-8",
-  "ios.css": "text/css; charset=utf-8",
   "app.css": "text/css; charset=utf-8",
   "logo.svg": "image/svg+xml",
 });
@@ -136,15 +150,29 @@ export const DASHBOARD_FILES = Object.freeze({
  *   brokers?: any, warnings?: string[], configFile?: string | null, demoRoutes?: readonly import("../demo/routes.mjs").DemoRoute[] }} opts
  *   configFile: where accounts added from the dashboard are saved (config.mjs configFileForWrites). Without it the
  *   Bridge cannot add or remove accounts at run time.
+ *   instanceLock: the data-folder lock when the caller took it before building the app (the `start` command does, so
+ *   a second Bridge is refused before it reads any file); otherwise listen() takes it (core/instanceLock.mjs).
+ *   Pass `false` to take no lock (tests that deliberately run two Bridges on one folder).
  *   demoRoutes: replaces demo/routes.mjs DEMO_ROUTES (tests only); registered only when config.demo is true.
  */
-export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes }) {
+export async function createApp({ config: baseConfig, modules, overrides = {}, logger, clock, brokers, warnings = [], configFile = null, demoRoutes, instanceLock = null, moduleStopMs = MODULE_STOP_MS }) {
   const mods = modules ?? (await import("./builtinModules.mjs")).BUILTIN_MODULES;
   validateModules(mods);
   const config = withAddableAccounts(applyModuleConfig(baseConfig, mods, warnings));
   const log = logger ?? createLogger({ level: config.logging.level });
   const bus = createEventBus({ logger: log });
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+  // A damaged file moved aside while the stores load: tell listeners (the Telegram agent, webhooks) as `data.quarantined`.
+  // Paths are shown relative to the data folder. Subscribed before the stores are built, so nothing is missed.
+  const rel = (p) => (p && String(p).startsWith(config.dataDir) ? String(p).slice(config.dataDir.length).replace(/^[\\/]+/, "") : p);
+  const offQuarantine = onQuarantine((e) => {
+    if (!String(e.file).startsWith(config.dataDir)) return;
+    try {
+      bus.emit("data.quarantined", { what: e.what, file: rel(e.file), movedTo: rel(e.movedTo), reason: e.reason, at: new Date(e.at).toISOString() });
+    } catch {
+      /* a listener failed: the bus logs it */
+    }
+  });
   const coreDeps = {
     config,
     logger: log,
@@ -163,7 +191,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       log.warn("demo account could not be connected", { err });
     }
   }
-  /** The last requests (method, path without query, status, ms, key id) for the dashboard's request log. Memory only. */
+  /** The last requests (method, path without query, status, ms, key id, and for a market-data read what answered it) for the dashboard's request log. Memory only. */
   const recentRequests = [];
   const RECENT_MAX = 200;
   const router = createRouter();
@@ -202,21 +230,49 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       // While the Bridge starts, the reads it holds (positions, funds, orders, trades, the book) and how far the jobs
       // they wait for have got: a page shows that progress instead of a silent wait (core/startup.mjs).
       const starting = startupStatus(deps);
-      const basic = { status: "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}), ...(starting ? { startup: starting } : {}) };
+      const problems = healthProblems(deps);
+      const basic = { status: problems.length ? "degraded" : "ok", version: BRIDGE_VERSION, apiVersion: API_VERSION, ...(config.demo ? { demo: true, dataNotice: DEMO_NOTICE } : {}), ...(starting ? { startup: starting } : {}) };
       if (!ctx.loopback) return basic;
       const services = {};
       for (const name of Object.keys(SERVICE_CONTRACTS).filter((k) => !SERVICES_NOT_IN_V2.includes(k))) services[name] = isStub(deps[name]) ? "not_built" : "ready";
-      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services };
+      // Data sources beyond the broker accounts: how many exist and how many are on (details: GET /v1/sources).
+      let sources;
+      try {
+        if (!isStub(deps.backupData)) {
+          const st = deps.backupData.status();
+          sources = { enabled: st.providers.filter((p) => p.enabled).length, total: st.providers.length, autoFallback: st.autoFallback };
+        }
+      } catch {
+        sources = undefined;
+      }
+      const storage = storageMonitorOf(deps)?.status();
+      return { ...basic, startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.round((Date.now() - startedAt) / 1000), services, ...(sources ? { sources } : {}), backup: backupHealth({ config, dataDir: config.dataDir }), ...(storage ? { storage } : {}), problems };
     },
     { auth: "none", summary: "Liveness; detail only for loopback callers" },
+  );
+  core.get(
+    "/v1/metrics",
+    () => text(renderMetrics(deps, { startedAt, http: httpCounts, loopLag, config }), { headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" } }),
+    { scope: "admin", loopbackOnly: true, summary: "The Bridge's own numbers as Prometheus text (counters and gauges only)" },
+  );
+  core.get(
+    "/v1/ready",
+    (ctx) => {
+      // 503 while the Bridge is still starting, or when the disk is too full to save safely. A load balancer, a Docker
+      // health check or a script can wait on this instead of guessing.
+      const reasons = notReadyReasons(deps, { startup: startupStatus(deps) });
+      const body = ctx.loopback ? { ready: reasons.length === 0, reasons } : { ready: reasons.length === 0 };
+      return json(body, { status: reasons.length ? 503 : 200 });
+    },
+    { auth: "none", summary: "Ready to take work: 503 while starting or when the disk is full" },
   );
   core.get(
     "/v1/meta",
     (ctx) => ({
       bridgeVersion: BRIDGE_VERSION,
-      // For this computer only: the install folder (the dashboard fills it into the MCP (stdio) snippets) and how to run
+      // For this computer only: the install and data folders (the dashboard fills the first into the MCP (stdio) snippets and shows the second beside saved files) and how to run
       // a Bridge command here (the dashboard's "Prefer the terminal?" hints).
-      ...(ctx.loopback ? { installDir: ROOT, cliCommand: cliCommand() } : {}),
+      ...(ctx.loopback ? { installDir: ROOT, dataDir: config.dataDir, cliCommand: cliCommand() } : {}),
       apiVersion: API_VERSION,
       brokerContractVersion: CONTRACT_VERSION,
       brokers: coreDeps.brokers.list(),
@@ -233,9 +289,14 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     },
     { scope: "admin", loopbackOnly: true, summary: "Recent requests to this Bridge (memory only, newest first)" },
   );
+  core.get(
+    "/v1/errors",
+    (ctx) => ({ data: errorCatalogue(), meta: { requestId: ctx.requestId } }),
+    { scope: "read", summary: "Every error code with what it means and how to fix it" },
+  );
   // ── Local dashboard (static files, this computer only; the page asks for an API key and keeps it in the tab) ──
   // DASHBOARD_FILES (module scope, above) lists what may be served.
-  const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  const DASHBOARD_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   // Broker logos (dashboard/brokers/<id>.png, see its README), served as /dashboard/broker-<id>.png. Only ids with a
   // file present when the Bridge starts can be asked for, so no request can name another path.
   const BROKER_LOGOS = new Set(
@@ -247,18 +308,17 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       }
     })(),
   );
-  // The dashboard's self-hosted Chartist typefaces (dashboard/fonts/, SIL Open Font Licence files beside them), served as
-  // /dashboard/font-<file>.woff2. A fixed list, so no request can name another path.
-  const DASHBOARD_FONTS = Object.freeze({
-    "font-chartist-sans-flex.woff2": "chartist-sans-flex.woff2",
-    "font-chartist-sans-flex-symbols.woff2": "chartist-sans-flex-symbols.woff2",
-    "font-chartist-sans.woff2": "chartist-sans.woff2",
-    "font-chartist-serif-italic.woff2": "chartist-serif-italic.woff2",
-  });
-  const dashboardFile = (name) => {
-    if (Object.hasOwn(DASHBOARD_FONTS, name)) {
-      return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard/fonts", DASHBOARD_FONTS[name])), { "Content-Type": "font/woff2", "Cache-Control": "public, max-age=604800", "Content-Security-Policy": DASHBOARD_CSP });
-    }
+  /** Each dashboard file compressed once per content change (br or gzip), bounded in memory (staticCompress.mjs). */
+  const dashboardCompressed = createCompressionCache();
+  /** ETag, 304 and gzip for the large read answers of /v1 and the OpenAPI file (responseEncoding.mjs). */
+  const responseEncoder = createResponseEncoder();
+  /**
+   * One dashboard file as a reply. Text files are compressed when the request accepts br or gzip (the best the client
+   * prefers); every representation has its own strong ETag, and Vary: Accept-Encoding tells caches why. The 304 needs
+   * no compression: the ETag of a coding comes from the content hash.
+   * @returns {Reply | Promise<Reply>}
+   */
+  const dashboardFile = (name, requestHeaders = {}) => {
     const logo = /^broker-([a-z0-9]{2,32})\.png$/.exec(name);
     if (logo && BROKER_LOGOS.has(logo[1])) {
       return new Reply(200, readFileSync(resolve(ROOT, "server/bridge/dashboard/brokers", `${logo[1]}.png`)), { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400", "Content-Security-Policy": DASHBOARD_CSP });
@@ -269,9 +329,13 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     const file = dashboardSource(name);
     // ETag + no-cache: the browser keeps every file and asks "still this one?" (a 304 with no body) instead of
     // downloading the whole dashboard on each load. A file edited on disk gets a new ETag at once.
-    const cacheHeaders = { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-cache", ETag: file.etag };
-    if (ifNoneMatch(ifNoneMatchHeader, file.etag)) return new Reply(304, "", cacheHeaders);
-    return new Reply(200, file.body, cacheHeaders);
+    const squeezable = isCompressible(type) && file.size >= MIN_COMPRESS_BYTES;
+    const coding = squeezable ? negotiateEncoding(requestHeaders["accept-encoding"]) : null;
+    const etag = etagFor(file.etag, coding);
+    const headers = { "Content-Type": type, "Content-Security-Policy": DASHBOARD_CSP, "Cache-Control": "no-cache", ETag: etag, ...(squeezable ? { Vary: "Accept-Encoding" } : {}) };
+    if (ifNoneMatches(requestHeaders["if-none-match"], etag)) return new Reply(304, "", headers);
+    if (!coding) return new Reply(200, file.body, headers);
+    return dashboardCompressed.get(name, file.etag, coding, () => Buffer.from(file.body, "utf8")).then((body) => new Reply(200, body, { ...headers, "Content-Encoding": coding }));
   };
   /** name -> { mtimeMs, size, body, etag }: each dashboard file read once and re-read when it changes on disk. */
   const dashboardMemo = new Map();
@@ -281,21 +345,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     const hit = dashboardMemo.get(name);
     if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
     const body = readFileSync(path, "utf8");
-    const entry = { mtimeMs: st.mtimeMs, size: st.size, body, etag: `"${createHash("sha1").update(body).digest("base64url").slice(0, 22)}"` };
+    const entry = { mtimeMs: st.mtimeMs, size: st.size, etag: `"${createHash("sha1").update(body).digest("base64url").slice(0, 22)}"`, body };
     dashboardMemo.set(name, entry);
     return entry;
   }
-  /** The If-None-Match of the request being answered (set per dashboard request below). */
-  let ifNoneMatchHeader = null;
-  const ifNoneMatch = (header, etag) => typeof header === "string" && header.split(",").some((t) => t.trim().replace(/^W\//, "") === etag);
-  const dashboardReply = (ctx, name) => {
-    ifNoneMatchHeader = ctx.req?.headers?.["if-none-match"] ?? null;
-    try {
-      return dashboardFile(name);
-    } finally {
-      ifNoneMatchHeader = null;
-    }
-  };
+  const dashboardReply = (ctx, name) => dashboardFile(name, ctx.req?.headers ?? {});
   // server.remoteDashboard (demo mode only, enforced by config.mjs) serves the pages to other computers as well.
   const dashboardLocalOnly = !(config.demo && config.server.remoteDashboard);
   core.get("/", () => new Reply(302, "", { Location: "/dashboard" }), { auth: "none", loopbackOnly: dashboardLocalOnly, summary: "Redirect to the local dashboard" });
@@ -307,12 +361,14 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     { auth: "none", summary: "This API's OpenAPI 3.1 description" },
   );
 
+  registerExposeRoutes(core, { config, configFile: coreDeps.paths.configFile, deps });
   for (const m of mods) if (m.register) await m.register(facadeFor(m.name), deps);
   // Demo-only controls (demo/routes.mjs): registered only in demo mode, each under its owning module.
   registerDemoRoutes({ config, facadeFor, deps, modules: mods, ...(demoRoutes ? { routes: demoRoutes } : {}) });
 
   // ── Request pipeline ──
   const cors = createCors(config.cors);
+  const writeIdempotency = createWriteIdempotency({ now: () => deps.clock.now() });
   const handle = async (req, res, listener) => {
     const supplied = req.headers["x-request-id"];
     const requestId = typeof supplied === "string" && REQUEST_ID_RE.test(supplied) ? supplied : newRequestId();
@@ -327,6 +383,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     let path = "";
     /** @type {any} */
     let matched = null;
+    /** @type {ReturnType<ReturnType<typeof createWriteIdempotency>["begin"]> | null} */
+    let idem = null;
     try {
       let url;
       try {
@@ -347,7 +405,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         return;
       }
       const m = router.match(req.method ?? "GET", url.pathname);
-      if (!m.route || (listener.public && !m.route.options.public)) {
+      if (!m.route || (listener.public && !(listener.sheets ? sheetsAdmits(req.method, m.route) : m.route.options.public))) {
         if (m.route === null && m.allowed.length && !listener.public) {
           throw new BridgeError("METHOD_NOT_ALLOWED", undefined, { headers: { Allow: m.allowed.join(", ") } });
         }
@@ -364,6 +422,11 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       ctx.loopback = !listener.public && isLocalRequest(req, { localPeers: config.server.localPeers });
       if (opts.loopbackOnly && !ctx.loopback) throw new BridgeError("LOOPBACK_ONLY");
 
+      // The Sheets listener: a request cap per caller address first (so a flood of bad keys is cheap to refuse).
+      if (listener.sheets) {
+        const verdict = listener.limiter.hit(ctx.clientIp);
+        if (!verdict.ok) throw new BridgeError("RATE_LIMITED", "Too many requests to the Sheets address. Slow the sheet's refresh.", { retryAfterMs: verdict.retryAfterMs });
+      }
       const authMode = opts.auth ?? "key";
       if (authMode === "key") {
         const found = extractApiKey(req, url, { allowQuery: opts.allowQueryKey === true });
@@ -381,8 +444,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
           const record = local ?? (await deps.keyStore.authenticate(found.key, { ip: ctx.clientIp }));
           if (!record) throw new BridgeError("UNAUTHENTICATED", "This API key is not valid, has expired or was revoked.");
           if (found?.viaQuery && (!record.allowQuery || record.scopes.some((s) => s !== "read"))) {
-            throw new BridgeError("UNAUTHENTICATED", "Only read-only keys created for URL use may be sent as ?key=.");
+            throw new BridgeError("UNAUTHENTICATED", "This key may not be sent in a web address (?key=). Only a read-only key made with Allow in URLs can: in the dashboard use Connect a tool, or run `keys create --label excel --scope read --allow-query --expires 90d`. Or send the key in an Authorization header.");
           }
+          if (listener.sheets && record.scopes.some((sc) => sc !== "read")) throw new BridgeError("UNAUTHENTICATED", "Only read-only keys are accepted on the Sheets address. Create a read-only key for the sheet.");
           ctx.key = record;
           ctx.scopes = expandScopes(record.scopes);
           ctx.principal = { kind: "key", id: record.id, label: record.label };
@@ -391,7 +455,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
           if (!isStub(deps.scheduler)) {
             const verdict = deps.scheduler.checkClient(ctx);
             Object.assign(ctx.responseHeaders, verdict.headers ?? {});
-            if (!verdict.ok) throw new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
+            if (!verdict.ok) throw verdict.error ?? new BridgeError("RATE_LIMITED", undefined, { retryAfterMs: verdict.retryAfterMs });
           }
         }
       } else if (opts.scope && authMode === "none") {
@@ -407,20 +471,61 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         ctx.body = parseBody(raw, req.headers["content-type"], bodyMode);
       }
 
+      // Idempotency-Key on the create routes that are not orders (core/idempotency.mjs): a repeat returns the first answer.
+      // A write route that does not use the header ignores it WITHOUT reading its value: a public webhook receiver or an alert route
+      // must never answer 400 because a sender added its own, differently shaped Idempotency-Key.
+      if (method !== "GET" && method !== "HEAD") {
+        if (ignoresIdempotencyKey(method, route.pattern)) {
+          if (hasIdempotencyKeyHeader(req.headers)) ctx.setHeader("Idempotency-Ignored", "true"); // do not believe a retry is safe
+        } else if (pipelineChecksIdempotencyKey(method, route.pattern)) {
+          const idemKey = readIdempotencyKey(req.headers);
+          if (idemKey !== undefined && isIdempotentRoute(method, route.pattern)) {
+            const begun = writeIdempotency.begin(`${ctx.principal.kind}:${ctx.principal.id}`, idemKey, requestFingerprint({ method, path: url.pathname, query: url.searchParams, body: ctx.body }));
+            if (begun.replay) {
+              status = begun.reply.status;
+              send(res, new Reply(begun.reply.status, begun.reply.body, { ...begun.reply.headers, "Idempotency-Replayed": "true" }), { ...headers, ...ctx.responseHeaders });
+              return;
+            }
+            idem = begun;
+          }
+        }
+      }
+
       // Every broker call this request causes is credited to its consumer (API › Rate limits, Top consumers).
       const consumer = httpConsumer({ headers: req.headers, path: url.pathname, principal: ctx.principal });
-      const result = await runAsConsumer(consumer, () => route.handler(ctx));
+      const result = await runAsConsumer(consumer, () => route.handler(ctx), ctx);
       if (res.headersSent || res.writableEnded) {
         status = res.statusCode;
+        idem?.release();
         return;
       }
       const reply = result === undefined ? noContent() : config.demo ? labelDemoResult(result) : result;
       status = reply instanceof Reply ? reply.status : 200;
-      send(res, reply, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
-    } catch (err) {
+      if (idem) {
+        const stored = reply instanceof Reply ? reply : json(reply);
+        if (stored.status < 400) idem.done({ status: stored.status, body: stored.body, headers: stored.headers });
+        else idem.release();
+      }
+      const encoded = await responseEncoder.encode(reply, { method, pattern: route.pattern, requestHeaders: req.headers, baseVary: headers.Vary });
+      if (encoded !== reply) status = encoded.status;
+      send(res, encoded, { ...headers, ...ctx.responseHeaders }, { head: method === "HEAD" });
+    } catch (rawErr) {
+      idem?.release(); // a failed write is forgotten, so the same key can retry it
+      // A full disk is its own answer (DISK_FULL, 507) with the fix, not "Internal error".
+      const err = !(rawErr instanceof BridgeError) && (isDiskFull(rawErr) || isDiskFull(rawErr?.cause))
+        ? new BridgeError("DISK_FULL", "The disk the Bridge keeps its data on is full, so this could not be saved. Free some space (delete old downloads and recordings), then repeat the request.")
+        : rawErr;
+      if (err !== rawErr) log.error("a write failed because the disk is full", { requestId, path, code: rawErr?.code ?? rawErr?.cause?.code });
       const problem = toProblem(err, { requestId });
       if (config.demo && problem.code === "ACCOUNT_NOT_FOUND") problem.detail = `${problem.detail ?? ""} ${DEMO_ACCOUNT_HINT}`.trim();
       status = problem.status;
+      if (ctx && typeof matched?.options?.onError === "function") {
+        try {
+          matched.options.onError(ctx, err);
+        } catch (hookErr) {
+          log.error("route error observer failed", { requestId, path, err: hookErr });
+        }
+      }
       if (!(err instanceof BridgeError)) log.error("unhandled error", { requestId, path, err });
       else if (status >= 500 && status !== 501) log.warn("request failed", { requestId, path, code: problem.code });
       if (res.headersSent) res.destroy();
@@ -429,7 +534,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         // including failures raised before the handler ran (auth, scope, client rate limit).
         let reply = null;
         try {
-          reply = matched.options.formatError(err, { requestId });
+          reply = matched.options.formatError(err, { requestId, query: ctx?.query });
         } catch (fmtErr) {
           log.error("error formatter failed", { requestId, path, err: fmtErr });
         }
@@ -438,10 +543,15 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       } else sendProblem(res, problem, { ...headers, ...(ctx?.responseHeaders ?? {}), ...problemHeaders(err) });
     } finally {
       const ms = Date.now() - t0;
-      log.info("http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined });
+      httpCounts.set(`${Math.floor(status / 100)}xx`, (httpCounts.get(`${Math.floor(status / 100)}xx`) ?? 0) + 1);
+      // Access lines: errors and slow requests by default (logging.requests); "all" logs every one, "off" none.
+      const reqLog = config.logging.requests ?? "errors";
+      if (reqLog === "all" || (reqLog === "errors" && (status >= 400 || ms >= 1000))) {
+        (status >= 500 ? log.warn : log.info).call(log, "http", { requestId, method: req.method, path, status, ms, keyId: ctx?.key?.id, public: listener.public || undefined, ...(listener.sheets ? { sheets: true, ip: req.socket?.remoteAddress } : {}) });
+      }
       if (!listener.public && path !== "/v1/requests" && !path.startsWith("/dashboard")) {
         const client = req.headers["x-mcb-client"] === "dashboard" ? "dashboard" : null;
-        recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId });
+        recentRequests.push({ at: new Date().toISOString(), method: req.method, path, status, ms, keyId: ctx?.key?.id ?? null, client, requestId, ...(ctx?.route ? { route: ctx.route } : {}) });
         if (recentRequests.length > RECENT_MAX) recentRequests.splice(0, recentRequests.length - RECENT_MAX);
       }
     }
@@ -464,7 +574,7 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         return reject("403 Forbidden");
       }
       const entry = upgrades.get(url.pathname);
-      if (!entry || (listener.public && !entry.options.public)) return reject("404 Not Found");
+      if (!entry || listener.sheets || (listener.public && !entry.options.public)) return reject("404 Not Found");
       await entry.handler({ req, socket, head, url, requestId, log: log.child({ requestId, module: entry.module }), viaPublicIngress: listener.public, reject });
     } catch (err) {
       log.error("upgrade failed", { requestId, err });
@@ -487,6 +597,15 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
 
   const servers = [];
   let started = false;
+  /** Answers by status class, for /v1/metrics. */
+  const httpCounts = new Map();
+  const loopLag = createLoopLag();
+  /** Notices sleep, wake and clock steps and tells the bus (core/powerEvents.mjs). */
+  const power = createPowerWatcher({ bus, logger: log });
+  // After sleep the heartbeat may be minutes old: touch the lock at once so a second Bridge started right at wake is refused.
+  bus.on("system.resumed", () => lock?.touch());
+  /** The data-folder lock this app holds (taken in listen() unless the caller passed one). */
+  let lock = instanceLock;
   /** Written while listening; see controlToken.mjs. */
   let controlToken = null;
 
@@ -500,6 +619,8 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
     /** Bind the listeners and start modules. Resolves with the bound ports. */
     async listen() {
       if (started) throw new Error("already listening");
+      // One Bridge per data folder: a second one is refused here, with the holder's process id and port.
+      if (lock === null) lock = acquireInstanceLock({ dataDir: config.dataDir, port: config.server.port || null, version: BRIDGE_VERSION, logger: log });
       started = true;
       // Reads gated on startup jobs (the demo book seed) wait from the first request until the jobs are done.
       armStartup(deps);
@@ -519,13 +640,21 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
       // Host check needs the real port (port 0 = ephemeral in tests), so build it after binding.
       mainListener.hostCheck = (h) => createHostCheck({ port: mainListener.boundPort ?? s.port, allowedHosts: s.allowedHosts })(h);
       const port = await bind(s.host, s.port, mainListener);
+      if (lock) lock.setPort(port);
       let publicPort = null;
       if (s.publicIngress.enabled) {
         const pub = { public: true, hostCheck: null };
         pub.hostCheck = (h) => createHostCheck({ port: pub.boundPort ?? s.publicIngress.port, allowedHosts: s.publicIngress.allowedHosts })(h);
         publicPort = await bind(s.publicIngress.host, s.publicIngress.port, pub);
       }
+      let sheetsPort = null;
+      if (s.sheetsIngress.enabled) {
+        const sh = { public: true, sheets: true, hostCheck: null, limiter: createSheetsLimiter({ perMinute: s.sheetsIngress.requestsPerMinute, now: () => deps.clock.now() }) };
+        sh.hostCheck = (h) => createHostCheck({ port: sh.boundPort ?? s.sheetsIngress.port, allowedHosts: s.sheetsIngress.allowedHosts })(h);
+        sheetsPort = await bind(s.sheetsIngress.host, s.sheetsIngress.port, sh);
+      }
       for (const m of mods) if (m.start) await m.start(deps);
+      power.start();
       // Not awaited: the Bridge answers at once; only the gated reads wait for the startup jobs.
       openStartup(deps).catch(() => {});
       try {
@@ -534,19 +663,32 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
         log.warn("could not write the local control token; mc-bridge kill will need --key", { err });
       }
       for (const w of warnings) log.warn(w);
-      log.info("bridge listening", { host: s.host, port, publicPort, version: BRIDGE_VERSION });
-      return { port, publicPort };
+      log.info("bridge listening", { host: s.host, port, publicPort, ...(sheetsPort ? { sheetsPort } : {}), version: BRIDGE_VERSION });
+      return { port, publicPort, sheetsPort };
     },
     /** Stop modules (reverse order) and close listeners. */
     async close() {
+      power.stop();
+      loopLag.stop();
       if (controlToken) removeControlToken(config.dataDir, controlToken);
       controlToken = null;
       for (const m of [...mods].reverse()) {
         if (!m.stop) continue;
+        let timer;
         try {
-          await m.stop(deps);
+          // A module that hangs in stop() must not keep the Bridge from stopping: it is given `moduleStopMs`, then left.
+          const done = await Promise.race([
+            Promise.resolve(m.stop(deps)).then(() => true),
+            new Promise((resolve) => {
+              timer = setTimeout(() => resolve(false), moduleStopMs);
+              timer.unref?.();
+            }),
+          ]);
+          if (!done) log.error("a module did not stop in time; going on", { module: m.name, afterMs: moduleStopMs });
         } catch (err) {
           log.error("module stop failed", { module: m.name, err });
+        } finally {
+          clearTimeout(timer);
         }
       }
       await Promise.all(
@@ -558,6 +700,9 @@ export async function createApp({ config: baseConfig, modules, overrides = {}, l
             }),
         ),
       );
+      if (lock) lock.release();
+      lock = null;
+      offQuarantine();
     },
   };
 }

@@ -1,6 +1,6 @@
 // The pure rules behind the Create a key and Add a broker flows (flows.js).
 import { describe, expect, it } from "vitest";
-import { KEY_USES, WORKING_ORDER, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, orderStatusText, istDay, keyFormProblem, keyUse, modifyChange, riskAfterCharges, sessionText, startupText, ticketRisk } from "./flows.js";
+import { KEY_USES, afterDemoSaveSteps, brokerSetupSteps, excelFormula, capabilityLabel, capabilitySummary, contractName, defaultKeyName, istDay, keyFormProblem, keyUse, modifyChange } from "./flows.js";
 import { loginFormSpec } from "./app.js";
 import { snippets } from "./snippets.js";
 
@@ -24,7 +24,7 @@ describe("Create a key", () => {
       // Every snippet a tool points at exists.
       for (const id of u.snippets) expect(snippets({ base: "http://127.0.0.1:4300" })[id], `${u.id} → ${id}`).toBeTruthy();
     }
-    expect(keyUse("excel")).toMatchObject({ scopes: ["read"], allowQuery: true, clientKind: "excel" });
+    expect(keyUse("excel")).toMatchObject({ scopes: ["read"], allowQuery: false, clientKind: "excel" });
     expect(keyUse("python").scopes).toEqual(["paper"]);
   });
 
@@ -41,28 +41,6 @@ describe("Create a key", () => {
   });
 });
 
-describe("Trade ticket risk", () => {
-  it("works out max loss, max profit and breakeven for one option order", () => {
-    expect(ticketRisk({ side: "BUY", right: "CE", strike: 26400, price: 300, qty: 65 })).toEqual({ maxLoss: 19500, maxProfit: null, breakeven: 26700, premium: 19500 });
-    expect(ticketRisk({ side: "BUY", right: "PE", strike: 26400, price: 250, qty: 65 })).toEqual({ maxLoss: 16250, maxProfit: (26400 - 250) * 65, breakeven: 26150, premium: 16250 });
-    expect(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 })).toMatchObject({ maxLoss: null, maxProfit: 19500, breakeven: 26700 });
-    expect(ticketRisk({ side: "SELL", right: "PE", strike: 26400, price: 250, qty: 65 })).toMatchObject({ maxLoss: (26400 - 250) * 65, maxProfit: 16250 });
-    for (const bad of [{ kind: "FUT" }, { price: 0 }, { qty: null }, { right: "XX" }]) expect(ticketRisk({ side: "BUY", right: "CE", strike: 100, price: 1, qty: 1, ...bad })).toBeNull();
-  });
-});
-
-describe("Ticket risk after charges", () => {
-  it("adds entry charges to max loss and moves breakeven by the round trip per unit", () => {
-    const buyCe = riskAfterCharges(ticketRisk({ side: "BUY", right: "CE", strike: 26400, price: 300, qty: 65 }), { side: "BUY", right: "CE", qty: 65, entry: 30, exit: 35 });
-    expect(buyCe).toEqual({ charges: 65, entry: 30, exit: 35, maxLoss: 19530, breakeven: 26701 });
-    expect(riskAfterCharges(ticketRisk({ side: "BUY", right: "PE", strike: 26400, price: 250, qty: 65 }), { side: "BUY", right: "PE", qty: 65, entry: 65 }).breakeven).toBe(26148);
-    const sellCe = riskAfterCharges(ticketRisk({ side: "SELL", right: "CE", strike: 26400, price: 300, qty: 65 }), { side: "SELL", right: "CE", qty: 65, entry: 65, exit: 0 });
-    expect(sellCe).toMatchObject({ maxLoss: null, breakeven: 26699 });
-    expect(riskAfterCharges(null, { side: "BUY", right: "CE", qty: 1, entry: 1 })).toBeNull();
-    expect(riskAfterCharges({ maxLoss: 1, breakeven: 1 }, { side: "BUY", right: "CE", qty: 0, entry: 1 })).toBeNull();
-  });
-});
-
 describe("Excel formula per contract", () => {
   it("builds a pasteable WEBSERVICE formula with the symbol encoded", () => {
     expect(excelFormula("http://127.0.0.1:4300/", "NFO:NIFTY-2026-11-03-27000-CE")).toBe('=VALUE(WEBSERVICE("http://127.0.0.1:4300/xl/ltp?symbol=NFO%3ANIFTY-2026-11-03-27000-CE&key="&BridgeKey))');
@@ -71,15 +49,12 @@ describe("Excel formula per contract", () => {
 });
 
 describe("Orders in plain words", () => {
-  it("reads a contract and an order status the way traders say them", () => {
+  it("reads a contract the way traders say it", () => {
     expect(contractName("NFO:NIFTY-2026-11-03-27000-CE")).toBe("NIFTY 3 Nov 27000 CE");
     expect(contractName("BFO:SENSEX-2026-11-05-82900-PE")).toBe("SENSEX 5 Nov 82900 PE");
     expect(contractName("NFO:BANKNIFTY-2026-11-25-FUT")).toBe("BANKNIFTY 25 Nov FUT");
     expect(contractName("NSE:RELIANCE")).toBe("RELIANCE");
     expect(contractName("NFO:M&M-2026-11-25-3200.5-CE")).toBe("M&M 25 Nov 3200.5 CE");
-    expect(orderStatusText("trigger_pending").text).toBe("Waiting for trigger");
-    expect(orderStatusText("rejected").tone).toBe("bad");
-    expect(WORKING_ORDER.has("open") && !WORKING_ORDER.has("filled")).toBe(true);
   });
 
   it("Modify changes a stop-loss order's trigger, with the SL limit on the right side of it", () => {
@@ -109,25 +84,12 @@ describe("Orders in plain words", () => {
 });
 
 describe("Accounts in plain words", () => {
-  it("names capabilities and session states the way people say them", () => {
+  it("names capabilities the way people say them", () => {
     expect(capabilityLabel("placeOrder")).toBe("Place orders");
     expect(capabilityLabel("somethingNew")).toBe("somethingNew");
     expect(capabilitySummary(["ltp", "placeOrder"])).toBe("Data and orders");
     expect(capabilitySummary(["orderBook", "placeOrder"])).toBe("Orders only");
     expect(capabilitySummary(["feed"])).toBe("Data only");
-    expect(sessionText("missing")).toEqual({ text: "Not logged in", tone: "warn" });
-    expect(sessionText("expired").tone).toBe("bad");
-    expect(sessionText("connected").text).toBe("Logged in");
-  });
-
-  it("says what the Bridge is doing at start (GET /v1/health startup), never a partial count as done", () => {
-    const seed = (done, total) => ({ ready: false, jobs: [{ name: "demo book seed", done, total }] });
-    expect(startupText(seed(6, 9))).toBe("Setting up the demo book · 6 of 9 legs");
-    expect(startupText(seed(0, null))).toBe("Setting up the demo book");
-    expect(startupText(seed(12, 9))).toBe("Setting up the demo book · 9 of 9 legs");
-    expect(startupText({ ready: false, jobs: [{ name: "other", done: null, total: null }] })).toBe("The Bridge is starting");
-    expect(startupText(null)).toBeNull();
-    expect(startupText({ ready: true, jobs: [] })).toBeNull();
   });
 });
 

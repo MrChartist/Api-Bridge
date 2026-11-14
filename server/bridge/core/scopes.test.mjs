@@ -1,5 +1,5 @@
 /**
- * T-sec-7 (docs/spec/p1-05-readiness.md §10.2): for every route with a scope, a key holding only a LOWER scope
+ * T-sec-7: for every route with a scope, a key holding only a LOWER scope
  * (read < paper < live; admin separate) is refused with 403 SCOPE_REQUIRED before the handler runs. Generic: covers
  * every new write endpoint now and later (demo-only routes included).
  */

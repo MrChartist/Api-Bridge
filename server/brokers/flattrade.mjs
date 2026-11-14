@@ -64,5 +64,5 @@ export const {
 export const buildOrderBody = (uid, order, resolvedLotSize) => core.buildOrderBody(uid, order, resolvedLotSize);
 export const buildModifyBody = (uid, orderId, changes, original) => core.buildModifyBody(uid, orderId, changes, original);
 
-/** Where the user gets a request code (for the Broker Settings help text). */
+/** Where the user gets a request code (for the login help text). */
 export const loginUrl = (apiKey) => `${LOGIN_URL}?app_key=${encodeURIComponent(apiKey || "")}`;

@@ -1,6 +1,6 @@
 // Orders and trade book: filters, counts and totals (pure: no DOM, no fetch, no clock).
 import { contractName } from "./flows.js";
-import { formatInt } from "./format.js";
+import { formatInt, plural } from "./format.js";
 
 /** The status filter's choices, in order. */
 export const ORDER_FILTERS = Object.freeze([
@@ -105,9 +105,9 @@ export function cancelAllButton(pageOpen, groups) {
 /** Cancel all's question: the Bridge's open orders, or (none of those) the ones placed outside it, to tick. */
 export function cancelAllTitle(g) {
   const n = g.bridge.length;
-  if (n) return `Cancel ${formatInt(n)} open order${n === 1 ? "" : "s"}?`;
+  if (n) return `Cancel ${plural(n, "open order")}?`;
   const m = g.external.length;
-  return `${formatInt(m)} open order${m === 1 ? "" : "s"} placed outside the Bridge`;
+  return `${plural(m, "open order")} placed outside the Bridge`;
 }
 
 /**
@@ -124,7 +124,7 @@ export function cancelAllBody(includeExternal = false) {
   return { bridgeOnly: includeExternal !== true };
 }
 
-const ordersWord = (n) => `${formatInt(n)} order${n === 1 ? "" : "s"}`;
+const ordersWord = (n) => plural(n, "order");
 
 /** What Cancel all did, in each group, in one line: { text, tone }. */
 export function cancelAllReport(d) {
@@ -144,74 +144,6 @@ export function filterTrades(list, { side = "all", q = "", labelOf = () => "" } 
   return (list ?? []).filter((t) => (side === "all" || t.side === side) && matches(t, q, [labelOf(t.accountId)]));
 }
 
-/** Totals of a set of trades: count, quantities, buy and sell value, turnover (their sum) and charges. */
-export function tradeTotals(list) {
-  const t = { count: 0, buyQty: 0, sellQty: 0, buyValue: 0, sellValue: 0, turnover: 0, charges: 0 };
-  for (const x of list ?? []) {
-    const qty = Number(x.qty ?? x.quantity) || 0;
-    const value = qty * (Number(x.price) || 0);
-    t.count += 1;
-    if (x.side === "BUY") {
-      t.buyQty += qty;
-      t.buyValue += value;
-    } else {
-      t.sellQty += qty;
-      t.sellValue += value;
-    }
-    t.turnover += value;
-    t.charges += Number(x.charges) || 0;
-  }
-  return t;
-}
-
-/**
- * The Day view of positions (as brokers show it): what was bought and sold today, what was carried in, and today's
- * P&L, measured from the previous close for carried units: sell value − buy value + net × LTP − carried × previous
- * close. A row the source did not give day figures for (a broker that reports none) has dayPnl null.
- * @param {object[]} positions GET /v1/positions rows
- * @returns {{ rows: object[], total: number|null, missing: number }}
- */
-export function dayRows(positions) {
-  const rows = [];
-  let total = 0;
-  let missing = 0;
-  for (const p of positions ?? []) {
-    const buy = Number(p.buyQty) || 0;
-    const sell = Number(p.sellQty) || 0;
-    const carried = Number(p.overnightQty) || 0;
-    if (!buy && !sell && !carried && !Number(p.netQty)) continue;
-    let dayPnl = p.dayPnl;
-    if (dayPnl === undefined || dayPnl === null) {
-      const ltp = Number(p.ltp);
-      const known = p.overnightQty !== undefined && (Number(p.netQty) === 0 || Number.isFinite(ltp)) && (!carried || Number.isFinite(Number(p.prevClose)));
-      dayPnl = known ? sell * (Number(p.sellAvg) || 0) - buy * (Number(p.buyAvg) || 0) + (Number(p.netQty) || 0) * (Number.isFinite(ltp) ? ltp : 0) - carried * (Number(p.prevClose) || 0) : null;
-    }
-    if (dayPnl === null) missing += 1;
-    else total += Number(dayPnl);
-    rows.push({ ...p, buy, sell, carried, dayPnl: dayPnl === null ? null : Number(dayPnl) });
-  }
-  rows.sort((a, b) => Math.abs(b.dayPnl ?? 0) - Math.abs(a.dayPnl ?? 0));
-  return { rows, total: rows.length && missing < rows.length ? total : null, missing };
-}
-
-/**
- * Market depth as the ticket draws it: rows pairing the n-th bid with the n-th ask, the total quantity each side
- * shows, the largest level (for the bars) and the bid share of the shown quantity. Levels arrive best first.
- * @param {{ bids?: Array<{ price: number, qty: number, orders?: number|null }>, asks?: Array<{ price: number, qty: number, orders?: number|null }> } | null} depth
- * @param {number} [max] the most levels to show a side (5 by default; 20 where the source gives that many)
- */
-export function depthView(depth, max = 5) {
-  const bids = (depth?.bids ?? []).filter((l) => Number(l?.qty) > 0).slice(0, max);
-  const asks = (depth?.asks ?? []).filter((l) => Number(l?.qty) > 0).slice(0, max);
-  const n = Math.max(bids.length, asks.length);
-  const rows = Array.from({ length: n }, (_, i) => ({ bid: bids[i] ?? null, ask: asks[i] ?? null }));
-  const totalBid = bids.reduce((s, l) => s + Number(l.qty), 0);
-  const totalAsk = asks.reduce((s, l) => s + Number(l.qty), 0);
-  const maxQty = Math.max(0, ...bids.map((l) => Number(l.qty)), ...asks.map((l) => Number(l.qty)));
-  const available = Math.max(depth?.bids?.length ?? 0, depth?.asks?.length ?? 0);
-  return { rows, totalBid, totalAsk, maxQty, bidShare: totalBid + totalAsk > 0 ? totalBid / (totalBid + totalAsk) : null, available };
-}
-
 /**
  * One account's funds for the Funds card: what is free to trade, what margin is blocked, collateral (pledged holdings,
  * when the source reports it) and how much of the total is used. Missing figures stay null.
@@ -225,4 +157,188 @@ export function fundsView(f) {
   const total = available !== null && used !== null ? available + used : n(f?.totalBalance);
   const util = used !== null && total !== null && total > 0 ? Math.min(1, Math.max(0, used / total)) : null;
   return { available, used, collateral, total, util, level: util === null ? "none" : util >= 0.9 ? "neg" : util >= 0.7 ? "warn" : "ok" };
+}
+
+// ── Orders page: how a row reads (pure) ──
+
+/** A status in plain words with the tone its pill wears: working orders are accent, a fill is green, a refusal is red. */
+export function orderStatusLook(status) {
+  const map = {
+    filled: { text: "Filled", tone: "ok" },
+    rejected: { text: "Rejected", tone: "bad" },
+    cancelled: { text: "Cancelled", tone: "" },
+    expired: { text: "Expired", tone: "" },
+    open: { text: "Open", tone: "info" },
+    pending: { text: "Sending", tone: "info" },
+    trigger_pending: { text: "Waiting for trigger", tone: "info" },
+    partially_filled: { text: "Part filled", tone: "info" },
+    outcome_unknown: { text: "Outcome unknown", tone: "bad" },
+  };
+  return map[status] ?? { text: status ? `${String(status)[0].toUpperCase()}${String(status).slice(1)}` : "Unknown", tone: "warn" };
+}
+
+/** How long ago a time was, short: "just now", "42 s ago", "5 min ago", "3 h ago"; null for older than a day or a bad time. */
+export function ago(iso, nowMs = Date.now()) {
+  const t = Date.parse(iso ?? "");
+  if (!Number.isFinite(t)) return null;
+  const s = Math.round((nowMs - t) / 1000);
+  if (s < -5) return null;
+  if (s < 10) return "just now";
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return null;
+}
+
+/** "m:ss" for a number of milliseconds (never negative). */
+export function clockText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * A pending ticket's life: time left, share left (for the bar), and whether it is over. `level` is "ok" with more than
+ * 20 s left, "warn" up to that, "bad" when over.
+ * @param {{ createdAt?: string, expiresAt?: string }} t
+ */
+export function ticketLife(t, nowMs = Date.now()) {
+  const end = Date.parse(t?.expiresAt ?? "");
+  const start = Date.parse(t?.createdAt ?? "");
+  if (!Number.isFinite(end)) return { known: false, left: 0, share: 0, over: false, text: "", level: "ok" };
+  const left = end - nowMs;
+  const span = Number.isFinite(start) && end > start ? end - start : 60_000;
+  return { known: true, left: Math.max(0, left), share: Math.min(1, Math.max(0, left / span)), over: left <= 0, text: left <= 0 ? "Expired" : `${clockText(left)} left`, level: left <= 0 ? "bad" : left <= 20_000 ? "warn" : "ok" };
+}
+
+/**
+ * The body that places a cancelled paper order's unfilled part again ("Undo" after Cancel): the same order, `left` units, in paper.
+ * It goes through every normal check on the server. Pure.
+ */
+export function placeAgainBody(o, left) {
+  return { account: o.accountId, symbol: o.symbol, side: o.side, quantity: left, product: o.product, orderType: o.orderType, validity: o.validity ?? "DAY", mode: "paper", ...(o.price ? { price: o.price } : {}), ...(o.triggerPrice ? { triggerPrice: o.triggerPrice } : {}), ...(o.tag ? { tag: o.tag } : {}) };
+}
+
+/**
+ * One Idempotency-Key per order a person means to place. The same body always gets the same key (a double click, a retry after
+ * a network failure, Undo pressed twice), so the Bridge can answer the repeat with the first order instead of placing a second;
+ * a different body gets a new key (the Bridge refuses one key with two different bodies). Pure apart from crypto.randomUUID.
+ * @param {() => string} [uuid]
+ */
+export function createOrderKeys(uuid = () => globalThis.crypto.randomUUID()) {
+  let lastBody = null;
+  let lastKey = null;
+  return {
+    keyFor(body) {
+      const text = JSON.stringify(body);
+      if (text !== lastBody) {
+        lastBody = text;
+        lastKey = `dash-${uuid()}`;
+      }
+      return lastKey;
+    },
+  };
+}
+
+/** The longest reason a person can give when declining (the API's limit). */
+export const DECLINE_REASON_MAX = 200;
+
+/** What the decline box holds, as the API wants it: trimmed text, or null when empty. */
+export function declineBody(text) {
+  const reason = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, DECLINE_REASON_MAX);
+  return reason ? { reason } : {};
+}
+
+/**
+ * What a decline attempt came to, in words a person reads in a toast. `err` is the ApiError (or null when it worked).
+ * "done": it is declined (also when it already was); "gone": it expired or is unknown, so there is nothing to decline;
+ * "confirmed": someone confirmed or used it first, so it can no longer be declined; "failed": it did not go through,
+ * show the card again. Clients read the 409 `state`, never the sentence.
+ * @returns {{ kind: "done"|"gone"|"confirmed"|"failed", message: string }}
+ */
+export function declineOutcome(err, assistantNamed = "the client that prepared it") {
+  if (!err) return { kind: "done", message: `Declined. Nothing was sent, and ${assistantNamed} is told you said no.` };
+  const state = err.body?.state;
+  if (err.status === 409 && state === "rejected") return { kind: "done", message: "Already declined. Nothing was sent." };
+  if (err.status === 409 && state === "confirmed") return { kind: "confirmed", message: "This was confirmed a moment ago, so it can no longer be declined. The client that prepared it may now send it." };
+  if (err.status === 409 && state === "consumed") return { kind: "confirmed", message: "This was already confirmed and sent, so it can no longer be declined. Find it in Today's orders." };
+  if ((err.status === 409 && state === "expired") || err.status === 404) return { kind: "gone", message: "This request had already expired, so there is nothing to decline. Nothing was sent." };
+  if (err.network) return { kind: "failed", message: "Could not reach the Bridge, so it was not declined. It is back in the list; try again." };
+  return { kind: "failed", message: `Could not decline: ${String(err.message ?? "the Bridge refused").replace(/[.\s]+$/, "")}. It is back in the list.` };
+}
+
+/** Who prepared a ticket, in words: "AI assistant", "Webhook" or "REST client", with the key or hook label. */
+export function ticketSource(t) {
+  const kind = { mcp: "AI assistant", webhook: "Webhook", rest: "REST client" }[t?.source] ?? "Client";
+  return { kind, label: t?.client ? String(t.client) : "" };
+}
+
+/** The order's size as a person says it: "10", "4 of 10" while part filled. */
+export function qtyText(o) {
+  const q = Number(o?.quantity);
+  const f = Number(o?.filledQuantity);
+  if (Number.isFinite(f) && f > 0 && Number.isFinite(q) && f !== q) return `${formatInt(f)} of ${formatInt(q)}`;
+  return formatInt(q);
+}
+
+/** The order type in words: "Market", "Limit", "Stop-loss", "Stop-loss market". */
+export function orderTypeText(type) {
+  return { MARKET: "Market", LIMIT: "Limit", SL: "Stop-loss", "SL-M": "Stop-loss market" }[type] ?? (type ? String(type) : "");
+}
+
+/** The product in words, as the API names it in brackets where that helps: "Delivery (CNC)", "Intraday", "Carry (NRML)". */
+export function productText(p) {
+  return { CNC: "Delivery (CNC)", INTRADAY: "Intraday", MARGIN: "Carry (NRML)", MTF: "MTF" }[p] ?? (p ? String(p) : "");
+}
+
+/** A day "2026-11-08" as "Today, Sun 8 Nov", "Yesterday, Sat 7 Nov" or "Fri 6 Nov", against today's day (IST). */
+export function dayHeading(day, today) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day))) return String(day ?? "");
+  const d = new Date(`${day}T00:00:00Z`);
+  const t = new Date(`${today}T00:00:00Z`);
+  const diff = Math.round((t - d) / 86_400_000);
+  const w = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()];
+  const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()];
+  const long = `${w} ${d.getUTCDate()} ${m}`;
+  return diff === 0 ? `Today, ${long}` : diff === 1 ? `Yesterday, ${long}` : long;
+}
+
+/**
+ * Trades grouped by IST day in the order given (newest first gives the newest day first).
+ * @param {object[]} trades
+ * @param {(iso: string) => string} dayOf
+ * @returns {Array<{ day: string, rows: object[] }>}
+ */
+export function groupByDay(trades, dayOf) {
+  const out = [];
+  for (const t of trades ?? []) {
+    const day = dayOf(t.tradedAt);
+    const last = out[out.length - 1];
+    if (last && last.day === day) last.rows.push(t);
+    else out.push({ day, rows: [t] });
+  }
+  return out;
+}
+
+const csvCell = (v) => {
+  let s = v === null || v === undefined ? "" : String(v);
+  // Spreadsheet formula guard (same rule as the server's CSV exports): text starting with = + - @ tab or CR gets a leading apostrophe.
+  if (typeof v === "string" && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/**
+ * The trade book as CSV (RFC 4180, CRLF): one row per fill, plain numbers (no grouping), the charges estimate empty
+ * where none is priced.
+ * @param {object[]} trades
+ * @param {{ labelOf?: (id: string) => string, chargesOf?: (t: object) => { total: number } | null, timeOf?: (iso: string) => string }} o
+ */
+export function tradesCsv(trades, { labelOf = (id) => id, chargesOf = () => null, timeOf = (x) => x } = {}) {
+  const head = ["Time (IST)", "Account", "Symbol", "Contract", "Side", "Quantity", "Price", "Value", "Product", "Order id", "Trade id", "Estimated charges"];
+  const rows = (trades ?? []).map((t) => {
+    const qty = Number(t.qty ?? t.quantity);
+    const price = Number(t.price);
+    const c = chargesOf(t);
+    return [timeOf(t.tradedAt), labelOf(t.accountId), t.symbol, contractName(t.symbol), t.side, Number.isFinite(qty) ? qty : "", Number.isFinite(price) ? price : "", Number.isFinite(qty * price) ? Math.round(qty * price * 100) / 100 : "", t.product ?? "", t.orderId ?? "", t.tradeId ?? "", c ? Math.round(c.total * 100) / 100 : ""];
+  });
+  return `${[head, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n")}\r\n`;
 }

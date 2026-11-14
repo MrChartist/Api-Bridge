@@ -11,8 +11,9 @@
 - [ ] `npm test`
 - [ ] `npm run typecheck`
 - [ ] `npm run check:mjs`
-- [ ] SDK tests, if `sdk/` changed (`node --test sdk/node/test/client.test.mjs`, `python3 -m unittest discover -s sdk/python/tests -t sdk/python`)
-- [ ] Tried it in demo mode (`npm start -- --demo --open`), if it changes the dashboard, an integration or an API answer
+- [ ] `npm run docs:check` (run `npm run docs:generate` first if you changed `docs/openapi.yaml` or a guide)
+- [ ] SDK tests, if `sdk/` changed (`node --test sdk/node/test/client.test.mjs sdk/node/test/data.test.mjs sdk/node/test/events.test.mjs sdk/node/test/examples.test.mjs`, `python -m pip install ./sdk/python pytest && python -m pytest sdk/python/tests -q`)
+- [ ] Tried it in demo mode (`npm run dev`), if it changes the dashboard, an integration or an API answer
 
 ## Checklist
 
@@ -23,4 +24,5 @@
 - [ ] User-facing docs (README, `docs/guides/`) updated if behaviour changed
 - [ ] `CHANGELOG.md` has a line under "Unreleased" for anything a user would notice
 
+<!-- Adding a data source or plugin? Follow docs/source-contract.md and mention the conformance run. -->
 <!-- Adding or changing a broker adapter? Paste the per-broker checklist from docs/broker-contract.md, section 8. -->

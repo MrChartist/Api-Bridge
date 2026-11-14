@@ -1,7 +1,7 @@
 /**
  * docs/openapi.yaml and the registered routes must agree: same paths and methods, same scope, same auth mode,
- * same loopback/public flags, and the same owning stream. A stream that adds, renames or re-scopes a route without
- * the lead updating the contract fails here.
+ * same loopback/public flags, and the same owning module (`x-module`). A module that adds, renames or re-scopes a route without
+ * updating the contract fails here.
  *
  * Demo-only routes (server/bridge/demo/routes.mjs) exist only in demo mode. They are marked `x-demo-only: true` in
  * the spec and listed in DEMO_ONLY below; the non-demo app must not have them, and a demo app must have exactly the
@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.mjs";
-import { BUILTIN_MODULES } from "./builtinModules.mjs";
 import { loadConfig } from "./config.mjs";
 import { ERROR_CODES } from "./errors.mjs";
 import { createNullLogger } from "./logger.mjs";
@@ -38,7 +37,7 @@ function readOperations(text) {
       path = m[1];
       op = null;
     } else if ((m = /^ {4}(get|post|put|patch|delete):\s*$/.exec(line))) {
-      op = { method: m[1].toUpperCase(), path, scope: null, noAuth: false, websocket: false, loopbackOnly: false, public: false, stream: null, demoOnly: false };
+      op = { method: m[1].toUpperCase(), path, scope: null, noAuth: false, websocket: false, loopbackOnly: false, public: false, module: null, demoOnly: false };
       ops.push(op);
     } else if (op && (m = /^ {6}x-scope: (\w+)\s*$/.exec(line))) op.scope = m[1];
     else if (op && /^ {6}security: \[\]\s*$/.test(line)) op.noAuth = true;
@@ -46,7 +45,7 @@ function readOperations(text) {
     else if (op && /^ {6}x-loopback-only: true\s*$/.test(line)) op.loopbackOnly = true;
     else if (op && /^ {6}x-public: true\s*$/.test(line)) op.public = true;
     else if (op && /^ {6}x-demo-only: true\s*$/.test(line)) op.demoOnly = true;
-    else if (op && (m = /^ {6}x-stream: (\S+)\s*$/.exec(line))) op.stream = m[1];
+    else if (op && (m = /^ {6}x-module: (\S+)\s*$/.exec(line))) op.module = m[1];
   }
   return ops;
 }
@@ -56,7 +55,6 @@ const toOpenApiPath = (pattern) => pattern.replace(/:([A-Za-z][A-Za-z0-9_]*)/g, 
 describe("docs/openapi.yaml matches the registered routes", async () => {
   const { config } = loadConfig({ raw: { dataDir: mkdtempSync(join(tmpdir(), "mcb-oa-")) }, env: {} });
   const app = await createApp({ config, logger: createNullLogger() });
-  const streamOf = Object.fromEntries([["core", "core"], ...BUILTIN_MODULES.map((m) => [m.name, m.stream])]);
   const routes = app.router.list().map((r) => ({ ...r, key: `${r.method} ${toOpenApiPath(r.pattern)}` }));
   const ops = readOperations(SPEC);
   const httpOps = ops.filter((o) => !o.websocket);
@@ -107,13 +105,13 @@ describe("docs/openapi.yaml matches the registered routes", async () => {
       if ((auth !== "key") !== o.noAuth) problems.push(`${r.key}: auth ${auth} vs security ${o.noAuth ? "[]" : "default"}`);
       if (Boolean(r.options.loopbackOnly) !== o.loopbackOnly) problems.push(`${r.key}: loopbackOnly mismatch`);
       if (Boolean(r.options.public) !== o.public) problems.push(`${r.key}: public mismatch`);
-      if (streamOf[r.module] !== o.stream) problems.push(`${r.key}: module ${r.module} (${streamOf[r.module]}) vs x-stream ${o.stream}`);
+      if (r.module !== o.module) problems.push(`${r.key}: module ${r.module} vs x-module ${o.module}`);
       if (o.demoOnly !== DEMO_ONLY.includes(r.key)) problems.push(`${r.key}: x-demo-only mismatch`);
     }
     return problems;
   }
 
-  it("scopes, auth, loopback, public flags and owning stream agree", () => {
+  it("scopes, auth, loopback, public flags and owning module agree", () => {
     expect(problemsFor(routes)).toEqual([]);
   });
 

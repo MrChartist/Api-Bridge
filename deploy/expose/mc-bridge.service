@@ -1,0 +1,58 @@
+# systemd unit for the Bridge on a Linux VPS (docs/guides/vps.md).
+# STATUS: checked with `systemd-analyze verify` for syntax only; not yet run on a real VPS.
+#
+# Layout it expects (the guide creates it):
+#   /opt/mc-bridge                          the Bridge, unpacked (bin/mc-bridge.mjs inside)
+#   /etc/mc-bridge/bridge.config.json       the settings, readable by the mcbridge user, not writable by anyone else
+#   /var/lib/mc-bridge                      data (keys, orders, logs); systemd creates it for the user
+#   /var/lib/mc-bridge-secrets/master.key   the encryption key, in its own folder apart from the data
+# Put "dataDir": "/var/lib/mc-bridge" and "masterKeyFile": "/var/lib/mc-bridge-secrets/master.key" in the config.
+#
+# mc-bridge expose and `mc-bridge keys ...` need to write the config and data: run them as the service user, e.g.
+#   sudo -u mcbridge MCB_CONFIG=/etc/mc-bridge/bridge.config.json node /opt/mc-bridge/bin/mc-bridge.mjs expose alerts
+# and make /etc/mc-bridge/bridge.config.json owned by mcbridge (the guide shows the chown).
+
+[Unit]
+Description=Mr. Chartist API Bridge
+Documentation=https://github.com/MrChartist/api-bridge-v2/blob/main/docs/guides/vps.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mcbridge
+Group=mcbridge
+WorkingDirectory=/opt/mc-bridge
+Environment=NODE_ENV=production
+Environment=MCB_CONFIG=/etc/mc-bridge/bridge.config.json
+Environment=MCB_HOME=/var/lib/mc-bridge
+Environment=TZ=Asia/Kolkata
+ExecStart=/usr/bin/node /opt/mc-bridge/bin/mc-bridge.mjs start
+Restart=on-failure
+RestartSec=5
+# A stop (SIGTERM) lets downloads, recordings and the webhook queue write their state; the Bridge itself gives up after 10 s.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+LimitNOFILE=4096
+StateDirectory=mc-bridge mc-bridge-secrets
+StateDirectoryMode=0700
+UMask=0077
+
+# Hardening: the Bridge needs the network, its two state folders and its config file, nothing else.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+ReadWritePaths=/etc/mc-bridge
+
+[Install]
+WantedBy=multi-user.target

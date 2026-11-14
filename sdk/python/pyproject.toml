@@ -4,21 +4,46 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mrchartist-bridge"
-version = "0.1.0"
-description = "Python client for the Mr. Chartist API Bridge: market data, paper and live orders with idempotency keys, and live streams."
+version = "0.3.0"
+description = "Python library for the Mr. Chartist API Bridge: typed market data with freshness labels, safe paper-first orders, live streams, asyncio, downloads, recordings, collections, events and pandas helpers. Standard library only (pandas and pyarrow are optional)."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Mr. Chartist" }]
-keywords = ["trading", "india", "broker", "nse", "market-data", "option-chain", "websocket", "sdk"]
+keywords = ["trading", "india", "broker", "nse", "market-data", "option-chain", "websocket", "sdk", "paper-trading", "asyncio"]
 dependencies = []
 classifiers = [
+  "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Operating System :: OS Independent",
+  "Intended Audience :: Developers",
   "Intended Audience :: Financial and Insurance Industry",
   "Topic :: Office/Business :: Financial :: Investment",
+  "Framework :: AsyncIO",
   "Typing :: Typed",
 ]
+
+[project.optional-dependencies]
+# The core needs nothing: HTTP, the WebSocket client and the asyncio client are all standard library.
+pandas = ["pandas>=1.5"]
+# Optional Parquet output (frames.to_parquet, history_all(...).to_parquet). Nothing else needs it.
+parquet = ["pyarrow>=12"]
+# Reserved names. Streaming (sync and asyncio) and AsyncBridge work without any extra today; these keep
+# `pip install "mrchartist-bridge[stream]"` and `[async]` valid in scripts and requirements files.
+stream = []
+async = []
+all = ["pandas>=1.5", "pyarrow>=12"]
+dev = ["pytest>=7", "pandas>=1.5"]
+
+[project.scripts]
+mrchartist-bridge = "mrchartist_bridge.__main__:_cli"
 
 [project.urls]
 Homepage = "https://github.com/MrChartist/api-bridge-v2"
@@ -32,3 +57,8 @@ packages = ["mrchartist_bridge"]
 
 [tool.setuptools.package-data]
 mrchartist_bridge = ["py.typed"]
+
+[tool.pytest.ini_options]
+markers = [
+  "integration: runs against a real demo-mode Bridge started as a Node subprocess (skipped when Node or the Bridge is not available)",
+]

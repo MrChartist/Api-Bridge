@@ -1,0 +1,30 @@
+meta {
+  name: Broker limits, safety limits and current budgets per account
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/limits
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~account: demo-paper
+  ~explain: false
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Broker limits, safety limits and current budgets per account
+
+  - An API key with the `read` scope (any key).
+
+  With `explain=1` the report also says why a request may have been slow or refused, in numbers instead of log lines (`pools`, `consumers`).
+
+  Reference: docs/api/limits/getLimits.md in the repository.
+}

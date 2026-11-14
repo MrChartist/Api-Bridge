@@ -9,7 +9,7 @@ updates:
       dev-dependencies:
         dependency-type: development
     ignore:
-      # Types must match the oldest Node.js the Bridge supports (engines: >=22), not the newest
+      # Types must match the oldest Node.js the Bridge supports (engines: >=22.12), not the newest
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 
@@ -23,6 +23,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Stay on an LTS Node.js line that the test tools support; a new major is a deliberate change, not a bot's
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker-compose
     directory: /deploy/hostinger

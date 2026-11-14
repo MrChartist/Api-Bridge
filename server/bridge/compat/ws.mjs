@@ -1,5 +1,5 @@
 /**
- * Compat-style WebSocket (stream S14) at ws://127.0.0.1:4300/api/v1/ws, on top of the same StreamHub as /v1/stream:
+ * Compat-style WebSocket at ws://127.0.0.1:4300/api/v1/ws, on top of the same StreamHub as /v1/stream:
  * one upstream feed per broker account however many clients listen.
  *
  *   -> { "action": "authenticate", "api_key": "<Bridge key>" }         within 15 s of connecting

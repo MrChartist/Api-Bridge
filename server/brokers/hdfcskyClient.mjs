@@ -29,7 +29,7 @@ export const LTP_BATCH_SIZE = 10;
 export const LTP_BATCH_DELAY_MS = 200;
 
 // Every request sample on the HDFC Sky docs (e.g. https://developer.hdfcsky.com/sky-docs/docs/fetchltp, "Headers" and
-// "Request Curl") carries this browser User-Agent, so the proxy sends the same string on each call.
+// "Request Curl") carries this browser User-Agent, so the Bridge sends the same string on each call.
 export const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
 
@@ -39,7 +39,7 @@ export function requireCreds(creds) {
   const apiKey = String(creds?.apiKey ?? "").trim();
   const accessToken = String(creds?.accessToken ?? "").trim();
   if (!apiKey || !accessToken) {
-    throw new SessionRequiredError(`${LABEL}: the API key or today's access token is missing. Complete the HDFC Sky login and paste the access token in Broker Settings.`);
+    throw new SessionRequiredError(`${LABEL}: the API key or today's access token is missing. Complete the HDFC Sky login and paste the access token in the account settings.`);
   }
   return { apiKey, accessToken };
 }
@@ -105,13 +105,13 @@ export async function skyRequest(creds, method, path, { params = {}, body } = {}
   try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON error page */ }
 
   if (res.status === 401 || res.status === 403) {
-    throw new SessionRequiredError(`${LABEL} rejected the access token [${res.status}]. Log in on HDFC Sky again and paste a fresh access token in Broker Settings.`);
+    throw new SessionRequiredError(`${LABEL} rejected the access token [${res.status}]. Log in on HDFC Sky again and paste a fresh access token in the account settings.`);
   }
   if (res.status === 429) throw new BrokerError(`${LABEL} rate limit hit [429] on ${path}`, { code: "UPSTREAM_RATE_LIMIT" });
   if (!res.ok) throw new BrokerError(`${LABEL} API error [${res.status}] on ${path}: ${messageOf(json, text)}`);
   if (json && json.status === "error") {
     // 40000 "Request forbidden" / "Request Unauthorised" is the docs' token-rejection answer.
-    if (Number(json.error_code) === 40000) throw new SessionRequiredError(`${LABEL} refused the request (${messageOf(json, "")}). Paste a fresh access token in Broker Settings.`);
+    if (Number(json.error_code) === 40000) throw new SessionRequiredError(`${LABEL} refused the request (${messageOf(json, "")}). Paste a fresh access token in the account settings.`);
     throw new BrokerError(`${LABEL} API error on ${path}: ${messageOf(json, "")}`);
   }
   return json;

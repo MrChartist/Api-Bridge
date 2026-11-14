@@ -1,0 +1,98 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "status false on HTTP 200",
+      "source": "https://smartapi.angelone.in/docs (SPA; sections: User, Orders, Portfolio, MarketData, Historical, OptionGreeks, Instruments, RateLimit, Exceptions)",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": false,
+          "message": "Your order has been rejected",
+          "errorcode": "AB1007",
+          "data": null
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://smartapi.angelone.in/docs (SPA; sections: User, Orders, Portfolio, MarketData, Historical, OptionGreeks, Instruments, RateLimit, Exceptions)",
+    "reply": {
+      "status": 200,
+      "json": {
+        "status": false,
+        "message": "Token Expired",
+        "errorcode": "AG8002",
+        "data": null
+      }
+    }
+  },
+  "cancelVariety": {
+    "source": "https://smartapi.angelone.in/docs (SPA; sections: User, Orders, Portfolio, MarketData, Historical, OptionGreeks, Instruments, RateLimit, Exceptions)",
+    "note": "A resting stop-loss order is cancelled with its own variety.",
+    "args": [
+      "201020000000080"
+    ],
+    "responses": [
+      {
+        "method": "GET",
+        "urlPattern": "^https://apiconnect\\.angelone\\.in/rest/secure/angelbroking/order/v1/getOrderBook$",
+        "json": {
+          "status": true,
+          "message": "SUCCESS",
+          "errorcode": "",
+          "data": [
+            {
+              "variety": "STOPLOSS",
+              "ordertype": "STOPLOSS_LIMIT",
+              "producttype": "INTRADAY",
+              "duration": "DAY",
+              "price": "194.00",
+              "triggerprice": "190",
+              "quantity": "1",
+              "tradingsymbol": "SBIN-EQ",
+              "transactiontype": "BUY",
+              "exchange": "NSE",
+              "symboltoken": "3045",
+              "filledshares": "0",
+              "unfilledshares": "1",
+              "orderid": "201020000000080",
+              "status": "trigger pending",
+              "orderstatus": "trigger pending"
+            }
+          ]
+        }
+      },
+      {
+        "method": "POST",
+        "urlPattern": "^https://apiconnect\\.angelone\\.in/rest/secure/angelbroking/order/v1/cancelOrder$",
+        "expectBody": {
+          "variety": "STOPLOSS",
+          "orderid": "201020000000080"
+        },
+        "json": {
+          "status": true,
+          "message": "SUCCESS",
+          "errorcode": "",
+          "data": {
+            "orderid": "201020000000080",
+            "uniqueorderid": "34reqfachdfih"
+          }
+        }
+      }
+    ],
+    "expectBody": {
+      "variety": "STOPLOSS",
+      "orderid": "201020000000080"
+    }
+  },
+  "stopLoss": {
+    "source": "https://smartapi.angelone.in/docs (SPA; sections: User, Orders, Portfolio, MarketData, Historical, OptionGreeks, Instruments, RateLimit, Exceptions)",
+    "expectBody": {
+      "ordertype": "STOPLOSS_LIMIT",
+      "variety": "STOPLOSS",
+      "price": "247.35",
+      "triggerprice": "241.8"
+    }
+  }
+}

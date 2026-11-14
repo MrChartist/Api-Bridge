@@ -1,13 +1,17 @@
 // Mr. Chartist API Bridge — option chain, one row per strike (Power Query M).
-// Needs a one-cell named range "BridgeKey" holding a Bridge read key. The key is sent as a header, not in the URL.
+// Needs the Bridge workbook (Setup sheet, from the dashboard or make-template.mjs): it reads the ranges named BridgeURL
+// and BridgeKeyCell, which are plain cells. (Power Query can read a named range or table, not a name that holds a
+// formula, which is why it does not read the name BridgeKey.) The key is sent as a header, not in the URL.
+// Not tested in real Excel here: if Power Query says it cannot find a name, check Formulas > Name Manager.
 // Read-only: /xl/chain cannot place orders. Refresh no more than once a minute; the Bridge serves the chain from its
 // live stream and cache, within your broker's limits.
 let
-    BridgeUrl = "http://127.0.0.1:4300",
+    Cell = (name) => Text.Trim(Text.From(Excel.CurrentWorkbook(){[Name = name]}[Content]{0}[Column1])),
+    BridgeUrl = Cell("BridgeURL"),
     Underlying = "NIFTY",
-    Expiry = "2026-10-27",      // YYYY-MM-DD; list expiries with GET /v1/expiries?underlying=NIFTY
+    Expiry = "2026-11-24",      // CHANGE THIS to a current expiry (YYYY-MM-DD): an expired date gives "No ... expiry". List them with GET /v1/expiries?underlying=NIFTY
     Strikes = "15",             // strikes on each side of ATM
-    Key = Text.Trim(Text.From(Excel.CurrentWorkbook(){[Name = "BridgeKey"]}[Content]{0}[Column1])),
+    Key = Cell("BridgeKeyCell"),
     Raw = Web.Contents(
         BridgeUrl,
         [

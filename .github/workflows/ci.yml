@@ -5,7 +5,7 @@ name: CI
 # Actions are pinned to full commit SHAs (Dependabot keeps them current).
 on:
   push:
-    branches: [main, master, "claude/**"]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -54,12 +54,14 @@ jobs:
         run: npm run typecheck
       - name: Syntax check (node --check on every .mjs)
         run: node scripts/check-mjs.mjs
+      - name: Generated files are in sync (collections, endpoint pages, llms files, search index)
+        run: npm run docs:check
       - name: Tests with coverage
         run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov
         env:
           TZ: UTC
-      - name: Node SDK tests
-        run: node --test sdk/node/test/client.test.mjs
+      - name: Node SDK tests (including the integration test against the real routes)
+        run: npm test --prefix sdk/node
       - name: Smoke test (start, /v1/health, stop)
         run: |
           mkdir -p "$RUNNER_TEMP/smoke"
@@ -79,9 +81,13 @@ jobs:
           if-no-files-found: ignore
 
   python-sdk:
-    name: Python SDK
+    name: Python SDK ${{ matrix.python }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12", "3.13"] # pyproject.toml declares 3.9 to 3.13
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,11 +99,30 @@ jobs:
       - run: npm ci   # the Python tests run against the Node fake server, which needs `ws`
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip pytest
       - run: python -m pip install ./sdk/python
       - name: pytest
         run: python -m pytest sdk/python/tests -q
+
+  # The whole suite with the clock moved forward: a test with a hidden date (a hard-coded expiry, a key that "expires in a
+  # week") goes red here the week it is written, not months later for someone else. See scripts/test-future.mjs.
+  future-clock:
+    name: Tests with the clock 100 days ahead
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:future -- 100
+        env:
+          TZ: UTC
 
   # The beginner install paths on real machines: the one-line installers run from this checkout (no network for the
   # Bridge itself), then the installed Bridge starts and answers. Windows uses the built-in Windows PowerShell 5.1.

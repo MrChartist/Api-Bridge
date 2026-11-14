@@ -1,5 +1,5 @@
 /**
- * accounts module — stream S1: Accounts and broker sessions. Owned files and tasks: docs/STREAMS.md §S1.
+ * accounts module: Accounts and broker sessions.
  * The routes below are the contract in docs/openapi.yaml (method, path, auth, scope).
  *
  * Lifecycle: start() runs the AccountManager's SecretStore watcher (so a session saved by the CLI in another
@@ -8,6 +8,7 @@
 import { defineModule } from "../core/modules.mjs";
 import { createAccountManager } from "./accountManager.mjs";
 import { createAccountRoutes, loadRoutePolicies } from "./routes.mjs";
+import { MORNING_LOGIN_CONFIG_SCHEMA, createMorningLogin } from "./morningLogin.mjs";
 
 /** Body cap for the connect route. Saved values are small in practice; 16 KB is ample and bounds abuse. */
 export const SESSION_BODY_LIMIT_BYTES = 16 * 1024;
@@ -27,9 +28,14 @@ export const ROUTES = Object.freeze([
   ["POST", "/v1/accounts/:accountId/test", { scope: "read", body: "none" }, "test"],
 ]);
 
+/** One reminder service per running app (a test may boot several apps in one process). */
+const reminders = new WeakMap();
+
 export default defineModule({
   name: "accounts",
-  stream: "S1",
+  /** `morningLogin`: the daily "log in to your brokers" reminder (morningLogin.mjs). */
+  configKey: "morningLogin",
+  configSchema: MORNING_LOGIN_CONFIG_SCHEMA,
   services: { accounts: (deps) => createAccountManager(deps) },
   async register(app, deps) {
     const policies = await loadRoutePolicies(app.logger);
@@ -38,8 +44,15 @@ export default defineModule({
   },
   async start(deps) {
     if (typeof deps.accounts?.start === "function") await deps.accounts.start();
+    if (deps.accounts && typeof deps.accounts === "object") {
+      const svc = createMorningLogin(deps);
+      reminders.set(deps.accounts, svc);
+      svc.start();
+    }
   },
   async stop(deps) {
+    reminders.get(deps.accounts)?.stop();
+    reminders.delete(deps.accounts);
     if (typeof deps.accounts?.stop === "function") await deps.accounts.stop();
   },
 });

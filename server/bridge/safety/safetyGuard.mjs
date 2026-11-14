@@ -1,5 +1,5 @@
 /**
- * SafetyGuard — stream S9 (docs/STREAMS.md §S9, docs/ARCHITECTURE.md §8). Contract: SERVICE_CONTRACTS.safety in
+ * SafetyGuard (docs/ARCHITECTURE.md §8). Contract: SERVICE_CONTRACTS.safety in
  * ../core/contracts.mjs. Every order intent, paper or live, passes check() before anything is sent.
  *
  * check() collects EVERY reason an intent is refused (not just the first), so a caller can fix them all at once:
@@ -20,10 +20,12 @@
  *   price band vs LTP          x      x       -     price and trigger price
  *   market-order policy        x      x       -     "reject" refuses MARKET/SL-M; "protect" warns
  *   market hours               x      x       -     live refused when closed; paper warned (not in demo). NSE/BSE/NFO/BFO
- *                                                    from lib/marketHours; MCX and CDS from a weekday time window
- *                                                    (needs verification; no holiday list for them)
+ *                                                    from lib/marketHours and the shared calendar; MCX and CDS from a
+ *                                                    weekday window that is UNVERIFIED and deliberately short (no circular
+ *                                                    read, no holiday list); a live order on a date outside the years of
+ *                                                    the shipped holiday list carries a loud warning
  *   static IP                  warn   warn    -     when registeredIp is set and the detected egress IP differs
- *   F&O ban (fnoBan)           x      x       -     stock derivatives in the exchange ban period (p1-06 §2.8, §6.8):
+ *   F&O ban (fnoBan)           x      x       -     stock derivatives in the exchange ban period:
  *                                                    an order that increases the absolute net position in that
  *                                                    contract is refused (FNO_BAN); closing passes with a warning;
  *                                                    unknown held quantity warns (FNO_BAN_UNCONFIRMED) and the broker
@@ -41,19 +43,23 @@
  * not an AI assistant or a webhook. Both actions are audited and emit "safety.kill_switch"; OrderService listens
  * and runs cancelAll when cancelOpenOrders is true (safety does not depend on orders, which would be a cycle).
  *
- * Refusals are audited as "safety.refused" (repeats of the same refusal within a second are folded into the next
- * record's `suppressed` count, so a runaway script cannot flood the log).
+ * Refusals are audited as "safety.refused". Only an identical repeat is folded (same account, mode, action, actor,
+ * symbol, side, quantity and reasons, within a minute) into the `suppressed` count of the next record of that same
+ * refusal, so a runaway script cannot flood the log. A different actor, symbol, side or size gets its own record.
  */
 import { join } from "node:path";
 import { SEBI_UNREGISTERED_OPS_CEILING, effectiveAccountLimits, liveAllowedByConfig } from "../core/config.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError } from "../core/errors.mjs";
-import { marketSession as libMarketSession } from "../../lib/marketHours.mjs";
+import { orderSession as libOrderSession } from "../../lib/marketHours.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
+import { INDEX_NAMES, parseSymbol } from "../core/symbolFormat.mjs";
 import { sameIp } from "../readiness/ip.mjs";
 import { createDailyCounters } from "./dailyCounters.mjs";
 import { createKillSwitchStore } from "./killSwitch.mjs";
 import { createOrderRateWindow, windowFor } from "./orderRate.mjs";
-import { istIso } from "./time.mjs";
+import { calendarCovers } from "../downloads/calendar.mjs";
+import { istDay, istIso } from "./time.mjs";
 
 export const ACTIONS = Object.freeze(["place", "modify", "cancel"]);
 
@@ -63,7 +69,7 @@ const dayMonthText = (d) => {
 };
 
 /**
- * The F&O ban rule (docs/spec/p1-06-stocks.md §2.8, §6.8), pure. With held quantity h (signed units in that contract,
+ * The F&O ban rule, pure. With held quantity h (signed units in that contract,
  * this account) and the order's signed quantity x, n = h + x is closing iff |n| ≤ |h| and sign(n) ∈ {0, sign(h)};
  * anything else opens (or increases) a position and is refused. A fresh position in another contract of the same
  * stock is refused too (per-contract reading of the exchange rule; needs verification).
@@ -91,14 +97,16 @@ const EQUITY_SESSION_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO"]);
 const DERIVATIVE_EXCHANGES = new Set(["NFO", "BFO", "MCX", "CDS"]);
 const RELEASE_FORBIDDEN_SOURCES = new Set(["mcp", "webhook"]);
 const LIMIT_CODES = new Set(["DAILY_LIMIT_REACHED", "ORDER_RATE_LIMITED"]);
-const REFUSAL_FOLD_MS = 1000;
+/** An identical refusal (account, mode, action, actor, symbol, side, quantity, reasons) within this time is one audit record with a count: a script retrying after the daily limit must not add a line per request. */
+const REFUSAL_FOLD_MS = 60_000;
 /**
- * Weekday trading windows (IST minutes from midnight) for exchanges lib/marketHours.mjs does not cover. Needs
- * verification: MCX closes at 23:30 or 23:55 depending on US daylight saving, so the later time is used (the broker
- * refuses anything in between); exchange holidays are not known here.
+ * Weekday trading windows (IST minutes from midnight) for exchanges the dated session table does not cover. UNVERIFIED:
+ * no circular was read for either exchange and holidays are not known. A window nobody has verified may only be short,
+ * never long, so these are conservative: MCX closes at 23:30 or 23:55 depending on US daylight saving and the EARLIER
+ * time is used (an order between 23:30 and 23:55 is refused here even if MCX is open; place it at the broker).
  */
 const SESSION_WINDOWS = Object.freeze({
-  MCX: { open: 9 * 60, close: 23 * 60 + 55, label: "09:00 to 23:55 IST" },
+  MCX: { open: 9 * 60, close: 23 * 60 + 30, label: "09:00 to 23:30 IST" },
   CDS: { open: 9 * 60, close: 17 * 60, label: "09:00 to 17:00 IST" },
 });
 const IST_OFFSET_MS = 330 * 60_000;
@@ -125,6 +133,22 @@ export function actorLabel(ctx) {
 
 const actorOf = (ctx) => ({ kind: ctx?.principal?.kind ?? "system", id: ctx?.principal?.id ?? "system" });
 const exchangeOf = (symbol) => (typeof symbol === "string" && symbol.includes(":") ? symbol.split(":")[0].toUpperCase() : null);
+/**
+ * What the session gate needs to know about a contract: { kind: "index"|"stock"|null, expiry } from the canonical symbol and
+ * the underlying kind the order service found. Index contracts expiring today close earlier (reference/data/sessions.json).
+ */
+function instrumentOf(symbol, underlyingKind) {
+  let expiry = null;
+  let kind = underlyingKind === "index" || underlyingKind === "stock" ? underlyingKind : null;
+  try {
+    const p = parseSymbol(symbol);
+    expiry = p.expiry ?? null;
+    if (!kind && INDEX_NAMES.includes(p.underlying)) kind = "index";
+  } catch {
+    /* an unparsable symbol is left unknown */
+  }
+  return { kind, expiry };
+}
 const finitePos = (v) => typeof v === "number" && Number.isFinite(v) && v > 0;
 
 /**
@@ -141,18 +165,22 @@ export function createSafetyGuard(deps, opts = {}) {
   const now = () => (deps.clock ? deps.clock.now() : Date.now());
   const dir = opts.dir ?? join(deps.paths.dataDir, "safety");
   const env = opts.env ?? process.env;
-  const sessionAt = opts.marketSession ?? libMarketSession;
+  const sessionAt = opts.marketSession ?? libOrderSession;
   /**
-   * Reference calendar (stream S16): holiday-aware sessions for NSE/BSE/NFO/BFO. Optional: a stub or missing service
-   * falls back to lib/marketHours alone. It only tightens: the guard takes the stricter of the two answers.
+   * Reference calendar: holiday-aware sessions for NSE/BSE/NFO/BFO. A reference service, when one is wired, wins; the
+   * default is the shared calendar built from the shipped reference data (the same source as lib/marketHours), so the
+   * holiday list applies in every installation. It only tightens: the guard takes the stricter of the two answers.
    */
   const reference = (() => {
     try {
       const r = deps.reference;
-      return r && !isStub(r) && typeof r.session === "function" ? r : null;
+      if (r && !isStub(r) && typeof r.session === "function") return r;
     } catch {
-      return null;
+      /* fall through to the shipped calendar */
     }
+    if (opts.marketSession) return null; // a test that supplies its own session answers for itself
+    const cal = sharedCalendar();
+    return { session: (exch, t, o) => cal.sessionAt(exch, t, { gate: true, ...(o ?? {}) }) };
   })();
   let egressIp = typeof opts.egressIp === "string" && opts.egressIp ? opts.egressIp : null;
 
@@ -257,10 +285,16 @@ export function createSafetyGuard(deps, opts = {}) {
     };
   }
 
-  /** Audit a refusal, folding identical repeats within a second. */
+  /**
+   * Audit a refusal. Only an IDENTICAL repeat within REFUSAL_FOLD_MS is folded: the key holds who asked (principal and key
+   * id), the account, mode and action, the symbol, side and exact quantity, and the reasons. A different actor, symbol,
+   * side or size is a different fact ("who tried to send what") and always gets its own record.
+   */
   function auditRefusal(ctx, intent, reasons) {
     const codes = reasons.map((r) => r.code).sort();
-    const key = `${intent.accountId}|${intent.mode}|${intent.action}|${codes.join(",")}`;
+    const o0 = intent.order ?? {};
+    const who = actorOf(ctx);
+    const key = JSON.stringify([intent.accountId, intent.mode, intent.action, who.kind, who.id, intent.keyId ?? ctx?.key?.id ?? null, intent.source ?? ctx?.source ?? null, o0.symbol ?? null, o0.side ?? null, intent.quantity ?? o0.quantity ?? null, codes]);
     const t = now();
     const prev = refusalFold.get(key);
     if (prev && t - prev.at < REFUSAL_FOLD_MS) {
@@ -270,6 +304,8 @@ export function createSafetyGuard(deps, opts = {}) {
     refusalFold.set(key, { at: t, suppressed: 0 });
     if (refusalFold.size > 500) {
       for (const [k, v] of refusalFold) if (t - v.at >= REFUSAL_FOLD_MS) refusalFold.delete(k);
+      // Still too many live entries (a flood of distinct refusals): forget the oldest. They only lose the fold, never a record.
+      while (refusalFold.size > 2000) refusalFold.delete(refusalFold.keys().next().value);
     }
     const o = intent.order ?? {};
     void softAudit({
@@ -315,7 +351,7 @@ export function createSafetyGuard(deps, opts = {}) {
       /** @type {Array<{ code: string, message: string, rule?: string, retryAfterMs?: number }>} */
       const reasons = [];
       const warnings = [];
-      /** Warnings with their own check code (p1-06 ban rule); `warnings` keeps the plain strings. */
+      /** Warnings with their own check code (the F&O ban rule); `warnings` keeps the plain strings. */
       const coded = [];
       const block = (code, rule, message, extra = {}) => reasons.push({ code, rule, message, ...extra });
       const i = intent && typeof intent === "object" ? intent : {};
@@ -358,7 +394,7 @@ export function createSafetyGuard(deps, opts = {}) {
             if (!allowed.includes(s)) block("PAPER_ONLY", "allowedSources", `Live orders from ${s} are not allowed for account ${accountId}. Allowed sources: ${allowed.join(", ") || "none"}.`);
           }
           // Compared after normalising (IPv6 spellings), against the backup IP too. The text carries no address: it
-          // reaches order records, MCP results and notifications, where the IP must never appear (p1-05 §9).
+          // reaches order records, MCP results and notifications, where the IP must never appear.
           const reg = account.live?.registeredIp;
           const bak = account.live?.backupIp;
           if ((reg || bak) && egressIp && !sameIp(egressIp, reg) && !sameIp(egressIp, bak)) {
@@ -447,14 +483,21 @@ export function createSafetyGuard(deps, opts = {}) {
       if (action === "place" || action === "modify") {
         const exch = exchangeOf(order?.symbol);
         if (exch && EQUITY_SESSION_EXCHANGES.has(exch)) {
-          const sess = sessionAt(new Date(t));
+          const instrument = instrumentOf(order?.symbol, i.underlyingKind);
+          const sess = sessionAt(new Date(t), exch, instrument);
           let ref = null;
           try {
-            ref = reference ? reference.session(exch, t) : null;
+            ref = reference ? reference.session(exch, t, { instrument }) : null;
           } catch {
             ref = null;
           }
           const exchangeName = exch === "BFO" || exch === "BSE" ? "BSE" : "NSE";
+          // The shipped holiday list covers only some years. Outside them every weekday looks like a trading day, so a
+          // live order on a real holiday would pass this gate unmarked: say so loudly (the order is not refused, and is
+          // never presented as holiday-checked; the warning is kept in the order's audit record and shown in previews).
+          if (mode === "live" && !calendarCovers(istDay(t))) {
+            warnings.push(`NOT HOLIDAY-CHECKED: the holiday list shipped with the Bridge does not cover ${istDay(t).slice(0, 4)}, so ${istDay(t)} is treated as an ordinary weekday. If it is an exchange holiday the broker will refuse the order. Update the Bridge to get the new list.`);
+          }
           if (sess.state !== "OPEN" && sess.state !== "SPECIAL") {
             if (mode === "live") block("MARKET_CLOSED", "marketHours", `The ${exch} market is not open for orders now (${sess.label}).`);
             else if (warnClosed) warnings.push(`The ${exch} market is not open now (${sess.label}); ${PAPER_CLOSED_NOTE}.`);
@@ -477,11 +520,11 @@ export function createSafetyGuard(deps, opts = {}) {
           }
         } else if (exch === "MCX" || exch === "CDS") {
           if (!windowOpen(exch, t)) {
-            const label = `${exch} is outside its usual trading hours (${SESSION_WINDOWS[exch].label}, Monday to Friday; needs verification, holidays not known)`;
+            const label = `${exch} is outside the conservative window the Bridge uses (${SESSION_WINDOWS[exch].label}, Monday to Friday). These hours are unverified, holidays are not known and the real session may be longer`;
             if (mode === "live") block("MARKET_CLOSED", "marketHours", `${label}. The order was not sent.`);
             else if (warnClosed) warnings.push(`${label}; ${PAPER_CLOSED_NOTE}.`);
           } else if (mode === "live") {
-            warnings.push(`${exch} holidays are not checked by the Bridge (needs verification); the broker will refuse an order on a holiday.`);
+            warnings.push(`${exch} hours (${SESSION_WINDOWS[exch].label}) and holidays are unverified in the Bridge; it uses a short window on purpose and the broker will refuse an order on a holiday.`);
           }
         }
       }

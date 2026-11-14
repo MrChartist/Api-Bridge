@@ -1,6 +1,6 @@
 /**
- * The server's pricing (clock) context (stream S18, docs/spec/p1-03-pricing-vol.md §2.1, §6.1). Builds the context
- * dashboard/pricing.js needs from the `vol.clock` settings plus the reference calendar, session and rate (P1-2).
+ * The server's pricing (clock) context (the vol module). Builds the context
+ * calc/pricing.js needs from the `vol.clock` settings plus the reference calendar, session and rate.
  * Imported by market/chain pricing (`?ivModel=b76-forward`), the demo adapter and, later, the vol service, recorder,
  * exposure and strategy.
  *
@@ -9,7 +9,7 @@
  * reference/defaults.mjs and the default rate, each labelled.
  */
 import { isStub } from "../core/contracts.mjs";
-import { CLOCK_VERSION, yearBasisOf } from "../dashboard/pricing.js";
+import { CLOCK_VERSION, yearBasisOf } from "../calc/pricing.js";
 import { DEFAULT_RATE, DEFAULT_RATE_SOURCE, defaultSessionFor } from "../reference/defaults.mjs";
 import { clockSettings } from "./config.mjs";
 

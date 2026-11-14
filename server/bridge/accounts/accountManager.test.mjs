@@ -8,6 +8,7 @@ import { loadConfig } from "../core/config.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { createEventBus } from "../core/eventBus.mjs";
 import { createAccountManager, secretName } from "./accountManager.mjs";
+import { POOLING_NOTICE_VERSION, writeConsentRecord } from "../sources/pooling.mjs";
 import { loadBrokerPolicies } from "./brokerInfo.mjs";
 import {
   apiKeyAdapter,
@@ -27,8 +28,13 @@ afterEach(() => {
   for (const m of managers.splice(0)) m.dispose();
 });
 
-async function setup({ accounts, adapters, policies = {}, secrets, safety, clock = createFakeClock(), options = {} } = {}) {
+/**
+ * `consent`: account ids the person has accepted pooling for (a pooling consent for the current notice, written to the
+ * data folder). Pooling needs it as well as the opt-ins, so tests that expect accounts to pool name them here.
+ */
+async function setup({ accounts, adapters, policies = {}, secrets, safety, clock = createFakeClock(), options = {}, consent } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-acc-"));
+  if (consent) writeConsentRecord(dataDir, { acceptedAt: "2026-11-08T09:00:00.000Z", version: POOLING_NOTICE_VERSION, accounts: consent });
   const { config } = loadConfig({ raw: { dataDir, accounts, ...(safety ? { safety } : {}) }, env: {} });
   const cap = createCapturingLogger();
   const bus = createEventBus({ logger: cap.logger });
@@ -65,6 +71,7 @@ describe("AccountManager: summaries", () => {
       ],
       adapters: { stubkey: apiKeyAdapter(), stubsess: sessionAdapter() },
       policies: { stubkey: { brokerId: "stubkey", pooling: "allowed" } },
+      consent: ["dhan-main"],
       safety: { liveTrading: true },
     });
     assertService("accounts", mgr);
@@ -86,7 +93,7 @@ describe("AccountManager: summaries", () => {
     await expectBridge(() => mgr.status("nope"), "ACCOUNT_NOT_FOUND");
   });
 
-  it("pooling needs both the account opt-in and broker policy 'allowed'", async () => {
+  it("pooling needs the account opt-in, broker policy 'allowed' and a consent that lists the account", async () => {
     const { mgr } = await setup({
       accounts: [
         { id: "aa", broker: "stubkey", holder: "self", marketData: { pooling: true } },
@@ -95,11 +102,12 @@ describe("AccountManager: summaries", () => {
       ],
       adapters: { stubkey: apiKeyAdapter(), stuboauth: oauthAdapter() },
       policies: { stubkey: { pooling: "allowed" }, stuboauth: { pooling: "unknown" } },
+      consent: ["aa", "bb", "cc"],
     });
     expect(mgr.list().map((a) => a.pooling)).toEqual([true, false, false]);
   });
 
-  it("poolingWhenTermsUnknown pools a broker with unknown terms, never one whose terms say not-allowed", async () => {
+  it("poolingWhenTermsUnknown pools a broker with unknown terms (with consent), never one whose terms say not-allowed", async () => {
     const opt = { pooling: true, poolingWhenTermsUnknown: true };
     const { mgr } = await setup({
       accounts: [
@@ -109,6 +117,7 @@ describe("AccountManager: summaries", () => {
       ],
       adapters: { stubkey: apiKeyAdapter(), stuboauth: oauthAdapter() },
       policies: { stubkey: { pooling: "unknown" }, stuboauth: { pooling: "not-allowed" } },
+      consent: ["aa", "bb", "cc"],
     });
     // cc names no holder, so it is never pooled.
     expect(mgr.list().map((a) => a.pooling)).toEqual([true, false, false]);
@@ -399,8 +408,10 @@ describe("AccountManager: marketDataCandidates", () => {
     for (const id of ["k1", "o1", "k2", "k3"]) await mgr.connect(id, { values: id.startsWith("o") ? { apiKey: "k", accessToken: "t-123456" } : { accessToken: "t-123456" } });
   };
 
-  it("pools across opted-in accounts whose broker allows it, in config order", async () => {
-    const { mgr } = await setup({ accounts, adapters: { stubkey: apiKeyAdapter(), stuboauth: oauthAdapter() }, policies: { stubkey: { pooling: "allowed" } } });
+  const consented = ["k1", "o1", "k2", "k3", "off"];
+
+  it("pools across opted-in, consented accounts whose broker allows it, in config order", async () => {
+    const { mgr } = await setup({ accounts, adapters: { stubkey: apiKeyAdapter(), stuboauth: oauthAdapter() }, policies: { stubkey: { pooling: "allowed" } }, consent: consented });
     expect(mgr.marketDataCandidates({ capability: "quotes" })).toEqual([]);
     await connectAll(mgr);
     expect(mgr.marketDataCandidates({ capability: "quotes" })).toEqual(["k1", "k2"]);
@@ -426,7 +437,7 @@ describe("AccountManager: marketDataCandidates", () => {
       { id: "nolabel", broker: "stubkey", marketData: { pooling: true } },
       { id: "mine2", broker: "stubkey", holder: "self", marketData: { pooling: true } },
     ];
-    const { mgr } = await setup({ accounts: family, adapters: { stubkey: apiKeyAdapter() }, policies: { stubkey: { pooling: "allowed" } } });
+    const { mgr } = await setup({ accounts: family, adapters: { stubkey: apiKeyAdapter() }, policies: { stubkey: { pooling: "allowed" } }, consent: ["mine", "spouse", "nolabel", "mine2"] });
     for (const a of family) await mgr.connect(a.id, { values: { accessToken: "t-123456" } });
     expect(mgr.marketDataCandidates({ capability: "quotes" })).toEqual(["mine", "mine2"]);
     expect(mgr.list().map((a) => [a.id, a.pooling])).toEqual([["mine", true], ["spouse", true], ["nolabel", false], ["mine2", true]]);
@@ -435,7 +446,7 @@ describe("AccountManager: marketDataCandidates", () => {
   });
 
   it("keeps unpinned reads inside the caller's allowed accounts and never borrows the primary", async () => {
-    const { mgr } = await setup({ accounts, adapters: { stubkey: apiKeyAdapter(), stuboauth: oauthAdapter() }, policies: { stubkey: { pooling: "allowed" } } });
+    const { mgr } = await setup({ accounts, adapters: { stubkey: apiKeyAdapter(), stuboauth: oauthAdapter() }, policies: { stubkey: { pooling: "allowed" } }, consent: consented });
     await connectAll(mgr);
     expect(mgr.marketDataCandidates({ capability: "quotes", allowedAccounts: ["k2"] })).toEqual(["k2"]);
     expect(mgr.marketDataCandidates({ capability: "quotes", allowedAccounts: ["k3"] })).toEqual(["k3"]);
@@ -464,7 +475,7 @@ describe("AccountManager: marketDataCandidates", () => {
 });
 
 describe("broker policy loading", () => {
-  it("a missing S3 module means every broker is 'unknown', silently", async () => {
+  it("a missing ratelimit module means every broker is 'unknown', silently", async () => {
     const warn = vi.fn();
     const err = Object.assign(new Error("Cannot find module '/x/ratelimit/brokerPolicies.mjs'"), { code: "ERR_MODULE_NOT_FOUND" });
     expect(await loadBrokerPolicies({ warn }, async () => Promise.reject(err))).toEqual({});
@@ -482,7 +493,7 @@ describe("broker policy loading", () => {
     expect(await loadBrokerPolicies(undefined, async () => ({ BROKER_POLICIES: [{ brokerId: "dhan", pooling: "not-allowed" }] }))).toEqual({ dhan: { brokerId: "dhan", pooling: "not-allowed" } });
   });
 
-  it("the real loader works whether or not S3 has shipped its table", async () => {
+  it("the real loader works whether or not ratelimit has shipped its table", async () => {
     const table = await loadBrokerPolicies({ warn: () => {} });
     expect(typeof table).toBe("object");
   });

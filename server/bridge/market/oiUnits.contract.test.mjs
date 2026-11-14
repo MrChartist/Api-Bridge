@@ -1,5 +1,5 @@
 /**
- * OI-unit contract test (docs/spec/p1-01-recorder.md §10, M10). For the dhan, zerodha and upstox fixtures (run through
+ * OI-unit contract test. For the dhan, zerodha and upstox fixtures (run through
  * the real adapters with fetch stubbed, no network) and the demo adapter, every normalised chain leg with OI and a
  * known lot size is checked for "OI is a multiple of the lot" (units, not lots). A broker may be marked verified in
  * market/oiUnits.mjs only when its fixture passes; the fixtures here carry documentation sample numbers, so those
@@ -57,7 +57,7 @@ async function fixtureLegs(id) {
 /** Legs whose OI is not a multiple of the lot (documented exceptions excluded). */
 const offLot = (id, f) => (f.lotSize ? f.legs.filter((l) => l.oi % f.lotSize !== 0 && !OI_LOT_EXCEPTIONS.includes(`${id}:${f.underlying}:${f.expiry}`)) : []);
 
-describe("OI units: fixtures and the table agree (§10)", async () => {
+describe("OI units: fixtures and the table agree", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const fixtures = {};
   for (const id of BROKERS) fixtures[id] = await fixtureLegs(id);

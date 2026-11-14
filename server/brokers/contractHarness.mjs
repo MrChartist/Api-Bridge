@@ -55,7 +55,8 @@ export function createFetchStub(responses = []) {
     const url = typeof input === "string" ? input : input?.url ?? String(input);
     const method = String(init.method || "GET").toUpperCase();
     const body = typeof init.body === "string" ? init.body : init.body instanceof URLSearchParams ? init.body.toString() : init.body;
-    calls.push({ url, method, body, headers: init.headers || {} });
+    const call = { url, method, body, headers: init.headers || {}, matched: -1 };
+    calls.push(call);
     const hit = responses.find((r) => {
       if ((r.method || "GET").toUpperCase() !== method) return false;
       if (r.url && r.url !== url) return false;
@@ -68,6 +69,12 @@ export function createFetchStub(responses = []) {
       return true;
     });
     if (!hit) throw new Error(`Contract harness: unexpected network call ${method} ${url}`);
+    call.matched = responses.indexOf(hit);
+    // A reply that never arrives (reset socket, timeout): the request was sent, the answer was lost.
+    if (hit.networkError) {
+      if (hit.networkError === "timeout") throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+      throw new TypeError(String(hit.networkError));
+    }
     const text = hit.text !== undefined ? hit.text : JSON.stringify(hit.json ?? {});
     return new Response(text, { status: hit.status ?? 200, headers: { "content-type": "application/json", ...(hit.headers || {}) } });
   };
@@ -75,7 +82,7 @@ export function createFetchStub(responses = []) {
 }
 
 /** Run `fn` with fetch stubbed and console captured; always restores both. */
-async function withStubs(responses, fn) {
+export async function withStubs(responses, fn) {
   const stub = createFetchStub(responses);
   const realFetch = globalThis.fetch;
   const logs = [];
@@ -93,7 +100,7 @@ async function withStubs(responses, fn) {
   }
 }
 
-function defaultArgs(cap, fx, manifest) {
+export function defaultArgs(cap, fx, manifest) {
   if (Array.isArray(fx.args)) return fx.args;
   switch (cap) {
     case "expiries": case "ltp": return [manifest.symbol];
@@ -111,7 +118,7 @@ const CHECKS = {
 };
 const NO_FIXTURE_NEEDED = new Set(["auth", "feed", "normaliseError"]);
 
-function methodOf(adapter, cap) {
+export function methodOf(adapter, cap) {
   return CAPABILITIES[cap].methods.find((m) => typeof adapter[m] === "function");
 }
 

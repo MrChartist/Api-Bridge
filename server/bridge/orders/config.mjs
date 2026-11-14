@@ -1,5 +1,5 @@
 /**
- * The `orders` config section — stream S7 (owned by the orders module; validated by core with this schema).
+ * The `orders` config section (owned by the orders module; validated by core with this schema).
  *
  *   "orders": {
  *     "ticketTtlMs": 60000,              // how long a ticket waits for a human to confirm it
@@ -11,7 +11,12 @@
  *     "sliceAboveFreeze": false,         // split orders above the exchange freeze quantity into legs (else refuse)
  *     "maxSlices": 10,
  *     "orderRetentionDays": 7,           // live order records kept on disk
- *     "maxOrderLookups": 2000            // paper orders read per account for one listing
+ *     "maxOrderLookups": 2000,           // paper orders read per account for one listing
+ *     "drift": {                         // read-only compare of the Bridge's live orders with the broker's order book
+ *       "enabled": true,
+ *       "intervalMinutes": 5,            // never checked more often than this (1 to 240)
+ *       "marketHoursOnly": true          // only while the market is open (or pre-open); false: any time a live account is logged in
+ *     }
  *   }
  *
  * Everything is optional; `{}` gives the defaults. Nothing here can switch live trading on: that stays in the core
@@ -30,7 +35,16 @@ export const ORDERS_DEFAULTS = Object.freeze({
   maxSlices: 10,
   orderRetentionDays: 7,
   maxOrderLookups: 2000,
+  drift: Object.freeze({ enabled: true, intervalMinutes: 5, marketHoursOnly: true }),
 });
+
+export const DRIFT_CONFIG_SCHEMA = z
+  .object({
+    enabled: z.boolean().default(ORDERS_DEFAULTS.drift.enabled),
+    intervalMinutes: z.number().int().min(1).max(240).default(ORDERS_DEFAULTS.drift.intervalMinutes),
+    marketHoursOnly: z.boolean().default(ORDERS_DEFAULTS.drift.marketHoursOnly),
+  })
+  .strict();
 
 export const ORDERS_CONFIG_SCHEMA = z
   .object({
@@ -44,6 +58,7 @@ export const ORDERS_CONFIG_SCHEMA = z
     maxSlices: z.number().int().min(1).max(40).default(ORDERS_DEFAULTS.maxSlices),
     orderRetentionDays: z.number().int().min(1).max(90).default(ORDERS_DEFAULTS.orderRetentionDays),
     maxOrderLookups: z.number().int().min(100).max(20_000).default(ORDERS_DEFAULTS.maxOrderLookups),
+    drift: DRIFT_CONFIG_SCHEMA.prefault({}),
   })
   .strict();
 
@@ -57,5 +72,5 @@ export function ordersConfig(config) {
   const raw = config?.orders;
   if (!raw) return { ...ORDERS_DEFAULTS };
   const parsed = ORDERS_CONFIG_SCHEMA.safeParse(raw);
-  return parsed.success ? parsed.data : { ...ORDERS_DEFAULTS, ...raw };
+  return parsed.success ? parsed.data : { ...ORDERS_DEFAULTS, ...raw, drift: { ...ORDERS_DEFAULTS.drift, ...(raw.drift ?? {}) } };
 }

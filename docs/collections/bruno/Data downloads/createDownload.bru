@@ -1,0 +1,52 @@
+meta {
+  name: Start a history download, or only estimate it with dryRun=1
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/downloads
+  body: json
+  auth: bearer
+}
+
+params:query {
+  ~dryRun: false
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "symbols": [
+      "NSE:RELIANCE",
+      "NSE:INFY"
+    ],
+    "intervals": [
+      "1d"
+    ],
+    "from": "2026-10-01",
+    "dataset": "large-caps-1d"
+  }
+}
+
+vars:post-response {
+  downloadId: res.body.data.id
+}
+
+docs {
+  Start a history download, or only estimate it with dryRun=1
+
+  - An API key with the `read` scope (any key).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Saves candles to files on this computer as a background job. Give `symbols` (canonical, at most 500) or the name of a `collection`, one or more `intervals`, and `from`. Every broker call goes through the rate-limit scheduler at the lowest priority and within `downloads.maxBudgetShare` of the account's budget (default 0.3), so live reads, order checks and other keys always go first. The job is saved after every window and continues after a pause, a restart, the kill switch or a lost login. With `dataset`, the job continues from the last stored bar of that dataset. Ranges already stored in a dataset of this Bridge are copied from disk instead of fetched again. With `dryRun=1` nothing starts and the answer is the estimate (broker calls, rows, bytes, time at your share). The bar still forming is never stored.
+
+  Reference: docs/api/data-downloads/createDownload.md in the repository.
+}

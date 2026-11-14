@@ -1,13 +1,14 @@
 # Mr. Chartist API Bridge: one-line installer for Windows 10 and 11. No admin rights needed.
 #
 #   Install or update (paste into PowerShell and press Enter):
-#     irm https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.ps1 | iex
+#     irm https://github.com/MrChartist/api-bridge-v2/releases/latest/download/install.ps1 | iex
 #   Uninstall (your settings and data are kept unless you also ask to delete them):
-#     & ([scriptblock]::Create((irm https://raw.githubusercontent.com/MrChartist/api-bridge-v2/main/install.ps1))) -Uninstall
+#     & ([scriptblock]::Create((irm https://github.com/MrChartist/api-bridge-v2/releases/latest/download/install.ps1))) -Uninstall
 #   If you downloaded this file instead, Windows blocks running it directly; run it like this (this run only):
 #     powershell -ExecutionPolicy Bypass -File install.ps1            (add -Uninstall, -NoStart, -Demo as needed)
 #
-# What it does: downloads the Bridge into %LOCALAPPDATA%\MrChartist\Bridge\app, uses the Node.js 22+ already on this
+# What it does: downloads a released version of the Bridge, checks its SHA-256 against the release's SHA256SUMS.txt
+# BEFORE installing anything (a download that does not match is refused and nothing is changed), puts it into %LOCALAPPDATA%\MrChartist\Bridge\app, uses the Node.js 22+ already on this
 # computer or downloads a private, checksum-verified copy into app\runtime, installs the Bridge's parts, adds
 # "Mr Chartist Bridge" to the Start menu and Desktop and an mc-bridge command, runs the first setup with safe defaults
 # and starts the Bridge with the dashboard open. Running it again updates in place; settings and data in
@@ -18,8 +19,13 @@
 #   MCB_PURGE=1      -Purge      with uninstall: also offer to delete settings and data (asks you to type DELETE)
 #   MCB_NO_START=1   -NoStart    install or update but do not start the Bridge
 #   MCB_DEMO=1       -Demo       first setup and start in demo mode (sample prices, no broker needed)
-#   MCB_SOURCE       -Source     where the code comes from: a folder, a .zip file or a .zip URL (default: GitHub)
-#   MCB_REF          -Ref        GitHub branch or tag to download (default: main)
+#   MCB_VERSION      -Version    the release to install, for example 2.0.0 (default: the newest release)
+#   MCB_SHA256       -Sha256     the SHA-256 you expect for the download, taken from somewhere you trust. The check
+#                                against SHA256SUMS.txt catches a damaged or swapped file; it cannot catch a release that
+#                                was itself replaced, because the list comes from the same place. This closes that gap.
+#   MCB_SOURCE       -Source     for testing: a folder or .zip file on this computer (not checked unless -Sha256 is
+#                                given), or a .zip URL (needs -Sha256)
+#   MCB_RELEASE_BASE             for testing: a folder or URL laid out like GitHub's releases page, instead of GitHub
 #   MCB_INSTALL_DIR              install folder (default %LOCALAPPDATA%\MrChartist\Bridge)
 #   MCB_HOME                     settings and data folder (default %APPDATA%\MrChartist\Bridge; the Bridge reads it too)
 #
@@ -34,7 +40,8 @@ function Install-McBridge {
     [switch]$NoStart,
     [switch]$Demo,
     [string]$Source,
-    [string]$Ref,
+    [string]$Version,
+    [string]$Sha256,
     [switch]$ExitOnFailure
   )
   $ErrorActionPreference = 'Stop'
@@ -67,7 +74,34 @@ function Install-McBridge {
         if ($attempt -lt 3) { Start-Sleep -Seconds (2 * $attempt) }
       }
     }
-    throw "Could not download $What from $Uri. Check your internet connection and try again. (Details: $($lastError.Exception.Message))"
+    throw "Could not download $What from $Uri. Check your internet connection and try again. If no release has been published yet, this cannot work: run the Bridge from a git checkout instead (README, Five minutes to a first answer). (Details: $($lastError.Exception.Message))"
+  }
+  # A web address, or a file on this computer (a folder laid out like the releases page, for tests and offline mirrors).
+  function Get-McbRelease([string]$From, [string]$OutFile, [string]$What) {
+    if ($From -match '^https?://') { Get-McbFile $From $OutFile $What; return }
+    $local = $From
+    if ($From -match '^file://') { $local = ([Uri]$From).LocalPath }
+    if (-not (Test-Path -LiteralPath $local -PathType Leaf)) { throw "Could not find $What at $From. Nothing was installed." }
+    Copy-Item -LiteralPath $local -Destination $OutFile -Force
+  }
+  function Get-McbSha256([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+  # The checksum SHA256SUMS.txt lists for a file name ("<64 hex>  <name>" per line), or nothing.
+  function Find-McbSum([string]$SumsFile, [string]$Name) {
+    foreach ($line in (Get-Content -LiteralPath $SumsFile)) {
+      if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$') {
+        if ($Matches[2] -eq $Name) { return $Matches[1].ToLowerInvariant() }
+      }
+    }
+    return $null
+  }
+  # Stop (and delete the file) unless it has the checksum we expect.
+  function Confirm-McbDownload([string]$Path, [string]$Expected, [string]$Name) {
+    $actual = Get-McbSha256 $Path
+    if ($actual -ne $Expected.ToLowerInvariant()) {
+      Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+      throw "STOPPED: $Name does not match its published checksum, so it was NOT installed. (Expected $Expected, got $actual.) The file may be damaged, or somebody may have swapped it. Nothing on this computer was changed. Run this again; if it fails again, do not install, and tell us at https://github.com/MrChartist/api-bridge-v2/issues"
+    }
+    Write-McbNote ('Checked: the SHA-256 matches (' + $actual.Substring(0, 12) + '...).')
   }
   function Expand-McbArchive([string]$ZipPath, [string]$Destination) {
     Remove-McbItem $Destination
@@ -149,7 +183,11 @@ function Install-McBridge {
   if (Test-McbFlag $env:MCB_NO_START) { $NoStart = $true }
   if (Test-McbFlag $env:MCB_DEMO) { $Demo = $true }
   if (-not $Source) { $Source = $env:MCB_SOURCE }
-  if (-not $Ref) { $Ref = $env:MCB_REF }
+  if (-not $Version) { $Version = $env:MCB_VERSION }
+  if (-not $Sha256) { $Sha256 = $env:MCB_SHA256 }
+  if ($env:MCB_REF) { Write-Host 'MCB_REF is not used any more: the installer takes released versions only. Use MCB_VERSION (or -Version) instead.'; if ($ExitOnFailure) { exit 1 }; return }
+  if ($Version) { $Version = $Version.Trim().TrimStart('v', 'V') }
+  if ($Sha256) { $Sha256 = $Sha256.Trim().ToLowerInvariant() }
   $stage = $null
   $restoreCliName = $false
   $oldCliName = $null
@@ -255,25 +293,51 @@ function Install-McBridge {
     Remove-McbItem $stage
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
     $unpacked = Join-Path $stage 'src'
+    if ($Version -and $Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$') { throw "The version must be a release number like 2.0.0 (it is '$Version')." }
+    if ($Sha256 -and $Sha256 -notmatch '^[0-9a-f]{64}$') { throw 'The checksum given with -Sha256 (MCB_SHA256) must be exactly 64 hexadecimal characters.' }
+    $zip = Join-Path $stage 'bridge.zip'
     if (-not $Source) {
-      if ($Ref) { $Source = "https://codeload.github.com/MrChartist/api-bridge-v2/zip/$Ref" }
-      else { $Source = 'https://codeload.github.com/MrChartist/api-bridge-v2/zip/refs/heads/main' }
-    }
-    if ($Source -match '^https?://') {
-      $zip = Join-Path $stage 'bridge.zip'
+      # A released version, checked against the release's SHA256SUMS.txt before anything is unpacked.
+      $releaseBase = $env:MCB_RELEASE_BASE
+      if (-not $releaseBase) { $releaseBase = 'https://github.com/MrChartist/api-bridge-v2/releases' }
+      $releaseBase = $releaseBase.TrimEnd('/', '\')
+      $ver = $Version
+      if ($ver) { $dir = "$releaseBase/download/v$ver"; Write-McbNote "Release v$ver" } else { $dir = "$releaseBase/latest/download"; Write-McbNote 'The newest release' }
+      $sums = Join-Path $stage 'SHA256SUMS.txt'
+      Get-McbRelease "$dir/SHA256SUMS.txt" $sums 'the list of checksums (SHA256SUMS.txt)'
+      if (-not $ver) {
+        foreach ($line in (Get-Content -LiteralPath $sums)) {
+          if ($line -match '^[0-9a-fA-F]{64}\s+\*?mr-chartist-bridge-(.+)-source\.zip\s*$') { $ver = $Matches[1]; break }
+        }
+        if (-not $ver) { throw 'The newest release has no installable download listed in its checksums. Try a version by hand (-Version or MCB_VERSION). Nothing was installed.' }
+        $dir = "$releaseBase/download/v$ver"
+        Write-McbNote "That is v$ver"
+      }
+      $name = "mr-chartist-bridge-$ver-source.zip"
+      $expected = Find-McbSum $sums $name
+      if (-not $expected) { throw "The release's checksum list does not name $name, so it cannot be checked. Nothing was installed." }
+      if ($Sha256 -and $Sha256 -ne $expected) { throw "STOPPED: the checksum you gave (-Sha256 or MCB_SHA256) is not the one the release publishes for $name. You gave $Sha256; the release lists $expected. Nothing was installed. One of the two is wrong; do not go on until you know which." }
+      Write-McbNote "Downloading $name"
+      Get-McbRelease "$dir/$name" $zip 'the Bridge'
+      Confirm-McbDownload $zip $expected 'The Bridge download'
+      Expand-McbArchive $zip $unpacked
+    } elseif ($Source -match '^https?://') {
+      if (-not $Sha256) { throw 'A web address given as MCB_SOURCE needs the expected checksum too (-Sha256 or MCB_SHA256), because nothing else vouches for that file. Nothing was installed.' }
       Write-McbNote "From $Source"
       Get-McbFile $Source $zip 'the Bridge'
+      Confirm-McbDownload $zip $Sha256 'The Bridge download'
       Expand-McbArchive $zip $unpacked
     } elseif (Test-Path -LiteralPath $Source -PathType Container) {
-      Write-McbNote "Copying from the folder $Source"
+      Write-McbNote "Copying from the folder $Source (on this computer; not checked)"
       Copy-McbFolder (Get-McbFullPath $Source) $unpacked
     } elseif (Test-Path -LiteralPath $Source -PathType Leaf) {
+      if ($Sha256) { Confirm-McbDownload $Source $Sha256 'The Bridge file' } else { Write-McbNote 'A file on this computer; not checked (give -Sha256 to check it).' }
       Write-McbNote "Unpacking $Source"
       Expand-McbArchive $Source $unpacked
     } else {
       throw "Could not find $Source (MCB_SOURCE). Use a folder, a .zip file or a web address."
     }
-    # A GitHub ZIP holds one folder (api-bridge-v2-main); a folder copy has the files directly.
+    # A release ZIP holds one folder (mr-chartist-bridge-<version>); a folder copy has the files directly.
     $root = $unpacked
     if (-not (Test-Path -LiteralPath (Join-Path $root 'package.json'))) {
       $inner = @(Get-ChildItem -LiteralPath $unpacked -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'package.json') })

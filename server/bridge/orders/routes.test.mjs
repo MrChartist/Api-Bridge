@@ -1,6 +1,6 @@
 /**
- * S7 routes end to end through the real request pipeline (createApp): the real OrderService over published fakes
- * (accounts, scheduler, symbols, market data) and the S7 stubs (safety, audit, paper), with a fake key store.
+ * orders routes end to end through the real request pipeline (createApp): the real OrderService over published fakes
+ * (accounts, scheduler, symbols, market data) and the orders stubs (safety, audit, paper), with a fake key store.
  * Checks the OpenAPI shapes ({ data, meta }), status codes, Idempotency-Replayed, auth and scope, validation and
  * the ticket confirmation routes.
  */
@@ -286,5 +286,50 @@ describe("tickets", () => {
     expect(conf.json.data).toEqual({ confirmToken: expect.stringMatching(/^mct_/), expiresAt: expect.stringMatching(/\+05:30$/) });
     const { order } = await app.deps.orders.place(mcpCtx, { ...body, confirmToken: conf.json.data.confirmToken }, { idempotencyKey: "mcp:route-ticket" });
     expect(order).toMatchObject({ mode: "live", source: "mcp" });
+  });
+
+  it("declines with POST /v1/tickets/{id}/reject: optional reason, idempotent, 409 once confirmed, never confirmable after", async () => {
+    const mcpCtx = createCallContext({ source: "mcp", key: KEYS.mcp, log: createNullLogger() });
+    const a = await app.deps.orders.preview(mcpCtx, liveOrder({ price: 1391 }));
+    const b = await app.deps.orders.preview(mcpCtx, liveOrder({ price: 1392 }));
+    const c = await app.deps.orders.preview(mcpCtx, liveOrder({ price: 1393 }));
+
+    expect((await call("POST", `/v1/tickets/${a.ticketId}/reject`, { key: RAW.live })).status).toBe(403);
+    expect((await call("POST", `/v1/tickets/${a.ticketId}/reject`, { key: RAW.admin, body: { reason: "x".repeat(201) } })).status).toBe(400);
+    expect((await call("POST", `/v1/tickets/${a.ticketId}/reject`, { key: RAW.admin, body: { why: "no" } })).status).toBe(400);
+    expect((await call("POST", `/v1/tickets/${a.ticketId}/reject`, { key: RAW.admin, body: ["no"] })).status).toBe(400);
+    expect((await call("POST", "/v1/tickets/tkt_nope/reject", { key: RAW.admin })).status).toBe(404);
+
+    // no body at all
+    const bare = await call("POST", `/v1/tickets/${a.ticketId}/reject`, { key: RAW.admin });
+    expect(bare.status).toBe(200);
+    expect(bare.json.data).toMatchObject({ ticketId: a.ticketId, status: "rejected", reason: null, source: "mcp" });
+    // with a reason
+    const withReason = await call("POST", `/v1/tickets/${b.ticketId}/reject`, { key: RAW.admin, body: { reason: "Wrong quantity" } });
+    expect(withReason.json.data).toMatchObject({ ticketId: b.ticketId, status: "rejected", reason: "Wrong quantity" });
+    // again: 200 with the same state
+    const again = await call("POST", `/v1/tickets/${b.ticketId}/reject`, { key: RAW.admin, body: { reason: "other" } });
+    expect(again.status).toBe(200);
+    expect(again.json.data).toEqual(withReason.json.data);
+
+    // the open list shows only c; the declined list shows a and b, newest first
+    expect((await call("GET", "/v1/tickets", { key: RAW.admin })).json.data.map((t) => t.ticketId)).toEqual([c.ticketId]);
+    const declined = await call("GET", "/v1/tickets?state=rejected", { key: RAW.admin });
+    expect(declined.json.data.map((t) => t.ticketId)).toEqual([b.ticketId, a.ticketId]);
+    expect(declined.json.meta.state).toBe("rejected");
+    expect((await call("GET", "/v1/tickets?state=bogus", { key: RAW.admin })).status).toBe(400);
+
+    // reject, then confirm: 409 naming the state, no token
+    const late = await call("POST", `/v1/tickets/${a.ticketId}/confirm`, { key: RAW.admin });
+    expect(late.status).toBe(409);
+    expect(late.json).toMatchObject({ code: "STATE_CONFLICT", retryable: false, ticketId: a.ticketId, state: "rejected" });
+    expect(late.text).not.toMatch(/mct_/);
+
+    // confirm, then reject: 409 naming the state
+    const conf = await call("POST", `/v1/tickets/${c.ticketId}/confirm`, { key: RAW.admin });
+    expect(conf.status).toBe(200);
+    const tooLate = await call("POST", `/v1/tickets/${c.ticketId}/reject`, { key: RAW.admin });
+    expect(tooLate.status).toBe(409);
+    expect(tooLate.json).toMatchObject({ code: "STATE_CONFLICT", ticketId: c.ticketId, state: "confirmed" });
   });
 });

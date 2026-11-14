@@ -1,5 +1,5 @@
 /**
- * stream module — stream S6: live streaming over WebSocket and SSE (docs/STREAMS.md §S6, protocol in docs/asyncapi.yaml).
+ * stream module: live streaming over WebSocket and SSE (protocol in docs/asyncapi.yaml).
  *
  *   WS  /v1/stream          upgrade; ?token=<stream token> or Authorization header; read scope
  *   GET /v1/stream/sse      auth custom (same credentials); same messages as the WebSocket
@@ -60,7 +60,6 @@ export function createStreamEndpoints(deps, { cors } = {}) {
 
 export default defineModule({
   name: "stream",
-  stream: "S6",
   configKey: "stream",
   configSchema: streamConfigSchema,
   services: { streamHub: (deps) => createStreamHub(deps) },

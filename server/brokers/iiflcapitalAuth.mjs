@@ -57,7 +57,7 @@ export function authError(message) {
   return new BrokerError(message, { code: "UPSTREAM_AUTH", statusCode: 502 });
 }
 
-const FRESH_CODE_HINT = `Log in again at ${LOGIN_URL}?v=1&appkey=YOUR_APP_KEY and paste the new authCode in Broker Settings (it works once and the session lasts until midnight).`;
+const FRESH_CODE_HINT = `Log in again at ${LOGIN_URL}?v=1&appkey=YOUR_APP_KEY and paste the new authCode in the account settings (it works once and the session lasts until midnight).`;
 
 async function readJson(res) {
   const text = await res.text();

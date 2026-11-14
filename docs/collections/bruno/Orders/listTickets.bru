@@ -1,0 +1,30 @@
+meta {
+  name: Orders waiting for a human confirmation
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/v1/tickets
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~state: open
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Orders waiting for a human confirmation
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  The dashboard's "Pending confirmations" panel polls this (or listens on the stream) and shows each ticket's full order, its source (AI assistant or webhook) and its checks. Admin scope, this computer only. Only open tickets are listed; `state=rejected` lists the ones a person declined in the last 15 minutes (newest first), which the dashboard shows as "Declined".
+
+  Reference: docs/api/orders/listTickets.md in the repository.
+}

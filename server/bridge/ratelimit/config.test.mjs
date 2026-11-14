@@ -32,6 +32,11 @@ describe("ratelimit config section", () => {
     expect(ratelimitConfigSchema.safeParse({ typo: true }).success).toBe(false);
     expect(ratelimitConfigSchema.safeParse({ windowPaddingMs: -1 }).success).toBe(false);
     expect(ratelimitConfigSchema.safeParse({ client: { perSecond: 0 } }).success).toBe(false);
+    expect(ratelimitConfigSchema.safeParse({ client: { perSecond: 1e-7 } }).success).toBe(false); // would lock every key out
+    expect(ratelimitConfigSchema.safeParse({ client: { perDay: 0.5 } }).success).toBe(false);
+    expect(ratelimitConfigSchema.safeParse({ client: { keys: { sheet000001: { perSecond: 1e-7 } } } }).success).toBe(false);
+    expect(ratelimitConfigSchema.safeParse({ client: { keys: { sheet000001: { perDay: 0.1 } } } }).success).toBe(false);
+    expect(ratelimitConfigSchema.safeParse({ client: { perSecond: 0.01, perDay: 1, keys: { sheet000001: { perSecond: 0.01, perDay: 1 } } } }).success).toBe(true);
     expect(ratelimitConfigSchema.safeParse({ accounts: { "Bad Id": {} } }).success).toBe(false);
   });
 

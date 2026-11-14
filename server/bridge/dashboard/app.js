@@ -1,18 +1,19 @@
-// Mr. Chartist API Bridge — local dashboard. Talks only to this Bridge (same origin). The API key lives in
+// API Bridge: the local dashboard. Talks only to this Bridge (same origin). The API key lives in
 // sessionStorage for this tab and is sent as a Bearer header; it is never put in a URL.
 // Opened from `mc-bridge start --open` or `mc-bridge open`, the URL carries a one-time sign-in code in its fragment
 // (#signin=<code>): it is removed from the address bar before anything else and exchanged for a key (POST /v1/sign-in).
 // Pure helpers (ticketFields, confirmCodeNotice, friendlyError ...) are exported for tests; DOM code runs only in a browser.
 
-import { animateNav, animatePage, bannerIn, bannerOut, installAutoAnimations, pulse, reducedMotion, sheetIn, sheetOut, shake } from "./motion.js";
-import { DASH, ageText, formatRupee } from "./format.js";
+import { bannerIn, bannerOut, fadeOut, installAutoAnimations, pulse, reducedMotion, setText, sheetIn, sheetOut, shake, stackGhost, swipeDismiss } from "./motion.js";
+import { DASH, formatRupee } from "./format.js";
 import { DENSITY_SLOT, SIDEBAR_SLOT, parseDensity, resolveDensity, resolveSidebar, toggleSidebar } from "./layout-prefs.js";
 import { watch as liveWatch } from "./live.js";
-
-// Page hooks for views.js (optional: app.js start-up already runs them automatically; both are idempotent).
-export { animateNav, animatePage };
+import { connection, onSignedOut } from "./connection.js";
+import { fixFor } from "./easy-core.js";
 
 const KEY_SLOT = "mcb.dashboard.key";
+/** Set (in this tab) when the Bridge refused the key mid-session, so the sign-in screen can say why. */
+const ENDED_SLOT = "mcb.dashboard.signedOut";
 
 // ── One-time sign-in link ──
 
@@ -31,10 +32,8 @@ export function signInCodeFromHash(hash) {
   }
 }
 
-/** Label of the keys POST /v1/sign-in creates (server/bridge/auth/module.mjs). */
-export const SIGN_IN_KEY_LABEL = "Dashboard sign-in";
 /** The message shown when a sign-in link does not work (the Bridge says the same). */
-export const SIGN_IN_FAILED = { title: "This sign-in link did not work", detail: "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open." };
+export const SIGN_IN_FAILED = { title: "This sign-in link did not work", detail: "This sign-in link has expired or was already used. Open the Bridge again from its shortcut, or run mc-bridge open (in a git checkout: npm run bridge -- open)." };
 
 /**
  * Exchange a sign-in code for a key. Never throws. Pure apart from the injected fetch.
@@ -72,7 +71,7 @@ export async function localSignIn(fetchImpl = globalThis.fetch) {
   }
   const body = await res.json().catch(() => null);
   if (res.ok && typeof body?.data?.key === "string") return { key: body.data.key };
-  return { error: { title: "Could not sign in on this computer", detail: typeof body?.detail === "string" && body.detail ? body.detail : "Sign in with a key, or run mc-bridge open.", off: res.status === 403 || res.status === 404 } };
+  return { error: { title: "Could not sign in on this computer", detail: typeof body?.detail === "string" && body.detail ? body.detail : "Sign in with a key, or run mc-bridge open (in a git checkout: npm run bridge -- open).", off: res.status === 403 || res.status === 404 } };
 }
 
 /**
@@ -126,23 +125,6 @@ const session = store("session");
 const local = store("local");
 let memoryKey = session.get(KEY_SLOT);
 
-/**
- * The page module the address opens with (pure): the Options desk, screeners, calendar, recorder or live events load
- * on demand (views.js); fetching the one this tab opens on alongside views.js saves a round of loading on a cold start.
- */
-export function bootModuleFor(hash) {
-  const page = String(hash ?? "").replace(/^#\/?/, "").split(/[/?]/)[0].toLowerCase();
-  if (["chain", "strategy", "positions", "oi", "vol"].includes(page)) return "./desk.js";
-  if (page === "screeners") return /^#\/?screeners\/events/.test(hash) ? "./events.js" : /^#\/?screeners\/stocks/.test(hash) ? null : /^#\/?screeners\/arbitrage/.test(hash) ? "./desk.js" : "./screener.js";
-  if (page === "calendar") return "./calendar.js";
-  if (page === "recorder") return "./recorder.js";
-  return null;
-}
-if (typeof location !== "undefined" && memoryKey) {
-  const mod = bootModuleFor(location.hash);
-  if (mod) import(mod).catch(() => {});
-}
-
 export function setKey(k) {
   memoryKey = k || null;
   session.set(KEY_SLOT, memoryKey);
@@ -190,7 +172,7 @@ export function friendlyError(err) {
   if (err?.network) return { title: "Cannot reach the Bridge", detail: "Is it still running? Start it again from its shortcut (or the start file you double-clicked), then refresh this page." };
   switch (err?.code) {
     case "UNAUTHENTICATED":
-      return { title: "That key was not accepted", detail: "It may be mistyped, expired or revoked, or made by another Bridge (each Bridge only accepts its own keys). To sign in without a key, run npm run dev in the Bridge folder (demo mode) or npm run bridge -- open while it runs; or create one with: npm run bridge -- keys create --label me --scope admin,paper" };
+      return { title: "That key was not accepted", detail: "It may be mistyped, expired, revoked, or made by another Bridge (each Bridge only accepts its own keys).\nEasiest: open the Bridge again from its shortcut, or run npm run bridge -- open. It signs you in.\nOr make a key: see No key yet? below." };
     case "SCOPE_REQUIRED":
       return { title: "This key is not allowed to do that", detail: `${detail} Sign in with an admin key to manage the Bridge.` };
     case "LOOPBACK_ONLY":
@@ -244,13 +226,27 @@ export class ApiError extends Error {
 export const apiHealth = { seq: 0, failure: null };
 const noteFailure = (status, retryAfterMs = 0) => {
   apiHealth.failure = { seq: ++apiHealth.seq, status: status ?? null, retryAfterMs };
+  if (status == null) connection.networkFailed(); // the Bridge did not answer: show "Reconnecting..." and keep trying
 };
 const noteStatus = (res) => {
+  if (res.status === 401) connection.unauthorized(); // the Bridge refused this page's key: sign out with a reason
+  else connection.answered();
   if (res.status === 429 || res.status >= 500) {
     const ra = Number(res.headers.get("retry-after"));
     noteFailure(res.status, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 0);
   }
 };
+
+/**
+ * Run `fn` once the browser is idle, never sooner than the next frame (requestIdleCallback with a timer fallback for
+ * browsers without it). For work the first screen does not need: the live connection, the budget chip.
+ * @param {() => void} fn @param {number} [timeout]  the latest it may wait, ms
+ * @returns {void}
+ */
+export function whenIdle(fn, timeout = 1500) {
+  if (typeof requestIdleCallback === "function") requestIdleCallback(() => fn(), { timeout });
+  else setTimeout(fn, 120);
+}
 
 // ── The shared fetch layer ──
 //
@@ -259,7 +255,8 @@ const noteStatus = (res) => {
 //  2. a short memory of answers (SHARE_MS): parts of a page and other pages asking within a moment get the same one;
 //  3. paint from memory on a page switch: during the first moments after a switch (beginNavigation), an answer up to
 //     PAINT_FROM_CACHE_MS old is used at once and a fresh one is fetched behind it; pages that show market data label
-//     it with its own data time, and onRevalidated() lets the router redraw the other pages when the fresh one differs.
+//     it with its own data time, and onRevalidated() lets the router redraw the other pages when the fresh one differs;
+//     reads that hardly change (the broker directory, stableRead) get a longer memory with the same refresh behind it.
 // Never from memory: one-time and audit reads, and states a person acts on (safety, tickets, order preview). Any
 // write (POST, PUT, PATCH, DELETE) forgets every remembered answer, so what follows an order is always fresh.
 
@@ -267,6 +264,16 @@ const noteStatus = (res) => {
 export const SHARE_MS = 1000;
 /** On a page switch, an answer up to this old paints at once while a fresh one is fetched. */
 export const PAINT_FROM_CACHE_MS = 30_000;
+/**
+ * Reads that hardly ever change while the Bridge runs (the broker directory: 41 brokers, 24 KB). Younger than
+ * STABLE_FRESH_MS they are answered from memory; up to STABLE_PAINT_MS old they paint from memory at once and are
+ * fetched again behind it (the page is redrawn only if the fresh answer differs), so a visit never waits for them.
+ */
+export const STABLE_FRESH_MS = 60_000;
+export const STABLE_PAINT_MS = 30 * 60_000;
+const STABLE_RE = /^\/v1\/brokers(\?|$)/;
+/** Whether a GET path is one of the slow-changing reads (pure). */
+export const stableRead = (path) => typeof path === "string" && STABLE_RE.test(path);
 /** How long after a page switch its first reads may paint from memory. */
 export const NAV_WINDOW_MS = 2500;
 /** A prefetched answer serves the next ask for this long. */
@@ -295,9 +302,10 @@ export const cacheable = (path) => typeof path === "string" && path.startsWith("
  * May a remembered answer of this age be used now (pure)? Shared answers are always fine; older ones only while a page
  * is switching in. @returns {"fresh"|"paint"|null}
  */
-export function cacheUse(ageMs, navigating) {
+export function cacheUse(ageMs, navigating, stable = false) {
   if (!(ageMs >= 0)) return null;
   if (ageMs <= SHARE_MS) return "fresh";
+  if (stable) return ageMs <= STABLE_FRESH_MS ? "fresh" : ageMs <= STABLE_PAINT_MS ? "paint" : null;
   if (navigating && ageMs <= PAINT_FROM_CACHE_MS) return "paint";
   return null;
 }
@@ -386,12 +394,15 @@ function revalidate(path, served) {
 /**
  * Call the Bridge. Returns { data, headers, status, ms, text, cached? }. With raw: true, error answers are returned
  * too (and nothing is shared or remembered: the test console shows the real call). `fresh: true` skips the memory.
+ * `idempotencyKey` is sent as the Idempotency-Key header (orders always carry one).
  * `paintOld: true` treats this read like a page switch: a remembered answer up to PAINT_FROM_CACHE_MS old (a
  * prefetch, say) is returned at once with `cached: "paint"` while a fresh one is fetched behind it (the caller reads
  * again to get it; the second read joins that request).
  */
-export async function api(path, { method = "GET", body, raw = false, fresh = false, paintOld = false } = {}) {
+export async function api(path, { method = "GET", body, raw = false, fresh = false, paintOld = false, idempotencyKey = null } = {}) {
   const headers = baseHeaders();
+  // A write a person might repeat (a double click, a retry) carries a key, so the Bridge answers the repeat with the first result.
+  if (idempotencyKey && method !== "GET") headers["Idempotency-Key"] = idempotencyKey;
   if (method !== "GET" || raw) {
     if (body !== undefined) headers["Content-Type"] = "application/json";
     const forget = forgetsAnswers(method, path, body);
@@ -425,8 +436,8 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
   if (!fresh && cacheable(path)) {
     const hit = answers.get(path);
     const age = hit ? Date.now() - hit.at : NaN;
-    // A prefetched answer (the expiry chip under the pointer) serves the click that follows it for a few seconds.
-    const use = hit ? cacheUse(age, navigating || paintOld) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
+    // A prefetched answer (a menu item under the pointer) serves the click that follows it for a few seconds.
+    const use = hit ? cacheUse(age, navigating || paintOld, stableRead(path)) ?? (hit.prefetched && age <= PREFETCH_USE_MS ? "fresh" : null) : null;
     if (use) {
       hit.prefetched = false; // a prefetch serves one ask; the page's own refreshes go to the Bridge
       if (use === "paint") revalidate(path, hit);
@@ -444,7 +455,7 @@ export async function api(path, { method = "GET", body, raw = false, fresh = fal
 // ── Polls become stream subscriptions ──
 // A page that reads the same /v1/quotes or /v1/ltp URL again within AUTO_WATCH_MS is polling: its symbols are then
 // watched on the shared live connection (live.js) until it stops, so the Bridge answers the next polls from ticks
-// instead of the broker. Positions, Home, Strategy and the screeners get this without knowing about it.
+// instead of the broker. Pages get this without knowing about it.
 export const AUTO_WATCH_MS = 15_000;
 const AUTO_WATCH_MAX = 400;
 const AUTO_WATCH_RE = /^\/v1\/(quotes|ltp)\?(?:[^#]*&)?symbols=([^&#]+)/;
@@ -466,9 +477,8 @@ export function pollTarget(path) {
 }
 
 /**
- * The open positions' symbols in a /v1/positions answer (pure): a page polling positions (the chain, OI and Strategy
- * read them every few seconds for held lots and delta) has them watched too, so the Bridge marks them to market from
- * ticks instead of a broker read per poll. Null for any other path.
+ * The open positions' symbols in a /v1/positions answer (pure): a page polling positions has them watched too, so the
+ * Bridge marks them to market from ticks instead of a broker read per poll. Null for any other path.
  */
 export function positionSymbols(path, body) {
   if (!/^\/v1\/positions(?:\?|$)/.test(String(path))) return null;
@@ -519,7 +529,7 @@ export function prefetchPage(page) {
 }
 
 /**
- * Warm one GET a person is about to ask for (an expiry chip under the pointer): fetched once at background priority
+ * Warm one GET a person is about to ask for (a menu item under the pointer): fetched once at background priority
  * unless an answer under 5 s old is remembered; a click on it then paints from memory (the page-switch window) or joins
  * the request already on its way.
  */
@@ -550,67 +560,65 @@ export function h(tag, attrs, ...children) {
   return e;
 }
 
-/** Icons: small stroked SVGs (static strings from this file). */
+/**
+ * Icons: one outline set on a 24px grid, drawn originally for this dashboard: 1.75px stroke, round caps and joins,
+ * no fills (a dot is a zero-length round-capped stroke). `icon(name)` returns an <svg class="ic"> that takes its colour
+ * from the text (currentColor); app.css sets its size in each place. The static strings below are the only markup.
+ */
 export const ICONS = {
-  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-6h4v6"/>',
-  accounts: '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/>',
-  console: '<rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="m6.5 9 3 3-3 3"/><path d="M12 15h5"/>',
-  scan: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><path d="M8 11h6"/><path d="M11 8v6"/>',
-  limits: '<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/><circle cx="12" cy="14" r="1.5"/>',
-  orders: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
-  keys: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m15 8 2 2"/>',
-  integrations: '<path d="M9 7H6a3 3 0 0 0 0 6h3"/><path d="M15 7h3a3 3 0 0 1 0 6h-3"/><path d="M8 10h8"/><path d="M12 13v8"/>',
-  safety: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
-  activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
-  check: '<path d="m5 12 5 5 9-10"/>',
-  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
-  play: '<path d="M7 4v16l13-8z"/>',
-  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
-  power: '<path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
-  warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
-  plug: '<path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/>',
-  inbox: '<path d="M3 13h5l2 3h4l2-3h5"/><path d="M5 5h14l2 8v6H3v-6z"/>',
-  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
-  external: '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v6H4V5h6"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-  moon: '<path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/>',
-  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
-  more: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
-  chevron: '<path d="m9 6 6 6-6 6"/>',
-  pause: '<path d="M8.5 5v14M15.5 5v14"/>',
-  close: '<path d="M6 6l12 12M18 6 6 18"/>',
-  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
-  logout: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
-  chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/>',
-  wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><circle cx="16" cy="15" r="1.2"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  list: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
-  sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
-  grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
-  up: '<path d="m6 15 6-6 6 6"/>',
-  down: '<path d="m6 9 6 6 6-6"/>',
-  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
-  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
-  strategy: '<path d="M3 17h5l4-10 4 10h5"/><path d="M3 21h18"/>',
-  bars: '<path d="M4 20V10M9 20V4M14 20v-7M19 20V8"/>',
-  wave: '<path d="M3 12c2-5 4-5 6 0s4 5 6 0 4-5 6 0"/><path d="M3 20h18"/>',
-  scale: '<path d="M12 4v16M5 20h14M4 8h16"/><path d="m4 8-2.5 6h5zM20 8l-2.5 6h5z"/>',
-  columns: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>',
-  people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.6 2.7-6 6-6s6 2.4 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.3c3 .2 5.5 2.3 5.5 5.7"/>',
-  download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
-  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
-  sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m15 10-2 2 2 2"/>',
-  rail: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/><path d="m13 10 2 2-2 2"/>',
-  density: '<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>',
-  radar: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 18.4 5.6"/><circle cx="15.5" cy="9.5" r="1.1"/>',
+  bridge: '<path d="M2.5 17h19"/><path d="M7 4v13M17 4v13"/><path d="M7 4.5c1.6 8.5 8.4 8.5 10 0"/><path d="M2.5 11.5 7 4.5M21.5 11.5 17 4.5"/>',
+  home: '<path d="M4 10.8 12 4.2l8 6.6V19a1 1 0 0 1-1 1h-4v-5.5H9V20H5a1 1 0 0 1-1-1z"/>',
+  accounts: '<rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10.8" r="2"/><path d="M5.8 16c.7-1.5 1.9-2.2 3.2-2.2s2.5.7 3.2 2.2"/><path d="M15 10h3.2M15 13.6h3.2"/>',
+  console: '<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="m7.5 10 3 2.5-3 2.5"/><path d="M13 15h3.5"/>',
+  limits: '<path d="M4.6 17.2a8.2 8.2 0 1 1 14.8 0"/><path d="M12 13.2 15.2 9"/><path d="M12 13.2h.01" stroke-width="3"/>',
+  orders: '<rect x="5" y="3.5" width="14" height="17" rx="3"/><path d="M9 9h6M9 12.5h6M9 16h3.5"/>',
+  keys: '<circle cx="8" cy="15.5" r="3.6"/><path d="m10.6 12.9 8.4-8.4"/><path d="m16 7.5 2.5 2.5"/><path d="m13.4 10.1 1.8 1.8"/>',
+  integrations: '<path d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 0 0-5.1-5.1l-.9.9"/><path d="M13.8 10.2a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 0 0 5.1 5.1l.9-.9"/>',
+  safety: '<path d="M12 3.5 5 6v5.6c0 4.1 2.8 7.3 7 8.9 4.2-1.6 7-4.8 7-8.9V6z"/><path d="m9 12 2.2 2.2 4.1-4.2"/>',
+  activity: '<path d="M3 12h3.6l2.4-6 4 12 2.4-6H21"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  copy: '<rect x="8.5" y="8.5" width="11" height="11" rx="2.6"/><path d="M15.5 8.5V7A2.5 2.5 0 0 0 13 4.5H7A2.5 2.5 0 0 0 4.5 7v6A2.5 2.5 0 0 0 7 15.5h1.5"/>',
+  play: '<path d="M8 6v12a.9.9 0 0 0 1.4.8l9.3-6a.9.9 0 0 0 0-1.5l-9.3-6A.9.9 0 0 0 8 6z"/>',
+  refresh: '<path d="M18.6 12.2a6.6 6.6 0 1 1-1.9-4.7"/><path d="M17.4 3.8v3.9h-3.9"/>',
+  plus: '<path d="M12 5.5v13M5.5 12h13"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2.8"/>',
+  info: '<circle cx="12" cy="12" r="8.8"/><path d="M12 11.2v5"/><path d="M12 7.9h.01" stroke-width="2.4"/>',
+  warn: '<path d="M10.3 4.7 3 17.3a2 2 0 0 0 1.7 3h14.6a2 2 0 0 0 1.7-3L13.7 4.7a2 2 0 0 0-3.4 0z"/><path d="M12 9.6v3.9"/><path d="M12 16.8h.01" stroke-width="2.4"/>',
+  plug: '<path d="M9 3.5v4M15 3.5v4"/><path d="M6.5 7.5h11V11a5.5 5.5 0 0 1-11 0z"/><path d="M12 16.5V21"/>',
+  inbox: '<path d="m3.6 13.5 2.4-7.7a2 2 0 0 1 1.9-1.3h8.2a2 2 0 0 1 1.9 1.3l2.4 7.7"/><path d="M3.6 13.5V18a2 2 0 0 0 2 2h12.8a2 2 0 0 0 2-2v-4.5H15l-1 2H10l-1-2z"/>',
+  bolt: '<path d="M13.2 3 5 13.6h6L10.8 21 19 10.4h-6z"/>',
+  external: '<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M18 14v3.5a2 2 0 0 1-2 2H6.5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2H10"/>',
+  sun: '<circle cx="12" cy="12" r="3.8"/><path d="M12 3.5v1.7M12 18.8v1.7M3.5 12h1.7M18.8 12h1.7M6 6l1.2 1.2M16.8 16.8 18 18M6 18l1.2-1.2M16.8 7.2 18 6"/>',
+  moon: '<path d="M19.5 14.4A8 8 0 0 1 9.6 4.5a8 8 0 1 0 9.9 9.9z"/>',
+  monitor: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="2.6"/><path d="M8.5 20h7M12 16v4"/>',
+  more: '<path d="M5.5 12h.01M12 12h.01M18.5 12h.01" stroke-width="3"/>',
+  chevron: '<path d="m9.5 6 6 6-6 6"/>',
+  close: '<path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/>',
+  search: '<circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.5 4.5"/>',
+  logout: '<path d="M10 4.5H7A2.5 2.5 0 0 0 4.5 7v10A2.5 2.5 0 0 0 7 19.5h3"/><path d="m15 8 4 4-4 4"/><path d="M19 12H9.5"/>',
+  chart: '<path d="M4 4.5V18a2 2 0 0 0 2 2h14"/><path d="m8 14.5 3.5-4 3 2.5 4.5-6"/>',
+  wallet: '<rect x="3.5" y="6.5" width="17" height="12.5" rx="3"/><path d="M20.5 11.5h-4a2 2 0 0 0 0 4h4"/><path d="M16.8 13.5h.01" stroke-width="2.4"/>',
+  clock: '<circle cx="12" cy="12" r="8.8"/><path d="M12 7.5V12l3 2"/>',
+  list: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><path d="M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" stroke-width="3"/>',
+  up: '<path d="m6.5 14.5 5.5-5.5 5.5 5.5"/>',
+  down: '<path d="m6.5 9.5 5.5 5.5 5.5-5.5"/>',
+  scale: '<path d="M12 4.5v15M7 19.5h10M5 7.5h14"/><path d="m5 7.5-2.5 6a2.5 2.5 0 0 0 5 0zM19 7.5l-2.5 6a2.5 2.5 0 0 0 5 0z"/>',
+  user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.5-3.8 3.4-6 7-6s6.5 2.2 7 6"/>',
+  download: '<path d="M12 4.5v10M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/>',
+  sidebar: '<rect x="3.5" y="4.5" width="17" height="15" rx="3.5"/><path d="M9.5 4.5v15"/><path d="m16 9.5-2.5 2.5 2.5 2.5"/>',
+  rail: '<rect x="3.5" y="4.5" width="17" height="15" rx="3.5"/><path d="M9.5 4.5v15"/><path d="m13.5 9.5 2.5 2.5-2.5 2.5"/>',
+  density: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M9.9 5.7A9.4 9.4 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.5 3.3M6.5 7.3C3.9 9.1 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.6 0 3-.4 4.3-1.1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m4 4 16 16"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.8"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+  trash: '<path d="M4.5 7h15M9.5 7V5.2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V7M6.5 7l.8 11.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v5M14 11v5"/>',
+  arrow: '<path d="M5 12h14M13.5 6.5 19 12l-5.5 5.5"/>',
 };
+/** An <svg class="ic"> for `name` (see ICONS). Its size and colour come from the surrounding CSS (app.css 4). */
 export function icon(name) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   s.setAttribute("viewBox", "0 0 24 24");
+  s.setAttribute("class", "ic");
   s.setAttribute("aria-hidden", "true");
   s.setAttribute("focusable", "false");
   s.innerHTML = ICONS[name] ?? "";
@@ -618,37 +626,103 @@ export function icon(name) {
 }
 
 /**
- * The coloured squircle behind an icon (IPO Decode's IconTile, Settings-style). `tint` is an iOS system colour name
- * (blue, green, red, orange, indigo, purple, pink, teal, mint, gray); `size` is "sm" (28), "md" (32) or "lg" (44).
+ * The coloured squircle behind an icon (Settings-style). `tint` is a tile hue (blue, green, red, orange, teal, indigo,
+ * purple, pink, gray); `size` is "sm" (26), "md" (32) or "lg" (44).
  */
 export function iconTile(name, tint = "blue", size = "md") {
   return h("span", { class: `icon-tile tint-${tint} tile-${size}`, "aria-hidden": "true" }, icon(name));
 }
 
-/** A HUD confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`. */
+/**
+ * A confirmation in #toast (one at a time; a new one replaces the old). views.js may hide it with `$("toast").hidden = true`.
+ * Two fixed live regions inside it carry the words: a polite one for a done action, an assertive one for a failure
+ * (a role that changes on one region is not announced reliably). It pauses while the pointer or focus is on it; a
+ * failure stays until dismissed, a caution 8 s, the rest 4 s.
+ */
 export function toast(text, { tone = "ok" } = {}) {
   text = plainBrokerMessage(text);
   const t = document.getElementById("toast");
   const gen = (toast.gen = (toast.gen ?? 0) + 1);
   const wasHidden = t.hidden;
   // Tones: "ok" a done action (green check); "info" a refused or not-yet-possible action (neutral ⓘ); "warn" a caution
-  // (amber !); "error" a failure (red !, read out at once, stays a little longer). Never the green check for a problem.
+  // (amber !); "error" a failure (red !, announced at once, stays until dismissed). Never the green check for a problem.
   const kind = TOAST_TONES.has(tone) ? tone : "ok";
   const glyph = kind === "ok" ? "check" : kind === "info" ? "info" : "warn";
   t.dataset.tone = kind;
-  t.setAttribute("role", kind === "error" ? "alert" : "status");
-  t.replaceChildren(h("span", { class: `toast-icon${kind === "ok" ? "" : ` ${kind}`}` }, icon(glyph)), h("span", { class: "toast-text" }, text));
+  const polite = t.querySelector("#toast-polite");
+  const assertive = t.querySelector("#toast-assertive");
+  const [live, other] = kind === "error" ? [assertive, polite] : [polite, assertive];
+  const wait = kind === "error" ? 0 : kind === "warn" ? 8000 : 4000;
+  // The same words again within 2 s: one toast with a count, its timer restarted (nothing re-announced or re-animated).
+  const key = typeof text === "string" ? `${kind}|${text}` : null;
+  if (!wasHidden && key && toast.last?.key === key && Date.now() - toast.last.at < 2000) {
+    toast.last.at = Date.now();
+    const n = ++toast.last.n;
+    let count = live.querySelector(".toast-count");
+    if (!count) live.querySelector(".toast-text")?.after((count = h("span", { class: "toast-count" })));
+    setText(count, `×${n}`);
+    toast.arm?.(wait);
+    return;
+  }
+  toast.last = key ? { key, at: Date.now(), n: 1 } : null;
+  // The toast that is still showing stays behind as a shrunken copy that slides away (at most two copies).
+  if (!wasHidden) stackGhost(t);
+  other.replaceChildren();
+  live.replaceChildren(h("span", { class: `toast-icon${kind === "ok" ? "" : ` ${kind}`}` }, icon(glyph)), h("span", { class: "toast-text" }, text));
   t.hidden = false;
   raiseToast(t);
   placeToast(t);
-  if (wasHidden) bannerIn(t);
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => {
+  bannerIn(t, t.dataset.place === "top" || (!t.dataset.place && window.matchMedia?.("(min-width: 1024px)").matches) ? "up" : "down");
+  const close = () => {
+    clearTimeout(toast.timer);
     // Hide after sliding out, unless another toast took over meanwhile.
     bannerOut(t).then(() => {
       if (toast.gen === gen) t.hidden = true;
     });
-  }, kind === "error" || kind === "warn" ? 4200 : 2600);
+  };
+  const arm = (ms) => {
+    clearTimeout(toast.timer);
+    if (ms > 0) toast.timer = setTimeout(close, ms);
+  };
+  arm(wait);
+  toast.arm = (ms) => arm(ms ? Math.max(ms, 2000) : 0);
+  toast.wait = wait;
+  toast.close = close;
+}
+function setupToast() {
+  const t = document.getElementById("toast");
+  if (!t || t.dataset.ready) return;
+  t.dataset.ready = "1";
+  const hold = () => {
+    if (toast.timer) clearTimeout(toast.timer);
+  };
+  const release = () => {
+    if (!t.hidden && toast.wait) toast.arm(toast.wait);
+  };
+  t.addEventListener("pointerenter", hold);
+  t.addEventListener("pointerleave", release);
+  t.addEventListener("focusin", hold);
+  t.addEventListener("focusout", release);
+  t.querySelector(".toast-close")?.addEventListener("click", () => toast.close?.());
+  t.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") toast.close?.();
+  });
+  // Swipe toward the edge the toast sits on to dismiss it (60 px or 500 px/s); otherwise it springs back.
+  swipeDismiss(t, {
+    axis: "y",
+    directions: () => [t.getBoundingClientRect().top < window.innerHeight / 2 ? -1 : 1],
+    onStart: hold,
+    onEnd: release,
+    onDismiss: () => {
+      clearTimeout(toast.timer);
+      toast.gen = (toast.gen ?? 0) + 1;
+      t.hidden = true;
+    },
+  });
+}
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setupToast);
+  else setupToast();
 }
 const TOAST_TONES = new Set(["ok", "info", "warn", "error"]);
 
@@ -674,8 +748,7 @@ function toastCovers(t) {
 }
 
 /**
- * The control the person used last (pointer or key), so a toast never lands on it: a slider dragged on Strategy, the
- * button just pressed. Kept for 4s; after that only the count of covered controls decides.
+ * The control the person used last (pointer or key), so a toast never lands on it: the button just pressed. Kept for 4s; after that only the count of covered controls decides.
  */
 let lastUsed = null;
 let lastUsedAt = 0;
@@ -747,12 +820,11 @@ export async function copyText(text, label = "Copied") {
 }
 
 /** A Copy button that answers on itself too: "Copied" with a check for a moment, then back to its label. */
-export function copyButton(getText, { label = "Copy", done = "Copied", toastLabel = "Copied", cls = "small copy", onCopy, ariaLabel } = {}) {
+export function copyButton(getText, { label = "Copy", done = "Copied", toastLabel = "Copied", cls = "small copy", ariaLabel } = {}) {
   const b = h("button", { type: "button", class: cls, ...(ariaLabel ? { "aria-label": ariaLabel } : {}) }, icon("copy"), label);
   b.addEventListener("click", async () => {
     const ok = await copyText(typeof getText === "function" ? getText() : getText, toastLabel);
     if (!ok) return;
-    onCopy?.();
     clearTimeout(b._copiedTimer);
     b.dataset.copied = "true";
     b.replaceChildren(icon("check"), done);
@@ -776,13 +848,13 @@ export function highlightJson(text) {
 
 /**
  * A code block: a head row (title, Copy) above the code, so Copy never covers it; the code scrolls sideways instead of
- * wrapping mid-token. `onCopy` runs after copying (the welcome checklist listens).
+ * wrapping mid-token.
  */
-export function codeBlock(code, { title, json = false, onCopy } = {}) {
+export function codeBlock(code, { title, json = false } = {}) {
   const pre = h("pre", { tabindex: "0" });
   if (json) pre.innerHTML = highlightJson(code);
   else pre.textContent = code;
-  const btn = copyButton(code, { onCopy, ariaLabel: title ? `Copy: ${title}` : "Copy" });
+  const btn = copyButton(code, { ariaLabel: title ? `Copy: ${title}` : "Copy" });
   return h("div", { class: "code-block" }, h("div", { class: "code-head" }, h("div", { class: "code-title" }, title ?? ""), btn), h("div", { class: "code" }, pre));
 }
 
@@ -797,7 +869,7 @@ export function pill(text, cls = "") {
 
 /**
  * The one empty state: icon tile, title, one line and an action (a node or a list). `compact: true` is the in-card
- * variant (no icon tile, 16 px padding) for Options panels.
+ * variant (no icon tile, 16 px padding).
  */
 export function emptyState(iconName, title, text, action, { compact = false } = {}) {
   return h(
@@ -810,296 +882,27 @@ export function emptyState(iconName, title, text, action, { compact = false } = 
   );
 }
 
-// ── Shared states for the Options pages (PRD 08 §5): one look for loading, error, freshness ──
-
-const mm = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
-/** True when the only pointer is a finger (no mouse or trackpad as well). */
-export const touchOnly = () => mm("(pointer: coarse)") && !mm("(any-pointer: fine)");
-/** "Tap" on touch-only screens, "Click" elsewhere (P4: phones never read "press B"). */
-export const touchWord = () => (touchOnly() ? "Tap" : "Click");
-/** A keyboard hint, only where there is a keyboard-class pointer: "" on touch-only screens. */
-export const keyHint = (text) => (touchOnly() ? "" : text);
-
 /**
- * Skeleton rows at the final row height (no layout shift when the data lands), with one screen-reader line. The
- * host panel should carry aria-busy while it shows. Static DOM: no timers.
+ * A loading placeholder for a card: a head line and `lines` shimmering text lines (class names in app.css 8). Pages may
+ * return it while they wait; the router shows pageSkeleton() itself until a page has drawn.
  */
-export function loadingState({ rows = 8, cols = 4, label = "Loading", height = null } = {}) {
-  const el = h(
-    "div",
-    { class: "skel-state", role: "status" },
-    h("span", { class: "sr-only" }, label),
-    Array.from({ length: rows }, () => h("div", { class: "skel-row", "aria-hidden": "true" }, Array.from({ length: cols }, () => h("i")))),
-  );
-  if (height) el.style.setProperty("--skel-h", `${height}px`);
-  return el;
-}
-
-/**
- * An error in plain words with Retry. Without data it sits in the panel body; with data kept (`lastGood`, an ISO
- * time) it is a slim bar at the top of the panel saying what is still shown.
- */
-export function errorState(err, { onRetry = null, lastGood = null } = {}) {
-  const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err ?? "Something went wrong"), detail: err?.detail ?? "" };
-  const auth = ["SESSION_EXPIRED", "UNAUTHENTICATED", "NO_ACCOUNT", "BROKER_UNAVAILABLE", "SYMBOL_NOT_FOUND"].includes(err?.code);
-  const retry = onRetry ? h("button", { type: "button", class: "small err-retry", onclick: () => onRetry() }, icon("refresh"), "Retry") : null;
-  if (lastGood) {
-    // An answer without a known code: say what the server said ("Broker feed unavailable (503)"), not just its status.
-    const said = typeof err?.message === "string" && err.message && !/^HTTP \d+$/.test(err.message) ? err.message.replace(/\.$/, "") : "";
-    const what = said && f.title.startsWith("The Bridge answered") ? `${said} (${err.status})` : f.title;
-    return h(
-      "div",
-      { class: "err-bar", role: "alert" },
-      icon("warn"),
-      h("span", { class: "err-text" }, h("strong", {}, `Couldn't refresh: ${what}.`), ` Showing ${istTime(lastGood)}.`),
-      retry,
-    );
-  }
+export function skeletonCard(lines = 3) {
   return h(
     "div",
-    { class: "err-state", role: "alert" },
-    h("strong", {}, f.title),
-    f.detail ? h("p", {}, f.detail) : null,
-    h("div", { class: "empty-acts" }, retry, auth ? h("a", { href: "#/accounts", class: "err-link" }, "Log in on Accounts") : null),
+    { class: "card skel-card", "aria-hidden": "true" },
+    h("div", { class: "skel-head" }, h("span", { class: "skel-circle" }), h("span", { class: "skel-title" })),
+    Array.from({ length: lines }, (_, i) => h("span", { class: i === lines - 1 ? "skel-line short" : i === 0 ? "skel-line" : "skel-line mid" })),
   );
 }
-
-/**
- * The Options top bar's one live control: Live / Pause and data freshness in a single button (docs/design/foundation.md
- * §5.1). "● 08:52:24" while live, "Paused · 12 s old", "Stale · 45 s old", "Not updating · 2 min old",
- * "Market closed · 15:29:59". update() patches text nodes only; tick() pulses the dot once (one successful refresh).
- */
-export function liveControl({ onToggle, refreshMs = 3000 } = {}) {
-  const text = document.createTextNode("Waiting");
-  const dot = h("span", { class: "live-dot", "aria-hidden": "true" });
-  const glyph = h("span", { class: "live-glyph", "aria-hidden": "true" });
-  const el = h("button", { type: "button", class: "live-ctl", "aria-keyshortcuts": "P", onclick: () => onToggle?.() }, dot, glyph, h("span", { class: "live-txt" }, text));
-  let sig = "";
-  let flip = false;
-  return {
-    el,
-    update({ kind = "live", asOf = null, ageMs = null, source = null, live = true } = {}) {
-      const t = istTime(asOf);
-      const age = ageMs === null ? "" : ageText(ageMs);
-      const words =
-        kind === "error"
-          ? `Not updating${age ? ` · ${age}` : ""}`
-          : kind === "paused"
-            ? `Paused${age ? ` · ${age}` : ""}`
-            : kind === "stale"
-              ? `Stale${age ? ` · ${age}` : ""}`
-              : kind === "closed"
-                ? `Market closed · ${t}`
-                : asOf
-                  ? t
-                  : "Waiting";
-      const s = `${kind}|${words}|${source}|${asOf}|${live}`;
-      if (s === sig) return;
-      sig = s;
-      if (text.data !== words) text.data = words;
-      // Live with no data yet: "Waiting" with a neutral dot (green would claim a live feed before the first load).
-      el.dataset.kind = kind === "live" && !asOf ? "waiting" : kind;
-      el.setAttribute("aria-pressed", String(live));
-      glyph.replaceChildren(live ? "" : icon("pause"));
-      const what = live ? `Live: refreshing every ${refreshMs / 1000} s. ${touchWord()} to pause${keyHint(" (P)")}` : `Paused. ${touchWord()} to resume${keyHint(" (P)")}`;
-      el.title = [what, source ? `Data from ${source}` : "", asOf ? `${istDateTime(asOf)} IST` : ""].filter(Boolean).join(" · ");
-      // The state word comes first, then what the data is, then the action: "Not updating, data 15 s old. Pause updates".
-      const state = kind === "error" ? "Not updating" : kind === "stale" ? "Stale" : kind === "closed" ? "Market closed" : live ? "Live" : "Paused";
-      const data = kind === "live" || kind === "closed" ? (asOf ? `data as of ${t}` : "waiting for data") : age ? `data ${age}` : "no data yet";
-      el.setAttribute("aria-label", `${state}, ${data}. ${live ? "Pause" : "Resume"} updates`);
-    },
-    /** One ring pulse on the dot (re-added per successful refresh, never an endless loop). */
-    tick() {
-      flip = !flip;
-      dot.classList.toggle("tick-a", flip);
-      dot.classList.toggle("tick-b", !flip);
-    },
-  };
+/** The page placeholder: two skeleton cards. Announced once as "Loading" for screen readers. */
+export function pageSkeleton() {
+  return h("div", { class: "page-skeleton" }, h("span", { class: "sr-only", role: "status" }, "Loading…"), skeletonCard(3), skeletonCard(4));
 }
 
-/**
- * Put the page's context (underlying, expiry, spot, account, live control) into the app toolbar's #toolbar-ctx slot.
- * `page` is the route that owns it: a render that finishes after the visitor has moved on mounts nothing.
- */
-export function mountToolbarCtx(page, ...nodes) {
-  const slot = typeof document !== "undefined" ? document.getElementById("toolbar-ctx") : null;
-  if (!slot || document.documentElement.dataset.page !== page) return false;
-  slot.replaceChildren(...nodes.flat().filter(Boolean));
-  slot.hidden = false;
-  return true;
-}
-
-/**
- * The toolbar pickers (underlying, expiry: a transparent native select over a `.ctx-pick` label) open a menu drawn
- * like the dashboard's popovers instead of the OS list, wherever a mouse or trackpad is used. Touch keeps the native
- * picker. The select stays the source of truth: a choice sets its value and fires "change", so pages need no wiring.
- */
-function installCtxPicker() {
-  const fine = () => typeof matchMedia !== "function" || matchMedia("(pointer: fine)").matches;
-  /** @type {{ el: HTMLElement, sel: HTMLSelectElement, label: Element, close: (refocus?: boolean) => void } | null} */
-  let open = null;
-  const pickOf = (t) => {
-    const sel = t?.closest?.(".ctx-pick")?.querySelector("select");
-    return sel && !sel.disabled ? /** @type {HTMLSelectElement} */ (sel) : null;
-  };
-  const show = (sel, viaKeyboard) => {
-    if (open) {
-      const same = open.sel === sel;
-      open.close(false);
-      if (same) return;
-    }
-    const label = sel.closest(".ctx-pick");
-    const items = [...sel.options].map((o) =>
-      h("button", { type: "button", role: "option", class: "ctx-menu-item", "aria-selected": String(o.selected), disabled: o.disabled, "data-value": o.value, tabindex: "-1" },
-        h("span", { class: "ctx-menu-text" }, o.textContent), h("span", { class: "ctx-menu-check", "aria-hidden": "true" })));
-    const el = h("div", { class: "ctx-menu", role: "listbox", "aria-label": sel.getAttribute("aria-label") ?? "" }, items);
-    document.body.append(el);
-    label.classList.add("open");
-    const place = () => {
-      const r = label.getBoundingClientRect();
-      el.style.minWidth = `${Math.max(r.width, 140)}px`;
-      const w = el.offsetWidth;
-      el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
-      el.style.top = `${r.bottom + 6}px`;
-      el.style.maxHeight = `${Math.max(160, innerHeight - r.bottom - 18)}px`;
-    };
-    place();
-    const focusAt = (i) => {
-      const live = items.filter((b) => !b.disabled);
-      if (!live.length) return;
-      const b = live[(i + live.length) % live.length];
-      b.focus({ preventScroll: true });
-      b.scrollIntoView({ block: "nearest" });
-    };
-    const current = items.find((b) => b.getAttribute("aria-selected") === "true");
-    current?.scrollIntoView({ block: "center" });
-    if (viaKeyboard) focusAt(Math.max(0, items.filter((b) => !b.disabled).indexOf(current)));
-    const outside = (e) => { if (!el.contains(e.target) && !label.contains(e.target)) close(false); };
-    const onScroll = (e) => { if (!el.contains(e.target)) close(false); };
-    const onHash = () => close(false);
-    function close(refocus) {
-      if (open?.el !== el) return;
-      open = null;
-      el.remove();
-      label.classList.remove("open");
-      document.removeEventListener("pointerdown", outside, true);
-      removeEventListener("scroll", onScroll, true);
-      removeEventListener("resize", onHash);
-      removeEventListener("hashchange", onHash);
-      if (refocus) sel.focus({ preventScroll: true });
-    }
-    const choose = (b, refocus) => {
-      close(refocus);
-      if (sel.value === b.dataset.value) return;
-      sel.value = b.dataset.value;
-      sel.dispatchEvent(new Event("input", { bubbles: true }));
-      sel.dispatchEvent(new Event("change", { bubbles: true }));
-    };
-    el.addEventListener("click", (e) => {
-      const b = /** @type {Element} */ (e.target).closest?.(".ctx-menu-item");
-      if (b && !(/** @type {HTMLButtonElement} */ (b).disabled)) choose(b, false);
-    });
-    el.addEventListener("keydown", (e) => {
-      const live = items.filter((b) => !b.disabled);
-      const i = live.indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
-      if (e.key === "ArrowDown") focusAt(i + 1);
-      else if (e.key === "ArrowUp") focusAt(i < 0 ? -1 : i - 1);
-      else if (e.key === "Home") focusAt(0);
-      else if (e.key === "End") focusAt(-1);
-      else if (e.key === "Escape" || e.key === "Tab") close(true);
-      else if ((e.key === "Enter" || e.key === " ") && i >= 0) choose(live[i], true);
-      else return;
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    setTimeout(() => open?.el === el && document.addEventListener("pointerdown", outside, true));
-    addEventListener("scroll", onScroll, true);
-    addEventListener("resize", onHash);
-    addEventListener("hashchange", onHash);
-    open = { el, sel, label, close };
-  };
-  document.addEventListener("pointerdown", (e) => {
-    const sel = e.button === 0 && fine() ? pickOf(e.target) : null;
-    if (!sel) return;
-    e.preventDefault(); // no OS list, and no focus ring for a mouse press
-    show(sel, false);
-  }, true);
-  document.addEventListener("keydown", (e) => {
-    const sel = fine() && /** @type {Element} */ (e.target)?.matches?.(".ctx-pick select") ? pickOf(e.target) : null;
-    if (!sel || !(e.key === "Enter" || e.key === " " || (e.key === "ArrowDown" && e.altKey) || e.key === "F4")) return;
-    e.preventDefault();
-    show(sel, true);
-  }, true);
-}
+const mm = (q) => typeof matchMedia === "function" && matchMedia(q).matches;
 
 /** The one demo indicator's explanation (the toolbar's "Demo" and the phone ⋯ badge). */
 export const DEMO_EXPLAINER = "Sample prices generated on this computer. Not live market data. Orders are paper only.";
-
-/**
- * A chart slot: the light chart engine (chart-lite.js, registered as `app.chartEngine`) draws into it. The engine
- * module loads on the first slot, so a page without a chart never fetches it. Returns the slot element with
- * `el.chart`, a controller usable at once (calls made before the engine arrives are queued):
- *   el.chart.set(spec)     draw this data now (live data: one redraw per frame however often it is called)
- *   el.chart.load(loader)  load with `async () => spec` (a new contract or underlying), drawn when near the viewport
- *   el.chart.reload()      run the loader again
- *   el.chart.destroy()     stop it (charts also stop themselves when their box leaves the page)
- * `opts`: { data?: spec, load?: loader, refreshMs?, id? }. A spec is chart-lite-core.js `buildModel`'s; a loader may
- * return { empty: { title, text } } when no data source exists yet, and the slot says so plainly.
- * The second argument may be the options object (no sub-line). Null only if no engine is registered.
- */
-export function chartSlot(label, sub = "", opts = {}) {
-  if (!app.chartEngine) return null;
-  if (sub && typeof sub === "object") [opts, sub] = [sub, ""];
-  const box = h("div", { class: "lc-slot", "data-chart-slot": opts.id ?? undefined, "aria-label": label, role: "group" }, sub ? h("p", { class: "lc-sub" }, sub) : null);
-  box.chart = app.chartEngine.mount(box, { label, ...opts });
-  return box;
-}
-
-/** The engine behind `app.chartEngine`: chart-lite.js, imported on first use; a controller proxy until it arrives. */
-let chartModule = null;
-function chartEngine() {
-  const load = () => (chartModule ??= import("./chart-lite.js"));
-  return {
-    name: "chart-lite",
-    load,
-    /** Mount a chart slot in `box` (see chartSlot); the returned controller queues calls until the module is in. */
-    mount(box, opts) {
-      let real = null;
-      let dead = false;
-      let lastSet = null;
-      let lastLoad = null;
-      let reloads = 0;
-      const host = h("div", { class: "lc-wrap" });
-      box.append(host);
-      load()
-        .then((m) => {
-          if (dead) return;
-          real = m.mountSlot(host, opts);
-          if (lastLoad) real.load(lastLoad);
-          if (lastSet) real.set(lastSet);
-          if (reloads && !lastLoad) real.reload();
-        })
-        .catch(() => host.replaceChildren(emptyState("chart", "Chart unavailable", "The chart module did not load. Reload the page to try again.", null, { compact: true })));
-      return {
-        set: (spec) => (real ? real.set(spec) : (lastSet = spec)),
-        load: (fn) => (real ? real.load(fn) : (lastLoad = fn)),
-        reload: () => (real ? real.reload() : (reloads += 1)),
-        destroy: () => ((dead = true), real?.destroy()),
-        get chart() {
-          return real?.chart ?? null;
-        },
-      };
-    },
-    /** Open a chart full size (chart-lite.js openChartModal): { label, load, studies? }. */
-    async open(title, opts) {
-      return (await load()).openChartModal(title, opts);
-    },
-    /** Create a chart directly in `host` (no loader or states): resolves to chart-lite.js createChart's chart. */
-    async create(host, spec) {
-      return (await load()).createChart(host, spec);
-    },
-  };
-}
 
 /**
  * A popover that is a bottom sheet on phones (< 720 px, in #dialog with aria-modal) and a body-attached popover from
@@ -1176,20 +979,32 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
   const outside = (e) => {
     if (el && !el.contains(e.target) && !trigger?.contains(e.target)) close();
   };
+  let closing = false;
   function close() {
-    if (closed) return;
+    if (closed || closing) return;
     if (phone) {
       const d = document.getElementById("dialog");
-      if (d.open) d.close();
-      else done();
+      if (!d.open) return done();
+      // The sheet slides away on the same spring as a swipe, then the dialog closes (focus returns to the trigger).
+      closing = true;
+      d.inert = true;
+      sheetOut(d, d).then(() => {
+        d.inert = false;
+        if (d.open) d.close();
+        else done();
+      });
       return;
     }
-    el?.remove();
+    // A popover leaves with a 100 ms fade; it is inert meanwhile.
+    closing = true;
+    if (el) el.inert = true;
+    fadeOut(el).then(() => el?.remove());
     done();
   }
   trigger?.setAttribute("aria-expanded", "true");
   if (phone) {
     const d = document.getElementById("dialog");
+    scrubOnClose(d);
     d.classList.add("sheet");
     el = h("div", { class: `pop-sheet ${cls}`.trim() }, headEl, body);
     d.replaceChildren(h("div", { class: "sheet-grabber", "aria-hidden": "true" }), el);
@@ -1235,7 +1050,20 @@ export function sheetPopover({ trigger, title, body, head = [], cls = "", onClos
 
 export function alertBox(err, cls = "bad") {
   const f = err instanceof Error || err?.code || err?.network ? friendlyError(err) : { title: String(err?.title ?? err), detail: err?.detail ?? "" };
-  return h("div", { class: `alert ${cls}`, role: "alert" }, icon(cls === "info" ? "info" : "warn"), h("div", {}, h("strong", {}, f.title), f.detail ? h("span", { class: "detail" }, f.detail) : null));
+  // The likely fix as one button (easy-core.js fixFor): log in, open Keys, see why it is slow. A plain retry is left to the
+  // caller, which knows what to run again.
+  const fix = cls === "bad" && (err instanceof Error || err?.code || err?.status) ? fixFor(err) : null;
+  const act = fix && fix.id !== "retry" ? h("div", { class: "alert-actions alert-fix" }, h("button", { type: "button", class: "small tinted", onclick: () => runFix(fix) }, fix.label)) : null;
+  return h("div", { class: `alert ${cls}`, role: "alert" }, icon(cls === "info" ? "info" : cls === "ok" ? "check" : "warn"), h("div", {}, h("strong", {}, f.title), f.detail ? h("span", { class: "detail" }, f.detail) : null, act));
+}
+
+/** Do what a fix button says (easy-core.js fixFor): sign in again, or go to the page that explains and fixes it. */
+export function runFix(fix) {
+  const d = document.getElementById("dialog");
+  if (d?.open) (d.closeNow ? d.closeNow() : d.close());
+  if (fix.id === "login") forgetKey();
+  else if (fix.id === "retry") dispatchEvent(new HashChangeEvent("hashchange"));
+  else if (fix.route) location.hash = `#/${fix.route}`;
 }
 
 /**
@@ -1264,7 +1092,7 @@ export function table(columns, rows, empty, { mobile = "stack", caption = null }
   );
 }
 
-/** A grouped content card (IPO Decode's lg-card) with an optional tinted icon tile in its header. */
+/** A grouped content card with an optional tinted icon tile in its header. */
 export function card({ title, sub, actions, body, flush = false, cls = "", id, glyph, tint = "blue" }) {
   return h(
     "section",
@@ -1276,19 +1104,6 @@ export function card({ title, sub, actions, body, flush = false, cls = "", id, g
   );
 }
 
-/** A plain section label over a group that has no title of its own (Home's "Today" figures). No pill, no rule. */
-export function sectionEyebrow(label) {
-  return h("h2", { class: "sec-eyebrow" }, label);
-}
-
-export function meterRow(name, used, limit, valueText) {
-  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
-  const span = h("span");
-  span.style.width = `${Math.max(pct, used > 0 ? 3 : 0)}%`;
-  const cls = pct >= 90 ? "bad" : pct >= 60 ? "warn" : "ok";
-  return h("div", { class: "meter" }, h("span", { class: "name" }, name), h("div", { class: `bar ${cls}` }, span), h("span", { class: "val" }, valueText ?? `${used} / ${limit}`));
-}
-
 const IST_TIME = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const IST_DATE_TIME = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hourCycle: "h23", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const validDate = (iso) => (iso ? !Number.isNaN(new Date(iso).getTime()) : false);
@@ -1297,20 +1112,37 @@ export const istDateTime = (iso) => (validDate(iso) ? IST_DATE_TIME.format(new D
 
 // ── Sheet (modal dialog) ──
 
+/**
+ * Empty the shared dialog once it has closed. A sheet can hold a secret shown once (a new API key, a ready-to-paste snippet);
+ * a closed <dialog> is still in the page, so without this the key stays in the DOM (readable by an extension or a saved page)
+ * until another sheet reuses the dialog. A sheet that opens again before the close event arrives is left alone.
+ * Installed once per dialog, before any sheet adds its own close listener.
+ */
+export function scrubOnClose(d) {
+  if (!d || d.scrubsOnClose) return;
+  d.scrubsOnClose = true;
+  d.addEventListener("close", () => {
+    if (!d.open) d.replaceChildren();
+  });
+}
+
 /** While a sheet or the palette is open the page behind it does not scroll. */
 export function lockScroll(on) {
   document.documentElement.classList.toggle("sheet-open", Boolean(on));
 }
 
 /**
- * Show a sheet: a bottom sheet on phones, a centred card from 720px up (IPO Decode's Sheet). The native modal
+ * Show a sheet: a bottom sheet on phones, a centred card from 720px up. The native modal
  * <dialog> keeps focus inside and returns it to the opener; Escape, the close button and a tap on the dimmed backdrop
  * close it; the page behind stops scrolling. buttons: [{ label, cls, value, onClick? }]; onClick returning false keeps
  * it open. `body` may be a function that receives close(value). Resolves with the value (undefined when dismissed).
  * A button may carry `id`, and `ref(el)` is called with its element once drawn (so callers keep a direct reference).
+ * `dirty()` says there is something typed that closing would lose: Escape, the X, the backdrop, a swipe and a button that
+ * answers "no" then ask "Discard changes?" inside the sheet first (a second Escape means "keep editing").
  */
-export function modal({ title, body, buttons = [], canClose = null }) {
+export function modal({ title, body, buttons = [], canClose = null, dirty = null }) {
   const d = document.getElementById("dialog");
+  scrubOnClose(d);
   d.classList.add("sheet");
   return new Promise((resolve) => {
     const token = (modal.token = {});
@@ -1337,9 +1169,30 @@ export function modal({ title, body, buttons = [], canClose = null }) {
     // Animate the sheet away, then close the native dialog (focus returns to the opener) and resolve.
     // canClose() === false refuses Escape, the X and a backdrop tap (e.g. while orders are going out). The body's own
     // buttons pass force = true once they have decided.
+    const askDiscard = () => {
+      const had = d.querySelector(".sheet-discard");
+      if (had) {
+        // Escape again: keep editing.
+        const back = had._back;
+        had.remove();
+        back?.focus?.({ preventScroll: true });
+        return;
+      }
+      const back = d.contains(document.activeElement) ? document.activeElement : null;
+      const keep = h("button", { type: "button", class: "small", onclick: () => (bar.remove(), back?.focus?.({ preventScroll: true })) }, "Keep editing");
+      const drop = h("button", { type: "button", class: "small destructive", onclick: () => close(undefined, true) }, "Discard");
+      const bar = h("div", { class: "sheet-discard", role: "alert" }, h("strong", {}, "Discard changes?"), h("span", {}, "What you typed here is not saved."), h("div", { class: "sheet-discard-acts" }, keep, drop));
+      bar._back = back;
+      const actions = d.querySelector(".dialog-actions");
+      if (actions) actions.before(bar);
+      else d.querySelector(".dialog-body")?.append(bar);
+      bar.scrollIntoView?.({ block: "nearest" });
+      keep.focus({ preventScroll: true });
+    };
     const close = (v, force = false) => {
       if (closing || settled) return;
       if (!force && canClose && canClose() === false) return;
+      if (!force && dirty && (v === undefined || v === false || v === null) && dirty()) return askDiscard();
       closing = true;
       // While it slides away the sheet is inert: keys typed meanwhile (Ctrl K, a search) never land in its fields.
       // closeNow() ends the slide at once, for the palette opening over it.
@@ -1440,7 +1293,14 @@ export function modal({ title, body, buttons = [], canClose = null }) {
     d.querySelector(".dialog-body")?.scrollTo?.(0, 0);
     // Focus: the first field to type in; else the first action (Cancel, never the confirming one); else Close.
     const first = d.querySelector(".dialog-body :is(input:not([type=hidden]):not([type=radio]):not(:disabled), select, textarea)") ?? d.querySelector(".dialog-actions button") ?? closeBtn;
-    first.focus({ preventScroll: true });
+    // On a touch screen a field that takes focus raises the keyboard over the sheet at once: focus the title instead
+    // (the sheet is named and the reader starts in the right place); the person taps the field when ready.
+    const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+    if (touch && first.closest(".dialog-body")) {
+      const heading = d.querySelector(".sheet-title");
+      heading?.setAttribute("tabindex", "-1");
+      (heading ?? first).focus({ preventScroll: true });
+    } else first.focus({ preventScroll: true });
     sheetIn(d, d);
   });
 }
@@ -1490,24 +1350,6 @@ export function confirmCodeNotice(ticketId, result) {
     token,
     text: `Ticket ${ticketId} confirmed. Give this single-use code to the client that prepared it${expiresAt ? `; it expires at ${istTime(expiresAt)} IST` : ""}. It is shown only once.`,
   };
-}
-
-/**
- * Welcome checklist state from what the Bridge reports plus what this browser remembers. Pure.
- * @returns {Array<{ id: string, done: boolean }>}
- */
-export function checklistState({ demo = false, accounts = [], keys = [], chainOpened = false, traded = false, orders = [] }) {
-  const brokerConnected = accounts.some((a) => a.broker !== "paper" && a.session?.state === "connected");
-  // A key for a tool: active, not the dashboard's own sign-in key and not an admin key (init makes one of those).
-  const toolKeys = keys.filter((k) => !k.revokedAt && !(k.expiresAt && Date.parse(k.expiresAt) < Date.now()) && !(k.clientKind === "ui" && k.label === SIGN_IN_KEY_LABEL) && !(k.scopes ?? []).includes("admin"));
-  // A paper order the person placed (demo mode seeds a few of its own, tagged DEMOSEED).
-  const placed = orders.some((o) => o?.mode === "paper" && o.tag !== "DEMOSEED");
-  return [
-    { id: "broker", done: demo || brokerConnected },
-    { id: "key", done: toolKeys.length >= 1 },
-    { id: "chain", done: Boolean(chainOpened) },
-    { id: "trade", done: Boolean(traded) || placed },
-  ];
 }
 
 // ── Broker login form (pure; tested) ──
@@ -1659,31 +1501,6 @@ export function brokerMatches(broker, query) {
   return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
-// ── Kill switch ──
-
-/**
- * "Stop all orders?": the one confirmation for engaging the kill switch (the Safety page and the readiness badge's
- * popover both call it). Resolves true once the switch is on.
- */
-export async function confirmEngageKillSwitch() {
-  const reason = h("input", { value: "Stopped from the dashboard", maxlength: "200" });
-  const cancel = h("input", { type: "checkbox" });
-  const go = await modal({
-    title: "Stop all orders?",
-    body: h("div", { class: "stack" }, h("p", {}, "New orders are refused at once, including ones already queued. Cancels still work."), h("label", { class: "field" }, "Reason", reason), h("label", { class: "check" }, cancel, "Also cancel open orders the Bridge placed")),
-    buttons: [{ label: "Keep trading", value: false }, { label: "Stop all orders", cls: "primary", value: true }],
-  });
-  if (!go) return false;
-  try {
-    await api("/v1/safety/kill-switch", { method: "POST", body: { reason: reason.value || "manual", cancelOpenOrders: cancel.checked } });
-    toast("Kill switch engaged");
-    return true;
-  } catch (err) {
-    await modal({ title: "Could not engage", body: alertBox(err), buttons: [{ label: "Close", value: true }] });
-    return false;
-  }
-}
-
 // ── Theme ──
 
 export function applyTheme(choice) {
@@ -1722,7 +1539,7 @@ export function applyLayout() {
   for (const b of document.querySelectorAll("[data-density-choice]")) b.setAttribute("aria-pressed", String(b.dataset.densityChoice === choice));
   return changed;
 }
-/** Re-fit what measures itself (the chain's columns and height, charts) after the sidebar or density changed. */
+/** Re-fit what measures itself after the sidebar or density changed. */
 const relayout = () => {
   if (applyLayout() && typeof dispatchEvent === "function") requestAnimationFrame(() => dispatchEvent(new Event("resize")));
 };
@@ -1759,37 +1576,51 @@ export function forgetKey() {
 
 // ── App boot (browser only) ──
 
-export const app = { state: { demo: false, health: null, meta: null }, local, chartEngine: null };
-// The light chart engine (chart-lite.js) fills every chart slot; the module itself loads on the first slot.
-app.chartEngine = chartEngine();
+export const app = { state: { demo: false, health: null, meta: null }, local };
+
+/** The last "this Bridge is in demo mode" answer: boot.js uses it to reserve the notice's room at the sign-in screen's first paint. */
+const DEMO_HINT_SLOT = "mcb.dashboard.demo";
 
 async function signIn() {
   const login = document.getElementById("login");
   const shell = document.getElementById("app");
-  // /v1/health needs no key, so the sign-in screen can say "demo" before anyone signs in.
-  fetch("/v1/health")
-    .then((r) => r.json())
-    .then((hl) => {
-      const el = document.getElementById("login-demo");
-      if (el) el.hidden = !hl?.demo;
-    })
-    .catch(() => {});
+  // boot.js may have shown the sign-in screen before this script loaded; from here on the screen's own hidden flag rules.
+  delete document.documentElement.dataset.early;
+  delete document.documentElement.dataset.demoHint;
   if (!memoryKey) {
     login.hidden = false;
     shell.hidden = true;
+    if (session.get(ENDED_SLOT)) {
+      session.set(ENDED_SLOT, null);
+      showLoginError(alertBox({ title: "You were signed out", detail: "The key this page was using was revoked or has expired. Sign in with another key, or run mc-bridge open (in a git checkout: npm run bridge -- open) for a new sign-in link." }, "warn"));
+    }
+    // /v1/health needs no key, so the sign-in screen can say "demo" before anyone signs in.
+    const demoNotice = document.getElementById("login-demo");
+    if (demoNotice) demoNotice.hidden = local.get(DEMO_HINT_SLOT) !== "1"; // the last answer, until this one arrives
+    fetch("/v1/health")
+      .then((r) => r.json())
+      .then((hl) => {
+        if (demoNotice) demoNotice.hidden = !hl?.demo;
+        local.set(DEMO_HINT_SLOT, hl?.demo ? "1" : null);
+      })
+      .catch(() => {});
     document.getElementById("key-input")?.focus();
     return;
   }
+  // The pages' code loads while the key is being checked, not after it.
+  const pages = import("./views.js");
+  pages.catch(() => {});
   try {
     const [health, meta] = await Promise.all([api("/v1/health"), api("/v1/meta")]);
     app.state.health = health.data;
     app.state.meta = meta.data;
     app.state.demo = Boolean(health.data?.demo);
+    local.set(DEMO_HINT_SLOT, app.state.demo ? "1" : null);
   } catch (err) {
     if (err.status === 401 || err.status === 403) setKey(null);
     login.hidden = false;
     shell.hidden = true;
-    document.getElementById("login-error").replaceChildren(alertBox(err));
+    showLoginError(alertBox(err));
     shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
     return;
   }
@@ -1798,10 +1629,12 @@ async function signIn() {
   if (!signIn.pulsing) signIn.pulsing = pulse(document.querySelector(".who .dot"));
   app.state.who = `Key ${memoryKey.split("_")[1] ?? ""} · v${app.state.health?.version ?? ""}`;
   document.getElementById("who").textContent = app.state.who;
-  const { startRouter } = await import("./views.js");
+  const { startRouter } = await pages;
   // Awaited so a banner shown after sign-in comes after the first page draw (which clears #toast).
   await startRouter();
-  // The trading-readiness badge in the toolbar (every page; docs/spec/p1-05-readiness.md §6.3).
+  // From here on a request the Bridge cannot answer means "reconnecting", and a refused key means signed out.
+  connection.arm();
+  // The trading-readiness badge in the toolbar (every page).
   import("./readiness.js").then((m) => m.mountReadinessBadge()).catch(() => {});
 }
 
@@ -1812,7 +1645,17 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
   if (typeof matchMedia === "function") matchMedia("(pointer: fine)").addEventListener?.("change", relayout);
   // Motion: page / sidebar entrances on navigation (a button press is CSS: app.css 8a).
   installAutoAnimations();
-  installCtxPicker();
+  // The key was refused mid-session (revoked or expired): back to the sign-in screen with the reason, not a broken page.
+  onSignedOut(() => {
+    session.set(ENDED_SLOT, "1");
+    setKey(null);
+    try {
+      history.replaceState(null, "", location.pathname + location.search);
+    } catch {
+      /* the page reloads next anyway */
+    }
+    location.reload();
+  });
   // Appearance buttons (the sidebar's and the More sheet's) and "Forget key", wherever they are drawn.
   document.addEventListener("click", (e) => {
     const t = /** @type {Element} */ (e.target);
@@ -1829,19 +1672,36 @@ if (typeof document !== "undefined" && document.getElementById("login-form")) {
     b.disabled = true;
     continueHere().finally(() => (b.disabled = false));
   });
+  // Sign-in: the show / hide button on the key field, and the copy buttons beside the setup commands.
+  document.querySelector(".login-cmds")?.addEventListener("click", (e) => {
+    const b = /** @type {Element} */ (e.target)?.closest?.("[data-copy]");
+    if (b) copyText(/** @type {HTMLElement} */ (b).dataset.copy ?? "");
+  });
+  document.getElementById("key-toggle")?.addEventListener("click", (e) => {
+    const input = document.getElementById("key-input");
+    const btn = /** @type {HTMLElement} */ (e.currentTarget);
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.setAttribute("aria-pressed", String(show));
+    btn.replaceChildren(icon(show ? "eyeoff" : "eye"));
+    input.focus();
+  });
   document.getElementById("login-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const input = document.getElementById("key-input");
     setKey(input.value.trim());
     input.value = "";
-    document.getElementById("login-error").replaceChildren();
+    showLoginError(null);
     signIn();
   });
   boot();
+  // boot.js painted the sign-in screen before this script loaded: a key submitted in that gap was held, not lost.
+  globalThis.__abReady = true;
+  if (globalThis.__abHeldSubmit && document.getElementById("key-input")?.value) document.getElementById("login-form").requestSubmit();
 }
 
 /**
- * A choice picked in a sideways-scrolling row (phone tab rows, chips, expiry strips) slides fully into view, so the
+ * A choice picked in a sideways-scrolling row (phone tab rows, chips) slides fully into view, so the
  * selected tab is never left half under the row's edge fade.
  */
 function revealInRow(el) {
@@ -1854,6 +1714,21 @@ function revealInRow(el) {
   const pad = 24; // clear of the 12 to 16 px edge fades
   const dx = a.left < b.left + pad ? a.left - b.left - pad : a.right > b.right - pad ? a.right - b.right + pad : 0;
   if (dx) row.scrollBy({ left: dx, behavior: reducedMotion() ? "auto" : "smooth" });
+}
+
+/** The sign-in error under the key field: the field is marked invalid and points at the message (null clears both). */
+function showLoginError(node) {
+  const box = document.getElementById("login-error");
+  const input = document.getElementById("key-input");
+  if (node) box.replaceChildren(node);
+  else box.replaceChildren();
+  if (node) {
+    input?.setAttribute("aria-invalid", "true");
+    input?.setAttribute("aria-describedby", "login-error");
+  } else {
+    input?.removeAttribute("aria-invalid");
+    input?.removeAttribute("aria-describedby");
+  }
 }
 
 /** Start-up: redeem a sign-in link first (when the page was opened with one), then sign in as usual. */
@@ -1886,7 +1761,7 @@ async function boot() {
     if (!document.getElementById("app").hidden) toast("Signed in. Welcome to your Bridge.");
   } else if (!memoryKey) {
     // Already signed in in this tab: the older key keeps working, so an old link needs no error.
-    document.getElementById("login-error").replaceChildren(alertBox(result.error));
+    showLoginError(alertBox(result.error));
     shake(document.querySelector("#login .login-card") ?? document.getElementById("login-form"));
   }
 }

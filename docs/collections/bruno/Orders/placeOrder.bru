@@ -1,0 +1,50 @@
+meta {
+  name: Place an order (paper unless you ask for live)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/orders
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "account": "demo-paper",
+    "symbol": "NSE:RELIANCE",
+    "side": "BUY",
+    "quantity": 1,
+    "product": "CNC",
+    "orderType": "MARKET",
+    "mode": "paper"
+  }
+}
+
+vars:post-response {
+  orderId: res.body.data.orderId
+}
+
+docs {
+  Place an order (paper unless you ask for live)
+
+  - An API key with the `paper` scope (or `live`).
+  - The example is a paper order on the demo paper account. A live order needs every opt-in in docs/guides/safety.md.
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Every order passes the safety checks. Live needs a `live` key, an account enabled for live trading in the config
+  file and `"mode": "live"` in the body; orders from AI assistants also need a `confirmToken` from a human
+  confirmation. `quantity` is in units and must be a multiple of the lot size; or send `lots`. There is no default
+  product or order type. MARKET and SL-M orders get market protection (or are refused) as configured.
+
+  Reference: docs/api/orders/placeOrder.md in the repository.
+}

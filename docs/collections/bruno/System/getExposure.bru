@@ -1,0 +1,29 @@
+meta {
+  name: What is set up to be reached from outside this computer
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/v1/expose
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  What is set up to be reached from outside this computer
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Plain-words state of the two optional public listeners (`server.publicIngress` for webhook alerts, `server.sheetsIngress`
+  for Google Sheets), the address patterns to use, and the exposure checks that `mc-bridge doctor` also runs, each with
+  a one-line fix. It reads the settings the Bridge started with; it changes nothing and calls nothing outside this
+  computer. Setting up is the terminal command `mc-bridge expose`.
+
+  Reference: docs/api/system/getExposure.md in the repository.
+}

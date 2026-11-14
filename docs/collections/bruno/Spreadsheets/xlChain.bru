@@ -1,0 +1,29 @@
+meta {
+  name: Flat option chain table (CSV or JSON records) for Power Query and Sheets
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/xl/chain?underlying=NIFTY&expiry={{expiry}}&format=csv
+  body: none
+  auth: bearer
+}
+
+params:query {
+  underlying: NIFTY
+  expiry: {{expiry}}
+  format: csv
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Flat option chain table (CSV or JSON records) for Power Query and Sheets
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  Reference: docs/api/spreadsheets/xlChain.md in the repository.
+}

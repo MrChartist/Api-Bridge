@@ -1,0 +1,23 @@
+meta {
+  name: Kill switch, live-trading state and today's safety counters
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/safety
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Kill switch, live-trading state and today's safety counters
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/safety/getSafety.md in the repository.
+}

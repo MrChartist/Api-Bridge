@@ -1,5 +1,5 @@
 /**
- * OrderService — stream S7 (docs/STREAMS.md §S7, docs/ARCHITECTURE.md §4, §7, §8). The contract is
+ * OrderService (docs/ARCHITECTURE.md §4, §7, §8). The contract is
  * SERVICE_CONTRACTS.orders in ../core/contracts.mjs. This is the only path to an order, paper or live.
  *
  * place():
@@ -36,8 +36,9 @@ import { issueOrderGate } from "../../brokers/orderGate.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { BridgeError, ERROR_CODES, fromBrokerError } from "../core/errors.mjs";
 import { isAutomatedContext } from "../core/context.mjs";
-import { deliveryMarginOf, expiryDay, moneynessOf, obligationOf } from "../dashboard/expiry-costs.js";
+import { deliveryMarginOf, expiryDay, moneynessOf, obligationOf } from "../calc/expiry-costs.js";
 import { strikeStepOf } from "../market/chain.mjs";
+import { trustedLtp } from "../market/trusted.mjs";
 import { assertLiveSupport, liveSupport, unverifiedWarning } from "./brokerOrders.mjs";
 import { ordersConfig } from "./config.mjs";
 import { createIdempotencyStore } from "./idempotencyStore.mjs";
@@ -60,8 +61,9 @@ import {
 } from "./orderValidation.mjs";
 import { bridgeStatus, mapRows, symbolFor, toFunds, toHolding, toPosition, toTrade, unwrap } from "./portfolio.mjs";
 import { findLegInBook } from "./reconcile.mjs";
+import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { createStateFile } from "./stateFile.mjs";
-import { createTicketBook } from "./tickets.mjs";
+import { REJECT_REASON_MAX, createTicketBook } from "./tickets.mjs";
 import { DAY_MS, istDay, istIso } from "./time.mjs";
 
 const TIMEOUT = Symbol("orders.timeout");
@@ -107,9 +109,12 @@ export function createOrderService(deps) {
   const sleep = (ms) => new Promise((r) => timers.set(r, ms));
 
   const idem = createIdempotencyStore({ now });
+  /** foldKey -> { at, suppressed }: refusals audited once a minute with a count (see place()). */
+  const refusalFold = new Map();
+  const REFUSAL_FOLD_MS = 60_000;
   const tickets = createTicketBook({ now, ticketTtlMs: cfg.ticketTtlMs, confirmTokenTtlMs: cfg.confirmTokenTtlMs });
   const dataDir = deps.paths?.dataDir ?? config?.dataDir ?? null;
-  const stateFile = dataDir ? createStateFile(join(dataDir, "orders", "state.json"), { logger: log }) : null;
+  const stateFile = dataDir ? createStateFile(join(dataDir, "orders", "state.json"), { logger: log, now }) : null;
 
   /** @type {Map<string, LiveRecord>} live orders by Bridge id */
   const live = new Map();
@@ -213,12 +218,16 @@ export function createOrderService(deps) {
       return true;
     } catch (err) {
       log.error("audit append failed", { type, code: err?.code ?? "ERROR" });
-      if (required) throw new BridgeError("INTERNAL", "The audit log could not be written, so the live order was not sent.");
+      // A live order is never sent without its audit record: if it cannot be written, nothing goes out.
+      if (required) throw saveFailure("The audit log could not be written, so the live order was not sent.", err);
       return false;
     }
   }
 
   function emitUpdate(order) {
+    // A paper order's transitions are published by the paper engine itself (with the P&L it realised). Publishing them
+    // here too made one fill arrive as two order.updated events with different shapes.
+    if (order?.mode === "paper") return;
     try {
       bus.emit("order.updated", {
         orderId: order.orderId,
@@ -244,11 +253,16 @@ export function createOrderService(deps) {
     }
   }
 
+  /**
+   * The last price an order may be checked against (price band, market protection, strike choice): a trusted real-time
+   * value only. The read says purpose "order", so the market service never answers it from a stale cache entry, a data
+   * source or a revalidating answer; trustedLtp() then refuses anything still labelled stale, delayed, end-of-day,
+   * unofficial or from a plugin. Null means "no price I can rely on", and the callers treat that as unchecked, never as a price.
+   */
   async function ltpOf(symbol) {
     try {
-      const r = await deps.marketData.ltp([symbol], { maxAgeMs: 2000, priority: "live" });
-      const v = r?.items?.[0]?.ltp;
-      return Number.isFinite(v) && v > 0 ? v : null;
+      const r = await deps.marketData.ltp([symbol], { maxAgeMs: 2000, priority: "live", purpose: "order" });
+      return trustedLtp(r?.items?.find((i) => i?.symbol === symbol) ?? r?.items?.[0]);
     } catch {
       return null;
     }
@@ -302,7 +316,7 @@ export function createOrderService(deps) {
   };
 
   /**
-   * The readiness line for a LIVE order (docs/spec/p1-05-readiness.md §3.7, §6.9), checked before safety.check:
+   * The readiness line for a LIVE order, checked before safety.check:
    *  - automated sources (webhook, system, guard, alert) with readiness.gateAutomated: refused with CANNOT_TRADE while
    *    the account cannot trade, or when its state is still unknown or stale after ensureFresh (5 s at most). No
    *    safety slot is taken and no broker call is made.
@@ -404,7 +418,9 @@ export function createOrderService(deps) {
     if (!slot.ok) throw new BridgeError("ORDER_RATE_LIMITED", `The order-rate cap for ${accountId} was reached. Try again in a moment.`, { retryAfterMs: slot.retryAfterMs });
   }
 
-  const freshness = (source, at, accountId, broker) => ({ source, asOf: istIso(at), ageMs: 0, stale: false, accountId, broker });
+  // Positions, holdings and funds are read from the account's own broker (or the paper book) at this moment: real-time class,
+  // official, no delay. The label has every field the Freshness schema requires, so one reader handles prices and portfolio.
+  const freshness = (source, at, accountId, broker) => ({ source, asOf: istIso(at), ageMs: 0, stale: false, accountId, broker, class: "realtime", delaySec: 0, official: true, confidence: "high", flags: [] });
 
   // ───────────────────────────── order records ─────────────────────────────
 
@@ -664,7 +680,7 @@ export function createOrderService(deps) {
     p.legs = inst.legs;
     const lotCheck = await lotSizeCheck(body, resolved);
     if (lotCheck) checks.push(lotCheck);
-    // One live positions read per prepare, shared by the ban gate and syncLivePnl (p1-06 §2.8, §7).
+    // One live positions read per prepare, shared by the ban gate and syncLivePnl.
     let livePositions = null;
     const readLivePositions = () => (livePositions ??= brokerRead(summary.id, "fetchPositions", [], "positions", { priority: "order" }));
     const stock = await stockDerivativeContext(body, resolved, summary, { wantsLive, readLivePositions, checks });
@@ -745,7 +761,7 @@ export function createOrderService(deps) {
         ltp: p.ltp,
         // A passing place check reserves a daily-count slot at once (released when the order is recorded).
         reserve: forPlace,
-        // p1-06: stock derivatives carry the underlying kind; heldQty and ban only when the underlying is in ban.
+        // Stock derivatives carry the underlying kind; heldQty and ban only when the underlying is in ban.
         ...(stock ? { underlyingKind: stock.underlyingKind, underlying: resolved.underlying, ban: stock.ban, heldQty: stock.heldQty } : {}),
       };
       const verdict = await deps.safety.check(ctx, intent);
@@ -760,7 +776,7 @@ export function createOrderService(deps) {
     return finish();
   }
 
-  // ───────────────────────────── stock derivatives (p1-06) ─────────────────────────────
+  // ───────────────────────────── stock derivatives ─────────────────────────────
 
   const kindCache = new Map();
   /** An unknown kind (master still loading, reference not built) is retried after this long, never kept for good. */
@@ -825,8 +841,8 @@ export function createOrderService(deps) {
   }
 
   /**
-   * Ban gate inputs and the delivery warnings for an NFO/BFO derivative of a stock (docs/spec/p1-06-stocks.md §2.8,
-   * §3.7). Index and cash orders, and stocks not in ban, cost nothing extra: the positions are read only when the
+   * Ban gate inputs and the delivery warnings for an NFO/BFO derivative of a stock. Index and cash orders, and
+   * stocks not in ban, cost nothing extra: the positions are read only when the
    * underlying is in ban. Adds BAN_DATA_UNAVAILABLE and PHYSICAL_SETTLEMENT warnings to `checks`.
    * @returns {Promise<{ underlyingKind: string, ban: object|null, heldQty: number|null } | null>}
    */
@@ -848,7 +864,7 @@ export function createOrderService(deps) {
     let heldQty = null;
     const inBan = ban?.inBan === true;
     if (inBan) heldQty = await heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions });
-    // The delivery warning is for opening orders only (§3.7). Inside the window, a paper order's holding is read from
+    // The delivery warning is for opening orders only. Inside the window, a paper order's holding is read from
     // the engine (memory, no broker cost); a live order's stays unknown unless the ban already read it.
     const heldForWarning = async () => (heldQty !== null || wantsLive ? heldQty : heldQtyOf(summary, resolved.canonical, { wantsLive, readLivePositions }));
     if (physical && resolved.kind === "OPT") await physicalSettlementCheck(body, resolved, heldForWarning, checks).catch(() => {});
@@ -856,7 +872,7 @@ export function createOrderService(deps) {
   }
 
   /**
-   * Ban inputs for a modify that raises the quantity of an order in a stock derivative (p1-06 §2.8), the same rule on
+   * Ban inputs for a modify that raises the quantity of an order in a stock derivative, the same rule on
    * paper and live. The held quantity already includes the order's filled part, so the order's signed effect is its
    * unfilled remainder: new quantity − filled quantity (banQuantity). Empty when the quantity does not rise, nothing
    * is left to fill, the order is not a stock derivative, or nothing can be read.
@@ -891,7 +907,7 @@ export function createOrderService(deps) {
     const qty = Number(body.quantity ?? (body.lots ?? 0) * resolved.lotSize) || 0;
     const x = body.side === "BUY" ? qty : -qty;
     const heldQty = await heldFor();
-    // Closing (the ban rule's reading, §6.8): |n| ≤ |h| without crossing zero. A flip from long to short opens.
+    // Closing (the ban rule's reading): |n| ≤ |h| without crossing zero. A flip from long to short opens.
     if (heldQty !== null) {
       const n = heldQty + x;
       if (Math.abs(n) <= Math.abs(heldQty) && (n === 0 || Math.sign(n) === Math.sign(heldQty))) return;
@@ -901,7 +917,7 @@ export function createOrderService(deps) {
     let step = null;
     try {
       const res = await deps.symbols.search({ q: resolved.underlying, underlying: resolved.underlying, exchange: resolved.exchange, kind: "OPT", expiry: resolved.expiry, limit: 500 });
-      step = strikeStepOf((res?.items ?? []).filter((r) => r.underlying === resolved.underlying).map((r) => r.strike));
+      step = strikeStepOf((res?.items ?? []).filter((r) => r.underlying === resolved.underlying).map((r) => r.strike), { spot });
     } catch {
       step = null;
     }
@@ -952,6 +968,21 @@ export function createOrderService(deps) {
     return o;
   }
 
+  /** The error for "could not be saved": DISK_FULL when the disk is full (the fix is different), else INTERNAL. */
+  function saveFailure(message, err = stateFile?.lastError?.() ?? null) {
+    return isDiskFull(err) || isDiskFull(err?.cause) ? new BridgeError("DISK_FULL", `${message} The disk is full: free some space and try again.`) : new BridgeError("INTERNAL", message);
+  }
+
+  /** A damaged order-records file was set aside (stateFile.mjs): no live order until the owner has checked the order book. */
+  function assertOrderStateUsable() {
+    const d = stateFile?.damage();
+    if (d) {
+      throw new BridgeError("ORDER_STATE_DAMAGED", "The Bridge's record of the orders it sent was damaged and set aside, so it cannot tell whether a live order was already sent. Nothing was sent. Check your broker's order book, then acknowledge: mc-bridge orders acknowledge-state.", {
+        fields: { damagedAt: d.at },
+      });
+    }
+  }
+
   const auditOrder = (o) => ({ symbol: o.symbol, side: o.side, quantity: o.quantity, product: o.product, orderType: o.orderType, price: o.price, triggerPrice: o.triggerPrice, validity: o.validity, clientOrderId: o.clientOrderId, tag: o.tag });
 
   async function place(ctx, raw, opts = {}) {
@@ -984,6 +1015,7 @@ export function createOrderService(deps) {
       if (req.clientOrderId !== undefined) cid = idem.reserveClientId(req.account, req.clientOrderId, fp);
       const p = await prepare(ctx, body, { confirmToken, ticketId, forPlace: true });
       if (p.blocks.length) throw refusalError(p.blocks);
+      if (p.mode === "live") assertOrderStateUsable();
       if (p.mode === "live" && !scopeKey) {
         // A client that retries a live order after a timeout must not be able to send it twice.
         throw new BridgeError("VALIDATION_FAILED", "Live orders need an Idempotency-Key header or a clientOrderId, so a retry cannot place the order twice.", {
@@ -1014,7 +1046,7 @@ export function createOrderService(deps) {
       live.set(liveRec.order.orderId, liveRec);
       if (scopeKey) idem.attach(scopeKey, { orderId: liveRec.order.orderId, accountId: p.summary.id, mode: "live" });
       if (cid) idem.linkClientId(cid.accountId, cid.clientOrderId, cid.day, { orderId: liveRec.order.orderId, mode: "live" });
-      if (!persist()) throw new BridgeError("INTERNAL", "The order record could not be saved to disk, so the live order was not sent.");
+      if (!persist()) throw saveFailure("The order record could not be saved to disk, so the live order was not sent.");
       audited = true;
       await audit(ctx, "order.requested", { accountId: p.summary.id, required: true, data: { orderId: liveRec.order.orderId, mode: "live", order: auditOrder(liveRec.order), legs: p.legs, warnings } });
 
@@ -1081,7 +1113,17 @@ export function createOrderService(deps) {
           persist();
         }
         if (!audited && err instanceof BridgeError && err.code !== "VALIDATION_FAILED") {
-          await audit(ctx, "order.refused", { accountId: req.account, data: { code: err.code, message: err.detail, mode: req.mode ?? "paper", symbol: req.symbol, side: req.side, reasons: err.errors?.map((e) => e.path) } });
+          // The same refusal of the same order shape by the same client within a minute is ONE record with a count, not a
+          // line per retry (a looping script after the daily limit used to add hundreds of MB a day to the audit log).
+          const foldKey = `${principalKey(ctx)}|${req.account}|${err.code}|${req.symbol}|${req.side}|${req.quantity}|${req.mode ?? "paper"}`;
+          const t = now();
+          const prev = refusalFold.get(foldKey);
+          if (prev && t - prev.at < REFUSAL_FOLD_MS) prev.suppressed += 1;
+          else {
+            refusalFold.set(foldKey, { at: t, suppressed: 0 });
+            if (refusalFold.size > 500) for (const [k, v] of refusalFold) if (t - v.at >= REFUSAL_FOLD_MS) refusalFold.delete(k);
+            await audit(ctx, "order.refused", { accountId: req.account, data: { code: err.code, message: err.detail, mode: req.mode ?? "paper", symbol: req.symbol, side: req.side, reasons: err.errors?.map((e) => e.path), suppressed: prev?.suppressed ?? 0 } });
+          }
         }
       }
       throw err;
@@ -1095,7 +1137,7 @@ export function createOrderService(deps) {
   }
 
   /**
-   * LOT_SIZE_STALE (p1-02 §3.6): an order sent in lots whose reference lot data is stale (more than
+   * LOT_SIZE_STALE: an order sent in lots whose reference lot data is stale (more than
    * reference.staleAfterTradingDays trading days old) or disagrees with the broker master. A warning by default; a block
    * when reference.blockLotsWhenStale is true. lotSizeConfirmed equal to the resolved lot clears it; orders sent as
    * quantity are never checked. The master's lot is always the one used (orderValidation is unchanged).
@@ -1895,6 +1937,12 @@ export function createOrderService(deps) {
         estimatedValue: p.estimatedValue,
       });
       ticketId = t.ticketId;
+      try {
+        // A person must approve this on this computer. The announcement carries no confirm token.
+        bus.emit("ticket.prepared", { ticketId, accountId: p.summary.id, mode: p.decision.requested, symbol: body.symbol, side: body.side, quantity: p.quantity, estimatedValue: p.estimatedValue, source: effectiveSource(ctx), client: ctx.key?.label ?? ctx.principal?.label ?? ctx.principal?.id ?? "unknown", expiresAt: t.expiresAt });
+      } catch (err) {
+        log.warn("ticket.prepared could not be announced", { code: err?.code ?? "ERROR" });
+      }
       await audit(ctx, "ticket.created", { accountId: p.summary.id, data: { ticketId, order: { symbol: body.symbol, side: body.side, quantity: p.quantity, mode: p.decision.requested }, estimatedValue: p.estimatedValue } });
     }
     return {
@@ -1935,9 +1983,41 @@ export function createOrderService(deps) {
     if (!ctx.scopes?.has("admin")) throw new BridgeError("SCOPE_REQUIRED", 'This needs an API key with the "admin" scope.');
   }
 
-  async function listTickets(ctx) {
+  async function listTickets(ctx, { state = "open" } = {}) {
     requireAdmin(ctx);
+    if (state === "rejected") return tickets.listRejected();
     return tickets.list();
+  }
+
+  /** Decline a pending ticket (the person's "no"). Same people-only rules as confirming; see TicketBook.reject. */
+  async function rejectTicket(ctx, ticketId, { reason } = {}) {
+    requireAdmin(ctx);
+    if (isAutomatedContext(ctx)) throw new BridgeError("SCOPE_REQUIRED", "Only a person using the Bridge on this computer can decline an order.");
+    if (!ctx.loopback) throw new BridgeError("LOOPBACK_ONLY", "Orders can only be declined from this computer.");
+    if (reason !== undefined && reason !== null && (typeof reason !== "string" || reason.length > REJECT_REASON_MAX)) {
+      throw new BridgeError("VALIDATION_FAILED", `The reason must be text of at most ${REJECT_REASON_MAX} characters.`, { errors: [{ path: "reason", message: `at most ${REJECT_REASON_MAX} characters` }] });
+    }
+    const by = principalKey(ctx);
+    const r = tickets.reject(String(ticketId ?? ""), by, reason);
+    if (!r.alreadyRejected) {
+      const o = r.ticket.order;
+      // No token exists for a declined ticket, so nothing secret is in the record. The reason is the person's own words.
+      await audit(ctx, "ticket.rejected", { accountId: r.accountId, data: { ticketId: r.ticket.ticketId, account: r.accountId, symbol: o.symbol, side: o.side, mode: o.mode ?? "paper", by, reason: r.ticket.reason } });
+      bus.emit("ticket.rejected", { ticketId: r.ticket.ticketId, accountId: r.accountId, principal: r.principalId });
+    }
+    return r.ticket;
+  }
+
+  /**
+   * Where a ticket stands, for the client that prepared it (an admin key may ask about any). A ticket this caller did
+   * not prepare, or one the Bridge no longer remembers, is "unknown": the answer never reveals other clients' tickets.
+   */
+  async function ticketStatus(ctx, ticketId) {
+    const id = String(ticketId ?? "");
+    const st = tickets.statusOf(id);
+    const mine = st && (st.principalId === principalKey(ctx) || ctx.scopes?.has("admin"));
+    if (!mine) return { ticketId: id, status: "unknown", reason: null, expiresAt: null };
+    return { ticketId: id, status: st.status, reason: st.reason, expiresAt: st.expiresAt };
   }
 
   async function confirmTicket(ctx, ticketId) {
@@ -1996,9 +2076,53 @@ export function createOrderService(deps) {
     funds,
     tickets: listTickets,
     confirmTicket,
+    rejectTicket,
+    ticketStatus,
     // ── internal helpers (not part of the contract) ──
+    /** The set-aside order records still waiting for the owner, or null (health, doctor, dashboard). */
+    stateDamage: () => stateFile?.damage() ?? null,
+    /** The owner checked the broker's order book: live orders may go again. @returns {boolean} whether there was damage */
+    acknowledgeStateDamage: () => stateFile?.acknowledge() ?? false,
     /** Run one reconciliation pass now (tests, `doctor`). */
     reconcileNow,
+    /**
+     * Read-only views for the order-book drift check (orders/drift.mjs). Neither changes a record, writes the state
+     * file or emits an event: the check only compares and reports.
+     * driftLegs: one row per leg of this account's live orders. readBrokerBook: the broker's order book as it is now.
+     */
+    driftLegs(accountId) {
+      const out = [];
+      for (const rec of live.values()) {
+        const o = rec.order;
+        if (o.accountId !== accountId) continue;
+        o.legs.forEach((leg, i) => {
+          const xl = rec.x.legs[i];
+          out.push({
+            orderId: o.orderId,
+            leg: i,
+            clientOrderId: o.clientOrderId ?? null,
+            symbol: o.symbol,
+            side: o.side,
+            orderType: o.orderType,
+            price: o.price ?? null,
+            placedAt: o.placedAt,
+            status: leg.status,
+            brokerOrderId: leg.brokerOrderId ? String(leg.brokerOrderId) : null,
+            quantity: leg.quantity,
+            filledQuantity: Number.isFinite(Number(leg.filledQuantity)) ? Number(leg.filledQuantity) : leg.status === "filled" ? leg.quantity : 0,
+            sentAt: xl?.sentAt ?? null,
+            gaveUp: xl?.gaveUp === true,
+            ref: rec.x.ref ?? null,
+            tickSize: rec.x.tickSize ?? 0,
+          });
+        });
+      }
+      return out;
+    },
+    async readBrokerBook(accountId, { priority = "background" } = {}) {
+      const { data, at } = await readBook(accountId, priority);
+      return { rows: Array.isArray(data) ? data : [], at };
+    },
     /** Stop timers and the kill-switch subscription (module stop). */
     close() {
       closed = true;

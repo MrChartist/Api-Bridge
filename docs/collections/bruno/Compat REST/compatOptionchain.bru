@@ -1,0 +1,28 @@
+meta {
+  name: Option chain
+  type: http
+  seq: 28
+}
+
+post {
+  url: {{baseUrl}}/api/v1/optionchain
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "underlying": "NIFTY",
+    "exchange": "NSE_INDEX",
+    "expiry_date": "24NOV26"
+  }
+}
+
+docs {
+  Option chain
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatOptionchain.md in the repository.
+}

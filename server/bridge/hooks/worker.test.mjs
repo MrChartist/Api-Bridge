@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createEventBus } from "../core/eventBus.mjs";
 import { createNullLogger } from "../core/logger.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { createFakeOrderService } from "../orders/fake.mjs";
@@ -35,6 +36,31 @@ async function run(hookDef, signal) {
   await worker.idle();
   return { hook, rec: worker.get(j.signalId)[0] };
 }
+
+describe("signal worker: held alerts (a hook over its per-minute limit)", () => {
+  it("INT-09: jobs enqueued with a delay show as queued with the reason, count against the queue size, then run", async () => {
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
+    const j = job(hook, sig({ quantity: 1 }));
+    worker.enqueue([j], { delayMs: 80, reason: "held for the limit" });
+    expect(worker.get(j.signalId)[0]).toMatchObject({ status: "queued", code: "HOOK_RATE_HELD", reason: "held for the limit" });
+    expect(worker.stats()).toMatchObject({ waitingForSlot: 1, queued: 0 });
+    // held jobs use the queue: queueSize is 5, so only 4 more fit
+    const more = Array.from({ length: 5 }, () => job(hook, sig({ quantity: 1 })));
+    expect(() => worker.enqueue(more, { delayMs: 80 })).toThrow(expect.objectContaining({ code: "RATE_LIMITED" }));
+    await worker.idle();
+    expect(worker.get(j.signalId)[0]).toMatchObject({ status: "placed" });
+    expect(orders.all()).toHaveLength(1);
+  });
+
+  it("INT-09: stopping drops held jobs and says so (they were acknowledged)", async () => {
+    const { hook } = await store.create({ source: "gocharting", label: "t", account: "paper", product: "CNC" });
+    const j = job(hook, sig({ quantity: 1 }));
+    worker.enqueue([j], { delayMs: 60_000, reason: "held" });
+    await worker.stop({ timeoutMs: 50 });
+    expect(worker.get(j.signalId)[0]).toMatchObject({ status: "dropped", code: "SHUTDOWN" });
+    expect(orders.all()).toHaveLength(0);
+  });
+});
 
 describe("signal worker: hook mapping and caps", () => {
   it("places a paper order through OrderService with source webhook and the hook as principal", async () => {
@@ -107,6 +133,20 @@ describe("signal worker: hook mapping and caps", () => {
     expect(rec.ticketId).toMatch(/^tkt_/);
     expect(orders.calls.some((c) => c[0] === "place")).toBe(false);
     expect(orders.all()).toHaveLength(0);
+  });
+
+  it("a ticket the person declined ends its signal as rejected (TICKET_REJECTED); another client's decline does not", async () => {
+    const bus = createEventBus({ logger: createNullLogger() });
+    worker = createSignalWorker({ deps: { orders, symbols: createFakeSymbolService(), audit, bus }, store, logger: createNullLogger(), queueSize: 5, concurrency: 2 });
+    const { hook, rec } = await run({ requireConfirmation: true }, sig());
+    expect(rec.status).toBe("awaiting_confirmation");
+    bus.emit("ticket.rejected", { ticketId: rec.ticketId, accountId: "paper", principal: "key:someone-else" });
+    expect(worker.get(rec.signalId)[0].status).toBe("awaiting_confirmation");
+    bus.emit("ticket.rejected", { ticketId: rec.ticketId, accountId: "paper", principal: `hook:${hook.id}` });
+    expect(worker.get(rec.signalId)[0]).toMatchObject({ status: "rejected", code: "TICKET_REJECTED", reason: expect.stringMatching(/declined/) });
+    expect(orders.all()).toHaveLength(0);
+    await worker.idle();
+    expect(audit.ofType("hook.signal").at(-1).data).toMatchObject({ status: "rejected", code: "TICKET_REJECTED" });
   });
 
   it("live hooks are refused by OrderService unless every opt-in holds (never downgraded)", async () => {

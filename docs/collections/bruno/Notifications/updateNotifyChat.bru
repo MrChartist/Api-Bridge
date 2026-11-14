@@ -1,0 +1,35 @@
+meta {
+  name: Allow or stop commands from a chat
+  type: http
+  seq: 8
+}
+
+patch {
+  url: {{baseUrl}}/v1/notify/targets/:targetId/chats/:chatKey
+  body: json
+  auth: bearer
+}
+
+params:path {
+  targetId: <targetId>
+  chatKey: <chatKey>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "commands": false
+  }
+}
+
+docs {
+  Allow or stop commands from a chat
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/notifications/updateNotifyChat.md in the repository.
+}

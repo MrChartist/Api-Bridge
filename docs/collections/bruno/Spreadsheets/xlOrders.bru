@@ -1,0 +1,35 @@
+meta {
+  name: Orders as one table, newest first
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/xl/orders
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~account: demo-paper
+  ~status: pending
+  ~mode: paper
+  ~limit: 200
+  ~format: csv
+  ~cache: false
+  ~errors: 200
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Orders as one table, newest first
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  Columns are fixed - account, mode, order_id, client_order_id, symbol, side, product, order_type, qty, filled_qty, avg_price, price, trigger_price, status, status_message, placed_at, updated_at (IST), then as_of, age_s, class, source, stale, error. `X-Truncated: true` when more orders exist than `limit`. This route only reads; placing and changing orders stays on /v1/orders.
+
+  Reference: docs/api/spreadsheets/xlOrders.md in the repository.
+}

@@ -1,5 +1,5 @@
 /**
- * OrderService readiness line (docs/spec/p1-05-readiness.md §3.7, §6.9): automated LIVE sends are refused with
+ * OrderService readiness line: automated LIVE sends are refused with
  * CANNOT_TRADE while their account cannot trade (no safety slot, no broker call); a person's live order gets a warning
  * and goes on to safety.check; paper orders get no line; gateAutomated false → warning only; no readiness service →
  * no line.

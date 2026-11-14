@@ -1,0 +1,28 @@
+meta {
+  name: One quote field as plain text
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/xl/quote?symbol=NSE:RELIANCE&field=ltp
+  body: none
+  auth: bearer
+}
+
+params:query {
+  symbol: NSE:RELIANCE
+  field: ltp
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  One quote field as plain text
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  Reference: docs/api/spreadsheets/xlQuote.md in the repository.
+}

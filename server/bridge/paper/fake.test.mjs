@@ -1,5 +1,5 @@
 /**
- * The published fake PaperEngine (fake.mjs) used by other streams' tests: contract shape, call recording, price
+ * The published fake PaperEngine (fake.mjs) used by other modules' tests: contract shape, call recording, price
  * helpers, instrument helpers and account restriction. No disk, no timers.
  */
 import { describe, expect, it } from "vitest";

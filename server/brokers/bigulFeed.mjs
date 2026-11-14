@@ -260,7 +260,7 @@ function open(token, key, entry) {
         const reply = readConnectReply(buf);
         if (!reply.ok) {
           clearTimeout(timer);
-          fail(new SessionRequiredError("Bigul: the market-data feed rejected the session. Log in again from Broker Settings."));
+          fail(new SessionRequiredError("Bigul: the market-data feed rejected the session. Log in again from the account settings."));
           try { ws.close(); } catch { /* ignore */ }
           return;
         }

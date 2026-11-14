@@ -1,5 +1,7 @@
 # Deployment: static IP, daily login and the readiness check
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 Paper trading works from any computer and any connection. **Live API orders do not.** This guide explains why, the
 ways to give the Bridge a fixed internet address, and how the Bridge's trading-readiness check tells you, before an
 order fails, that something is wrong.
@@ -29,8 +31,10 @@ broker's current rules before you rely on it. See also [compliance.md](complianc
 | (c) A VPN or exit node with a dedicated IP | Route the Bridge's traffic through a VPN that gives you your own fixed exit address | The broker sees the **exit** address, so register that one. Split tunnels can send broker traffic another way: check |
 
 **Never put a public tunnel (ngrok, Cloudflare Tunnel and similar) in front of a Bridge that holds `live` keys.** A
-tunnel does not give the broker a fixed address, and it exposes your API to the internet. Webhooks have their own
-token-protected public ingress for that ([webhooks.md](webhooks.md)).
+tunnel does not give the broker a fixed address (it is inbound only: orders still leave from the computer the Bridge runs
+on), and a tunnel to the main port exposes your API to the internet. TradingView alerts and Google Sheets have their own
+narrow public listeners for that, with a wizard and a check: [expose-alerts.md](expose-alerts.md). A hardened server
+recipe is in [vps.md](vps.md).
 
 ## 3. Register the address with your broker, then tell the Bridge
 
@@ -77,15 +81,15 @@ Click it for the detail; the Safety page has the full card, the last changes and
 |---|---|
 | Ready | Every live account passed: session, static IP, order headroom, daily limits, kill switch |
 | Check: … | Something needs a look but orders can still go (a session that ends before the close, a daily loss limit that is nearly used, the lookup is off) |
-| Cannot trade: … | At least one live account would have its orders refused. Automated live orders (webhooks, later guards and alert actions) on that account are refused with `CANNOT_TRADE`; orders you send yourself carry a warning |
+| Cannot trade: … | At least one live account would have its orders refused. Automated live orders (webhooks) on that account are refused with `CANNOT_TRADE`; orders you send yourself carry a warning |
 | Paper only | No account has live trading on |
 | Not checked since … | Outside market hours the Bridge does not call the broker, so the reading gets old by design |
 
 The routine:
 
 1. Log in to each broker in the morning (Accounts page, or `mc-bridge accounts connect <id>`).
-2. At **09:00 IST** on trading days the Bridge checks every live account and notifies you about any that is not
-   ready, through your notify targets ([notifications.md](notifications.md), event `trading.readiness`).
+2. At **09:00 IST** on trading days the Bridge checks every live account and flags any that is not
+   ready on the badge and in `GET /v1/readiness`.
 3. During the day it checks every 4 minutes, and at once when a session changes, a broker refuses a session or the
    kill switch moves. A changed address is noticed within 5 minutes.
 

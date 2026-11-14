@@ -146,6 +146,22 @@ describe("Windows installer files (static)", () => {
     expect(h).toContain("Tls12");
   });
 
+  it("install.ps1 installs released versions only, and checks the download before unpacking it", () => {
+    const s = read("install.ps1");
+    expect(s).not.toMatch(/codeload\.github\.com|refs\/heads|raw\.githubusercontent\.com\/[^\s]*\/main\//);
+    expect(s).toContain("/releases/latest/download/install.ps1");
+    expect(s).toContain("SHA256SUMS.txt");
+    expect(s).toContain("Get-FileHash -LiteralPath $Path -Algorithm SHA256");
+    expect(s).toContain("-source.zip");
+    for (const w of ["[string]$Version", "[string]$Sha256", "MCB_VERSION", "MCB_SHA256", "MCB_RELEASE_BASE"]) expect(s, w).toContain(w);
+    // the check comes before the unpack, on every route that downloads
+    const dl = s.slice(s.indexOf("# A released version, checked"), s.indexOf("# A release ZIP holds one folder"));
+    for (const part of dl.split("} elseif").slice(0, 2)) expect(part.indexOf("Confirm-McbDownload")).toBeGreaterThan(-1);
+    expect(dl.indexOf("Confirm-McbDownload $zip $expected")).toBeLessThan(dl.indexOf("Expand-McbArchive $zip $unpacked"));
+    expect(s).toContain("does not match its published checksum, so it was NOT installed");
+    expect(s).toContain("needs the expected checksum too");
+  });
+
   it("install.ps1 changes only per-user places (no admin rights)", () => {
     const s = read("install.ps1");
     expect(s).not.toMatch(/RunAs|HKLM:|LocalMachine|'Machine'|ProgramFiles|Set-ExecutionPolicy/i);
@@ -359,6 +375,47 @@ console.log("fake bridge " + args[0]);
   });
 
   // Not on Windows: uninstall there would also remove this computer's real "Mr Chartist Bridge" shortcuts.
+  it.skipIf(onWindows)("install.ps1: installs a release checked against SHA256SUMS.txt, and refuses a swapped file or a wrong -Sha256", async () => {
+    const rel = join(tmp, "releases");
+    const makeRelease = async (v, { tamper = false } = {}) => {
+      const src = fakeBridge(join(tmp, `rel-src-${v}`, `mr-chartist-bridge-${v}`));
+      const dir = join(rel, "download", `v${v}`);
+      mkdirSync(dir, { recursive: true });
+      const name = `mr-chartist-bridge-${v}-source.zip`;
+      const zip = join(dir, name);
+      const z = await pwsh(["-NonInteractive", "-Command", `$ProgressPreference='SilentlyContinue'; Compress-Archive -Path '${src}' -DestinationPath '${zip}' -Force`]);
+      expect(z.status, z.out).toBe(0);
+      const good = createHash("sha256").update(readFileSync(zip)).digest("hex");
+      writeFileSync(join(dir, "SHA256SUMS.txt"), `${"0".repeat(64)}  Mr-Chartist-Bridge-Setup-${v}.exe\n${good}  ${name}\n`);
+      if (tamper) writeFileSync(zip, Buffer.concat([readFileSync(zip), Buffer.from("tampered")]));
+      mkdirSync(join(rel, "latest", "download"), { recursive: true });
+      writeFileSync(join(rel, "latest", "download", "SHA256SUMS.txt"), readFileSync(join(dir, "SHA256SUMS.txt")));
+      return good;
+    };
+    const env = (n, extra = {}) => ({ MCB_INSTALL_DIR: join(tmp, `rel-inst-${n}`), MCB_HOME: join(tmp, `rel-home-${n}`), MCB_TEST_LOG: join(tmp, `rel-${n}.log`), MCB_RELEASE_BASE: rel, MCB_NO_START: "1", ...extra });
+    const good = await makeRelease("1.0.0");
+    const ok = await pwsh(["-NonInteractive", "-File", INSTALL], { env: env("a") });
+    expect(ok.status, ok.out).toBe(0);
+    expect(ok.stdout).toContain("The newest release");
+    expect(ok.stdout).toContain("Checked: the SHA-256 matches");
+    expect(existsSync(join(tmp, "rel-inst-a", "app", "bin", "mc-bridge.mjs"))).toBe(true);
+    const pinned = await pwsh(["-NonInteractive", "-File", INSTALL, "-Version", "1.0.0", "-Sha256", good.toUpperCase()], { env: env("b") });
+    expect(pinned.status, pinned.out).toBe(0);
+    const wrong = await pwsh(["-NonInteractive", "-File", INSTALL, "-Sha256", "a".repeat(64)], { env: env("c") });
+    expect(wrong.status).toBe(1);
+    expect(wrong.stdout).toContain("is not the one the release publishes");
+    expect(existsSync(join(tmp, "rel-inst-c", "app"))).toBe(false);
+    await makeRelease("1.0.0", { tamper: true });
+    const bad = await pwsh(["-NonInteractive", "-File", INSTALL], { env: env("d") });
+    expect(bad.status).toBe(1);
+    expect(bad.stdout).toContain("does not match its published checksum, so it was NOT installed");
+    expect(bad.stdout).toContain("Nothing on this computer was changed");
+    expect(existsSync(join(tmp, "rel-inst-d", "app"))).toBe(false);
+    const url = await pwsh(["-NonInteractive", "-File", INSTALL], { env: env("e", { MCB_SOURCE: `${base}/bridge.zip` }) });
+    expect(url.status).toBe(1);
+    expect(url.stdout).toContain("needs the expected checksum too");
+  }, 240_000);
+
   it.skipIf(onWindows)("install.ps1: installs from a folder, a .zip and a URL, updates in place, then uninstalls keeping data", async () => {
     const src = fakeBridge(join(tmp, "src (with spaces)"));
     cpSync(INSTALL, join(src, "install.ps1"));
@@ -399,7 +456,7 @@ console.log("fake bridge " + args[0]);
     // Update from a URL, then start (the fake Bridge exits at once).
     routes.set("/bridge.zip", readFileSync(zip));
     rmSync(log);
-    const third = await pwsh(["-NonInteractive", "-File", INSTALL], { env: { ...env, MCB_SOURCE: `${base}/bridge.zip`, MCB_NO_START: "" } });
+    const third = await pwsh(["-NonInteractive", "-File", INSTALL], { env: { ...env, MCB_SOURCE: `${base}/bridge.zip`, MCB_SHA256: createHash("sha256").update(readFileSync(zip)).digest("hex"), MCB_NO_START: "" } });
     expect(third.status, third.out).toBe(0);
     expect(third.stdout).toContain("fake bridge start");
     expect(logOf(log).map((c) => c.args)).toEqual([["start", "--open", "--config", join(home, "bridge.config.json")]]);

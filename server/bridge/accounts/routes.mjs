@@ -1,9 +1,9 @@
 /**
- * Route handlers for stream S1 (docs/openapi.yaml, tag Accounts). Every handler answers { data, meta } and never
+ * Route handlers for the accounts module (docs/openapi.yaml, tag Accounts). Every handler answers { data, meta } and never
  * includes a credential: AccountSummary/SessionState carry state and times only, and connect() takes the request
  * body straight to AccountManager without logging or echoing it.
  *
- * Auditing: account.connected / account.disconnected / account.added / account.removed go to deps.audit (S9) with
+ * Auditing: account.connected / account.disconnected / account.added / account.removed go to deps.audit (safety) with
  * ids, broker and resulting state only. While the audit service is still a stub the action proceeds and a warning is
  * logged.
  *
@@ -27,7 +27,9 @@ import { isStub } from "../core/contracts.mjs";
 import { accountSchema, deepFreeze } from "../core/config.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
+import { pageParams, paginate } from "../core/paginate.mjs";
 import { BROKER_NAMES, PAPER_BROKER, VERIFIED_BROKERS, adapterCapabilities, loadBrokerPolicies } from "./brokerInfo.mjs";
+import { verificationOf } from "../../brokers/verification.mjs";
 import { addAccountToConfigFile, configFileAccountIds, removeAccountFromConfigFile } from "./configFile.mjs";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
 
@@ -100,8 +102,13 @@ async function audit(deps, ctx, type, accountId, data) {
 /**
  * Build the handlers. `deps` is the full deps object passed to register().
  * @param {object} deps
- * @param {{ policies?: Record<string, any> }} [opts]  policies: S3's table, used when the scheduler is still a stub.
+ * @param {{ policies?: Record<string, any> }} [opts]  policies: ratelimit's table, used when the scheduler is still a stub.
  */
+/** Brokers that end the first session when a second login happens: the dashboard warns before it. */
+function singleSessionFlag(adapter) {
+  return adapter.capabilities?.auth?.singleSession === true ? { singleSession: true } : {};
+}
+
 /** The 41 real adapters as directory entries (demo mode only): names and declared capabilities, available: false. */
 let catalogueCache = null;
 function realBrokerCatalogue() {
@@ -119,6 +126,8 @@ function realBrokerCatalogue() {
         authKind: adapter.capabilities?.auth?.kind ?? "apiKeyToken",
         capabilities: adapterCapabilities(adapter),
         verified: VERIFIED_BROKERS.includes(id),
+        verification: verificationOf(id),
+        ...singleSessionFlag(adapter),
         // Field names and labels only (what the login form will ask for after a normal start); never values.
         credentialFields: Array.isArray(adapter.credentialFields) ? [...adapter.credentialFields] : [],
         loginFields: (adapter.capabilities?.auth?.loginFields ?? []).map((f) => ({ key: f.key, label: f.label ?? f.key, kind: f.kind ?? "secret" })),
@@ -167,6 +176,8 @@ export function createAccountRoutes(deps, { policies = {} } = {}) {
             authKind: adapter.capabilities?.auth?.kind ?? "apiKeyToken",
             capabilities: adapterCapabilities(adapter),
             verified: VERIFIED_BROKERS.includes(id),
+            verification: verificationOf(id),
+            ...singleSessionFlag(adapter),
             // What a login form needs (field names and labels only; no values ever leave the Bridge).
             credentialFields: Array.isArray(adapter.credentialFields) ? [...adapter.credentialFields] : [],
             loginFields: (adapter.capabilities?.auth?.loginFields ?? []).map((f) => ({ key: f.key, label: f.label ?? f.key, kind: f.kind ?? "secret" })),
@@ -190,8 +201,10 @@ export function createAccountRoutes(deps, { policies = {} } = {}) {
     /** GET /v1/accounts — only the accounts this key may use. */
     listAccounts(ctx) {
       const visible = visibleAccountIds(ctx);
-      const data = accounts.list().filter((a) => visible === "*" || visible.has(a.id));
-      return { data, meta: meta(ctx) };
+      const all = accounts.list().filter((a) => visible === "*" || visible.has(a.id));
+      const { limit, cursor } = pageParams(ctx.query);
+      const { items, nextCursor } = paginate(all, { limit, cursor, keyOf: (a) => a.id });
+      return { data: items, meta: meta(ctx, { nextCursor }) };
     },
 
     /** POST /v1/accounts (admin, loopback only, unlimited admin key): add a paper-only account and use it at once. */
@@ -357,5 +370,5 @@ function brokerOf(accounts, id) {
   }
 }
 
-/** S3's policy table for the routes (loaded once per register). */
+/** ratelimit's policy table for the routes (loaded once per register). */
 export const loadRoutePolicies = loadBrokerPolicies;

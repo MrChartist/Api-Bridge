@@ -56,7 +56,7 @@ const bearer = (k) => ({ authorization: `Bearer ${k}` });
 
 beforeAll(async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "mcb-auth-"));
-  const { config } = loadConfig({ raw: { server: { port: 0 }, dataDir }, env: {} });
+  const { config } = loadConfig({ raw: { server: { port: 0 }, dataDir, logging: { requests: "all" } }, env: {} });
   const logger = createLogger({ level: "debug", write: (l) => logLines.push(l) });
   app = await createApp({ config, modules: [authModule], overrides: { audit: fakeAudit }, logger });
   ({ port } = await app.listen());

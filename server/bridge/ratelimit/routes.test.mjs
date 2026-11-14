@@ -1,5 +1,5 @@
 /**
- * S3 routes end to end through the real request pipeline (createApp) with the real scheduler, a fake AccountManager
+ * ratelimit routes end to end through the real request pipeline (createApp) with the real scheduler, a fake AccountManager
  * and a fake key store: GET /v1/limits, GET /v1/usage, the per-key client limit and the config section.
  */
 import http from "node:http";
@@ -92,6 +92,9 @@ describe("route table", () => {
     expect(ROUTES.map(([m, p, o]) => [m, p, o])).toEqual([
       ["GET", "/v1/limits", { scope: "read" }],
       ["GET", "/v1/usage", { scope: "read" }],
+      ["GET", "/v1/quotas", { scope: "read" }],
+      ["PUT", "/v1/quotas/:keyId", { scope: "admin", loopbackOnly: true }],
+      ["DELETE", "/v1/quotas/:keyId", { scope: "admin", loopbackOnly: true, body: "none" }],
     ]);
   });
 

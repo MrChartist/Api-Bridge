@@ -5,7 +5,7 @@
  *  - The broker registry holds ONLY the demo adapter (demoAdapter.mjs), which makes no network calls and has no order
  *    methods. No real adapter is loaded, so no request can reach a broker.
  *  - The accounts in the config file are replaced by four demo accounts: "demo" (sample market data, connected
- *    automatically), "demo-paper" (your paper account), and two more paper accounts for the family book (P1-13):
+ *    automatically), "demo-paper" (your paper account), and two more paper accounts for the family book:
  *    "demo-paper-spouse" (holder demo-spouse) and "demo-paper-other" (holder demo-other, outside the family). Real
  *    accounts, their saved sessions and their paper books are left alone; the demo uses its own account ids.
  *  - Live trading is forced off (safety.liveTrading = false), whatever the config says.
@@ -19,7 +19,7 @@ export { DEMO_BROKER_ID, DEMO_NOTICE };
 export const DEMO_HEADER = "X-MCB-Data";
 export const DEMO_MARKET_ACCOUNT = "demo";
 export const DEMO_PAPER_ACCOUNT = "demo-paper";
-/** The family-book sample accounts (docs/spec/p1-12-guard-participants.md §5.3): a spouse's and a non-family holder's. */
+/** The family-book sample accounts: a spouse's and a non-family holder's. */
 export const DEMO_SPOUSE_ACCOUNT = "demo-paper-spouse";
 export const DEMO_OTHER_ACCOUNT = "demo-paper-other";
 const DEMO_IDS = new Set([DEMO_MARKET_ACCOUNT, DEMO_PAPER_ACCOUNT, DEMO_SPOUSE_ACCOUNT, DEMO_OTHER_ACCOUNT]);

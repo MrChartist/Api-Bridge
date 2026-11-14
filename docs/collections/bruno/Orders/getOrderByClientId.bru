@@ -1,0 +1,27 @@
+meta {
+  name: Look up an order by your own clientOrderId
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/v1/orders/by-client-id/:clientOrderId
+  body: none
+  auth: bearer
+}
+
+params:path {
+  clientOrderId: <clientOrderId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Look up an order by your own clientOrderId
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/orders/getOrderByClientId.md in the repository.
+}

@@ -4,14 +4,14 @@
  * so screenshots look the same every time:
  *
  *  - instruments: NIFTY, BANKNIFTY, SENSEX, FINNIFTY and MIDCPNIFTY (index, futures, options) and the NIFTY 50 stocks,
- *    each with monthly stock futures and options on the nearest 3 monthly expiries (P1-6: lots from the demo
+ *    each with monthly stock futures and options on the nearest 3 monthly expiries (lots from the demo
  *    reference table, the demo strike-step table including fractional strikes, ±20 strikes, and 6 adjusted "-ADJ"
  *    contracts on the demo split stock);
  *  - prices: a function of wall-clock time per symbol (a seeded day-to-day random walk with drift, and inside each
  *    session a seeded Brownian bridge from the previous close to the day's close; outside the session the price holds
  *    at the last close with a tiny wiggle), so the same instant always gives the same price, history candles and live
  *    quotes agree, and ticks keep moving even when the real market is shut;
- *  - option chains: Black-76 prices on the vol-time clock (dashboard/pricing.js, the same core the server and pages
+ *  - option chains: Black-76 prices on the vol-time clock (calc/pricing.js, the same core the server and pages
  *    use) from a smile around a time-varying IV level anchored to the demo's own realised vol, with open interest
  *    peaking near the money that changes through the day (whole lots), and bid/ask sizes; ±45 strikes per chain;
  *    INDIA VIX (Demo) follows NIFTY's 30-day IV;
@@ -27,7 +27,7 @@ export const DEMO_BROKER_ID = "demo";
 export const DEMO_BROKER_NAME = "Demo market data (sample, not live)";
 export const DEMO_NOTICE = "Demo data: sample prices generated on this computer. Not live market data; no broker is connected.";
 
-import { black76, realisedVol, volTime } from "../dashboard/pricing.js";
+import { black76, realisedVol, volTime } from "../calc/pricing.js";
 import { DEFAULT_RATE, DEFAULT_SESSIONS } from "../reference/defaults.mjs";
 import { DEMO_STOCK_LOT, demoCalendar, demoLotFor } from "../reference/demoTables.mjs";
 import { clockSettings } from "../vol/config.mjs";
@@ -101,7 +101,7 @@ export const DEMO_UNDERLYINGS = Object.freeze([
 ]);
 
 /**
- * Demo strike step by price (P1-6 §4.1; labelled demo, real steps come from the masters): < 100: 1 · 100–250: 2.5 ·
+ * Demo strike step by price (labelled demo, real steps come from the masters): < 100: 1 · 100–250: 2.5 ·
  * 250–500: 5 · 500–1000: 10 · 1000–2500: 20 · 2500–5000: 50 · 5000–10000: 100 · ≥ 10000: 250.
  */
 export function demoStrikeStep(base) {
@@ -119,8 +119,8 @@ export function demoStrikeStep(base) {
 }
 
 /**
- * The derivative fields of a demo stock (P1-6 §4.1): NFO monthly options and futures, the demo lot table, the strike
- * step table, an IV of 20–45 % (P1-1's five option stocks keep theirs), a flatter put wing (0.35 vs the index 0.8) and
+ * The derivative fields of a demo stock: NFO monthly options and futures, the demo lot table, the strike
+ * step table, an IV of 20–45 % (the five original option stocks keep theirs), a flatter put wing (0.35 vs the index 0.8) and
  * OI scaled by 0.15 (about 1,000–2,500 lots near the money).
  */
 function withStockDerivatives(u) {
@@ -132,7 +132,7 @@ const BY_SYMBOL = new Map(DEMO_UNDERLYINGS.map((u) => [u.symbol, withStockDeriva
 const STRIKES_EACH_SIDE = 30;
 /** Strikes each side of ATM in a broker-style chain (fetchOptionChain); instruments list ±60. */
 export const CHAIN_STRIKES_EACH_SIDE = 45;
-/** Stocks list ±20 strikes around the IST-day centre, in the master and in a chain (P1-6 §4.1). */
+/** Stocks list ±20 strikes around the IST-day centre, in the master and in a chain. */
 const STOCK_STRIKES_EACH_SIDE = 20;
 /** Underlyings with listed options: indices first, then the demo stocks. */
 export const DEMO_OPTION_UNDERLYINGS = Object.freeze([...BY_SYMBOL.values()].filter((u) => u.deriv).map((u) => u.symbol));
@@ -374,21 +374,8 @@ export function expiriesFor(symbol, t, count) {
     }
     return out;
   }
-  // monthly: last Tuesday of the month
-  let y = start.y;
-  let m = start.m;
-  while (out.length < (count ?? 3)) {
-    const last = new Date(Date.UTC(y, m + 1, 0));
-    while (last.getUTCDay() !== 2) last.setUTCDate(last.getUTCDate() - 1);
-    const iso = shiftForHoliday(isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()), u.deriv);
-    if (iso >= today) out.push(iso);
-    m += 1;
-    if (m > 11) {
-      m = 0;
-      y += 1;
-    }
-  }
-  return out;
+  // monthly: the last Tuesday (NSE) or Thursday (BSE) of the month
+  return monthlyExpiries(u, t, count ?? 3);
 }
 
 // ── The vol-time clock and the IV level ──
@@ -449,7 +436,7 @@ export function dailyCloses(symbol, t, n) {
 
 const levelMemo = memo(2000);
 /**
- * The demo IV level (decimal) of an underlying on the IST day of `t` (§4.1, re-weighted for the random-walk prices):
+ * The demo IV level (decimal) of an underlying on the IST day of `t` (re-weighted for the random-walk prices):
  * clamp(0.06, 0.60, (0.35 × HV60 + 0.65 × HV20) × (1.10 + 0.08 × sin(2π·d/61 + φ))), where HV20/HV60 are the demo's own close-to-close realised vols over the
  * trailing sessions and d is the IST day number. IV runs above realised on most days (a positive variance premium) and
  * IV rank travels 0–100 over a year. Constant within a day.
@@ -469,7 +456,7 @@ export function ivLevel(symbol, t) {
 
 /**
  * INDIA VIX (Demo) at `t`: 100 × NIFTY's 30-day ATM vol on calendar time (the demo smile level and term factor on the
- * vol-time clock to the close 30 calendar days ahead, rolled back to the previous trading day as §6.6 does, converted
+ * vol-time clock to the close 30 calendar days ahead, rolled back to the previous trading day as the expiry-shift rule does, converted
  * through total variance), × (1.03 + 0.03·sin(2π·d/17)), on a 0.0025 tick.
  */
 function vixAt(t) {
@@ -503,7 +490,7 @@ const MIN_SMILE_YEARS = 1 / CAL_DAYS;
 
 /**
  * Demo option price at `t`: Black-76 on F = S·e^(r·Tcal), discounted by e^(−r·Tcal), with σ√T on the vol-time clock
- * (dashboard/pricing.js) and σ from the smile at the day's IV level. The pricing engine therefore recovers the demo
+ * (calc/pricing.js) and σ from the smile at the day's IV level. The pricing engine therefore recovers the demo
  * smile vol (up to tick rounding). After the settlement the price is intrinsic (never below one tick).
  */
 export function optionPrice(symbol, expiry, strike, right, t) {
@@ -551,13 +538,13 @@ const onGrid = (x, step) => Math.abs(x / step - Math.round(x / step)) < 1e-9;
 const dayFraction = (t) => (((t + IST_OFFSET_MS) % DAY_MS) + DAY_MS) % DAY_MS / DAY_MS;
 
 /**
- * Open interest in UNITS at `t` (docs/spec/p1-01-recorder.md §8): base × (1 + a·s(t) + 0.03·sin(2π·min/47 + φ)),
+ * Open interest in UNITS at `t`: base × (1 + a·s(t) + 0.03·sin(2π·min/47 + φ)),
  * where base is the day's profile peaking near the money (centred on the spot, so the profile follows the demo's
  * multi-day price waves; "previous OI" is this same function at the previous close), s(t) the fraction of the demo
  * day elapsed, and
  * a ∈ [−0.15, +0.35] per (strike, right, expiry), biased so out-of-the-money calls build while the slow price wave
  * falls and out-of-the-money puts build while it rises. Deterministic (the same instant gives the same OI) and always a
- * whole number of lots. P1-7 (day story) and P1-8 (writer-structured base) multiply into this; rounding happens once.
+ * whole number of lots. Any further scaling factors multiply into this before rounding, which happens once.
  */
 export function openInterestAt(symbol, strike, right, expiry, t) {
   const ctx = oiContext(symbol, expiry, t);
@@ -620,7 +607,7 @@ function oiWith(ctx, strike, right) {
 
 /**
  * OI of a demo option contract at `t` in units (the same figure quotes and chains carry), adjusted -ADJ contracts in
- * their own lot (× 5). Exported for the fno sweep's demo ΔOI baseline (P1-6 §4.2).
+ * their own lot (× 5). Exported for the fno sweep's demo ΔOI baseline.
  */
 export function demoOptionOi(token, t) {
   const p = parseToken(token);
@@ -657,7 +644,7 @@ export function demoInstruments(t) {
     rows.push({ token: `DM-${u.symbol}`, exchange: u.exchange, tradingSymbol: u.symbol, underlying: u.symbol, instrumentType: u.kind, expiry: null, strike: null, optionType: null, lotSize: 1, tickSize: u.tick, name: u.name });
     if (!u.deriv) continue;
     const stock = u.kind === "EQ";
-    // Stock futures on the same 3 monthly expiries as the options (P1-6); index futures on the next 3 monthlies (as NSE and BSE list them).
+    // Stock futures on the same 3 monthly expiries as the options; index futures on the next 3 monthlies (as NSE and BSE list them).
     for (const e of stock ? expiriesFor(u.symbol, t) : monthlyExpiries(u, t)) {
       rows.push({ token: `DM-${u.symbol}-${e}-FUT`, exchange: u.deriv, tradingSymbol: `${u.symbol}-${e}-FUT`, underlying: u.symbol, instrumentType: stock ? "FUTSTK" : "FUTIDX", expiry: e, strike: null, optionType: null, lotSize: contractLot(u, e, t), tickSize: 0.05, name: `${u.name} future` });
     }
@@ -687,7 +674,7 @@ function dayCentre(u, t) {
 }
 
 /**
- * The demo split stock's adjusted series (P1-6 §4.1): on the nearest expiry, 3 strikes × CE/PE left from before the
+ * The demo split stock's adjusted series: on the nearest expiry, 3 strikes × CE/PE left from before the
  * split, with lot × 5 and off-grid strikes (the pre-split strike / 5, on a 0.05 tick). Tokens end in "-ADJ".
  */
 export function adjustedContracts(u, t) {
@@ -706,14 +693,20 @@ export function adjustedContracts(u, t) {
   return rows;
 }
 
-/** Futures run on the monthly cycle (last Tuesday for NSE indices, last Thursday for SENSEX). */
-function monthlyExpiries(u, t) {
+/**
+ * The monthly cycle: the last Tuesday of the month on NSE (futures and the monthly-only underlyings) and the last Thursday on
+ * BSE, holiday-shifted. One rule for both the expiry list and the futures, so a BSE monthly-only underlying never lists Tuesdays.
+ * @param {{ deriv: string }} u
+ * @param {number} t epoch ms
+ * @param {number} [count]
+ */
+export function monthlyExpiries(u, t, count = 3) {
   const start = ist(t);
   const target = u.deriv === "BFO" ? 4 : 2;
   const out = [];
   let y = start.y;
   let m = start.m;
-  while (out.length < 3) {
+  while (out.length < count) {
     const last = new Date(Date.UTC(y, m + 1, 0));
     while (last.getUTCDay() !== target) last.setUTCDate(last.getUTCDate() - 1);
     const iso = shiftForHoliday(isoDate(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()), u.deriv);
@@ -780,7 +773,7 @@ export function quoteOf(token, exchange, t) {
   const bid = Number(down(Math.min(ltp, ltp - spread / 2)).toFixed(4));
   const ask = Number(Math.max(up(ltp + spread / 2), bid + tick).toFixed(4));
   const perMinute = p.kind === "spot" ? 5200 : p.kind === "fut" ? 30 : optionLotsPerMinute(p.strike, spotAt(p.symbol, t), u.step, p.right);
-  // Contract lot (an adjusted contract's own lot); stock derivatives' volume scaled like their OI (P1-6).
+  // Contract lot (an adjusted contract's own lot); stock derivatives' volume scaled like their OI.
   const lot = p.kind === "spot" ? 1 : contractLot(u, p.expiry, t) * (p.adjusted ? DEMO_ADJ_FACTOR : 1);
   const scale = p.kind === "opt" ? u.oiScale ?? 1 : 1;
   const volume = p.kind === "spot" && u.kind === "INDEX" ? 0 : Math.max(p.kind === "spot" ? 0 : 1, Math.round(perMinute * scale * minutes * (0.7 + 0.6 * unit(`${token}:vol`)))) * lot;
@@ -804,7 +797,7 @@ export function quoteOf(token, exchange, t) {
 }
 
 /**
- * A light OptionChain-shaped chain at `t` for history seeding (vol/demoVol.mjs, P1-3b): ltp, bid, ask, oi and volume
+ * A light OptionChain-shaped chain at `t` for history seeding (vol/demoVol.mjs): ltp, bid, ask, oi and volume
  * per leg from optionPrice only (no intraday high/low walk), `strikesEachSide` strikes around the spot. About 120 legs
  * in well under a millisecond each. Null for a symbol without options.
  */

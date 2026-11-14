@@ -3,6 +3,7 @@ import { sign } from "../auth/hmac.mjs";
 import { startTestBridge } from "./__fixtures__/testBridge.mjs";
 import { createAutomationRegistry } from "../readiness/automations.mjs";
 import { hooksRuntimeFor } from "./module.mjs";
+import { createHookRateLimiter } from "./routes.mjs";
 
 let b;
 const json = { "content-type": "application/json" };
@@ -37,26 +38,6 @@ describe("hook management routes", () => {
     expect(after.status).toBe(404);
     expect(b.audit.ofType("hook.*").map((r) => r.type)).toEqual(["hook.created", "hook.deleted"]);
     expect(JSON.stringify(b.audit.records)).not.toContain(token);
-  });
-
-  it("a TradingView hook: JSON or text alerts, a strategy resend is a duplicate, an unfilled placeholder is refused", async () => {
-    const h = await createHook({ source: "tradingview", label: "TV breakout" });
-    expect(h.path).toMatch(/^\/hooks\/tradingview\//);
-    expect(h.templates.map((t) => t.name)).toEqual(["TradingView strategy alert", "TradingView indicator or price alert"]);
-    expect(h.templates[0].message).toContain("{{strategy.order.action}}");
-    expect(h.signingSecret).toBeUndefined();
-    expect(h.warnings.join(" ")).toMatch(/port 443/);
-    const first = await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
-    expect(first.status).toBe(202);
-    const again = await b.request({ method: "POST", path: h.path, headers: json, body: alert() });
-    expect(again.json).toMatchObject({ accepted: true, signalId: first.json.signalId, duplicate: true });
-    const text = await b.request({ method: "POST", path: h.path, headers: { "content-type": "text/plain" }, body: "SELL NSE:RELIANCE 1 @ 1400" });
-    expect(text.status).toBe(202);
-    const unfilled = await b.request({ method: "POST", path: h.path, headers: json, body: alert({ side: "{{strategy.order.action}}" }) });
-    expect(unfilled.status).toBe(400);
-    // The token belongs to this source only.
-    expect((await b.request({ method: "POST", path: h.path.replace("tradingview", "gocharting"), headers: json, body: alert() })).status).toBe(404);
-    await idle();
   });
 
   it("needs an admin key and refuses unknown accounts or bad bodies", async () => {
@@ -263,9 +244,9 @@ describe("POST /hooks/{source}/{token}", () => {
     expect(tickets[0]).toMatchObject({ source: "webhook", order: { account: "paper", symbol: "NSE:RELIANCE" } });
   });
 
-  it("rate-limits a noisy hook", async () => {
+  it("rate-limits a noisy hook (with holding switched off)", async () => {
     await b.close();
-    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2 } } });
+    b = await startTestBridge({ config: { hooks: { maxSignalsPerMinute: 2, rateWaitSec: 0 } } });
     const h = await createHook({});
     const codes = [];
     for (let i = 0; i < 3; i += 1) codes.push((await b.request({ method: "POST", path: h.path, headers: json, body: alert({ id: `x${i}` }) })).status);
@@ -353,7 +334,7 @@ describe("generic hooks: junk without the secret cannot use up the hook's budget
   });
 });
 
-describe("live hooks are readiness automations (p1-05 M7)", () => {
+describe("live hooks are readiness automations", () => {
   const liveCfg = { safety: { liveTrading: true }, accounts: [{ id: "dhan-main", broker: "dhan", live: { enabled: true, allowedSources: ["webhook"] } }, { id: "paper", broker: "paper" }] };
   let registry;
   let state;
@@ -396,5 +377,31 @@ describe("live hooks are readiness automations (p1-05 M7)", () => {
     const { default: hooksModule } = await import("./module.mjs");
     await hooksModule.start(b.app.deps);
     expect(registry.list().map((a) => a.id)).toEqual([live.id]);
+  });
+});
+
+describe("the per-hook minute limiter: reserve()", () => {
+  it("takes the next slot now or later, refuses past the wait, and gives a slot back", () => {
+    let t = 1_000_000;
+    const rl = createHookRateLimiter({ now: () => t });
+    const a = rl.reserve("h", 2, 60_000);
+    const b = rl.reserve("h", 2, 60_000);
+    expect([a.waitMs, b.waitMs]).toEqual([0, 0]);
+    t += 1000;
+    const c = rl.reserve("h", 2, 60_000); // the third waits until the first leaves the minute: 59 s from now
+    expect(c.ok).toBe(true);
+    expect(c.waitMs).toBe(59_000);
+    t += 1000;
+    const d = rl.reserve("h", 2, 60_000); // the fourth waits for the second's slot: it left 60 s after its own time
+    expect(d.waitMs).toBe(58_000 + 1000 - 1000); // 1_060_000 - 1_002_000
+    const tooFar = rl.reserve("h", 2, 1000);
+    expect(tooFar).toMatchObject({ ok: false });
+    expect(tooFar.retryAfterMs).toBeGreaterThan(1000);
+    rl.undo("h", d.slot);
+    expect(rl.reserve("h", 2, 60_000).waitMs).toBe(d.waitMs); // the slot is free again
+    // a wait of 0 behaves like the old take(): over the limit is refused
+    const strict = createHookRateLimiter({ now: () => t });
+    expect(strict.reserve("s", 1, 0).ok).toBe(true);
+    expect(strict.reserve("s", 1, 0).ok).toBe(false);
   });
 });

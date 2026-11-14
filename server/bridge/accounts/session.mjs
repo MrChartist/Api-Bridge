@@ -1,5 +1,5 @@
 /**
- * Pure helpers for broker sessions (stream S1): input validation for connect(), session expiry times, and the
+ * Pure helpers for broker sessions: input validation for connect(), session expiry times, and the
  * state derived from a stored SecretStore record. Nothing here does I/O, keeps state or touches a secret value
  * beyond checking its shape, so every rule is unit-testable with plain objects.
  *

@@ -1,0 +1,29 @@
+meta {
+  name: Option symbol for an offset
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{baseUrl}}/api/v1/optionsymbol
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "underlying": "NIFTY",
+    "exchange": "NSE_INDEX",
+    "offset": "ATM",
+    "option_type": "CE"
+  }
+}
+
+docs {
+  Option symbol for an offset
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatOptionsymbol.md in the repository.
+}

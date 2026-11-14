@@ -1,24 +1,27 @@
 /**
- * Module registration. Each stream ships ONE module file per area (server/bridge/<area>/module.mjs):
+ * Module registration. Each area ships ONE module file (server/bridge/<area>/module.mjs):
  *
  *   export default defineModule({
- *     name: "market", stream: "S5",
+ *     name: "market",
  *     configKey: "market", configSchema: z.object({...}).strict(),   // optional: owns config.market
  *     services: { marketData: (deps) => createMarketDataService(deps) },   // contract services only
  *     register(app, deps) { app.get("/v1/quotes", handler, { scope: "read" }); },   // routes, WS upgrades
  *     async start(deps) {}, async stop(deps) {},                        // optional lifecycle
  *   });
  *
+ * A module names the contract services it provides (SERVICE_CONTRACTS) and registers its routes; each route is
+ * labelled with the module that registers it (`x-module` in docs/openapi.yaml).
+ *
  * Service factories run in dependency order (SERVICE_CONTRACTS[name].requires) and receive a deps object that
  * contains ONLY the core deps plus the services they declared they need; touching anything else throws, so hidden
- * coupling between streams fails in tests, not in production. register() receives every service.
+ * coupling between modules fails in tests, not in production. register() receives every service.
  */
 import { CORE_DEPS, SERVICE_CONTRACTS, assertService, notImplementedService } from "./contracts.mjs";
-import { CORE_SECTIONS, IGNORED_PREFIX, deepFreeze } from "./config.mjs";
+import { CORE_SECTIONS, IGNORED_PREFIX, REMOVED_SETTINGS, deepFreeze, findRemovedSettings } from "./config.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
 
 /**
- * @typedef {{ name: string, stream: string, configKey?: string, configSchema?: import("zod").ZodType,
+ * @typedef {{ name: string, configKey?: string, configSchema?: import("zod").ZodType,
  *   services?: Record<string, (deps: object) => object>, register?: (app: object, deps: object) => void | Promise<void>,
  *   start?: (deps: object) => void | Promise<void>, stop?: (deps: object) => void | Promise<void> }} BridgeModule
  */
@@ -27,10 +30,8 @@ import { BridgeError, NotImplementedError } from "./errors.mjs";
 export function defineModule(mod) {
   if (!mod || typeof mod !== "object") throw new Error("defineModule needs an object");
   if (typeof mod.name !== "string" || !/^[a-z][a-z0-9-]{1,30}$/.test(mod.name)) throw new Error(`Bad module name ${mod?.name}`);
-  if (typeof mod.stream !== "string" || !/^S\d{1,2}$|^core$/.test(mod.stream)) throw new Error(`Module ${mod.name}: stream must be like "S5" or "core"`);
   for (const key of Object.keys(mod.services ?? {})) {
     if (!SERVICE_CONTRACTS[key]) throw new Error(`Module ${mod.name}: "${key}" is not a contract service (core/contracts.mjs)`);
-    if (SERVICE_CONTRACTS[key].stream !== mod.stream) throw new Error(`Module ${mod.name}: service ${key} belongs to stream ${SERVICE_CONTRACTS[key].stream}`);
     if (typeof mod.services[key] !== "function") throw new Error(`Module ${mod.name}: services.${key} must be a factory function`);
   }
   if (mod.configKey !== undefined) {
@@ -72,9 +73,22 @@ export function validateModules(modules) {
  * @param {object} config @param {object[]} modules @param {string[]} [warnings] receives one line when anything is left out
  */
 export function applyModuleConfig(config, modules, warnings = []) {
+  // Settings an older, fuller release had and v2 does not: say so and carry on without them. A settings file left
+  // over from the full app must never stop the Bridge from starting.
+  const removed = findRemovedSettings(config);
+  if (removed.length) {
+    config = structuredClone(config);
+    for (const path of Object.keys(REMOVED_SETTINGS)) {
+      const keys = path.split(".");
+      let at = config;
+      for (const k of keys.slice(0, -1)) at = at && typeof at === "object" ? at[k] : undefined;
+      if (at && typeof at === "object") delete at[keys[keys.length - 1]];
+    }
+    if (Array.isArray(config.mcp?.toolsets)) config.mcp.toolsets = config.mcp.toolsets.filter((t) => t !== "options");
+    warnings.push(`${IGNORED_PREFIX}${removed.join("; ")}`);
+  }
   const out = structuredClone(config);
   const claimed = new Set();
-  const dropped = [];
   for (const m of modules) {
     if (!m.configKey) continue;
     claimed.add(m.configKey);
@@ -85,12 +99,11 @@ export function applyModuleConfig(config, modules, warnings = []) {
     }
     out[m.configKey] = parsed.data;
   }
+  // A section nobody owns is most likely a typing mistake ("safty"), and silently ignoring a mistyped safety
+  // setting is worse than not starting. (Sections the full app had are handled above, by name.)
   for (const k of Object.keys(config)) {
-    if (CORE_SECTIONS.includes(k) || claimed.has(k)) continue;
-    delete out[k];
-    dropped.push(k);
+    if (!CORE_SECTIONS.includes(k) && !claimed.has(k)) throw new BridgeError("VALIDATION_FAILED", `Unknown config section "${k}".`);
   }
-  if (dropped.length) warnings.push(`${IGNORED_PREFIX}${dropped.join(", ")}`);
   return deepFreeze(out);
 }
 
@@ -153,9 +166,9 @@ export async function buildServices(coreDeps, modules, overrides = {}) {
 }
 
 /**
- * Placeholder handler for a route whose stream has not landed yet: answers 501 NOT_IMPLEMENTED. Streams replace
+ * Placeholder handler for a route whose module has not landed yet: answers 501 NOT_IMPLEMENTED. Modules replace
  * these with real handlers; the route itself (method, path, auth, scope) is part of the contract (docs/openapi.yaml).
- * @param {string} what  e.g. "GET /v1/quotes (stream S5)"
+ * @param {string} what  e.g. "GET /v1/quotes"
  */
 export function notBuilt(what) {
   return () => {

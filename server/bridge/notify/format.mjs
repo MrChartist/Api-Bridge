@@ -1,17 +1,13 @@
 /**
- * Human-readable messages for notification events (stream S15). Pure functions. Instrument names and broker messages
+ * Human-readable messages for the readiness monitor's notifications (shown as "would have sent" in demo mode). Pure functions. Instrument names and broker messages
  * are third-party text: they are kept short and never interpreted.
  */
 const clip = (s, n = 200) => {
   const t = String(s ?? "");
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
-const list = (a, n = 20) => {
-  const arr = Array.isArray(a) ? a : [];
-  return arr.length > n ? `${arr.slice(0, n).join(", ")} and ${arr.length - n} more` : arr.join(", ");
-};
 
-/** "Log in again …" etc.: what to do about the first failing readiness check (p1-05 §6.8). */
+/** "Log in again …" etc.: what to do about the first failing readiness check. */
 function readinessRemedy(check, accountId) {
   if (check === "session") return `Log in again: mc-bridge accounts connect ${clip(accountId, 40)}, or the Accounts page.`;
   if (check === "egress") return "Check your internet connection or VPN; see the deployment guide.";
@@ -26,7 +22,7 @@ const sentence = (parts) => {
 };
 
 /**
- * trading.readiness (p1-05 §6.8). Never an IP address, a lookup host, a token or a broker client code: only the
+ * trading.readiness. Never an IP address, a lookup host, a token or a broker client code: only the
  * account's own local id and label, the broker's name and the reason lines (which carry none of those).
  */
 function formatReadiness(p) {
@@ -68,30 +64,7 @@ function formatReadiness(p) {
   return { title: `${who(p)}: ${stateText}${sim}`, text: parts.filter(Boolean).join(" ") };
 }
 
-/** { title, text } for one event. */
+/** { title, text } for one event. Only trading.readiness is formatted; anything else gets its topic as the title. */
 export function formatEvent(topic, p = {}) {
-  switch (topic) {
-    case "scan.alert":
-      return { title: `Scan "${clip(p.name, 80)}": ${p.newMatches?.length ?? 0} new match(es)`, text: `New: ${list(p.newMatches)}` };
-    case "scan.completed":
-      return { title: `Scan finished (${p.status})`, text: `${p.progress?.matched ?? 0} matched of ${p.progress?.total ?? 0}${p.matched?.length ? `: ${list(p.matched)}` : ""}` };
-    case "order.updated": {
-      const qty = p.filledQuantity ? ` ${p.filledQuantity} filled${p.avgPrice ? ` @ ${p.avgPrice}` : ""}` : "";
-      return { title: `${String(p.mode ?? "").toUpperCase()} order ${p.status}`, text: `${clip(p.orderId, 60)} on ${clip(p.accountId, 40)}${qty}${p.brokerStatus ? ` (${clip(p.brokerStatus, 60)})` : ""}` };
-    }
-    case "safety.kill_switch":
-      return { title: p.engaged ? "KILL SWITCH ENGAGED" : "Kill switch released", text: `${p.reason ? clip(p.reason) : "No reason given"}${p.by ? ` · by ${clip(p.by, 60)}` : ""}${p.cancelOpenOrders ? " · cancelling open orders" : ""}` };
-    case "account.status":
-      return { title: `Account ${clip(p.accountId, 40)}: ${p.session}`, text: p.session === "expired" ? "The broker session ended. Log in again: mc-bridge accounts connect " + clip(p.accountId, 40) : clip(p.message ?? "") };
-    case "limits.throttled":
-      return { title: `Broker rate limit hit on ${clip(p.accountId, 40)}`, text: `${p.endpointClass} calls paused for ${Math.ceil((p.retryAfterMs ?? 0) / 1000)} s` };
-    case "trading.readiness":
-      return formatReadiness(p);
-    case "option.alert":
-      return { title: clip(p.title ?? `Alert: ${p.name ?? ""}`, 120), text: clip(p.text ?? "") };
-    case "test":
-      return { title: "Mr. Chartist API Bridge: test message", text: "Notifications from your Bridge reach this place." };
-    default:
-      return { title: topic, text: "" };
-  }
+  return topic === "trading.readiness" ? formatReadiness(p) : { title: topic, text: "" };
 }

@@ -1,5 +1,5 @@
 /**
- * S5 routes end to end through the real request pipeline (createApp): the real MarketDataService over the published
+ * market routes end to end through the real request pipeline (createApp): the real MarketDataService over the published
  * fakes (accounts, scheduler, symbols), a stub stream hub and a fake key store. Checks the OpenAPI shapes
  * ({ data, errors?, meta }), auth and scope, account pinning against the key, validation, CSV output and the `market`
  * config section.
@@ -28,6 +28,13 @@ const KEYS = {
   [LIMITED]: { id: "limit000001", label: "dhan only", scopes: ["read"], accounts: ["dhan-main"] },
 };
 const fakeKeyStore = { ...notImplementedService("keyStore"), authenticate: async (raw) => KEYS[raw] ?? null };
+
+// The instrument fixtures (__fixtures__/helpers.mjs) list option expiries up to 24 November 2026. The service asks the app clock which
+// expiries are still ahead, so a real clock would make `/v1/expiries` answer 404 from 25 November. Pin the clock to the week
+// the fixtures were written for (Monday 19 October 2026, 09:30 IST) and let it run forward from there.
+const PIN_START = Date.UTC(2026, 9, 19, 4, 0, 0);
+const REAL_START = Date.now();
+const PINNED_CLOCK = { now: () => PIN_START + (Date.now() - REAL_START) };
 
 let app;
 let port;
@@ -90,7 +97,7 @@ beforeAll(async () => {
       streamHub: stubStreamHub(),
     },
     logger: createNullLogger(),
-    clock: { now: () => Date.now() },
+    clock: PINNED_CLOCK,
   });
   ({ port } = await app.listen());
 });
@@ -128,6 +135,25 @@ describe("market routes", () => {
     expect(second.json.data[0].freshness.source).toBe("cache");
     const live = await call(`/v1/quotes?symbols=${enc("NSE:INFY")}&maxAgeMs=0`);
     expect(live.json.data[0].freshness.source).toBe("broker");
+  });
+
+  it("fields= trims quotes and history candles but never drops the data-class label or the time", async () => {
+    const q = await call(`/v1/quotes?symbols=${enc("NSE:INFY")}&fields=ltp,bid`);
+    expect(q.status).toBe(200);
+    expect(Object.keys(q.json.data[0])).toEqual(["symbol", "ltp", "bid", "freshness"]);
+    expect(q.json.data[0].freshness).toMatchObject({ class: "realtime", source: expect.any(String) });
+    expect(q.json.meta.fields).toEqual(["ltp", "bid"]);
+    expect(Array.isArray(q.json.errors)).toBe(true);
+    expect((await call(`/v1/quotes?symbols=${enc("NSE:INFY")}&fields=ltp,nope`)).status).toBe(400);
+    expect((await call(`/v1/quotes?symbols=${enc("NSE:INFY")}&fields=`)).status).toBe(200); // an empty value counts as not sent
+    const h = await call("/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14&fields=close,date,timeIso");
+    expect(h.status).toBe(200);
+    expect(Object.keys(h.json.data.candles[0])).toEqual(["time", "close", "date", "timeIso"]);
+    expect(h.json.data.freshness).toBeTruthy();
+    expect(h.json.data.partial).toBe(false);
+    expect(h.json.meta.fields).toEqual(["close", "date", "timeIso"]);
+    expect((await call("/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14&fields=close&format=csv")).status).toBe(400);
+    expect((await call("/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14&fields=a,b")).json.detail).toMatch(/Allowed: time, open/);
   });
 
   it("validates symbols and maxAgeMs", async () => {
@@ -184,6 +210,29 @@ describe("market routes", () => {
     expect(lines[0]).toBe("time,open,high,low,close,volume,oi");
     expect(lines[1]).toBe("2026-10-12,10,12,9,11,1000,5");
     expect(lines).toHaveLength(4);
+  });
+
+  it("GET /v1/history: daily bars carry the IST date; timeIso and tz add an ISO twin of the epoch time", async () => {
+    const base = "/v1/history?symbol=NSE:NIFTY&interval=1d&from=2026-10-12&to=2026-10-14";
+    const j = await call(base);
+    expect(j.json.data.candles.map((c) => c.date)).toEqual(["2026-10-12", "2026-10-13", "2026-10-14"]);
+    expect(j.json.data.candles[0]).not.toHaveProperty("timeIso");
+    expect(typeof j.json.data.candles[0].time).toBe("number");
+    const ist = await call(`${base}&timeIso=true`);
+    expect(ist.json.data.candles[0].timeIso).toBe("2026-10-12T09:15:00+05:30");
+    expect(ist.json.data.candles[0].time).toBe(j.json.data.candles[0].time);
+    const utc = await call(`${base}&tz=UTC`);
+    expect(utc.json.data.candles[0].timeIso).toBe("2026-10-12T03:45:00Z");
+    expect(utc.json.data.candles[0].date).toBe("2026-10-12");
+    expect((await call(`${base}&tz=PST`)).status).toBe(400);
+    expect((await call(`${base}&timeIso=maybe`)).status).toBe(400);
+    expect((await call(`${base}&format=csv&tz=UTC`)).status).toBe(400);
+    // Intraday bars carry no date by default (the epoch time and, on request, the ISO twin say it all).
+    const m = await call("/v1/history?symbol=NSE:NIFTY&interval=5m&from=2026-10-12&to=2026-10-12&timeIso=1");
+    if (m.json.data.candles.length) {
+      expect(m.json.data.candles[0]).not.toHaveProperty("date");
+      expect(m.json.data.candles[0].timeIso).toMatch(/\+05:30$/);
+    }
   });
 
   it("validates history parameters", async () => {

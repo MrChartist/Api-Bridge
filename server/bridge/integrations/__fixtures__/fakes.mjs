@@ -1,5 +1,5 @@
 /**
- * Test doubles for stream S10: deterministic marketData, symbols and keyStore fakes that satisfy the core contracts.
+ * Test doubles for the integrations module: deterministic marketData, symbols and keyStore fakes that satisfy the core contracts.
  * Nothing here talks to a broker. Candles exist for weekdays from DATA_START, with no data on HOLIDAYS, so empty
  * ranges can be tested exactly.
  */
@@ -77,6 +77,7 @@ export function createFakeSymbols() {
 }
 
 const freshness = (source = "stream") => ({
+  class: "realtime",
   source,
   asOf: "2026-10-16T15:00:00+05:30",
   ageMs: 120,

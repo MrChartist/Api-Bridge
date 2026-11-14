@@ -12,6 +12,9 @@ if (!process.env.MCB_TEST_TMPDIR) {
   process.env.TMP = dir;
   process.env.TEMP = dir;
 }
+// The instrument-master cache (server/lib/instrumentCache.mjs) would otherwise write into <repo>/.cache and make a run depend on
+// what earlier runs left there.
+if (!process.env.MCB_INSTRUMENT_CACHE_DIR) process.env.MCB_INSTRUMENT_CACHE_DIR = join(process.env.MCB_TEST_TMPDIR, "instrument-cache");
 
 // The suite checks the Bridge as it behaves when every tool needs a key (who may do what, scope by scope). Keyless
 // access on this computer (auth/localAccess.mjs) is on by default for people, so it is switched off here and tested on
@@ -21,7 +24,7 @@ process.env.MCB_KEYLESS ??= "0";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["server/**/*.{test,spec}.mjs", "src/**/*.{test,spec}.{ts,mjs}", "scripts/**/*.{test,spec}.mjs"],
+    include: ["server/**/*.{test,spec}.mjs", "src/**/*.{test,spec}.{ts,mjs}", "scripts/**/*.{test,spec}.mjs", "examples/**/*.{test,spec}.mjs"],
     // Budgets for tests and hooks that boot a whole Bridge. A demo Bridge starts its own background work at once
     // (instrument master, vol history seed, recorder back-fill: about 10 s of CPU when it runs to the end) on the same
     // event loop as the test, and about 50 test files boot one. Alone, a boot and its keys (an scrypt at N = 2^15
@@ -31,7 +34,7 @@ export default defineConfig({
     // about speed measure CPU time or work counts (e2e/fixtures.mjs stopwatch), never these budgets.
     testTimeout: 60_000,
     hookTimeout: 60_000,
-    setupFiles: ["./test/pinDate.mjs"],
+    setupFiles: ["./test/pinDate.mjs", "./test/noRealNetwork.mjs"],
     globalSetup: ["./test/tmpdir.mjs"],
   },
 });

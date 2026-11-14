@@ -1,0 +1,48 @@
+meta {
+  name: Send events to a URL, signed (this computer only)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/subscriptions
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "url": "https://hooks.example.com/bridge",
+    "topics": [
+      "order.*",
+      "download.done"
+    ],
+    "secret": "replace-with-a-long-random-string"
+  }
+}
+
+vars:post-response {
+  subscriptionId: res.body.data.id
+}
+
+docs {
+  Send events to a URL, signed (this computer only)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  The target is an outside URL, so this works from this computer only. Only https URLs on public addresses are accepted
+  (the config file can allow others). The secret is write-only: it is stored encrypted and never returned. Receivers
+  verify `X-Bridge-Signature` (see docs/guides/events.md).
+
+  Reference: docs/api/events/createSubscription.md in the repository.
+}

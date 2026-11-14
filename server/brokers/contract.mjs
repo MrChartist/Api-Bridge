@@ -19,15 +19,21 @@
 
 export const CONTRACT_VERSION = 1;
 
+/**
+ * The error codes that mean "the broker session is gone, log in again". The Bridge's scheduler marks the account logged out
+ * on any of them (ratelimit/scheduler.mjs); errorGuard.mjs tags an adapter's own wording of an expired session with one.
+ */
+export const SESSION_ERROR_CODES = Object.freeze(["SESSION_LOGIN_REQUIRED", "UPSTREAM_AUTH", "SESSION_EXPIRED"]);
+
 /** Index underlyings every adapter maps its own names onto. */
 export const CANONICAL_UNDERLYINGS = Object.freeze(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]);
 
 /**
  * How the user gets a usable session.
  *  - apiKeyToken:          user pastes a long-lived key/token (Dhan, Pocketful).
- *  - oauthRedirect:        broker login page redirects back with a code the app exchanges (Zerodha, Upstox, Fyers).
+ *  - oauthRedirect:        broker login page redirects back with a code the Bridge exchanges (Zerodha, Upstox, Fyers).
  *  - requestTokenExchange: user pastes a one-time request code that the adapter swaps for a session (Noren family).
- *  - sessionLogin:         user types password/PIN and the CURRENT 6-digit TOTP code at login time; the proxy calls
+ *  - sessionLogin:         user types password/PIN and the CURRENT 6-digit TOTP code at login time; the Bridge calls
  *                          adapter.login() once and only the returned session token is kept. The password, PIN and
  *                          code are never stored, cached, logged or used as a cache key.
  */
@@ -37,7 +43,6 @@ export const AUTH_KINDS = Object.freeze(["apiKeyToken", "oauthRedirect", "reques
  * Whether a credential key names a secret that must never be stored, cached, logged or used in a cache key:
  * passwords, PINs/MPINs, TOTP/OTP values and other second factors (2FA answers, date of birth, PAN). The check is
  * token-aware so camelCase and snake_case keys are caught too ("loginPin", "trading_pin", "userDob", "panNumber").
- * Mirrors isForbiddenFieldKey in src/lib/brokerConfig.ts; keep the two identical.
  */
 export function isForbiddenSecretKey(key) {
   const raw = String(key ?? "");
@@ -82,13 +87,13 @@ export const CAPABILITIES = Object.freeze({
 /** Keys of the older order-feature descriptor that may share the `capabilities` object. */
 export const LEGACY_ORDER_FEATURE_KEYS = Object.freeze(["bracket", "cover", "ioc", "mtf", "nativeMarketProtection", "maxLegQty", "products"]);
 
-/** Registry basics every adapter has had since before this contract (proxy-server.mjs calls them). */
+/** Registry basics every adapter has had since before this contract (the registry and services call them). */
 const REGISTRY_BASICS = ["testConnection", "fetchExpiryList", "fetchOptionChain", "fetchLTP"];
 
 // ── JSDoc types (the normalised shapes; contractShapes.mjs checks them) ──
 
 /**
- * @typedef {Record<string, string>} Creds  Saved Broker Settings values, plus session fields after a session login.
+ * @typedef {Record<string, string>} Creds  Saved account settings values, plus session fields after a session login.
  *
  * @typedef {{ status: "success"|"error", message: string }} ConnectionResult
  * @typedef {{ status: "success", data: string[] }} ExpiryListResult  ISO "YYYY-MM-DD", ascending.
@@ -96,8 +101,7 @@ const REGISTRY_BASICS = ["testConnection", "fetchExpiryList", "fetchOptionChain"
  *   iv?: number, implied_volatility?: number, delta?: number, gamma?: number, theta?: number, vega?: number,
  *   greeks?: { delta?: number, gamma?: number, theta?: number, vega?: number },
  *   bid_price?: number, ask_price?: number, top_bid_price?: number, top_ask_price?: number, security_id?: string|number }} ChainLeg
- *   Dhan-shaped leg; iv in percent (14.2, not 0.142). The app's parser (src/lib/marketApi.ts parseDhanLeg,
- *   mirrored by contractShapes.toOptionData) turns it into OptionData.
+ *   Dhan-shaped leg; iv in percent (14.2, not 0.142). contractShapes.toOptionData turns it into OptionData.
  * @typedef {{ status: "success", data: { oc: Record<string, { ce?: ChainLeg, pe?: ChainLeg }>, last_price: number } }} OptionChainResult
  * @typedef {{ status: "success", data: { last_price: number } }} LtpResult
  *
@@ -144,7 +148,7 @@ const REGISTRY_BASICS = ["testConnection", "fetchExpiryList", "fetchOptionChain"
 
 // ── Errors ──
 
-/** Base class. `statusCode` follows the proxy convention: 422 = we refused, 502 = upstream failed. */
+/** Base class. `statusCode` follows the Bridge convention: 422 = we refused, 502 = upstream failed. */
 export class BrokerError extends Error {
   constructor(message, { code = "UPSTREAM_ERROR", statusCode = 502 } = {}) {
     super(message);
@@ -156,9 +160,21 @@ export class BrokerError extends Error {
 
 /** No session token, or it expired / was rejected. The user must log in again (session-login brokers). */
 export class SessionRequiredError extends BrokerError {
-  constructor(message = "Your broker session has expired. Log in again from Broker Settings.") {
+  constructor(message = "Your broker session has expired. Log in again from the account settings.") {
     super(message, { code: "SESSION_LOGIN_REQUIRED", statusCode: 422 });
     this.name = "SessionRequiredError";
+  }
+}
+
+/**
+ * The broker answered an order call but no order id came back (an empty reply, an HTML error page, `{}`, a refusal that
+ * the adapter did not recognise). Whether the order reached the exchange is unknown, so the Bridge reads this as
+ * OUTCOME_UNKNOWN and looks for the order in the broker's order book. It is never returned as a placed order.
+ */
+export class OrderIdMissingError extends BrokerError {
+  constructor(message = "The broker answered without an order id, so the order may or may not have been placed.") {
+    super(`${message} ${ORDER_BOOK_HINT}`, { code: "ORDER_ID_MISSING", statusCode: 502 });
+    this.name = "OrderIdMissingError";
   }
 }
 

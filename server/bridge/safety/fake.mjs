@@ -1,5 +1,5 @@
 /**
- * In-memory fakes published by stream S9 for every stream's tests. Both satisfy their SERVICE_CONTRACTS entry
+ * In-memory fakes published by the safety module for every module's tests. Both satisfy their SERVICE_CONTRACTS entry
  * (assertService passes) and touch no files.
  *
  * 1. createFakeAuditLog(): records in memory with the SAME redaction, hashing and record shape as the real log.

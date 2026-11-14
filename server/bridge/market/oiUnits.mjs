@@ -1,5 +1,5 @@
 /**
- * Open-interest units per broker (docs/spec/p1-01-recorder.md §10, M10). DATA ONLY.
+ * Open-interest units per broker. DATA ONLY.
  *
  * The Bridge reports OI in UNITS (contracts × lot size) everywhere. A broker that sends OI in lots is converted by the
  * normaliser (market/normalise.mjs oiToUnits) with the leg's lot size; when the lot size is unknown the OI becomes

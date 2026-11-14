@@ -1,7 +1,7 @@
 /**
  * Contract test: every real broker adapter (server/brokers/registry.mjs) is run against its recorded fixtures
  * (server/brokers/__fixtures__/<id>/, fetch stubbed by contractHarness.createFetchStub, so no network) and its
- * market-data output is fed through S5's normalisers. Whatever shape a broker returns within the contract, the Bridge
+ * market-data output is fed through market's normalisers. Whatever shape a broker returns within the contract, the Bridge
  * must turn it into the OpenAPI shapes without losing prices, inventing zeros or failing.
  *
  * Several adapters pace their own upstream calls with timers (the XTS family waits 1 s between market-data calls), so
@@ -10,10 +10,74 @@
 import { describe, expect, it, vi } from "vitest";
 import { CAPABILITIES, declaredCapabilities } from "../../brokers/contract.mjs";
 import { createFetchStub, loadFixtures } from "../../brokers/contractHarness.mjs";
+import { setHdfcWebSocketImpl } from "../../brokers/hdfcsecuritiesFeed.mjs";
 import { createBrokerRegistry } from "../../brokers/registry.mjs";
 import { isCanonicalSymbol } from "../core/symbolFormat.mjs";
 import { rowsFromBrokerChain } from "./chain.mjs";
 import { depthFields, normaliseCandles, quoteFields } from "./normalise.mjs";
+
+// mStock reads some data with a GET that has a body, which fetch cannot send, so it uses node:https. Bridge that to the same fetch
+// stub the harness installs (as server/brokers/mstock.test.mjs does): without it this test opened a real connection to the vendor.
+vi.mock("node:https", async () => {
+  const { EventEmitter } = await import("node:events");
+  return {
+    request(options, onResponse) {
+      const req = new EventEmitter();
+      let body = "";
+      req.write = (chunk) => { body += chunk; };
+      req.destroy = (err) => req.emit("error", err);
+      req.end = () => {
+        globalThis
+          .fetch(`https://${options.hostname}${options.path}`, { method: options.method, headers: options.headers, body })
+          .then(async (res) => {
+            const text = await res.text();
+            const out = new EventEmitter();
+            out.statusCode = res.status;
+            onResponse(out);
+            out.emit("data", Buffer.from(text));
+            out.emit("end");
+          })
+          .catch((e) => req.emit("error", e));
+      };
+      return req;
+    },
+  };
+});
+
+/**
+ * A WebSocket that never reaches anyone: it fails to connect at once. Several adapters take their open interest, volume and depth
+ * from a short WebSocket snapshot after the REST call and carry on without it when it fails; with the real WebSocket this test opened
+ * connections to those vendors' hosts (the setup guard in test/noRealNetwork.mjs now refuses them).
+ */
+class OfflineWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+  constructor(url) {
+    this.url = String(url);
+    this.readyState = 0;
+    this.listeners = {};
+    Promise.resolve().then(() => {
+      this.readyState = 3;
+      const error = { type: "error", message: "offline" };
+      const close = { type: "close", code: 1006, reason: "offline" };
+      this.onerror?.(error);
+      this.emit("error", error);
+      this.onclose?.(close);
+      this.emit("close", close);
+    });
+  }
+  addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
+  removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] ?? []).filter((f) => f !== fn); }
+  on(type, fn) { this.addEventListener(type, fn); return this; }
+  once(type, fn) { this.addEventListener(type, fn); return this; }
+  off(type, fn) { this.removeEventListener(type, fn); return this; }
+  emit(type, ev) { for (const fn of this.listeners[type] ?? []) fn(ev); }
+  send() {}
+  close() {}
+  terminate() {}
+}
 
 const MARKET_CAPS = ["instruments", "expiries", "optionChain", "ltp", "quotes", "depth", "historical"];
 const NOW = Date.parse("2026-10-19T10:00:00+05:30");
@@ -67,14 +131,22 @@ async function runAdapter(adapter) {
 const registry = createBrokerRegistry();
 const ids = registry.list();
 
-describe("S5 normalisers accept every adapter's fixture output", async () => {
+describe("market normalisers accept every adapter's fixture output", async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const realWebSocket = globalThis.WebSocket;
+  globalThis.WebSocket = OfflineWebSocket;
+  setHdfcWebSocketImpl(OfflineWebSocket);
   const runs = [];
-  for (const id of ids) {
-    const adapter = registry.get(id);
-    runs.push({ id, adapter, ...(await runAdapter(adapter)) });
+  try {
+    for (const id of ids) {
+      const adapter = registry.get(id);
+      runs.push({ id, adapter, ...(await runAdapter(adapter)) });
+    }
+  } finally {
+    globalThis.WebSocket = realWebSocket;
+    setHdfcWebSocketImpl(null);
+    vi.useRealTimers();
   }
-  vi.useRealTimers();
 
   it("covers all 41 adapters", () => {
     expect(runs.length).toBe(41);

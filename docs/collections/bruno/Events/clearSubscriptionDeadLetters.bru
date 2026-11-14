@@ -1,0 +1,28 @@
+meta {
+  name: Forget this subscription's dead letters
+  type: http
+  seq: 13
+}
+
+delete {
+  url: {{baseUrl}}/v1/subscriptions/:subscriptionId/dead-letters
+  body: none
+  auth: bearer
+}
+
+params:path {
+  subscriptionId: {{subscriptionId}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Forget this subscription's dead letters
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/events/clearSubscriptionDeadLetters.md in the repository.
+}

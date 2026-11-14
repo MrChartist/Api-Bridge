@@ -1,5 +1,5 @@
 /**
- * StreamHub — stream S6 (docs/STREAMS.md §S6). Contract: SERVICE_CONTRACTS.streamHub in ../core/contracts.mjs.
+ * StreamHub. Contract: SERVICE_CONTRACTS.streamHub in ../core/contracts.mjs.
  *
  * What it does
  *  - Upstream manager: at most ONE broker feed per account (adapter.createFeed(creds, { onTick, onStatus })), shared by
@@ -19,11 +19,17 @@
  *    ("account.status" -> connected) rebuilds the feed at once; an ended session parks it until the next login.
  *  - Emits "tick" (canonical Tick) and "stream.status" on the bus; a connected feed with no tick for `staleAfterMs`
  *    reports state "stale".
+ *  - Watchdog for half-open sockets (the connection looks open but no frames arrive, and the adapter never notices):
+ *    during market hours a feed silent for `staleRebuildAfterMs` is closed and rebuilt with the same back-off as any
+ *    other failure, and a feed that never reports "connected" within `connectTimeoutMs` is rebuilt too. This runs in the
+ *    hub, so every adapter's feed gets it without touching the adapter. The hub never gives up: every failure schedules
+ *    another attempt (back-off capped at `backoff.maxMs`), and a rebuild resubscribes each symbol exactly once.
  *
  * Batching: subscribe/unsubscribe calls made in the same turn of the event loop reach the adapter as one call per feed.
  * Memory: the hub keeps one last tick per subscribed symbol and nothing per tick; downstream queues live in protocol.mjs.
  */
 import { FEED_LIMITS } from "../../brokers/upstreamFeedLimits.mjs";
+import { marketSession } from "../../lib/marketHours.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { resolveStreamConfig } from "./config.mjs";
 
@@ -96,14 +102,22 @@ const SESSION_ENDED = (up) => `The ${up.broker} session for ${up.accountId} has 
 
 /**
  * @param {object} deps  Core deps plus `accounts` and `symbols` (SERVICE_CONTRACTS.streamHub.requires).
- * @param {{ random?: () => number }} [opts]  random: injectable back-off jitter for tests.
+ * @param {{ random?: () => number, marketOpen?: () => boolean }} [opts]  random: injectable back-off jitter for tests;
+ *   marketOpen: whether ticks are expected now (default: the IST regular or special session), used by the silence watchdog.
  * @returns {object} StreamHub (contract methods plus internal helpers used by this stream's endpoints)
  */
-export function createStreamHub(deps, { random = Math.random } = {}) {
+export function createStreamHub(deps, { random = Math.random, marketOpen } = {}) {
   const { accounts, symbols, bus, clock } = deps;
   const cfg = resolveStreamConfig(deps.config?.stream);
   const log = deps.logger.child({ module: "stream" });
   const now = () => clock.now();
+  const isMarketOpen =
+    marketOpen ??
+    (() => {
+      // Ticks are expected for as long as the longest segment (derivatives) is in session.
+      const state = marketSession(new Date(now()), "NFO").state;
+      return state === "OPEN" || state === "SPECIAL";
+    });
 
   /**
    * @typedef {{ id: string, symbols: Map<string, StreamMode>, aliases: Map<string, string>, pending: number,
@@ -185,13 +199,31 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
 
   function checkStale() {
     const t = now();
-    for (const up of upstreams.values()) {
-      if (!up.connected || up.stale || up.refs.size === 0) continue;
+    for (const up of [...upstreams.values()]) {
+      // A feed that was built but never reported "connected": the handshake hung. Rebuild it.
+      if (!up.connected && up.feed && up.state === "connecting" && up.feedStartedAt !== null && t - up.feedStartedAt >= cfg.connectTimeoutMs) {
+        log.warn("stream feed did not connect in time; rebuilding", { accountId: up.accountId, broker: up.broker });
+        up.rebuilds += 1;
+        scheduleRetry(up, `The ${up.broker} feed did not connect within ${Math.round(cfg.connectTimeoutMs / 1000)} s; rebuilding it.`);
+        continue;
+      }
+      if (!up.connected || up.refs.size === 0) continue;
       const since = Math.max(up.lastTickAt ?? 0, up.connectedAt ?? 0, up.lastSubAt ?? 0) || t;
-      if (t - since >= cfg.staleAfterMs) {
+      if (!up.stale && t - since >= cfg.staleAfterMs) {
         up.stale = true;
         up.reason = `No ticks for ${Math.round(cfg.staleAfterMs / 1000)} s (normal outside market hours).`;
         emitStatus(up);
+      }
+      // Half-open socket: silent for a long time while the market is open. The wait doubles after each rebuild that did
+      // not bring a tick, so a holiday (open by the clock, no ticks) costs a few reconnects, not one every few minutes.
+      if (up.stale && cfg.staleRebuildAfterMs > 0 && isMarketOpen()) {
+        const wait = cfg.staleRebuildAfterMs * 2 ** Math.min(up.silentRebuilds, 4);
+        if (t - since >= wait) {
+          log.warn("stream feed silent during market hours; rebuilding", { accountId: up.accountId, broker: up.broker, silentMs: t - since });
+          up.silentRebuilds += 1;
+          up.rebuilds += 1;
+          scheduleRetry(up, `No ticks for ${Math.round((t - since) / 1000)} s during market hours, so the ${up.broker} connection may be half-open. Rebuilding the feed.`);
+        }
       }
     }
     if (upstreams.size === 0 && staleTimer) {
@@ -279,6 +311,7 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
       return;
     }
     up.feed = feed;
+    up.feedStartedAt = now();
     up.pendingSub.clear();
     up.pendingUnsub.clear();
     const refs = [...up.refs.values()];
@@ -346,6 +379,7 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
     if (!tick) return;
     if (!up.connected) onUpstreamStatus(up, gen, { connected: true }); // some feeds only prove themselves by ticking
     up.lastTickAt = tick.receivedAt;
+    up.silentRebuilds = 0;
     up.ticks += 1;
     if (up.stale) {
       up.stale = false;
@@ -394,6 +428,9 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
       limit: policyLimit(accountId),
       attempts: 0,
       reconnects: 0,
+      rebuilds: 0,
+      silentRebuilds: 0,
+      feedStartedAt: null,
       ticks: 0,
       lastTickAt: null,
       lastSubAt: null,
@@ -881,6 +918,7 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
           limit: up.limit,
           modes,
           reconnects: up.reconnects,
+          rebuilds: up.rebuilds,
           ticks: up.ticks,
           lastTickAt: up.lastTickAt === null ? null : new Date(up.lastTickAt).toISOString(),
         };
@@ -897,7 +935,7 @@ export function createStreamHub(deps, { random = Math.random } = {}) {
     stats,
     feedInfo,
 
-    // ── internal helpers for this stream's endpoints (other streams use only the contract methods) ──
+    // ── internal helpers for this stream's endpoints (other modules use only the contract methods) ──
     /**
      * Deliver this client's ticks to `sink(tick, mode)` (WebSocket/SSE sessions). Creates the client if needed;
      * dropClient() detaches it.

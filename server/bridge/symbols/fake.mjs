@@ -1,5 +1,5 @@
 /**
- * In-memory SymbolService for OTHER streams' tests (S5, S6, S7, S8, S10, S11). It satisfies SERVICE_CONTRACTS.symbols
+ * In-memory SymbolService for OTHER modules' tests (market, stream, orders, paper, integrations, hooks). It satisfies SERVICE_CONTRACTS.symbols
  * exactly, runs the real resolution, alias and search code over a fixed instrument list, needs no AccountManager or
  * Scheduler, makes no broker call and touches no disk.
  *
@@ -131,6 +131,7 @@ export function createFakeSymbolService({ instruments, masters, today, clock } =
     fromBroker: wrap("fromBroker", real.fromBroker),
     search: wrap("search", real.search),
     convert: wrap("convert", real.convert),
+    resolveInput: wrap("resolveInput", real.resolveInput),
     refresh: wrap("refresh", async () => ({ brokers: store.brokers(), instruments: store.size(), errors: [] })),
     status: wrap("status", () => real.status()),
     /** Test helper: replace one broker's contract rows. */

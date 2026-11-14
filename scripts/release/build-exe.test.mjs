@@ -101,6 +101,8 @@ describe.skipIf(!canBuild)("Setup .exe flow (Linux twin)", () => {
       await new Promise((r) => setTimeout(r, 250));
       health = await fetch(`http://127.0.0.1:${port}/v1/health`).then((r) => (r.ok ? r.json() : null), () => null);
     }
+    // The sign-in link is printed just after the Bridge starts to answer; wait for it instead of racing it.
+    for (let i = 0; i < 40 && !/#signin=/.test(out); i++) await new Promise((r) => setTimeout(r, 250));
     child.kill("SIGTERM");
     await new Promise((r) => child.once("exit", r));
     expect(health?.status, out).toBe("ok");

@@ -11,7 +11,7 @@ This page is the contract for the data calls. The full description of every rout
 
 ```bash
 # .env in your project
-MCB_URL=http://127.0.0.1:4300
+MCB_BRIDGE_URL=http://127.0.0.1:4300
 MCB_API_KEY=            # empty on the computer the Bridge runs on
 ```
 
@@ -22,7 +22,7 @@ MCB_API_KEY=            # empty on the computer the Bridge runs on
   address is listed in `cors.allowedOrigins` in `bridge.config.json`. There is no wildcard. A page's backend does
   not need this, only code running in the browser. Never put a key with more than `read` in browser code.
 
-The dashboard has the same thing ready to copy: **API → Integrations → Your project**.
+The dashboard has ready-made setups for each tool under **Connect a tool**.
 
 ## The calls
 
@@ -94,7 +94,7 @@ A failed call answers with a problem document and a matching HTTP status:
 For prices that change every second, subscribe once instead of calling in a loop: a WebSocket at `/v1/stream` or
 server-sent events at `/v1/stream/sse` push ticks and order updates. See [streaming.md](streaming.md).
 
-To be told about **order** changes at a URL in your project, see [forwarding.md](forwarding.md).
+To be told about **order** changes at a URL in your project (signed webhooks with retries), see [events.md](events.md).
 
 ## Rate limits
 
@@ -105,13 +105,13 @@ are merged, and the rest queue briefly. Responses carry `RateLimit` and `RateLim
 
 ## Collect history in bulk
 
-The dashboard's **Data** page backfills up to 50 symbols at once into one CSV or JSON file, trying the next source
-when one cannot answer. From code, loop over `/v1/history` yourself; the rate limiter paces the calls.
+The dashboard's **Data → Downloads** saves history for many symbols as files, in the background, without slowing
+live prices; the same from code is `POST /v1/downloads`. For a handful of symbols, loop over `/v1/history` yourself;
+the rate limiter paces the calls.
 
 ## What stays the same
 
 - Paths start with `/v1`. Fields are added over time; a field is not removed or changed in meaning within `/v1`.
   Write clients that ignore fields they do not know.
 - Error `code` values, symbol format and the `{ data, meta }` envelope are part of the contract.
-- A client library is optional: [python.md](python.md) and [typescript.md](typescript.md) describe the two SDKs, and
-  the starters under **Your project** need no packages at all.
+- A client library is optional: [python.md](python.md) and [typescript.md](typescript.md) describe the two SDKs.

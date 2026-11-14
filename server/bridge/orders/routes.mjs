@@ -1,22 +1,25 @@
 /**
- * Route handlers for stream S7 (docs/openapi.yaml, tags "Orders" and "Portfolio"). Every handler answers
+ * Route handlers for the orders module (docs/openapi.yaml, tags "Orders" and "Portfolio"). Every handler answers
  * { data, meta } and delegates to OrderService (deps.orders); the service enforces account access, idempotency,
  * mode decisions and safety. Query parameters are validated here; bodies are validated by the service's zod schemas.
  *
  *   GET    /v1/orders?account=&mode=&status=&limit=&cursor=      list (both modes when mode is absent)
  *   POST   /v1/orders               Idempotency-Key header        201, Idempotency-Replayed: true on replay
  *   POST   /v1/orders/preview
+ *   POST   /v1/orders/to-target     and   POST /v1/orders/batch   and   POST /v1/margin/basket   (extraRoutes.mjs)
  *   POST   /v1/orders/cancel-all    { account?, mode?, bridgeOnly?, dryRun? }
  *   GET    /v1/orders/by-client-id/{clientOrderId}
  *   GET    /v1/orders/{orderId}     PATCH (OrderChanges)          DELETE
  *   GET    /v1/trades?account=&mode=&limit=&cursor=
  *   GET    /v1/positions?account=&mode=   /v1/holdings?account=   /v1/funds?account=&mode=
  *   POST   /v1/positions/convert    { account, symbol, from, to, quantity | lots, mode? }   Intraday ↔ carry (paper)
- *   GET    /v1/tickets              POST /v1/tickets/{ticketId}/confirm   (admin, this computer only)
+ *   GET    /v1/tickets?state=open|rejected          POST /v1/tickets/{ticketId}/confirm
+ *   POST   /v1/tickets/{ticketId}/reject    { reason? }   a person declines an open ticket   (all admin, this computer only)
  */
 import { BridgeError } from "../core/errors.mjs";
 import { json } from "../core/http.mjs";
 import { startupReady } from "../core/startup.mjs";
+import { canonicaliseOrderInput } from "./aliases.mjs";
 import { ACCOUNT_RE, CLIENT_ORDER_ID_RE, ORDER_STATUSES, cancelAllSchema, parseWith } from "./orderValidation.mjs";
 
 const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
@@ -56,7 +59,7 @@ function cursorParam(q) {
   return v;
 }
 
-function idempotencyKey(ctx) {
+export function idempotencyKey(ctx) {
   const v = ctx.req?.headers?.["idempotency-key"] ?? ctx.idempotencyKey;
   if (v === undefined || v === null || v === "") return undefined;
   const s = Array.isArray(v) ? v[0] : String(v);
@@ -64,12 +67,12 @@ function idempotencyKey(ctx) {
   return s;
 }
 
-const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
+export const meta = (ctx, extra = {}) => ({ requestId: ctx.requestId, ...extra });
 
 /** Write result -> reply, with Idempotency-Replayed when it was a replay. */
-function writeReply(ctx, { order, replayed }, status) {
+function writeReply(ctx, { order, replayed }, status, normalised = []) {
   const headers = replayed ? { "Idempotency-Replayed": "true" } : {};
-  return json({ data: order, meta: meta(ctx, { accountId: order.accountId, mode: order.mode }) }, { status, headers });
+  return json({ data: order, meta: meta(ctx, { accountId: order.accountId, mode: order.mode, ...(normalised.length ? { normalised } : {}) }) }, { status, headers });
 }
 
 /**
@@ -94,12 +97,13 @@ export function createOrderRoutes(deps) {
     async placeOrder(ctx) {
       const key = idempotencyKey(ctx);
       const result = await svc().place(ctx, ctx.body, { idempotencyKey: key });
-      return writeReply(ctx, result, 201);
+      return writeReply(ctx, result, 201, canonicaliseOrderInput(ctx.body).notes);
     },
 
     async previewOrder(ctx) {
       const data = await svc().preview(ctx, ctx.body);
-      return { data, meta: meta(ctx, { mode: data.mode }) };
+      const normalised = canonicaliseOrderInput(ctx.body).notes;
+      return { data, meta: meta(ctx, { mode: data.mode, ...(normalised.length ? { normalised } : {}) }) };
     },
 
     async cancelAll(ctx) {
@@ -169,12 +173,23 @@ export function createOrderRoutes(deps) {
     },
 
     async listTickets(ctx) {
-      const data = await svc().tickets(ctx);
-      return { data, meta: meta(ctx) };
+      const state = opt(ctx.query, "state") ?? "open";
+      if (state !== "open" && state !== "rejected") throw invalid("state", "state must be open or rejected.");
+      const data = await svc().tickets(ctx, { state });
+      return { data, meta: meta(ctx, { state }) };
     },
 
     async confirmTicket(ctx) {
       const data = await svc().confirmTicket(ctx, ctx.params.ticketId);
+      return { data, meta: meta(ctx) };
+    },
+
+    async rejectTicket(ctx) {
+      const body = ctx.body ?? {};
+      if (typeof body !== "object" || Array.isArray(body)) throw invalid("body", 'Send nothing, or a JSON object such as {"reason": "Wrong quantity"}.');
+      const extra = Object.keys(body).filter((k) => k !== "reason");
+      if (extra.length) throw invalid(extra[0], `${extra[0]} is not a field of this request. Only reason is accepted.`);
+      const data = await svc().rejectTicket(ctx, ctx.params.ticketId, { reason: body.reason });
       return { data, meta: meta(ctx) };
     },
   };

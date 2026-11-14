@@ -1,0 +1,52 @@
+meta {
+  name: The concrete symbols of an option universe that is not saved yet
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/v1/collections/resolve
+  body: json
+  auth: bearer
+}
+
+params:query {
+  ~allowStale: false
+  ~spot: 1
+  ~account: demo-paper
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "kind": "option-universe",
+    "universe": {
+      "underlying": "NIFTY",
+      "expiries": "current-weekly",
+      "strikes": {
+        "around": "atm",
+        "count": 10
+      },
+      "sides": [
+        "CE",
+        "PE"
+      ]
+    }
+  }
+}
+
+docs {
+  The concrete symbols of an option universe that is not saved yet
+
+  - An API key with the `read` scope (any key).
+
+  The preview behind the collection builder: the same work as `GET /v1/collections/{name}/resolve`, for a universe you
+  are still editing. Nothing is saved. The price rules are the same: a delayed, end-of-day or stale price for the
+  at-the-money strike is refused (422 or 503) unless `allowStale=true`, and then the answer says so in `atmSource` and
+  `warnings`.
+
+  Reference: docs/api/collections/resolveCollectionDraft.md in the repository.
+}

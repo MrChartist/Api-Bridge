@@ -1,0 +1,23 @@
+meta {
+  name: The event log, open connections and the webhook queue
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/events/status
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The event log, open connections and the webhook queue
+
+  - An API key with the `admin` scope.
+
+  Reference: docs/api/events/getEventsStatus.md in the repository.
+}

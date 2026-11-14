@@ -1,0 +1,28 @@
+meta {
+  name: Net quantity for one symbol and product
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/api/v1/openposition
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "symbol": "RELIANCE",
+    "exchange": "NSE",
+    "product": "CNC"
+  }
+}
+
+docs {
+  Net quantity for one symbol and product
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatOpenposition.md in the repository.
+}

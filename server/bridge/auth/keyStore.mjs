@@ -1,5 +1,5 @@
 /**
- * KeyStore — stream S2 (docs/STREAMS.md §S2, contract SERVICE_CONTRACTS.keyStore in ../core/contracts.mjs).
+ * KeyStore (contract SERVICE_CONTRACTS.keyStore in ../core/contracts.mjs).
  *
  * API keys
  *  - Format: mcb_<keyId>_<secret>. keyId = 10 lowercase RFC 4648 base32 characters (a-z, 2-7; public, used in logs,
@@ -64,8 +64,16 @@ export const MAX_KEYS = 500;
 /** Concurrent scrypt verifications allowed, and how many may wait for a turn before RATE_LIMITED. */
 export const MAX_CONCURRENT_VERIFY = 2;
 export const MAX_WAITING_VERIFY = 32;
-/** Failed key checks allowed per client IP per minute before that IP is refused without hashing. */
+/**
+ * Failed key checks allowed per minute, counted per (client address, key id the caller named), before that pair is refused
+ * without hashing. Every program on this computer shares 127.0.0.1, so counting per address alone let one stale key in a
+ * sheet lock the dashboard, the CLI and every other app out for a minute.
+ */
 export const MAX_FAILED_AUTH_PER_IP = 30;
+/** Wrong secrets for real key ids (the ones that cost a scrypt run) per address per minute, over all key ids. */
+export const MAX_FAILED_HASHES_PER_IP = 300;
+/** A key id that checked out within this long is not locked out by failures, only by ten times as many. */
+export const GOOD_KEY_GRACE_MS = 10 * 60_000;
 const FAILED_AUTH_WINDOW_MS = 60_000;
 const MAX_STREAM_TOKENS_PER_KEY = 32;
 const MAX_STREAM_TOKENS = 10_000;
@@ -77,11 +85,6 @@ export const KEY_ID_RE = /^[a-z2-7]{10}$/;
 export const API_KEY_RE = /^mcb_([a-z2-7]{10})_([A-Za-z0-9_-]{43})$/;
 export const STREAM_TOKEN_RE = /^mcb_st_[A-Za-z0-9_-]{43}$/;
 export const CLIENT_KINDS = Object.freeze(["script", "excel", "mcp", "ui", "other"]);
-/**
- * What the Bridge made a key for, set only by the Bridge itself (never from a request body): "strategy-run" is the key
- * of one Python strategy run (docs/STRATEGIES-PYTHON.md), revoked when the run ends and at every start.
- */
-export const KEY_PURPOSES = Object.freeze(["strategy-run"]);
 const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -141,8 +144,6 @@ const storedKeySchema = z.object({
   allowQuery: z.boolean().default(false),
   // A kind this version no longer offers (a key file written by an older release) reads as "other".
   clientKind: z.enum(CLIENT_KINDS).catch("other"),
-  // A purpose this version does not know reads as none.
-  purpose: z.enum(KEY_PURPOSES).nullable().default(null).catch(null),
   createdAt: isoString,
   expiresAt: isoString.nullable().default(null),
   revokedAt: isoString.nullable().default(null),
@@ -170,7 +171,6 @@ export function publicRecord(r) {
     accounts: r.accounts === "*" ? "*" : [...r.accounts],
     allowQuery: r.allowQuery,
     clientKind: r.clientKind,
-    ...(r.purpose ? { purpose: r.purpose } : {}),
     createdAt: r.createdAt,
     expiresAt: r.expiresAt,
     lastUsedAt: r.lastUsedAt,
@@ -235,24 +235,38 @@ export function createKeyStore(deps, opts = {}) {
       verifyWaiters.shift()?.();
     }
   }
-  /** @type {Map<string, { n: number, since: number }>} client IP -> failed checks in the current window */
-  const failedByIp = new Map();
-  const ipBlocked = (ip, t) => {
-    if (!ip) return false;
-    const f = failedByIp.get(ip);
-    if (!f) return false;
+  /** @type {Map<string, { n: number, since: number }>} "<ip>|<key id named, or ?>" -> failed checks in the current window */
+  const failedByPair = new Map();
+  /** @type {Map<string, { n: number, since: number }>} client IP -> wrong secrets for real key ids (scrypt runs) in the current window */
+  const failedHashesByIp = new Map();
+  /** @type {Map<string, number>} key id -> when a check last succeeded */
+  const lastGood = new Map();
+  const windowCount = (map, k, t) => {
+    const f = map.get(k);
+    if (!f) return 0;
     if (t - f.since >= FAILED_AUTH_WINDOW_MS) {
-      failedByIp.delete(ip);
-      return false;
+      map.delete(k);
+      return 0;
     }
-    return f.n >= MAX_FAILED_AUTH_PER_IP;
+    return f.n;
   };
-  const noteFailed = (ip, t) => {
-    if (!ip) return;
-    const f = failedByIp.get(ip);
-    if (!f || t - f.since >= FAILED_AUTH_WINDOW_MS) failedByIp.set(ip, { n: 1, since: t });
+  const bump = (map, k, t) => {
+    const f = map.get(k);
+    if (!f || t - f.since >= FAILED_AUTH_WINDOW_MS) map.set(k, { n: 1, since: t });
     else f.n += 1;
-    if (failedByIp.size > 10_000) failedByIp.delete(failedByIp.keys().next().value);
+    if (map.size > 10_000) map.delete(map.keys().next().value);
+  };
+  /** A pair is refused after MAX_FAILED_AUTH_PER_IP failures; a key id that worked lately only after ten times as many. */
+  const ipBlocked = (ip, id, t) => {
+    if (!ip) return false;
+    const good = id !== null && t - (lastGood.get(id) ?? -Infinity) < GOOD_KEY_GRACE_MS;
+    if (windowCount(failedByPair, `${ip}|${id ?? "?"}`, t) >= (good ? MAX_FAILED_AUTH_PER_IP * 10 : MAX_FAILED_AUTH_PER_IP)) return true;
+    return !good && windowCount(failedHashesByIp, ip, t) >= MAX_FAILED_HASHES_PER_IP;
+  };
+  const noteFailed = (ip, id, t, { hashed = false } = {}) => {
+    if (!ip) return;
+    bump(failedByPair, `${ip}|${id ?? "?"}`, t);
+    if (hashed) bump(failedHashesByIp, ip, t);
   };
 
   const hydrate = (r) => {
@@ -366,13 +380,12 @@ export function createKeyStore(deps, opts = {}) {
     /**
      * Create a key. The full key is in the result once and is never stored.
      * @param {object} input  KeyCreateRequest: { label, scopes, accounts?, expiresAt?, allowQuery?, clientKind? }
-     * @param {{ loopback?: boolean, purpose?: string }} [opts]  loopback: the request came from this computer (default
-     *   true: CLI). purpose: one of KEY_PURPOSES, set by the Bridge's own code only (a strategy run's key).
+     * @param {{ loopback?: boolean }} [opts]  loopback: the request came from this computer (default
+     *   true: CLI).
      */
-    async create(input, { loopback = true, creatorScopes, creatorAccounts, purpose } = {}) {
+    async create(input, { loopback = true, creatorScopes, creatorAccounts } = {}) {
       const parsed = keyCreateSchema.safeParse(input ?? {});
       if (!parsed.success) throw fromValidation(parsed.error, "The key request is not valid.");
-      if (purpose !== undefined && !KEY_PURPOSES.includes(purpose)) throw new BridgeError("VALIDATION_FAILED", `purpose must be one of ${KEY_PURPOSES.join(", ")}.`, { errors: [{ path: "purpose", message: "unknown purpose" }] });
       const v = parsed.data;
       const scopes = SCOPES.filter((s) => v.scopes.includes(s));
       if (v.allowQuery && !readOnlyScopes(scopes)) {
@@ -409,7 +422,7 @@ export function createKeyStore(deps, opts = {}) {
         while (records.has(id)) id = generateKeyId();
         // The file holds at most MAX_KEYS * 2 records (keysFileSchema): past that it would fail validation and every
         // key would be refused. Revoked keys can never authenticate again, so the oldest revoked ones make room
-        // (strategy runs mint and revoke a key each, docs/STRATEGIES-PYTHON.md). Active keys are never dropped.
+        // Active keys are never dropped.
         let kept = records;
         if (records.size >= MAX_KEYS * 2) {
           const revoked = [...records.values()].filter((r) => r.revokedAt).sort((a, b) => a.revokedAt.localeCompare(b.revokedAt) || a.id.localeCompare(b.id));
@@ -423,7 +436,6 @@ export function createKeyStore(deps, opts = {}) {
           accounts: v.accounts,
           allowQuery: v.allowQuery,
           clientKind: v.clientKind,
-          ...(purpose ? { purpose } : {}),
           createdAt: new Date(t).toISOString(),
           expiresAt: v.expiresAt ? new Date(Date.parse(v.expiresAt)).toISOString() : null,
           revokedAt: null,
@@ -501,9 +513,10 @@ export function createKeyStore(deps, opts = {}) {
     async authenticate(rawKey, opts = {}) {
       const ip = typeof opts?.ip === "string" && opts.ip ? opts.ip : null;
       const t = now();
-      if (ipBlocked(ip, t)) throw new BridgeError("RATE_LIMITED", "Too many invalid API keys from this address. Wait a minute and try again.", { retryAfterMs: FAILED_AUTH_WINDOW_MS });
+      const named = typeof rawKey === "string" && rawKey.length <= MAX_RAW_KEY_LENGTH ? parseApiKey(rawKey)?.keyId ?? null : null;
+      if (ipBlocked(ip, named, t)) throw new BridgeError("RATE_LIMITED", "Too many invalid API keys from this address for this key. Wait a minute and try again.", { retryAfterMs: FAILED_AUTH_WINDOW_MS });
       if (typeof rawKey !== "string" || rawKey.length === 0 || rawKey.length > MAX_RAW_KEY_LENGTH) {
-        noteFailed(ip, t);
+        noteFailed(ip, null, t);
         return null;
       }
       refresh();
@@ -521,7 +534,7 @@ export function createKeyStore(deps, opts = {}) {
         const candidate = parts ? records.get(parts.keyId) : undefined;
         // Malformed key or unknown keyId: both are public facts, so refuse without hashing.
         if (!candidate || loadError) {
-          noteFailed(ip, t);
+          noteFailed(ip, parts?.keyId ?? null, t);
           return null;
         }
         let derived;
@@ -533,7 +546,7 @@ export function createKeyStore(deps, opts = {}) {
           return null;
         }
         const equal = derived.length === candidate.hashBuf.length && timingSafeEqual(derived, candidate.hashBuf);
-        if (!equal) noteFailed(ip, t);
+        if (!equal) noteFailed(ip, candidate.id, t, { hashed: true });
         if (!equal || loadError) return null;
         // Re-check after the await: the file may have been reloaded meanwhile.
         const current = records.get(candidate.id);
@@ -549,6 +562,7 @@ export function createKeyStore(deps, opts = {}) {
         return null;
       }
       noteUsed(rec);
+      lastGood.set(rec.id, t);
       return publicRecord(rec);
     },
 

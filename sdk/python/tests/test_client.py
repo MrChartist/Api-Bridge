@@ -117,16 +117,20 @@ class ReadTests(Base):
         self.assertEqual(requests()[-1]["query"]["greeks"], "false")
         self.assertEqual(c.quotes("NSE:RELIANCE")["data"][0]["bid"], 99.95)
 
-    def test_backup_and_scan(self):
+    def test_purpose_fields_and_time_options_are_sent(self):
         c = self.client()
-        self.assertEqual(c.backup_quotes(["NSE:RELIANCE"])["data"][0]["freshness"]["source"], "backup")
-        job = c.scan({"universe": "NIFTY50", "condition": "rsi(14) > 60"}, wait_ms=5000)
-        self.assertEqual(job["data"]["status"], "completed")
-        self.assertEqual(job["data"]["results"][0]["symbol"], "NSE:TCS")
-        sent = [r for r in requests() if r["path"] == "/v1/scanner/jobs"][-1]
-        self.assertEqual(sent["query"]["waitMs"], "5000")
-        self.assertEqual(sent["body"]["condition"], "rsi(14) > 60")
-        self.assertEqual(c.scan_job(job["data"]["id"])["data"]["status"], "completed")
+        c.ltp(["NSE:NIFTY"], purpose="order")
+        self.assertEqual(requests()[-1]["query"]["purpose"], "order")
+        c.quotes("NSE:RELIANCE", purpose="alert", fields=["ltp", "bid"])
+        self.assertEqual(requests()[-1]["query"]["purpose"], "alert")
+        self.assertEqual(requests()[-1]["query"]["fields"], "ltp,bid")
+        c.option_chain("NIFTY", "2026-10-27", purpose="analysis")
+        self.assertEqual(requests()[-1]["query"]["purpose"], "analysis")
+        c.history("NSE:NIFTY", "1d", countback=2, purpose="paper", time_iso=True, tz="UTC", fields="close")
+        q = requests()[-1]["query"]
+        self.assertEqual((q["purpose"], q["timeIso"], q["tz"], q["fields"]), ("paper", "true", "UTC", "close"))
+        c.ltp(["NSE:NIFTY"])
+        self.assertNotIn("purpose", requests()[-1]["query"])
 
     def test_paginate(self):
         c = self.client()

@@ -1,0 +1,31 @@
+meta {
+  name: Market depth (5 levels where the broker offers it)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/depth?symbol=NSE:RELIANCE
+  body: none
+  auth: bearer
+}
+
+params:query {
+  symbol: NSE:RELIANCE
+  ~account: demo-paper
+  ~maxAgeMs: 0
+  ~priority: interactive
+  ~strict: false
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Market depth (5 levels where the broker offers it)
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/market-data/getDepth.md in the repository.
+}

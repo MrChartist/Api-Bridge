@@ -1,0 +1,27 @@
+meta {
+  name: The files of a job, as listed in its manifest
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/v1/downloads/:downloadId/files
+  body: none
+  auth: bearer
+}
+
+params:path {
+  downloadId: {{downloadId}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  The files of a job, as listed in its manifest
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/data-downloads/listDownloadFiles.md in the repository.
+}

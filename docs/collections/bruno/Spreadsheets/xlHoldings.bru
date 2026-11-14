@@ -1,0 +1,33 @@
+meta {
+  name: Holdings as one table
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/xl/holdings
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~account: demo-paper
+  ~limit: 1
+  ~format: csv
+  ~cache: false
+  ~errors: 200
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Holdings as one table
+
+  - An API key with the `read` scope (any key). A read-only key made with --allow-query may also pass `?key=`.
+
+  Columns are fixed - account, mode, symbol, isin, qty, avg_price, ltp, pnl, as_of, age_s, class, source, stale, error.
+
+  Reference: docs/api/spreadsheets/xlHoldings.md in the repository.
+}

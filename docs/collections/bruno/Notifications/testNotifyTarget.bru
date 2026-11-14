@@ -1,0 +1,32 @@
+meta {
+  name: Send a test message and report delivery per chat
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/notify/targets/:targetId/test
+  body: json
+  auth: bearer
+}
+
+params:path {
+  targetId: <targetId>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Send a test message and report delivery per chat
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Reference: docs/api/notifications/testNotifyTarget.md in the repository.
+}

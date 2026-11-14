@@ -1,5 +1,5 @@
 /**
- * S8 fill model: pure rules for MARKET/LIMIT/SL/SL-M fills, tick rounding, margin, brokerage and position maths.
+ * Paper fill model: pure rules for MARKET/LIMIT/SL/SL-M fills, tick rounding, margin, brokerage and position maths.
  */
 import { describe, expect, it } from "vitest";
 import {

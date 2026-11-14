@@ -1,5 +1,5 @@
 /**
- * Route handlers for stream S5 (docs/openapi.yaml, tag "Market data"). Every JSON handler answers { data, meta };
+ * Route handlers for the market module (docs/openapi.yaml, tag "Market data"). Every JSON handler answers { data, meta };
  * /v1/ltp and /v1/quotes add `errors` (ItemError[]) for symbols that failed, so one bad symbol never fails the call.
  *
  *   GET /v1/ltp?symbols=NSE:NIFTY,NSE:RELIANCE[&account=][&maxAgeMs=]
@@ -9,7 +9,8 @@
  *   GET /v1/expiries?underlying=NIFTY[&exchange=NFO][&account=]
  *   GET /v1/optionchain?underlying=NIFTY&expiry=2026-10-27[&strikes=10][&greeks=false][&ivModel=b76-forward][&account=][&maxAgeMs=]
  *
- * Every read also takes ?swr=true (stale-while-revalidate: an older cached value now, labelled `stale` and
+ * Every read also takes ?purpose= (display by default; alert, paper, risk and order accept only real-time data from a
+ * trusted source, never a delayed one) and ?swr=true (stale-while-revalidate: an older cached value now, labelled `stale` and
  * `revalidating`, refreshed in the background) and ?priority=background (a prefetch; it never runs ahead of a click).
  *
  * A pinned read (`account=`) is checked against the key's account list (ctx.requireAccountAccess) before anything
@@ -19,16 +20,27 @@
  */
 import { BridgeError } from "../core/errors.mjs";
 import { csv } from "../core/http.mjs";
+import { READ_OPTION_PARAMS, checkQuery } from "../core/query.mjs";
 import { IV_MODELS } from "./chain.mjs";
 import { parseMarketConfig } from "./config.mjs";
+import { withCandleTimes } from "./candleTime.mjs";
+import { parseFields, pickAll, pickFields } from "../core/fields.mjs";
 import { historyCsvRows } from "./history.mjs";
+import { readHistoryLocalFirst } from "./historyLocal.mjs";
+import { createLocalStore } from "./localStore.mjs";
+import { PURPOSES } from "../sources/contract.mjs";
 import { MAX_AGE_LIMIT_MS, MAX_SYMBOLS } from "./marketDataService.mjs";
+import { noteRoute } from "./routeInfo.mjs";
 
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
-/** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward (docs/spec/p1-03-pricing-vol.md §10). */
+/** The fields `fields=` may name (docs/openapi.yaml QuoteItem and Candle; a test keeps them equal). `symbol`, `freshness` and `time` are always kept. */
+export const QUOTE_FIELDS = Object.freeze(["symbol", "ltp", "open", "high", "low", "close", "change", "changePct", "volume", "oi", "bid", "ask", "bidQty", "askQty", "freshness"]);
+export const CANDLE_FIELDS = Object.freeze(["time", "open", "high", "low", "close", "volume", "oi", "date", "timeIso"]);
+
+/** 1 May 2027 00:00 IST: from then the chain IV default becomes b76-forward. */
 export const LEGACY_IV_DEPRECATION = Date.UTC(2027, 3, 30, 18, 30) / 1000;
-const LEGACY_IV_HEADERS = Object.freeze({ Deprecation: `@${LEGACY_IV_DEPRECATION}`, Link: '</docs/CHANGELOG.md#optionchain-ivmodel>; rel="deprecation"' });
+const LEGACY_IV_HEADERS = Object.freeze({ Deprecation: `@${LEGACY_IV_DEPRECATION}`, Link: '</docs/API-DEPRECATIONS.md#optionchain-ivmodel>; rel="deprecation"' });
 
 /** Optional query value: absent or empty -> undefined. */
 const opt = (q, name) => {
@@ -105,6 +117,12 @@ export function readOptionsBase(ctx, { maxAge = true, autoBackup = false } = {})
     if (m !== undefined) opts.maxAgeMs = m;
   }
   if (opts.accountId === undefined && boolParam(q, "backup", autoBackup)) opts.allowBackup = true;
+  // ?purpose=display|analysis|alert|paper|risk|order: what the read is for. The last four accept only trusted real-time data.
+  const purpose = opt(q, "purpose");
+  if (purpose !== undefined) {
+    if (!PURPOSES.includes(purpose)) throw invalid("purpose", `purpose must be one of ${PURPOSES.join(", ")}.`);
+    opts.purpose = purpose;
+  }
   // ?swr=true: an older cached value (labelled stale and revalidating) now, a fresh one for the next read.
   if (boolParam(q, "swr", false)) opts.staleWhileRevalidate = true;
   // ?priority=background: a prefetch. It may only lower the priority, so a person's click always goes first (a click
@@ -151,31 +169,59 @@ export function createMarketRoutes(deps) {
     return ivDefault;
   };
   const readOptions = (ctx, o = {}) => readOptionsBase(ctx, { ...o, autoBackup: autoBackupFor(deps) });
+  /** Stored bars (datasets) for local-first history; created on first use. */
+  let localStore;
+  const historyLocal = (params, opts, dataset, asked = false) => {
+    localStore ??= createLocalStore({ dataDir: deps.paths?.dataDir });
+    // ?localFirst=true opts this one read in (any stored dataset that covers the range may serve it); the config does it for all reads.
+    const enabled = asked || parseMarketConfig(deps.config?.market).history.localFirst;
+    return readHistoryLocalFirst({ store: localStore, history: (p, o) => md().history(p, o), now: () => deps.clock.now() }, { params, opts, dataset, enabled });
+  };
+  /** The name of a data source to show in the request log (its descriptor's name), if the sources service knows it. */
+  const nameOf = (id) => {
+    try {
+      return deps.backupData?.registry?.get?.(id)?.descriptor?.name;
+    } catch {
+      return undefined;
+    }
+  };
+  /** Tell the request log what answered this read (from the freshness labels it already returned). */
+  const route = (ctx, labels) => noteRoute(ctx, labels, nameOf);
 
   return {
     async ltp(ctx) {
+      checkQuery(ctx, ["symbols", "maxAgeMs", ...READ_OPTION_PARAMS]);
       const symbols = parseSymbolList(ctx.query.get("symbols"));
       const opts = readOptions(ctx);
       const r = await md().ltp(symbols, opts);
+      route(ctx, r.items.map((i) => i.freshness));
       return { data: r.items, errors: r.errors, meta: meta(ctx, opts) };
     },
 
     async quotes(ctx) {
+      checkQuery(ctx, ["symbols", "maxAgeMs", "fields", ...READ_OPTION_PARAMS]);
       const symbols = parseSymbolList(ctx.query.get("symbols"));
+      // fields=ltp,bid: only these columns per quote. symbol and freshness (the data-class label) are always kept.
+      const fields = parseFields(ctx.query, { allowed: QUOTE_FIELDS, always: ["symbol", "freshness"] });
       const opts = readOptions(ctx);
       const r = await md().quotes(symbols, opts);
-      return { data: r.items, errors: r.errors, meta: meta(ctx, opts) };
+      route(ctx, r.items.map((i) => i.freshness));
+      return { data: pickAll(r.items, fields), errors: r.errors, meta: { ...meta(ctx, opts), ...(fields ? { fields: fields.names } : {}) } };
     },
 
     async depth(ctx) {
+      checkQuery(ctx, ["symbol", "maxAgeMs", ...READ_OPTION_PARAMS]);
       const symbol = opt(ctx.query, "symbol");
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:RELIANCE.");
       const opts = readOptions(ctx);
       const data = await md().depth(symbol, opts);
+      route(ctx, [data.freshness]);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
 
     async history(ctx) {
+      // No maxAgeMs here: a history range has no freshness target, so a caller who sends one is told it was ignored.
+      checkQuery(ctx, ["symbol", "interval", "format", "from", "to", "countback", "dataset", "localFirst", "timeIso", "tz", "fields", ...READ_OPTION_PARAMS]);
       const q = ctx.query;
       const symbol = opt(q, "symbol");
       if (!symbol) throw invalid("symbol", "symbol is required, for example NSE:NIFTY.");
@@ -183,6 +229,14 @@ export function createMarketRoutes(deps) {
       if (!interval) throw invalid("interval", "interval is required: 1m, 3m, 5m, 10m, 15m, 30m, 60m, 1d, 1w or 1M.");
       const format = opt(q, "format") ?? "json";
       if (format !== "json" && format !== "csv") throw invalid("format", "format must be json or csv.");
+      // timeIso / tz: an ISO twin of each candle's epoch `time` (IST by default). JSON only: the CSV time column is IST already.
+      const tzRaw = opt(q, "tz");
+      if (tzRaw !== undefined && !["IST", "UTC"].includes(tzRaw.toUpperCase())) throw invalid("tz", "tz must be IST or UTC.");
+      const tz = tzRaw === undefined ? undefined : tzRaw.toUpperCase();
+      // fields=time,close: only these columns per candle (`time` is always kept). Naming timeIso here also turns it on.
+      const fields = parseFields(q, { allowed: CANDLE_FIELDS, always: ["time"] });
+      const timeIso = boolParam(q, "timeIso", tz !== undefined) || Boolean(fields?.names.includes("timeIso"));
+      if (format === "csv" && (timeIso || tz !== undefined || fields)) throw invalid(fields ? "fields" : tz !== undefined ? "tz" : "timeIso", "fields, timeIso and tz apply to format=json. The CSV has fixed columns and its time column is already IST.");
       const params = { symbol, interval };
       for (const name of ["from", "to"]) {
         const v = opt(q, name);
@@ -191,26 +245,35 @@ export function createMarketRoutes(deps) {
       const countback = intParam(q, "countback", 1, 5000);
       if (countback !== undefined) params.countback = countback;
       const opts = readOptions(ctx, { maxAge: false });
-      const data = await md().history(params, opts);
+      // Stored bars first (?dataset=, or market.history.localFirst); the broker answers only for what is not on disk.
+      const local = await historyLocal(params, opts, opt(q, "dataset"), boolParam(q, "localFirst", false));
+      const data = local ? local.data : await md().history(params, opts);
+      route(ctx, [data.freshness]);
+      if (local) ctx.setHeader("X-MCB-Local", local.meta.source);
       if (format === "csv") {
         const name = `${data.symbol.replace(/[^A-Za-z0-9-]+/g, "_")}_${data.interval}.csv`;
         const headers = { "X-MCB-Partial": String(Boolean(data.partial)), "X-MCB-Freshness-Source": data.freshness.source };
         return csv(historyCsvRows(data), { filename: name, headers });
       }
-      return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
+      const shaped = withCandleTimes(data, { iso: timeIso, tz });
+      const out = fields ? { ...shaped, candles: shaped.candles.map((c) => pickFields(c, fields.keep)) } : shaped;
+      return { data: out, meta: { ...meta(ctx, opts), freshness: data.freshness, ...(local ? local.meta : {}), ...(fields ? { fields: fields.names } : {}) } };
     },
 
     async expiries(ctx) {
+      checkQuery(ctx, ["underlying", "exchange", ...READ_OPTION_PARAMS]);
       const underlying = opt(ctx.query, "underlying");
       if (!underlying) throw invalid("underlying", "underlying is required, for example NIFTY.");
       const opts = readOptions(ctx, { maxAge: false });
       const exchange = opt(ctx.query, "exchange");
       if (exchange !== undefined) opts.exchange = exchange.toUpperCase();
       const data = await md().expiries(underlying, opts);
+      route(ctx, [data.freshness]);
       return { data, meta: { ...meta(ctx, opts), freshness: data.freshness } };
     },
 
     async optionChain(ctx) {
+      checkQuery(ctx, ["underlying", "expiry", "greeks", "strikes", "ivModel", "maxAgeMs", ...READ_OPTION_PARAMS]);
       const q = ctx.query;
       const underlying = opt(q, "underlying");
       if (!underlying) throw invalid("underlying", "underlying is required, for example NIFTY.");
@@ -226,6 +289,7 @@ export function createMarketRoutes(deps) {
       }
       const opts = readOptions(ctx);
       const data = await md().optionChain(params, opts);
+      route(ctx, [data.freshness]);
       // The legacy model chosen by default (not asked for) is deprecated: say so in the headers (RFC 9745 / 8288). Decided
       // on the effective model, not on whether `pricing` is present (greeks=false has none under either model).
       if (ivModel === undefined && chainIvModelDefault() === "legacy-bs-spot") for (const [k, v] of Object.entries(LEGACY_IV_HEADERS)) ctx.setHeader?.(k, v);

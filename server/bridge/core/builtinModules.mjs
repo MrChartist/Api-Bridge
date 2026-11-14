@@ -14,8 +14,17 @@ import safety from "../safety/module.mjs";
 import readiness from "../readiness/module.mjs";
 import integrations from "../integrations/module.mjs";
 import hooks from "../hooks/module.mjs";
-import forward from "../forward/module.mjs";
 import mcp from "../mcp/module.mjs";
 import compat from "../compat/module.mjs";
+import sources from "../sources/module.mjs";
+import backup from "../backup/module.mjs";
+import notify from "../notify/module.mjs";
+import library from "../library/module.mjs";
+import events from "../events/module.mjs";
+import downloads from "../downloads/module.mjs";
 
-export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, forward, mcp, compat]);
+import recorder from "../recorder/module.mjs";
+import storage from "../storage/module.mjs";
+
+export const BUILTIN_MODULES = Object.freeze([accounts, auth, ratelimit, symbols, market, stream, orders, paper, safety, readiness, integrations, hooks, mcp, compat, sources, backup, notify, library, events, downloads, recorder, storage]);
+

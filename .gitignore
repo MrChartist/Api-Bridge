@@ -1,4 +1,5 @@
-# Dependencies
+# Dependencies (no trailing slash: a symlinked node_modules in a worktree must be ignored too)
+node_modules
 node_modules/
 
 
@@ -88,6 +89,6 @@ venv/
 # Merge leftovers
 *.orig
 
-# v2
+# v2 (the runtime data dir is /data/ above; server/bridge/reference/data holds shipped datasets and must be tracked)
 .codegraph/
 .claude/

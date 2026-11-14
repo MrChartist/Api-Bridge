@@ -1,0 +1,25 @@
+meta {
+  name: Short-lived token for WebSocket and SSE URLs
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/stream/token
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Short-lived token for WebSocket and SSE URLs
+
+  - An API key with the `read` scope (any key).
+
+  Use it as `?token=` on `/v1/stream` or `/v1/stream/sse` so your API key never appears in a URL or a log. Valid for 60 seconds to connect; the connection then lives on with the key's scopes.
+
+  Reference: docs/api/streaming/createStreamToken.md in the repository.
+}

@@ -7,9 +7,8 @@
  * Note Dhan's own spelling `availabelBalance` in /fundlimit; `availableBalance` is accepted too in case
  * it is ever corrected. Dhan's /positions and /holdings carry no LTP, so `ltp` is null there.
  *
- * The existing 1Cliq routes in proxy-server.mjs keep calling server/lib/dhanOrders.mjs and
- * dhanPortfolio.mjs directly (behind validateOrder + live arming). The gated wrappers here are the
- * contract surface only; nothing in the proxy calls them yet.
+ * server/lib/dhanOrders.mjs and dhanPortfolio.mjs call Dhan directly. The gated wrappers here are the
+ * contract surface.
  */
 
 import * as dhanOrders from "../lib/dhanOrders.mjs";

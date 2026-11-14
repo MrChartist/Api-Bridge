@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DRY_RUN_REUSE_MS, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, dayRows, depthView, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo, tradeTotals } from "./orders-core.js";
+import { DECLINE_REASON_MAX, DRY_RUN_REUSE_MS, declineBody, declineOutcome, cancelAllBody, cancelAllBridgeLine, cancelAllButton, cancelAllGroups, cancelAllTitle, cancelAllReport, ago, clockText, dayHeading, groupByDay, orderStatusLook, orderTypeText, qtyText, ticketLife, ticketSource, tradesCsv, filterOrders, fundsView, filterTrades, openByMode, orderBucket, orderCounts, shortMemo } from "./orders-core.js";
 
 const O = (o) => ({ orderId: "PAPER-1", accountId: "demo-paper", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", status: "filled", mode: "paper", ...o });
 const list = [
@@ -37,56 +37,9 @@ describe("trade book", () => {
     { tradeId: "T2", orderId: "B", accountId: "x", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "SELL", qty: 65, price: 120, charges: 21.5 },
     { tradeId: "T3", orderId: "C", accountId: "x", symbol: "NSE:RELIANCE", side: "BUY", quantity: 10, price: 1400 },
   ];
-  it("totals bought, sold, turnover and charges", () => {
-    expect(tradeTotals(trades)).toEqual({ count: 3, buyQty: 75, sellQty: 65, buyValue: 20500, sellValue: 7800, turnover: 28300, charges: 41.5 });
-  });
   it("filters by side and search", () => {
     expect(filterTrades(trades, { side: "SELL" }).map((t) => t.tradeId)).toEqual(["T2"]);
     expect(filterTrades(trades, { q: "reliance" }).map((t) => t.tradeId)).toEqual(["T3"]);
-  });
-});
-
-describe("positions Day view", () => {
-  it("measures carried units from the previous close and today's trades from their prices", () => {
-    // Carried 65 long from a 100 close, bought 65 more at 110 today, now 120: (120 − 100)·65 + (120 − 110)·65 = 1950.
-    const carried = { symbol: "NFO:NIFTY-2026-11-03-25000-CE", product: "MARGIN", netQty: 130, ltp: 120, overnightQty: 65, prevClose: 100, buyQty: 65, buyAvg: 110, sellQty: 0, sellAvg: null };
-    // Bought 65 at 50 and sold them at 58 today: closed, +520.
-    const closed = { symbol: "NFO:NIFTY-2026-11-03-26000-PE", product: "INTRADAY", netQty: 0, ltp: null, overnightQty: 0, buyQty: 65, buyAvg: 50, sellQty: 65, sellAvg: 58 };
-    // The paper engine sends its own dayPnl; it wins.
-    const given = { symbol: "NSE:RELIANCE", product: "CNC", netQty: 10, ltp: 1400, overnightQty: 10, prevClose: 1390, buyQty: 0, sellQty: 0, dayPnl: 100 };
-    const flatOld = { symbol: "X", netQty: 0, buyQty: 0, sellQty: 0, overnightQty: 0 };
-    const r = dayRows([closed, carried, given, flatOld]);
-    expect(r.rows.map((x) => [x.symbol.slice(-8), x.dayPnl])).toEqual([["25000-CE", 1950], ["26000-PE", 520], ["RELIANCE", 100]]);
-    expect(r.total).toBe(2570);
-    expect(r.missing).toBe(0);
-  });
-  it("says when a source gives no day figures (a broker that reports none)", () => {
-    const r = dayRows([{ symbol: "NFO:A", netQty: 65, ltp: 10, buyQty: 65, buyAvg: 9 }]);
-    expect(r.rows[0].dayPnl).toBeNull();
-    expect(r).toMatchObject({ total: null, missing: 1 });
-  });
-});
-
-describe("market depth in the ticket", () => {
-  const L = (price, qty, orders = 1) => ({ price, qty, orders });
-  const depth = { bids: [L(186.2, 350, 9), L(185.9, 450), L(185.6, 600), L(185.3, 1000), L(185, 800)], asks: [L(186.5, 625), L(186.8, 400), L(187.1, 0), L(187.4, 300)] };
-  it("pairs levels best first, totals each side and scales the bars to the largest level", () => {
-    const v = depthView(depth);
-    expect(v.rows).toHaveLength(5);
-    expect(v.rows[0]).toEqual({ bid: L(186.2, 350, 9), ask: L(186.5, 625) });
-    expect(v.rows[3].ask).toBeNull(); // an empty (zero) level is dropped, so asks run out first
-    expect([v.totalBid, v.totalAsk, v.maxQty]).toEqual([3200, 1325, 1000]);
-    expect(v.bidShare).toBeCloseTo(3200 / 4525, 9);
-    expect(v.available).toBe(5);
-  });
-  it("shows up to twenty levels when the source sends them, five by default", () => {
-    const many = { bids: Array.from({ length: 20 }, (_, i) => L(100 - i, 10)), asks: Array.from({ length: 20 }, (_, i) => L(101 + i, 10)) };
-    expect(depthView(many).rows).toHaveLength(5);
-    expect(depthView(many, 20).rows).toHaveLength(20);
-    expect(depthView(many).available).toBe(20);
-  });
-  it("has nothing to draw without depth", () => {
-    expect(depthView(null)).toEqual({ rows: [], totalBid: 0, totalAsk: 0, maxQty: 0, bidShare: null, available: 0 });
   });
 });
 
@@ -176,5 +129,73 @@ describe("Cancel all's dry run on the Orders page (perf round 5)", () => {
     const flow = src.slice(src.indexOf("async function cancelAllFlow"));
     expect(flow).toMatch(/const dry = await optional\(api\("\/v1\/orders\/cancel-all", \{ method: "POST", body: \{ dryRun: true \} \}\)\)/);
     expect(flow.slice(0, 400)).not.toContain("buttonDryRun");
+  });
+});
+
+describe("how a row reads on the Orders page", () => {
+  it("gives every status a plain word and a tone", () => {
+    expect(orderStatusLook("open")).toEqual({ text: "Open", tone: "info" });
+    expect(orderStatusLook("filled").tone).toBe("ok");
+    expect(orderStatusLook("rejected").tone).toBe("bad");
+    expect(orderStatusLook("cancelled").tone).toBe("");
+    expect(orderStatusLook("partially_filled").text).toBe("Part filled");
+  });
+  it("says how long ago, short, and gives up after a day", () => {
+    const now = Date.parse("2026-11-08T12:00:00Z");
+    expect(ago("2026-11-08T11:59:55Z", now)).toBe("just now");
+    expect(ago("2026-11-08T11:59:10Z", now)).toBe("50 s ago");
+    expect(ago("2026-11-08T11:55:00Z", now)).toBe("5 min ago");
+    expect(ago("2026-11-08T09:00:00Z", now)).toBe("3 h ago");
+    expect(ago("2026-11-06T09:00:00Z", now)).toBeNull();
+    expect(ago("nonsense", now)).toBeNull();
+  });
+  it("counts a ticket down and flags the last 20 seconds and the end", () => {
+    const t = { createdAt: "2026-11-08T12:00:00Z", expiresAt: "2026-11-08T12:01:00Z" };
+    const at = (s) => Date.parse("2026-11-08T12:00:00Z") + s * 1000;
+    expect(ticketLife(t, at(12))).toMatchObject({ text: "0:48 left", level: "ok", over: false });
+    expect(ticketLife(t, at(12)).share).toBeCloseTo(0.8);
+    expect(ticketLife(t, at(45))).toMatchObject({ text: "0:15 left", level: "warn" });
+    expect(ticketLife(t, at(61))).toMatchObject({ text: "Expired", level: "bad", over: true, left: 0 });
+    expect(ticketLife({}, 0).known).toBe(false);
+    expect(clockText(61_000)).toBe("1:01");
+    expect(clockText(-5)).toBe("0:00");
+  });
+  it("shapes the decline box into the API body and reads what a decline came to", () => {
+    expect(declineBody("  Wrong \n quantity ")).toEqual({ reason: "Wrong quantity" });
+    expect(declineBody("   ")).toEqual({});
+    expect(declineBody(undefined)).toEqual({});
+    expect(declineBody("x".repeat(500)).reason).toHaveLength(DECLINE_REASON_MAX);
+    expect(declineOutcome(null).kind).toBe("done");
+    expect(declineOutcome({ status: 409, body: { state: "rejected" } }).kind).toBe("done");
+    expect(declineOutcome({ status: 409, body: { state: "confirmed" } }).kind).toBe("confirmed");
+    expect(declineOutcome({ status: 409, body: { state: "consumed" } }).kind).toBe("confirmed");
+    expect(declineOutcome({ status: 409, body: { state: "expired" } }).kind).toBe("gone");
+    expect(declineOutcome({ status: 404 }).kind).toBe("gone");
+    expect(declineOutcome({ network: true, message: "The Bridge did not answer." })).toMatchObject({ kind: "failed", message: expect.stringMatching(/not declined/) });
+    expect(declineOutcome({ status: 500, message: "Internal error." })).toMatchObject({ kind: "failed", message: "Could not decline: Internal error. It is back in the list." });
+  });
+  it("names who prepared a ticket", () => {
+    expect(ticketSource({ source: "mcp", client: "claude-desktop" })).toEqual({ kind: "AI assistant", label: "claude-desktop" });
+    expect(ticketSource({ source: "webhook" }).kind).toBe("Webhook");
+  });
+  it("writes sizes and types in words", () => {
+    expect(qtyText({ quantity: 10, filledQuantity: 4 })).toBe("4 of 10");
+    expect(qtyText({ quantity: 10, filledQuantity: 10 })).toBe("10");
+    expect(orderTypeText("SL-M")).toBe("Stop-loss market");
+  });
+  it("groups the trade book by day and labels the days", () => {
+    const day = (iso) => iso.slice(0, 10);
+    const rows = [{ tradedAt: "2026-11-08T10:00" }, { tradedAt: "2026-11-08T09:00" }, { tradedAt: "2026-11-06T09:00" }];
+    expect(groupByDay(rows, day).map((g) => [g.day, g.rows.length])).toEqual([["2026-11-08", 2], ["2026-11-06", 1]]);
+    expect(dayHeading("2026-11-08", "2026-11-08")).toBe("Today, Sun 8 Nov");
+    expect(dayHeading("2026-11-07", "2026-11-08")).toBe("Yesterday, Sat 7 Nov");
+    expect(dayHeading("2026-11-06", "2026-11-08")).toBe("Fri 6 Nov");
+  });
+  it("exports the trade book as CSV with quoting and the charges estimate where there is one", () => {
+    const csv = tradesCsv([{ tradedAt: "t1", accountId: "a", symbol: "NFO:NIFTY-2026-11-03-25850-CE", side: "BUY", qty: 75, price: 100.5, product: "INTRADAY", orderId: "O1", tradeId: "T1" }, { tradedAt: "t2", accountId: "a", symbol: "NSE:TCS", side: "SELL", qty: 1, price: 10, product: "CNC", orderId: "O2" }], { labelOf: () => "Paper, main", chargesOf: (t) => (t.orderId === "O1" ? { total: 12.3456 } : null) });
+    const lines = csv.trim().split("\r\n");
+    expect(lines[0]).toBe("Time (IST),Account,Symbol,Contract,Side,Quantity,Price,Value,Product,Order id,Trade id,Estimated charges");
+    expect(lines[1]).toBe("t1,\"Paper, main\",NFO:NIFTY-2026-11-03-25850-CE,NIFTY 3 Nov 25850 CE,BUY,75,100.5,7537.5,INTRADAY,O1,T1,12.35");
+    expect(lines[2]).toBe("t2,\"Paper, main\",NSE:TCS,TCS,SELL,1,10,10,CNC,O2,,");
   });
 });

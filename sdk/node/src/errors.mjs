@@ -13,7 +13,7 @@ export class BridgeError extends Error {}
 export class BridgeApiError extends BridgeError {
   /**
    * @param {{ status: number, code: string, title?: string, detail?: string, retryable?: boolean, requestId?: string,
-   *   retryAfterMs?: number, broker?: object, errors?: Array<{ path: string, message: string }> }} problem
+   *   retryAfterMs?: number, broker?: object, errors?: Array<{ path: string, code?: string, message: string, allowed?: unknown[] }> }} problem
    * @param {{ idempotencyKey?: string, headers?: Record<string, string> }} [extra]
    */
   constructor(problem, extra = {}) {
@@ -46,5 +46,42 @@ export class BridgeConnectionError extends BridgeError {
     this.outcomeUnknown = info.outcomeUnknown;
     this.timedOut = info.timedOut === true;
     if (info.idempotencyKey) this.idempotencyKey = info.idempotencyKey;
+  }
+}
+
+/** A download job ended failed or cancelled. `job` is its final state; `job.reason` says why (kill switch, lost login, full disk ...). */
+export class DownloadFailedError extends BridgeError {
+  constructor(message, job) {
+    super(message);
+    this.name = "DownloadFailedError";
+    this.job = job;
+  }
+}
+
+/** A wait ran out of time. The thing waited for keeps going in the Bridge: look again. `last` is its last known state. */
+export class WaitTimeoutError extends BridgeError {
+  constructor(message, last) {
+    super(message);
+    this.name = "WaitTimeoutError";
+    this.last = last;
+  }
+}
+
+/** A downloaded file's SHA-256 is not the one in the manifest. The partial file is deleted. */
+export class ChecksumMismatchError extends BridgeError {
+  constructor(message, { expected, actual }) {
+    super(message);
+    this.name = "ChecksumMismatchError";
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+/** A webhook delivery failed verification. `reason`: missing_header, malformed_header, timestamp_out_of_range or signature_mismatch. */
+export class SignatureInvalidError extends BridgeError {
+  constructor(message, reason) {
+    super(message);
+    this.name = "SignatureInvalidError";
+    this.reason = reason;
   }
 }

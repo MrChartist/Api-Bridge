@@ -1,5 +1,7 @@
 # Brokers and multiple accounts
 
+> Commands here start with `mc-bridge`. In a git checkout, run them as `npm run bridge -- <command>` instead ([why](README.md#running-mc-bridge)).
+
 The Bridge holds connections to several brokers and several accounts at once. Each account has its own session, its
 own rate-limit budget and its own credentials; one account's credentials are never used for another account's calls.
 
@@ -12,7 +14,7 @@ takes an account out again (not one with live trading set up, and not your last 
 `POST /v1/accounts` with `{ "broker": "dhan" }` (optional `id` and `label`) and `DELETE /v1/accounts/{id}`, both
 admin, this computer only, with an admin key that may use every account.
 
-Or edit the file yourself:
+Or edit the file yourself (a walk-through for Dhan, the broker checked with a live account, is in [dhan.md](dhan.md)):
 
 ```json
 {
@@ -32,12 +34,12 @@ Or edit the file yourself:
 | `label` | Shown on the dashboard and in API responses. |
 | `enabled` | `false` keeps the account in the file but out of use. |
 | `holder` | Whose account it is (`self`, `spouse` ...; never a PAN). Pooling only ever joins accounts of one holder. |
-| `marketData.pooling` | Opt in to letting this account serve other unpinned reads (see [rate-limits.md](rate-limits.md)). Off by default. |
+| `marketData.pooling` | Opt in to letting this account serve other unpinned reads (see [rate-limits.md](rate-limits.md)). Off by default. Pooling also needs your consent, below. |
 | `marketData.poolingWhenTermsUnknown` | Also pool when the broker's terms on this are not confirmed (every broker today). Your decision; off by default. |
 | `live` | `{ "enabled": false, "allowedSources": ["rest"], "registeredIp": "..." }`; see [safety.md](safety.md). Off by default. |
 | `limits` | Per-account safety limits that may only be stricter than the global `safety` section. |
 
-`npx mc-bridge accounts list` shows what the Bridge read. `npx mc-bridge doctor` checks the file.
+`mc-bridge accounts list` shows what the Bridge read. `mc-bridge doctor` checks the file.
 
 ## 2. Log in
 
@@ -89,6 +91,29 @@ requires a daily logout). When a broker rejects a session, the Bridge marks the 
 reads that need it answer `SESSION_EXPIRED` with a plain message. Log in again; nothing else changes. The Bridge never
 stores TOTP secrets and never automates 2FA.
 
+**Morning login.** On the Accounts page, "Morning login" opens one sheet that lists every account that needs a login
+today (and any whose session the broker ends before the 15:30 close), says how each one logs in (session login, one-time
+code, OAuth link or access token), and takes you through them one at a time with a progress count. You type each login as
+usual; the Bridge still never logs in for you or keeps a code. Skip an account to leave it for later.
+
+**Reminder.** On trading days at `morningLogin.remindAt` (default `08:45` IST) the Bridge emits one `account.login_needed`
+event per account that needs a login, and again `warnBeforeEndMinutes` (default 30) before a session that ends before the
+close. The event names the account by its label and how it logs in; it never carries a key or code. Notification
+channels subscribe to it by name.
+
+```json
+"morningLogin": { "enabled": true, "remindAt": "08:45", "warnBeforeEndMinutes": 30 }
+```
+
+Two settings have the same default time and are **independent**: `morningLogin.remindAt` sets when this *event* is emitted
+(for your own programs and the dashboard), and `notify.morning.at` sets when the *Telegram message* "N accounts are not logged
+in" is sent (and `notify.morning.secondAt` the second nudge at the open; [notifications.md](notifications.md)). Moving one does
+not move the other: to get the phone message at 08:30, change `notify.morning.at`.
+
+**One session per app.** For brokers whose documentation allows only one session per app key (the XTS family), logging in
+again ends the first session, for example one open in another tool. The login sheet warns about it first, and
+`GET /v1/brokers` marks these with `singleSession: true`.
+
 If you change credentials with another tool while the Bridge runs, it notices the change to `data/secrets.enc` and
 reloads.
 
@@ -98,7 +123,7 @@ SEBI's retail algo rules allow use by you, your spouse, dependent children and d
 own account. Limit API keys to the accounts a tool needs:
 
 ```bash
-npx mc-bridge keys create --label spouse-sheet --scope read --accounts zerodha-spouse --expires 30d
+mc-bridge keys create --label spouse-sheet --scope read --accounts zerodha-spouse --expires 30d
 ```
 
 Do not add anyone else's accounts: the Bridge is personal software, not a service for other people.
@@ -107,5 +132,30 @@ Do not add anyone else's accounts: the Bridge is personal software, not a servic
 
 - `account=<id>` (query) or `"account": "<id>"` (order body) pins the request to that account.
 - Without it, market-data reads use the primary account (the first enabled, connected account in config order that
-  can serve the request), or several accounts when pooling is allowed for that broker.
+  can serve the request), or several accounts when pooling is on for them (see below).
+- A key limited to some accounts (`--accounts`) is served only by those accounts. If none of them can answer, it gets an
+  error, or, when the read allows backup sources, a labelled delayed answer from a data source; it never borrows another
+  account's data or request budget.
 - Orders always name their account. Portfolio reads (positions, holdings, funds, orders) are per account.
+
+## 6. Pooling needs your consent
+
+Pooling spreads read-only market-data calls (quotes, option chains, history) over several of **your own** accounts, so
+each account's request limit is used. It is off by default. An account takes part only when it opts in
+(`marketData.pooling`), names its `holder`, its broker's policy does not say `not-allowed`, **and you have accepted the
+pooling notice for it**. The notice says in plain words that no broker's published terms clearly allow pooling and none
+clearly forbids it, and that you are responsible for your brokers' terms. Accepting is a deliberate step:
+
+- the dashboard shows the notice on the Sources page, with the accounts that could pool, and asks you to accept it;
+- or from this computer with an admin key: `GET /v1/pooling` shows the notice and the accounts, `PUT /v1/pooling/consent`
+  accepts it for the accounts you name, `DELETE /v1/pooling/consent` turns pooling off on the next read.
+
+Only accounts of one holder are ever pooled together. Orders, positions, funds and other account data are never pooled:
+they always use the account they belong to, from its own registered IP. Full details, the paid data plans some brokers
+need, and what `mc-bridge doctor` checks are in [rate-limits.md](rate-limits.md).
+
+## 7. Data beyond your accounts
+
+Your broker accounts are the only real-time source. The Bridge can also read from free data sources and plugins you
+switch on, and labels every answer from them as delayed or end of day. They never answer orders, risk checks, paper
+fills or alerts. See [sources.md](sources.md).

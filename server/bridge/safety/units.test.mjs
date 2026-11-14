@@ -1,5 +1,5 @@
 /**
- * Small units of S9: the sliding order-rate window, the daily counters file, the kill-switch store, IST helpers
+ * Small units of the safety module: the sliding order-rate window, the daily counters file, the kill-switch store, IST helpers
  * and atomic state files.
  */
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";

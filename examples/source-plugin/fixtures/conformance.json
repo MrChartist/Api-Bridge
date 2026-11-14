@@ -1,0 +1,8 @@
+{
+  "inputs": { "quotes": ["NSE:RELIANCE", "NSE:TCS"] },
+  "responses": [
+    { "urlContains": "/v1/quotes", "file": "quotes.json" },
+    { "urlContains": "/v1/status", "json": { "ok": true } }
+  ],
+  "config": { "market": "NSE" }
+}

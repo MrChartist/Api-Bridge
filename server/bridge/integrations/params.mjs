@@ -1,11 +1,11 @@
 /**
- * Query-string helpers for the spreadsheet and AmiBroker routes (stream S10). Every helper throws
+ * Query-string helpers for the spreadsheet and AmiBroker routes. Every helper throws
  * VALIDATION_FAILED with a field path, so clients get the same error shape as the /v1 routes.
  */
 import { BridgeError } from "../core/errors.mjs";
 import { allowedAccountsFor } from "../market/routes.mjs";
 
-const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
+export const ACCOUNT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
 /** VALIDATION_FAILED for one field. */
 export const invalid = (path, detail) => new BridgeError("VALIDATION_FAILED", detail, { errors: [{ path, message: detail }] });
@@ -58,10 +58,14 @@ export function enumParam(query, name, allowed, dflt) {
  * Market-data read options from the query: an optional pinned `account` (checked against the key first) and
  * `maxAgeMs`. The caller's abort signal is passed through so a closed client stops waiting for budget.
  * @param {import("../core/context.mjs").RequestContext} ctx
- * @param {{ maxAge?: boolean, autoBackup?: boolean }} [o]  autoBackup: the config default for `?backup=` (unpinned
- *   reads that no broker can answer fall back to the labelled backup data sources).
+ * @param {{ maxAge?: boolean }} [o]
+ *
+ * These routes never use a backup data source. Their answers are a bare number or a fixed table that has no field
+ * for how current a value is (an Excel WEBSERVICE call cannot even see headers), so a delayed or end-of-day value would
+ * pass for a live one. `?backup=false` is accepted (it is what they do anyway); `?backup=true` is refused with a message.
+ * Use the /v1 routes, which label every answer, when a backup source is wanted.
  */
-export function readOptions(ctx, { maxAge = true, autoBackup = false } = {}) {
+export function readOptions(ctx, { maxAge = true } = {}) {
   const opts = { signal: ctx.signal, priority: "interactive" };
   // Unpinned reads stay inside the key's account list: a key limited to one account never borrows another's
   // market-data entitlement or rate budget.
@@ -79,14 +83,9 @@ export function readOptions(ctx, { maxAge = true, autoBackup = false } = {}) {
   }
   const b = opt(ctx.query, "backup");
   if (b !== undefined && !/^(true|false|1|0)$/i.test(b)) throw invalid("backup", "backup must be true or false.");
-  const backup = b === undefined ? autoBackup : /^(true|1)$/i.test(b);
-  if (backup && opts.accountId === undefined) opts.allowBackup = true;
+  if (b !== undefined && /^(true|1)$/i.test(b)) throw invalid("backup", "backup sources are not available on the spreadsheet and AmiBroker routes: their answers cannot say how current a value is. Use the /v1 routes for a labelled backup answer.");
+  opts.allowBackup = false;
   return opts;
-}
-
-/** The `?backup=` default from config: backup sources on, autoFallback on, not demo mode. */
-export function autoBackupFromConfig(config) {
-  return Boolean(config && config.demo !== true && config.backup?.enabled === true && config.backup?.autoFallback !== false);
 }
 
 /** Turn anything thrown into a BridgeError (unknown errors become INTERNAL without their message). */

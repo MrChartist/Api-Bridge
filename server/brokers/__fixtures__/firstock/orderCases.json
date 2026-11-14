@@ -1,0 +1,36 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "failed envelope",
+      "source": "https://firstock.in/api/docs/login/",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "failed",
+          "code": "400",
+          "name": "INVALID_INPUT",
+          "error": {
+            "field": "quantity",
+            "message": "Order rejected"
+          }
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://firstock.in/api/docs/login/",
+    "reply": {
+      "status": 200,
+      "json": {
+        "status": "failed",
+        "code": "401",
+        "name": "INVALID_JKEY",
+        "error": {
+          "field": "jKey",
+          "message": "Invalid jKey"
+        }
+      }
+    }
+  }
+}

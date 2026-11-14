@@ -1,8 +1,7 @@
 # Paper margin: how the Bridge estimates it
 
-**Approximate, not the exchange's SPAN.** The paper engine, the order ticket, the Strategy Builder's margin line and
-the Positions margin bar all use one function, `portfolioMargin()` in `server/bridge/dashboard/span-margin.js`, so the
-four always agree. Your broker's figure is the one that counts for live orders.
+**Approximate, not the exchange's SPAN.** The paper engine, the order preview and the margin route all use one function,
+`portfolioMargin()` in `server/bridge/calc/span-margin.js`, so they always agree. Your broker's figure is the one that counts for live orders.
 
 ## What it does
 
@@ -37,11 +36,7 @@ value for option sells, 15 % of contract value for futures) and the API lists th
 
 ## Where you see it
 
-- **Option Chain ticket:** "Margin ≈" for a sell or a future, and "With your positions: adds …" when what the paper
-  account holds changes the figure.
-- **Strategy Builder:** the margin line ("Paper figure · hedges credited") and "Hedge saves ₹…" against the legs on
-  their own.
-- **Positions:** "this book" on the margin bar; the tooltip names the hedge saving.
+- **Order preview:** `margin.required` is what the order adds to the paper account's book (a hedge can add 0).
 - **API:** `POST /v1/paper/accounts/{accountId}/margin` with `{ legs: [{ symbol, side, lots, price? }] }` answers
   `before`, `after`, `change`, `alone`, `standalone`, a breakdown and the method. Nothing is placed.
 

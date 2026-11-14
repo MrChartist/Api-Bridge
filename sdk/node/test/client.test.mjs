@@ -44,26 +44,28 @@ describe("reads", () => {
     assert.match(req.userAgent, /^mrchartist-bridge-node\//);
   });
 
+  it("sends purpose, fields and the time options when given, and nothing when not", async () => {
+    const c = client();
+    await c.ltp(["NSE:NIFTY"], { purpose: "order" });
+    assert.equal(fake.requests().at(-1).query.purpose, "order");
+    await c.quotes("NSE:RELIANCE", { purpose: "alert", fields: ["ltp", "bid"] });
+    assert.equal(fake.requests().at(-1).query.purpose, "alert");
+    assert.equal(fake.requests().at(-1).query.fields, "ltp,bid");
+    await c.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", purpose: "analysis" });
+    assert.equal(fake.requests().at(-1).query.purpose, "analysis");
+    await c.history({ symbol: "NSE:NIFTY", interval: "1d", countback: 2, purpose: "paper", timeIso: true, tz: "UTC", fields: "close" });
+    const q = fake.requests().at(-1).query;
+    assert.deepEqual([q.purpose, q.timeIso, q.tz, q.fields], ["paper", "true", "UTC", "close"]);
+    await c.ltp(["NSE:NIFTY"]);
+    assert.equal("purpose" in fake.requests().at(-1).query, false);
+  });
+
   it("history as JSON or CSV text; option chain; quotes", async () => {
     const c = client();
     assert.equal((await c.history({ symbol: "NSE:NIFTY", interval: "5m", countback: 2 })).data.candles.length, 2);
     assert.match(await c.history({ symbol: "NSE:NIFTY", interval: "5m", countback: 2, format: "csv" }), /^time,open/);
     assert.equal((await c.optionChain({ underlying: "NIFTY", expiry: "2026-10-27", strikes: 5 })).data.atmStrike, 25000);
     assert.equal((await c.quotes("NSE:RELIANCE")).data[0].bid, 99.95);
-  });
-
-  it("backup quotes and scans", async () => {
-    const b = await client().backupQuotes(["NSE:RELIANCE"]);
-    assert.equal(b.data[0].freshness.source, "backup");
-    const job = await client().scan({ universe: "NIFTY50", condition: "rsi(14) > 60", columns: ["rsi(14)"] }, { waitMs: 5000 });
-    assert.equal(job.data.status, "completed");
-    assert.equal(job.data.results[0].symbol, "NSE:TCS");
-    const sent = fake.requests().find((r) => r.path === "/v1/scanner/jobs");
-    assert.equal(sent.query.waitMs, "5000");
-    assert.equal(sent.body.condition, "rsi(14) > 60");
-    assert.equal(sent.idempotencyKey, null);
-    const again = await client().scanJob(job.data.id);
-    assert.equal(again.data.status, "completed");
   });
 
   it("paginates with nextCursor", async () => {

@@ -1,5 +1,5 @@
 /**
- * The readiness monitor only reads (p1-05 §3.1, §9): no file in readiness/ imports orders/ or paper/, calls an
+ * The readiness monitor only reads: no file in readiness/ imports orders/ or paper/, calls an
  * adapter's order method, or engages the kill switch.
  */
 import { readdirSync, readFileSync } from "node:fs";

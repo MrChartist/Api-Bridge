@@ -1,5 +1,5 @@
 /**
- * Generic signed receiver — stream S11. For your own scripts, Amibroker/Python bridges and anything that can sign.
+ * Generic signed receiver. For your own scripts, Amibroker/Python bridges and anything that can sign.
  *
  * Every request must carry `X-MCB-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + raw body)>`
  * (server/bridge/auth/hmac.mjs). Requests outside the time window (5 minutes at most) or replayed inside it are
@@ -10,7 +10,8 @@
  * or several at once: { "signals": [ {...}, {...} ], "id": "batch-7" }   (at most MAX_SIGNALS_PER_ALERT)
  *
  * `id` (per signal, or on the batch) makes the signal idempotent for the IST day: sending the same id again never
- * creates a second order, even after the replay window.
+ * creates a second order, even after the replay window. When a signal also carries `time`, the identity is id AND time, so a
+ * sender that reuses one id every day (a strategy order id such as "Long") still gets a new order for each new time.
  */
 import { MAX_SIGNALS_PER_ALERT, assertNoPlaceholders, invalid, signalFromObject, toRef } from "./common.mjs";
 
@@ -27,10 +28,10 @@ export function parseGeneric(body) {
     if (o.signals.length > MAX_SIGNALS_PER_ALERT) throw invalid(`At most ${MAX_SIGNALS_PER_ALERT} signals per request.`, "signals");
     const batchId = toRef(o.id, "id");
     const signals = o.signals.map((s, i) => signalFromObject(/** @type {any} */ (s), `signals.${i}`));
-    const ids = signals.map((s) => s.ref);
+    const ids = signals.map((s) => s.ref && (s.time ? `${s.ref}@${s.time}` : s.ref));
     const basis = batchId ? `gen|batch|${batchId}` : ids.every(Boolean) ? `gen|ids|${ids.join("|")}` : null;
     return { signals, basis, dropped: 0 };
   }
   const signal = signalFromObject(o);
-  return { signals: [signal], basis: signal.ref ? `gen|${signal.ref}` : null, dropped: 0 };
+  return { signals: [signal], basis: signal.ref ? (signal.time ? `gen|${signal.ref}|${signal.time}` : `gen|${signal.ref}`) : null, dropped: 0 };
 }

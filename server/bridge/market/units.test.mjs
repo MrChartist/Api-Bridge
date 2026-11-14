@@ -1,5 +1,5 @@
 /**
- * Unit tests for S5's pure helpers: IST time parsing, the freshness cache, the micro-batcher, normalisers, history
+ * Unit tests for market's pure helpers: IST time parsing, the freshness cache, the micro-batcher, normalisers, history
  * planning/aggregation/CSV, option-chain building and the `market` config schema.
  */
 import { describe, expect, it } from "vitest";
@@ -99,10 +99,25 @@ describe("batcher", () => {
 });
 
 describe("normalise", () => {
-  it("builds Freshness", () => {
+  it("builds Freshness with the data-quality fields", () => {
+    const real = { class: "realtime", delaySec: 0, official: true, confidence: "high" };
     const f = freshness({ source: "cache", at: 1000, now: 3500, targetMs: 2000, accountId: "a", broker: "b" });
-    expect(f).toEqual({ source: "cache", asOf: toIstIso(1000), ageMs: 2500, stale: true, accountId: "a", broker: "b" });
-    expect(freshness({ source: "stream", at: 0, now: 9000, targetMs: 1, stale: false }).stale).toBe(false);
+    expect(f).toEqual({ source: "cache", asOf: toIstIso(1000), ageMs: 2500, stale: true, accountId: "a", broker: "b", ...real, flags: ["stale"] });
+    const live = freshness({ source: "stream", at: 0, now: 9000, targetMs: 1, stale: false });
+    expect(live.stale).toBe(false);
+    expect(live).toMatchObject({ ...real, flags: [] });
+    expect(freshness({ source: "broker", at: 0, now: 10, targetMs: 100 })).toMatchObject({ ...real, flags: [] });
+  });
+
+  it("labels a backup answer delayed unless told otherwise, and accepts overrides", () => {
+    const b = freshness({ source: "backup", at: 0, now: 500, targetMs: 100, provider: "demo-delayed" });
+    expect(b).toMatchObject({ class: "delayed", delaySec: null, official: false, confidence: "medium", flags: [], provider: "demo-delayed" });
+    const d = freshness({ source: "backup", at: 0, now: 5, targetMs: 100, provider: "x", class: "delayed", delaySec: 900, flags: ["unofficial"], confidence: "low" });
+    expect(d).toMatchObject({ class: "delayed", delaySec: 900, official: false, confidence: "low", flags: ["unofficial"] });
+    const e = freshness({ source: "backup", at: 0, now: 5, targetMs: 100, provider: "y", class: "eod", delaySec: 86_400, official: true });
+    expect(e).toMatchObject({ class: "eod", official: true });
+    // a realtime class forces delaySec 0
+    expect(freshness({ source: "backup", at: 0, now: 5, targetMs: 100, class: "realtime", delaySec: 30 }).delaySec).toBe(0);
   });
 
   it("normalises quotes with nulls for missing fields", () => {

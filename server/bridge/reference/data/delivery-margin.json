@@ -1,25 +1,15 @@
 {
   "version": 1,
   "asOf": "2026-04-01",
-  "source": "Staggered delivery margin on physically settled stock derivatives (exchange circulars); check the current schedule",
+  "source": "NSE Clearing: phased delivery margin on physically settled stock derivatives in the last four trading days before expiry (percentage of VaR + ELM).",
   "verified": false,
-  "appliesTo": "Long ITM stock options and all stock futures held into expiry week",
+  "readOn": "2026-11-10",
+  "note": "The staggered 10/25/45/70 percent also appears in a broker physical-settlement policy and a broker help article (secondary), but a broker community post citing a January 2020 circular shows 100 percent at E-1. The NSE Clearing circular itself was not read, so the schedule stays unverified.",
+  "appliesTo": "Physically settled stock futures and in-the-money stock options (NFO and BFO). Index derivatives are cash settled and carry no delivery margin.",
   "schedule": [
-    {
-      "day": "E-4",
-      "pct": 10
-    },
-    {
-      "day": "E-3",
-      "pct": 25
-    },
-    {
-      "day": "E-2",
-      "pct": 45
-    },
-    {
-      "day": "E-1",
-      "pct": 70
-    }
+    { "day": "E-4", "pct": 10 },
+    { "day": "E-3", "pct": 25 },
+    { "day": "E-2", "pct": 45 },
+    { "day": "E-1", "pct": 70 }
   ]
 }

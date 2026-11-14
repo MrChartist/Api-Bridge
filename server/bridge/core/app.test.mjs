@@ -30,7 +30,6 @@ const fakeScheduler = {
 
 const testModule = defineModule({
   name: "testmod",
-  stream: "S10",
   register(app) {
     app.get("/t/read", (ctx) => ({ key: ctx.key.id, scopes: [...ctx.scopes].sort(), q: ctx.query.get("x") }), { scope: "read" });
     app.get("/t/xl", () => text("123.45"), { scope: "read", allowQueryKey: true });
@@ -120,6 +119,7 @@ describe("core routes", () => {
     expect(r.status).toBe(200);
     expect(r.json.routes.some((x) => x.path === "/t/read")).toBe(true);
     expect(existsSync(join(r.json.installDir, "bin", "mc-bridge.mjs"))).toBe(true);
+    expect(typeof r.json.dataDir).toBe("string"); // for the dashboard: where saved files are on this computer
   });
 
   it("serves the OpenAPI document", async () => {
@@ -298,10 +298,10 @@ describe("errors", () => {
     expect(r.raw).not.toContain("/secret/thing");
   });
 
-  it("stub services answer 501 naming the stream", async () => {
+  it("stub services answer 501 naming the service", async () => {
     const r = await get("/t/stub", auth(READ));
     expect(r.status).toBe(501);
-    expect(r.json.detail).toContain("OrderService.list() (stream S7)");
+    expect(r.json.detail).toContain("OrderService.list()");
   });
 
   it("echoes a sane X-Request-Id and replaces a bad one", async () => {
@@ -360,7 +360,7 @@ describe("WebSocket upgrades", () => {
   });
 });
 
-describe("T-sec-5: baseline headers on a route of every module and on errors (p1-05 §3.9 F8)", async () => {
+describe("T-sec-5: baseline headers on a route of every module and on errors", async () => {
   const { bootSecurityApp, samplePath } = await import("./__fixtures__/securityApp.mjs");
   const { BASE_HEADERS } = await import("./security.mjs");
   it("X-Frame-Options, nosniff, no-store, CORP same-origin everywhere; the dashboard CSP on dashboard pages", async () => {

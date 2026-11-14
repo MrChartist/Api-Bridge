@@ -1,0 +1,33 @@
+meta {
+  name: How much of each budget is used, queued and saved by streaming, caching and coalescing
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/usage
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~series: false
+  ~view: budget
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  How much of each budget is used, queued and saved by streaming, caching and coalescing
+
+  - An API key with the `read` scope (any key).
+
+  Per account and endpoint class: the binding window, every window (`windows`: this second, this minute, today) and
+  today's counters. `series=1` adds each account's calls per second over the last two minutes (`series`).
+  `view=budget` answers the dashboard's budget summary instead (the `budget` stream message). Admin keys also get
+  `consumers`: today's broker calls and saved calls per dashboard page, API key label, MCP, compat and background job.
+
+  Reference: docs/api/limits/getUsage.md in the repository.
+}

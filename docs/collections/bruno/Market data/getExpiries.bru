@@ -1,0 +1,38 @@
+meta {
+  name: Expiry dates for an underlying
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/expiries?underlying=NIFTY
+  body: none
+  auth: bearer
+}
+
+params:query {
+  underlying: NIFTY
+  ~exchange: NFO
+  ~backup: false
+  ~purpose: display
+  ~account: demo-paper
+  ~strict: false
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+vars:post-response {
+  expiry: res.body.data.expiries[0]
+}
+
+docs {
+  Expiry dates for an underlying
+
+  - An API key with the `read` scope (any key).
+
+  See /v1/reference/expiries for kind, lot and holiday shifts.
+
+  Reference: docs/api/market-data/getExpiries.md in the repository.
+}

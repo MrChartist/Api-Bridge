@@ -6,7 +6,7 @@
  * live trading on: that needs the config file (global `safety.liveTrading` AND the account's `live.enabled`),
  * plus a live-scoped key and an explicit `mode: "live"` on the request.
  *
- * Core owns the sections every stream depends on (server, cors, dataDir, logging, accounts, safety). Any other
+ * Core owns the sections every module depends on (server, cors, dataDir, logging, accounts, safety). Any other
  * top-level section belongs to a module that declares `configKey` + `configSchema` (see modules.mjs); the app
  * validates those after the modules are known. An unknown top-level key is an error, so typos are caught.
  *
@@ -31,7 +31,7 @@ export const isLoopbackHost = (h) => LOOPBACK_HOSTS.has(String(h ?? "").toLowerC
 
 const accountId = z.string().regex(/^[a-z0-9][a-z0-9-]{1,31}$/, "use 2-32 lowercase letters, digits or hyphens");
 const money = z.number().finite().nonnegative();
-/** Sources that may send live orders. "guard" and "alert" are the Phase 1 automations (opt-in per account, additive). */
+/** Sources that may send live orders. "guard" and "alert" are the automated rule sources (opt-in per account, additive). */
 const sources = z.enum(["rest", "webhook", "mcp", "cli", "guard", "alert"]);
 
 const limitsOverride = z
@@ -130,6 +130,22 @@ export const coreSchema = z
           })
           .strict()
           .prefault({}),
+        /**
+         * Opt-in third listener for Google Sheets: serves ONLY GET /xl/* for read-only keys, with its own port, its own
+         * Host allow-list and a request cap per minute. Point a tunnel at this port and nothing else is reachable
+         * through it (docs/guides/expose-alerts.md). Off by default.
+         */
+        sheetsIngress: z
+          .object({
+            enabled: z.boolean().default(false),
+            host: z.string().default("127.0.0.1"),
+            port: z.number().int().min(0).max(65535).default(DEFAULT_PORT + 2),
+            allowedHosts: z.array(z.string()).default([]),
+            /** Requests per minute per caller address (behind a local tunnel every caller shares one address). */
+            requestsPerMinute: z.number().int().min(10).max(6000).default(600),
+          })
+          .strict()
+          .prefault({}),
       })
       .strict()
       .prefault({}),
@@ -147,7 +163,18 @@ export const coreSchema = z
     /** Demo mode: sample market data, no real broker, live trading off (see server/bridge/demo/demoMode.mjs). */
     demo: z.boolean().default(false),
     logging: z
-      .object({ level: z.enum(["debug", "info", "warn", "error", "silent"]).default("info") })
+      .object({
+        level: z.enum(["debug", "info", "warn", "error", "silent"]).default("info"),
+        /**
+         * Which requests get an access line: "errors" (default: status 400 and above, and requests slower than 1 s),
+         * "all" (every request: about 3.7 KB/s at 20 requests/s) or "off".
+         */
+        requests: z.enum(["all", "errors", "off"]).default("errors"),
+        /** Also write <data folder>/logs/bridge.log, rotated (see core/logFile.mjs). Default: on for `mc-bridge start`, off in Docker (use `docker logs`). */
+        file: z.boolean().optional(),
+        maxFileMb: z.number().int().min(1).max(1024).default(10),
+        keepFiles: z.number().int().min(1).max(50).default(5),
+      })
       .strict()
       .prefault({}),
     accounts: z.array(accountSchema).default([]),
@@ -173,7 +200,7 @@ export const coreSchema = z
 export const CORE_SECTIONS = Object.freeze(Object.keys(coreSchema.shape));
 
 /** How a warning about config sections that were left out begins (the app window shows these; cli.mjs). */
-export const IGNORED_PREFIX = "Ignored config sections this version does not have: ";
+export const IGNORED_PREFIX = "Ignored settings that v2 no longer has: ";
 
 
 /**
@@ -301,6 +328,20 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
     warnings.push("server.remoteDashboard is on (demo mode): the dashboard pages are served to other computers. API calls still need a key.");
   }
   if (cfg.server.publicIngress.enabled) warnings.push("Public ingress is on: only webhook routes are served on it. Keep the tunnel URL private.");
+  const si = cfg.server.sheetsIngress;
+  if (si.enabled && !isLoopbackHost(si.host)) {
+    if (!cfg.server.allowNonLoopback) {
+      throw new BridgeError("VALIDATION_FAILED", `server.sheetsIngress.host ${si.host} is not a loopback address. Point your tunnel at 127.0.0.1, or set server.allowNonLoopback to true in the config file if you really mean it.`);
+    }
+    warnings.push(`The Sheets listener will listen on ${si.host}, not only on this computer.`);
+  }
+  if (si.enabled) warnings.push("The Sheets listener is on: only GET /xl/* for read-only keys is served on it. Keep the tunnel URL and the key private.");
+  const ports = [["server.port", cfg.server.port, true], ["server.publicIngress.port", pi.port, pi.enabled], ["server.sheetsIngress.port", si.port, si.enabled]].filter(([, p, on]) => on && p !== 0);
+  for (let i = 0; i < ports.length; i++) {
+    for (let j = i + 1; j < ports.length; j++) {
+      if (ports[i][1] === ports[j][1]) throw new BridgeError("VALIDATION_FAILED", `${ports[i][0]} and ${ports[j][0]} are both ${ports[i][1]}: each listener needs its own port.`);
+    }
+  }
   const ids = new Set();
   for (const a of cfg.accounts) {
     if (ids.has(a.id)) throw new BridgeError("VALIDATION_FAILED", `Duplicate account id ${a.id}.`);
@@ -322,6 +363,45 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
   if (cfg.masterKeyFile !== undefined) cfg.masterKeyFile = isAbsolute(cfg.masterKeyFile) ? cfg.masterKeyFile : resolve(baseDir, cfg.masterKeyFile);
 
   return { config: deepFreeze(cfg), warnings, source };
+}
+
+/**
+ * Settings that older, fuller releases accepted and v2 does not have. A config file that still holds one gets a
+ * friendly message naming it (see findRemovedSettings), not a bare "unknown key" and never a crash. Add an entry when
+ * a setting is removed; keys are dotted paths, and a top-level section removes everything under it.
+ */
+export const REMOVED_SETTINGS = Object.freeze({
+  alerts: "position alerts are not part of v2",
+  triggers: "GTT, trailing stops and position stops are not part of v2",
+  watchlists: "watchlists are not part of v2",
+  journal: "the trade journal is not part of v2",
+  strategies: "the Bridge does not run strategies in v2 (run a script yourself with the Python SDK)",
+  scanner: "the scanner is not part of v2",
+  analytics: "analytics are not part of v2",
+  studies: "studies are not part of v2",
+  vol: "volatility data is not part of v2",
+  reference: "the reference-data store is not part of v2",
+  participants: "participant open interest is not part of v2",
+  "stream.candles": "live candles are not served by the stream",
+});
+
+/**
+ * Removed settings present in a raw config object, as readable lines ("alerts: this setting was removed in v2 (...)").
+ * Also catches the MCP toolset "options", which no longer exists.
+ * @param {any} raw
+ * @returns {string[]}
+ */
+export function findRemovedSettings(raw) {
+  const out = [];
+  if (!raw || typeof raw !== "object") return out;
+  for (const [path, why] of Object.entries(REMOVED_SETTINGS)) {
+    const [head, ...rest] = path.split(".");
+    let v = raw[head];
+    for (const k of rest) v = v && typeof v === "object" ? v[k] : undefined;
+    if (v !== undefined) out.push(`${path}: this setting was removed in v2 (${why})`);
+  }
+  if (Array.isArray(raw.mcp?.toolsets) && raw.mcp.toolsets.includes("options")) out.push('mcp.toolsets "options": this setting was removed in v2 (there are no options tools)');
+  return out;
 }
 
 /** Sections in `config` that core does not own (each must be claimed by a module). */

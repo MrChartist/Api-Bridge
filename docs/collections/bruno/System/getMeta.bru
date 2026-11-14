@@ -1,0 +1,23 @@
+meta {
+  name: Versions, brokers, modules and routes
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/meta
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Versions, brokers, modules and routes
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/system/getMeta.md in the repository.
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Datasets stored on this computer
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/v1/datasets
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~tag: <tag>
+  ~limit: 1
+  ~cursor: <cursor>
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+docs {
+  Datasets stored on this computer
+
+  - An API key with the `read` scope (any key).
+
+  A dataset is a named set of files (one per symbol and interval) that grows by incremental updates.
+
+  Reference: docs/api/data-downloads/listDatasets.md in the repository.
+}

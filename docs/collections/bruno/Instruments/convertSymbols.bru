@@ -1,0 +1,33 @@
+meta {
+  name: Convert up to 200 symbols in one call
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/symbols/convert
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "items": [
+      {
+        "input": "NSE:RELIANCE"
+      }
+    ]
+  }
+}
+
+docs {
+  Convert up to 200 symbols in one call
+
+  - An API key with the `read` scope (any key).
+
+  Reference: docs/api/instruments/convertSymbols.md in the repository.
+}

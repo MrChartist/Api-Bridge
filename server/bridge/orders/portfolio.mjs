@@ -1,5 +1,5 @@
 /**
- * Portfolio and order-book row mapping — stream S7.
+ * Portfolio and order-book row mapping.
  *
  * Broker adapters return contract rows (server/brokers/contract.mjs: Position, Holding, Funds, Order, Trade) with
  * broker instrument references. These helpers turn them into the OpenAPI shapes with canonical symbols (through

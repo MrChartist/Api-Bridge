@@ -1,5 +1,5 @@
 /**
- * The `readiness` config section (stream S20, docs/spec/p1-05-readiness.md §3.6). All optional; zod `.strict()`.
+ * The `readiness` config section (the readiness module). All optional; zod `.strict()`.
  *
  *   "readiness": {
  *     "enabled": true,
@@ -114,7 +114,7 @@ export function readinessConfig(config) {
 }
 
 /**
- * Detection bound for an IP change (§7.5): interval + jitter + slowest call + debounce, in seconds.
+ * Detection bound for an IP change: interval + jitter + slowest call + debounce, in seconds.
  * @param {ReturnType<typeof parseReadinessConfig>} cfg
  */
 export function detectionBoundSeconds(cfg) {

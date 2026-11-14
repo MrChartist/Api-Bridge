@@ -52,45 +52,17 @@ describe("dashboard ticket view", () => {
 });
 
 describe("dashboard helpers", async () => {
-  const { checklistState, friendlyError, highlightJson, plainBrokerMessage } = await import("./app.js");
+  const { friendlyError, highlightJson } = await import("./app.js");
   const { KEY_PRESETS, genericAlert, snippets } = await import("./snippets.js");
 
   it("explains errors in plain words", () => {
     expect(friendlyError({ network: true }).title).toMatch(/Cannot reach the Bridge/);
-    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/keys create/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail).toMatch(/npm run bridge -- open/);
+    expect(friendlyError({ code: "UNAUTHENTICATED" }).detail.split("\n")).toHaveLength(3); // one remedy per line
     expect(friendlyError({ code: "SESSION_EXPIRED", message: "dhan-main: expired" }).detail).toMatch(/Accounts page, Log in/);
     expect(friendlyError({ code: "BROKER_UNAVAILABLE", message: "x" }).detail).toMatch(/Accounts page.*demo mode/);
     expect(friendlyError({ code: "UPSTREAM_ERROR", message: "Dhan: invalid token" })).toEqual({ title: "The broker did not accept this", detail: "Dhan: invalid token" });
     expect(friendlyError({ status: 418, message: "teapot" })).toEqual({ title: "The Bridge answered 418", detail: "teapot" });
-  });
-
-  it("works out the welcome checklist (broker or demo, a key for a tool, the chain, a paper trade)", () => {
-    // Init's admin key and a revoked key are not keys for a tool.
-    const keys = [{ id: "a", scopes: ["admin", "paper"] }, { id: "b", scopes: ["read"], revokedAt: "2026-01-01" }];
-    expect(checklistState({ demo: true, keys }).map((s) => s.id)).toEqual(["broker", "key", "chain", "trade"]);
-    expect(checklistState({ demo: true, keys }).map((s) => s.done)).toEqual([true, false, false, false]);
-    const accounts = [{ broker: "dhan", session: { state: "connected" } }];
-    expect(checklistState({ accounts, keys: [{ id: "c", scopes: ["read"] }], chainOpened: "1", traded: "1" }).every((s) => s.done)).toBe(true);
-    expect(checklistState({ accounts: [{ broker: "paper", session: { state: "connected" } }] })[0].done).toBe(false);
-    // A key made by a sign-in link is not a key for a tool.
-    const signedIn = [{ id: "a", clientKind: "ui", label: "admin (created by init)", scopes: ["admin"] }, { id: "b", clientKind: "ui", label: "Dashboard sign-in", scopes: ["read"] }];
-    expect(checklistState({ keys: signedIn })[1].done).toBe(false);
-    // Demo's own seeded orders do not tick the trade step; one placed by the person does.
-    expect(checklistState({ orders: [{ mode: "paper", tag: "DEMOSEED" }] })[3].done).toBe(false);
-    expect(checklistState({ orders: [{ mode: "paper", tag: null }] })[3].done).toBe(true);
-  });
-
-  it("turns a broker's raw error into a sentence and the next step", () => {
-    const dhan = 'Dhan (main): Dhan API error [401]: {"errorType":"Invalid_Authentication","errorCode":"DH-901","errorMessage":"Client ID or user generated access token is invalid or expired."}';
-    const out = plainBrokerMessage(dhan);
-    expect(out).toBe("Dhan (main): Client ID or user generated access token is invalid or expired. Your broker login has ended or is wrong: create a new access token on your broker's site, then choose Log in again on the Accounts page.");
-    expect(out).not.toMatch(/[{}]|errorCode|API error/);
-    expect(plainBrokerMessage('Zerodha API error [400]: {"status":"error","message":"Insufficient funds"}')).toBe("Insufficient funds.");
-    expect(plainBrokerMessage("Angel One API error [500] on /orders: gateway timeout")).toBe("gateway timeout.");
-    expect(plainBrokerMessage('Upstox API error [502]: {"weird":1}')).toBe("the broker answered 502.");
-    // Anything that is not a broker error is left exactly as it is.
-    for (const t of ["Key created", "The price 1402.5 is 4% away from the last traded price.", ""]) expect(plainBrokerMessage(t)).toBe(t);
-    expect(friendlyError({ code: "UPSTREAM_ERROR", message: dhan }).detail).not.toContain("{");
   });
 
   it("escapes data before highlighting JSON", () => {
@@ -103,7 +75,7 @@ describe("dashboard helpers", async () => {
   it("fills snippets with the Bridge address and never an admin key", () => {
     const s = snippets({ base: "http://127.0.0.1:4300/", account: "paper" });
     const all = JSON.stringify(s);
-    expect(Object.keys(s)).toEqual(["webhooks", "python", "node", "excel", "amibroker", "claude", "chatgpt", "project", "rest"]);
+    expect(Object.keys(s)).toEqual(["webhooks", "python", "node", "excel", "amibroker", "claude", "chatgpt", "rest"]);
     expect(all).toContain("http://127.0.0.1:4300/hooks/generic/");
     expect(all).toContain("mcb_YOUR_READ_KEY");
     expect(JSON.parse(s.claude[0].code).mcpServers["mr-chartist-bridge"].env.MCB_BRIDGE_URL).toBe("http://127.0.0.1:4300");
@@ -147,11 +119,9 @@ describe("dashboard sign-in links", async () => {
     expect(await redeemSignIn(code, async () => { throw new TypeError("offline"); })).toEqual({ error: { network: true } });
   });
 
-  it("matches what the Bridge says and the label of the key it makes", async () => {
-    const { SIGN_IN_KEY_LABEL } = await import("./app.js");
-    const { SIGN_IN_FAILED: serverText, SIGN_IN_KEY_LABEL: serverLabel } = await import("../auth/module.mjs");
+  it("matches what the Bridge says", async () => {
+    const { SIGN_IN_FAILED: serverText } = await import("../auth/module.mjs");
     expect(SIGN_IN_FAILED.detail).toBe(serverText);
-    expect(SIGN_IN_KEY_LABEL).toBe(serverLabel);
   });
 });
 
@@ -253,27 +223,27 @@ describe("dashboard broker login form", async () => {
   });
 });
 
-describe("the menu and the tabbed pages (API Bridge v2: Home, Accounts, API, Data, Orders, Safety)", async () => {
-  const { PAGES, LEGACY, resolveRoute } = await import("./views.js");
+describe("the menu and the tabbed pages (API Bridge v2: Accounts, Sources, API, Orders, Safety)", async () => {
+  const { PAGES, LEGACY, LEGACY_PATHS, resolveRoute } = await import("./views.js");
   const { fuzzyScore, pageCommands, rank } = await import("./palette.js");
   const route = (hash, lastTab = () => null) => resolveRoute(hash, { lastTab });
 
-  it("has 6 pages, Home first and unlabelled, then two groups, in the order of the sidebar", () => {
-    expect(PAGES.map((p) => p.id)).toEqual(["home", "accounts", "api", "data", "orders", "safety"]);
-    expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["", "Bridge", "Trade"]);
-    // The phone tab bar: four pages and More (Safety, appearance and the key).
-    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["home", "accounts", "api", "orders"]);
+  it("has the pages in two groups, in the order of the sidebar", () => {
+    expect(PAGES.map((p) => p.id)).toEqual(["accounts", "connect", "developers", "sources", "data", "api", "orders", "safety"]);
+    expect([...new Set(PAGES.map((p) => p.group))]).toEqual(["Bridge", "Trade"]);
+    // The phone tab bar holds four pages and More: Sources (is the data flowing?) is in it, API (set up once) is under More.
+    expect(PAGES.filter((p) => p.tab).map((p) => p.id)).toEqual(["accounts", "sources", "orders", "safety"]);
     expect(PAGES.find((p) => p.id === "orders").title).toBe("Orders");
   });
 
   it("curates the shortcuts", () => {
     const keys = Object.fromEntries(PAGES.filter((p) => p.key).map((p) => [p.key, p.id]));
-    expect(keys).toEqual({ 1: "home", 2: "accounts", 3: "api", 4: "orders", 5: "safety", 6: "data" });
+    expect(keys).toEqual({ 1: "accounts", 2: "api", 3: "orders", 4: "safety", 5: "sources", 6: "connect", 7: "developers" });
   });
 
   it("every tab names a legacy page id and every legacy id resolves to a tab of the page it names", () => {
     const tabbed = PAGES.filter((p) => p.tabs);
-    expect(tabbed.map((p) => p.id)).toEqual(["api", "orders"]);
+    expect(tabbed.map((p) => p.id)).toEqual(["sources", "data", "api", "orders"]);
     for (const p of tabbed) {
       expect(p.tabs.some((t) => t.id === p.defaultTab), p.id).toBe(true);
       for (const t of p.tabs) {
@@ -281,18 +251,23 @@ describe("the menu and the tabbed pages (API Bridge v2: Home, Accounts, API, Dat
         expect(typeof t.render, `${p.id}/${t.id}`).toBe("function");
       }
     }
-    for (const [old, to] of Object.entries(LEGACY)) {
+    for (const [old, to] of Object.entries({ ...LEGACY, ...LEGACY_PATHS })) {
       const [pageId, tabId] = to.split("/");
       const tab = PAGES.find((p) => p.id === pageId)?.tabs?.find((t) => t.id === tabId);
-      expect(tab?.page, `${old} → ${to}`).toBe(old);
+      expect(tab, `${old} → ${to}`).toBeTruthy();
+      // An old page id is the data-page of its tab, unless the tab moved to another page (Rate limits became Sources › Overview).
+      if (pageId !== "sources") expect(tab.page, `${old} → ${to}`).toBe(old);
     }
+    expect(LEGACY_PATHS).toEqual({ "api/limits": "sources/overview" });
   });
 
   it("old hashes open the right tab and keep their query", () => {
     const cases = [
       ["#/console?endpoint=order", "api", "console", "console", "#/api/console?endpoint=order"],
       ["#/keys", "api", "keys", "keys", "#/api/keys"],
-      ["#/limits", "api", "limits", "limits", "#/api/limits"],
+      ["#/limits", "sources", "overview", "sources", "#/sources/overview"],
+      ["#/api/limits", "sources", "overview", "sources", "#/sources/overview"],
+      ["#/api/limits?x=1", "sources", "overview", "sources", "#/sources/overview?x=1"],
       ["#/integrations?tab=python", "api", "integrations", "integrations", "#/api/integrations?tool=python"],
       ["#/activity", "api", "activity", "activity", "#/api/activity"],
     ];
@@ -302,34 +277,42 @@ describe("the menu and the tabbed pages (API Bridge v2: Home, Accounts, API, Dat
     }
   });
 
-  it("each tab sets its own layout and data-page; plain pages are untouched", () => {
-    expect(route("#/api/console?endpoint=order")).toMatchObject({ view: "console", layout: "", query: "endpoint=order", redirect: null });
+  it("each tab sets its own data-page; plain pages are untouched", () => {
+    expect(route("#/api/console?endpoint=order")).toMatchObject({ view: "console", query: "endpoint=order", redirect: null });
     expect(route("#/orders/trades")).toMatchObject({ view: "trades", redirect: null });
-    expect(route("#/accounts?add=1")).toMatchObject({ view: "accounts", query: "add=1" });
+    expect(route("#/accounts")).toMatchObject({ view: "accounts", query: "", redirect: null });
   });
 
-  it("an unknown page is Home (the first page); an unknown or missing tab is the last tab used, then the default", () => {
-    expect(route("#/nowhere").page.id).toBe("home");
-    expect(route("").page.id).toBe("home");
-    expect(route("#signin=abc").page.id).toBe("home");
+  it("an unknown page is Accounts (the first page); an unknown or missing tab is the last tab used, then the default", () => {
+    expect(route("#/nowhere").page.id).toBe("accounts");
+    expect(route("#/nowhere").redirect).toBe("#/accounts");
+    expect(route("").redirect).toBe(null);
+    expect(route("").page.id).toBe("accounts");
+    expect(route("#signin=abc").page.id).toBe("accounts");
     expect(route("#/api").tab.id).toBe("keys");
     expect(route("#/api/nope").tab.id).toBe("keys");
     expect(route("#/api/nope").redirect).toBe("#/api/keys");
     expect(route("#/api/keys").redirect).toBe(null);
-    expect(route("#/api", (id) => (id === "api" ? "limits" : null)).tab.id).toBe("limits");
+    expect(route("#/api", (id) => (id === "api" ? "console" : null)).tab.id).toBe("console");
+    // A tab remembered from before it moved ("limits" under API) falls back to the default.
+    expect(route("#/api", (id) => (id === "api" ? "limits" : null)).tab.id).toBe("keys");
+    expect(route("#/sources").tab.id).toBe("overview");
+    expect(route("#/sources/providers")).toMatchObject({ view: "providers", redirect: null });
+    expect(route("#/sources/quotas")).toMatchObject({ view: "quotas", redirect: null });
     expect(route("#/api/nope", () => "gone").tab.id).toBe("keys");
   });
 
   it("the palette has one command per tab, the tools as search-only destinations, and ranks prefixes first", () => {
     const cmds = pageCommands(PAGES, "Ctrl");
     const byLabel = Object.fromEntries(cmds.map((c) => [c.label, c]));
-    for (const l of ["API keys", "Integrations", "Test console", "Rate limits", "Activity", "Trade book", "Python snippet", "TradingView and webhooks", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
-    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys", hint: ["Ctrl", "3"] });
+    for (const l of ["API keys", "Integrations", "Test console", "Sources and rate limits", "Data providers", "Key quotas", "Why this source?", "Activity", "Trade book", "Python snippet", "Alert webhooks (TradingView, ChartInk)", "Audit log"]) expect(byLabel[l], l).toBeTruthy();
+    expect(byLabel["API keys"]).toMatchObject({ route: "api/keys", sub: "API › Keys: One key per tool, with only the access it needs", hint: ["Ctrl", "2"] }); // a tab says what it is for
     expect(byLabel["Python snippet"]).toMatchObject({ route: "api/integrations?tool=python", searchOnly: true });
     expect(byLabel["Audit log"].route).toBe("api/activity?view=audit");
-    expect(byLabel["TradingView and webhooks"].route).toBe("api/integrations?tool=webhooks");
-    expect(rank(cmds, "tradingview")[0].label).toBe("TradingView and webhooks");
-    expect(rank(cmds, "rate")[0].label).toBe("Rate limits");
+    expect([...new Set(cmds.map((c) => c.group))]).toEqual(["Bridge", "Trade"]);
+    expect(rank(cmds, "rate")[0].label).toBe("Sources and rate limits");
+    expect(byLabel["Sources and rate limits"]).toMatchObject({ route: "sources/overview", sub: "Sources › Overview: How much room your brokers and sources have, and why requests go where they do" });
+    expect(byLabel["Why this source?"]).toMatchObject({ route: "sources/overview?trace=1", searchOnly: true });
     expect(rank(cmds, "console")[0].label).toBe("Test console");
     // A scattered in-order match is not enough: three points per query character.
     expect(fuzzyScore("rate", "Safety")).toBeLessThan(fuzzyScore("rate", "Rate limits"));

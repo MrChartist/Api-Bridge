@@ -1,0 +1,78 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "INR",
+     "symbol": "^NSEI",
+     "exchangeName": "NSI",
+     "fullExchangeName": "NSE",
+     "instrumentType": "INDEX",
+     "regularMarketTime": 1793959380,
+     "gmtoffset": 19800,
+     "timezone": "IST",
+     "exchangeTimezoneName": "Asia/Kolkata",
+     "regularMarketPrice": 24860.5,
+     "chartPreviousClose": 24790,
+     "dataGranularity": "1m",
+     "range": "1d"
+    },
+    "timestamp": [
+     1793936700,
+     1793936760,
+     1793936820,
+     1793936880,
+     1793936940,
+     1793959200
+    ],
+    "indicators": {
+     "quote": [
+      {
+       "open": [
+        24800.1,
+        24805,
+        null,
+        24812.4,
+        24815,
+        24860.5
+       ],
+       "high": [
+        24806.3,
+        24810.2,
+        null,
+        24816.8,
+        24818.9,
+        24860.5
+       ],
+       "low": [
+        24798.7,
+        24803.9,
+        null,
+        24810,
+        24813.2,
+        24860.5
+       ],
+       "close": [
+        24805,
+        24809.5,
+        null,
+        24815,
+        24816.2,
+        24860.5
+       ],
+       "volume": [
+        0,
+        0,
+        null,
+        0,
+        0,
+        0
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "error": null
+ }
+}

@@ -37,7 +37,7 @@ function codeFor(httpStatus, errorType) {
 /** Authorization + version headers. Throws (422) before any call when the key or token is missing. */
 export function authHeaders(creds) {
   if (!creds?.apiKey || !creds?.accessToken) {
-    throw new BrokerInputError("Zerodha: API key and access token are required. Paste both in Broker Settings.");
+    throw new BrokerInputError("Zerodha: API key and access token are required. Paste both in the account settings.");
   }
   return { Authorization: `token ${creds.apiKey}:${creds.accessToken}`, "X-Kite-Version": "3" };
 }
@@ -69,7 +69,7 @@ export async function kiteFetch(path, creds, { method = "GET", query, form, raw 
     const errorType = String(json?.error_type ?? "");
     const detail = json?.message || text.slice(0, 200) || `HTTP ${res.status}`;
     const hint = res.status === 403 || errorType === "TokenException"
-      ? " Generate a fresh access token (Kite tokens expire at 6 AM IST) and paste it in Broker Settings."
+      ? " Generate a fresh access token (Kite tokens expire at 6 AM IST) and paste it in the account settings."
       : "";
     throw new KiteApiError(`Zerodha API error [${res.status}${errorType ? ` ${errorType}` : ""}]: ${detail}.${hint}`, { httpStatus: res.status, errorType });
   }

@@ -1,0 +1,37 @@
+meta {
+  name: Order towards a target position size
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/v1/placesmartorder
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$guid}}
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}",
+    "strategy": "my-script",
+    "symbol": "RELIANCE",
+    "exchange": "NSE",
+    "action": "BUY",
+    "product": "CNC",
+    "pricetype": "MARKET",
+    "position_size": 1
+  }
+}
+
+docs {
+  Order towards a target position size
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+  - Send an `Idempotency-Key` (8 to 255 characters); a retry with the same key returns the first result.
+
+  Reference: docs/api/compat-rest/compatPlacesmartorder.md in the repository.
+}

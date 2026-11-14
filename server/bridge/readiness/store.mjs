@@ -1,10 +1,10 @@
 /**
- * Readiness state on disk (docs/spec/p1-05-readiness.md §3.5): <dataDir>/readiness/state.json, mode 0600 in a 0700
+ * Readiness state on disk: <dataDir>/readiness/state.json, mode 0600 in a 0700
  * folder, written atomically. Holds the last state per account, the pre-open run date and the last 200 transitions.
  *
  * The egress IP address is NEVER written here (a personal identifier in a folder users back up and sync); only whether
  * it matched each account. A corrupt or unreadable file is renamed state.json.corrupt-<ts> and a fresh state is used,
- * so a damaged file never stops the next day's checks (BRD §7.7). No secrets, tokens or broker client codes.
+ * so a damaged file never stops the next day's checks. No secrets, tokens or broker client codes.
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

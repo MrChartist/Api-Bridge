@@ -1,0 +1,36 @@
+meta {
+  name: Change a subscription (this computer only)
+  type: http
+  seq: 8
+}
+
+patch {
+  url: {{baseUrl}}/v1/subscriptions/:subscriptionId
+  body: json
+  auth: bearer
+}
+
+params:path {
+  subscriptionId: {{subscriptionId}}
+}
+
+auth:bearer {
+  token: {{apiKey}}
+}
+
+body:json {
+  {
+    "active": false
+  }
+}
+
+docs {
+  Change a subscription (this computer only)
+
+  - An API key with the `admin` scope.
+  - This computer only: the Bridge refuses this call from any other address (403 `LOOPBACK_ONLY`).
+
+  Only the fields sent change. A new `url` or `secret` is a new target, so this works from this computer only.
+
+  Reference: docs/api/events/updateSubscription.md in the repository.
+}

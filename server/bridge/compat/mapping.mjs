@@ -1,5 +1,5 @@
 /**
- * Compat-style <-> Bridge value mapping (stream S14). Pure functions.
+ * Compat-style <-> Bridge value mapping. Pure functions.
  *
  * Compat-style symbols are compact trading symbols with an exchange code: RELIANCE/NSE, NIFTY/NSE_INDEX,
  * NIFTY28OCT2525000CE/NFO, NIFTY30DEC25FUT/NFO. The Bridge already reads and writes

@@ -1,4 +1,5 @@
-"""Typed shapes of the Bridge's JSON (written against docs/openapi.yaml). For type checkers and editors only:
+"""Typed shapes of the Bridge's JSON as TypedDicts (written against docs/openapi.yaml), for code that keeps plain dicts.
+The typed objects the Bridge class returns are in records.py. For type checkers and editors only:
 the client returns plain dicts."""
 
 from __future__ import annotations

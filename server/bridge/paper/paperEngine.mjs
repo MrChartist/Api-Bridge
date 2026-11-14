@@ -1,5 +1,5 @@
 /**
- * PaperEngine — stream S8 (docs/STREAMS.md §S8). The contract (methods, argument and return types, rules) is
+ * PaperEngine. The contract (methods, argument and return types, rules) is
  * SERVICE_CONTRACTS.paper in ../core/contracts.mjs; app.mjs refuses to boot an implementation that misses a method.
  *
  * A local order simulator, one book per account:
@@ -7,7 +7,7 @@
  *    endpoint. The fill rules are in fillModel.mjs (docs/ARCHITECTURE.md §7).
  *  - Order states: open, trigger_pending, filled, cancelled, rejected, expired. Fills are whole (v1).
  *  - Positions per (symbol, product) with average price and realised/unrealised P&L; funds with approximate margin
- *    blocking: F&O legs are margined together per underlying (dashboard/span-margin.js, an approximate SPAN-like scan
+ *    blocking: F&O legs are margined together per underlying (calc/span-margin.js, an approximate SPAN-like scan
  *    plus exposure, so hedges get their benefit), equity by percentage; INTRADAY positions and orders are squared off at the configured IST time (15:20 for NSE/BSE).
  *  - State per account in <dataDir>/paper/<accountId>.json, written atomically after every change (paperStore.mjs),
  *    and restored on start, including pending orders, which keep being evaluated.
@@ -15,25 +15,30 @@
  *  - Every state change is published on deps.bus as `order.updated` with mode "paper". Fill events also carry
  *    `realisedPnl` (the P&L that fill realised) so daily-loss tracking can use it.
  *
- * Input checks here are defensive: OrderService (S7) runs the full pre-trade validation and SafetyGuard (S9) first.
+ * Input checks here are defensive: OrderService (orders) runs the full pre-trade validation and SafetyGuard (safety) first.
  * Structural problems throw (INVALID_ORDER / VALIDATION_FAILED, and no order is created); business refusals such as
  * insufficient paper funds create an order in status "rejected" with a statusMessage, as a broker would.
  *
  * Not modelled in v1 (documented): partial fills, queue position, market impact, option expiry settlement,
  * corporate actions, statutory charges (only the simple brokerage model in config).
  *
- * Extra methods beyond the contract (internal; other streams must not call them): start(), stop(), runOnce(),
+ * Extra methods beyond the contract (internal; other modules must not call them): start(), stop(), runOnce(),
  * handleTick(tick).
  */
 import { join } from "node:path";
+import { isDiskFull } from "../../lib/storageHealth.mjs";
 import { BridgeError } from "../core/errors.mjs";
 import { CAPITAL_MAX, CAPITAL_MIN, DEMO_STARTING_CAPITAL, EXCHANGE_SESSION_END, EXCHANGE_SQUARE_OFF, PAPER_DEFAULTS, paperConfig } from "./config.mjs";
 import { DEFAULT_SESSIONS, defaultSessionFor } from "../reference/defaults.mjs";
+import { istDateOf } from "../reference/calendar.mjs";
+import { segmentOf } from "../reference/sessions.mjs";
+import { sharedCalendar } from "../reference/sharedCalendar.mjs";
 import { isStub } from "../core/contracts.mjs";
 import { applyFill, brokerageFor, evaluate, isTickMultiple, marginFor, marketFillPrice, round2, round4, stopTriggered } from "./fillModel.mjs";
 import { ACCOUNT_ID_RE, STATE_VERSION, createFileStore } from "./paperStore.mjs";
 import { parseSymbol } from "../core/symbolFormat.mjs";
-import { SPAN_METHOD, SPAN_PARAMS, marginRequired, portfolioMargin, standaloneMargin } from "../dashboard/span-margin.js";
+import { isTrustedRealtime } from "../market/trusted.mjs";
+import { SPAN_METHOD, SPAN_PARAMS, marginRequired, portfolioMargin, standaloneMargin } from "../calc/span-margin.js";
 import { istDay, istDayCompact, istTimeOnDay, toIstIso } from "./time.mjs";
 
 export const PENDING = Object.freeze(["open", "trigger_pending"]);
@@ -113,7 +118,7 @@ export function createPaperEngine(deps, options = {}) {
   const sessionEndTimes = { ...EXCHANGE_SESSION_END, ...(cfg.sessionEnd.times ?? {}) };
   const squareOffLabel = (exchange) => squareOffTimes[exchange] ?? cfg.squareOff.time;
   const squareOffAt = (exchange, t) => istTimeOnDay(t, squareOffLabel(exchange));
-  /** Optional (stream S16): the reference session close; absent in tests that build the engine by hand. */
+  /** Optional: the reference session close; absent in tests that build the engine by hand. */
   const reference = (() => {
     try {
       const r = deps.reference;
@@ -122,7 +127,7 @@ export function createPaperEngine(deps, options = {}) {
       return null;
     }
   })();
-  /** Session close for an exchange on the IST day of t: config, else the reference session, else the S5 default. */
+  /** Session close for an exchange on the IST day of t: config, else the reference session, else the market default. */
   const referenceClose = (exchange, t) => {
     try {
       const close = reference?.session(exchange, t)?.close;
@@ -130,6 +135,8 @@ export function createPaperEngine(deps, options = {}) {
     } catch {
       // fall back to the default below
     }
+    // The dated session rule of the shipped reference data (NSE, BSE, NFO, BFO), else the labelled default.
+    if (segmentOf(exchange)) return sharedCalendar().closeFor(exchange, istDateOf(t));
     return (defaultSessionFor(exchange) ?? DEFAULT_SESSIONS.NSE).close;
   };
   const sessionEndAt = (exchange, t) => istTimeOnDay(t, sessionEndTimes[exchange] ?? cfg.sessionEnd.time ?? referenceClose(exchange, t));
@@ -182,19 +189,34 @@ export function createPaperEngine(deps, options = {}) {
     interest = next;
   }
 
-  function save(st) {
+  /**
+   * Write a book to disk. A failure is logged and the engine keeps running from memory (a changed stop price, a fill
+   * by the price feed): the next save writes it again. `strict` (a new order) throws instead, so the caller can undo.
+   * @param {object} st
+   * @param {{ strict?: boolean }} [opts]
+   * @returns {boolean} whether it was written
+   */
+  function save(st, { strict = false } = {}) {
     // Keep the last known price of every open position so unrealised P&L survives a restart.
     st.marks = {};
     for (const p of Object.values(st.positions)) {
       const lp = lastPrice.get(p.symbol);
       if (p.netQty !== 0 && lp) st.marks[p.symbol] = { ltp: lp.ltp, at: lp.at };
     }
+    let written = true;
+    let failure = null;
     try {
       store.save(st.accountId, st);
     } catch (err) {
+      written = false;
+      failure = err;
       log?.error?.("paper state could not be saved", { accountId: st.accountId, err });
     }
     recomputeInterest();
+    if (!written && strict) {
+      throw new BridgeError(isDiskFull(failure) ? "DISK_FULL" : "INTERNAL", "The paper order could not be saved to disk, so it was not accepted. Nothing was placed. Free some disk space and try again.", { cause: failure });
+    }
+    return written;
   }
 
   function checkAccountId(accountId) {
@@ -348,6 +370,8 @@ export function createPaperEngine(deps, options = {}) {
     };
   }
 
+  /** While a new order is being applied, events wait here: they go out only once the order is on disk (see place()). */
+  let heldEvents = null;
   function emit(o, extra = {}) {
     const payload = {
       orderId: o.orderId,
@@ -361,7 +385,8 @@ export function createPaperEngine(deps, options = {}) {
       ...extra,
     };
     if (o.clientOrderId) payload.clientOrderId = o.clientOrderId;
-    bus?.emit("order.updated", payload);
+    if (heldEvents) heldEvents.push(payload);
+    else bus?.emit("order.updated", payload);
   }
 
   function setStatus(o, status, message, t, extra) {
@@ -432,10 +457,10 @@ export function createPaperEngine(deps, options = {}) {
     }
     if (!want.size) return;
     try {
-      const r = await deps.marketData.ltp([...want.keys()], { maxAgeMs: cfg.pollIntervalMs, priority: "interactive" });
+      const r = await deps.marketData.ltp([...want.keys()], { maxAgeMs: cfg.pollIntervalMs, priority: "interactive", purpose: "paper" });
       for (const item of r?.items ?? []) {
         const u = want.get(item?.symbol);
-        if (u && positiveNumber(item.ltp)) spots.set(u, { ltp: item.ltp, at: now() });
+        if (u && positiveNumber(item.ltp) && isTrustedRealtime(item)) spots.set(u, { ltp: item.ltp, at: now() });
       }
     } catch (err) {
       log?.debug?.("paper margin spot fetch failed", { code: err?.code });
@@ -561,9 +586,10 @@ export function createPaperEngine(deps, options = {}) {
     if (usableNow(lp, maxAgeMs)) market = { ...lp };
     if (!market) {
       try {
-        const r = await deps.marketData.ltp([symbol], { maxAgeMs, priority: "interactive" });
+        const r = await deps.marketData.ltp([symbol], { maxAgeMs, priority: "interactive", purpose: "paper" });
         const item = r?.items?.find((i) => i.symbol === symbol) ?? r?.items?.[0];
-        const entry = item ? notePrice(symbol, item) : null;
+        // Only a trusted real-time value is a basis for a fill: never a stale, delayed, end-of-day, unofficial or plugin one.
+        const entry = item && isTrustedRealtime(item) ? notePrice(symbol, item) : null;
         // A stale-labelled or old value (served from cache under budget pressure) is no basis for a fill.
         if (usableNow(entry, Math.max(maxAgeMs, FRESH_MS))) market = { ...entry };
         else if (entry) log?.debug?.("paper price too old to use", { symbol, ageMs: now() - entry.at, stale: entry.stale });
@@ -573,8 +599,8 @@ export function createPaperEngine(deps, options = {}) {
     }
     if (market && depth && cfg.useDepth) {
       try {
-        const d = await deps.marketData.depth(symbol, { maxAgeMs, priority: "interactive" });
-        if (d) market.depth = d;
+        const d = await deps.marketData.depth(symbol, { maxAgeMs, priority: "interactive", purpose: "paper" });
+        if (d && isTrustedRealtime(d)) market.depth = d;
       } catch (err) {
         log?.debug?.("paper depth fetch failed", { symbol, code: err?.code });
       }
@@ -590,8 +616,8 @@ export function createPaperEngine(deps, options = {}) {
     });
     if (!stale.length) return;
     try {
-      const r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive" });
-      for (const item of r?.items ?? []) notePrice(item.symbol, item);
+      const r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive", purpose: "paper" });
+      for (const item of r?.items ?? []) if (isTrustedRealtime(item)) notePrice(item.symbol, item);
     } catch (err) {
       log?.debug?.("paper mark-to-market fetch failed", { code: err?.code });
     }
@@ -847,12 +873,13 @@ export function createPaperEngine(deps, options = {}) {
     if (!stale.length) return;
     let r;
     try {
-      r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive" });
+      r = await deps.marketData.ltp(stale, { maxAgeMs: cfg.pollIntervalMs, priority: "interactive", purpose: "paper" });
     } catch (err) {
       log?.debug?.("paper poll failed", { code: err?.code });
       return;
     }
     for (const item of r?.items ?? []) {
+      if (!isTrustedRealtime(item)) continue;
       const entry = notePrice(item.symbol, item);
       // Pending orders trigger and fill only on a current price, never on a stale-labelled cached one.
       if (entry && !entry.stale && lastPrice.get(item.symbol) === entry) evaluateSymbol(item.symbol, entry);
@@ -876,33 +903,49 @@ export function createPaperEngine(deps, options = {}) {
       await ensureSpots(bookSymbols(book(accountId), [o.symbol]));
       const st = book(accountId); // re-read: a reset may have replaced the book while we waited
       const t = now();
-      Object.assign(o, {
-        orderId: nextOrderId(),
-        accountId,
-        status: isStop(o.orderType) ? "trigger_pending" : "open",
-        statusMessage: null,
-        filledQuantity: 0,
-        avgPrice: null,
-        triggered: false,
-        placedAt: toIstIso(t),
-        updatedAt: toIstIso(t),
-      });
-      st.ordersToday += 1;
-      const why = refusal(st, o, market, t);
-      st.orders.push(o);
-      if (why) {
-        o.status = "rejected";
-        o.statusMessage = why;
-        emit(o);
-      } else if (!(market && apply(st, o, market, { immediate: true, t }))) {
-        if (o.validity === "IOC" && o.status === "open") {
-          o.status = "cancelled";
-          o.statusMessage = "IOC order could not be matched immediately.";
+      // From here to the save nothing waits (no await), so the book can be put back if the order cannot be saved: a paper
+      // order is never accepted unless it is on disk, and nobody hears about it (events are held) until it is.
+      const before = structuredClone(st);
+      const idsBefore = { ...ids };
+      heldEvents = [];
+      try {
+        Object.assign(o, {
+          orderId: nextOrderId(),
+          accountId,
+          status: isStop(o.orderType) ? "trigger_pending" : "open",
+          statusMessage: null,
+          filledQuantity: 0,
+          avgPrice: null,
+          triggered: false,
+          placedAt: toIstIso(t),
+          updatedAt: toIstIso(t),
+        });
+        st.ordersToday += 1;
+        const why = refusal(st, o, market, t);
+        st.orders.push(o);
+        if (why) {
+          o.status = "rejected";
+          o.statusMessage = why;
+          emit(o);
+        } else if (!(market && apply(st, o, market, { immediate: true, t }))) {
+          if (o.validity === "IOC" && o.status === "open") {
+            o.status = "cancelled";
+            o.statusMessage = "IOC order could not be matched immediately.";
+          }
+          emit(o);
         }
-        emit(o);
+        trim(st);
+        save(st, { strict: true });
+      } catch (err) {
+        heldEvents = null;
+        books.set(accountId, before);
+        ids = idsBefore;
+        recomputeInterest();
+        throw err;
       }
-      trim(st);
-      save(st);
+      const held = heldEvents;
+      heldEvents = null;
+      for (const payload of held) bus?.emit("order.updated", payload);
       return project(o);
     },
 

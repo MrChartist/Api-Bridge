@@ -24,7 +24,7 @@ const LABEL = "Paytm Money";
 
 export function requireToken(creds) {
   const token = String(creds?.accessToken ?? "").trim();
-  if (!token) throw new SessionRequiredError(`${LABEL}: today's access token is missing. Complete the Paytm Money login and paste the access_token in Broker Settings.`);
+  if (!token) throw new SessionRequiredError(`${LABEL}: today's access token is missing. Complete the Paytm Money login and paste the access_token in the account settings.`);
   return token;
 }
 
@@ -51,7 +51,7 @@ export async function paytmRequest(creds, method, path, body) {
   try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON error page */ }
 
   if (res.status === 401 || res.status === 403) {
-    throw new SessionRequiredError(`${LABEL} refused the access token [${res.status}]${json ? `: ${messageOf(json, "")}` : ""}. Paste today's access_token (not the read or public token) in Broker Settings.`);
+    throw new SessionRequiredError(`${LABEL} refused the access token [${res.status}]${json ? `: ${messageOf(json, "")}` : ""}. Paste today's access_token (not the read or public token) in the account settings.`);
   }
   if (res.status === 429) throw new BrokerError(`${LABEL} rate limit hit [429] on ${route}`, { code: "UPSTREAM_RATE_LIMIT" });
   if (!res.ok) throw new BrokerError(`${LABEL} API error [${res.status}] on ${route}: ${messageOf(json, text)}`);

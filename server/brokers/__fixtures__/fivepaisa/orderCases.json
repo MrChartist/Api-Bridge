@@ -1,0 +1,50 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "RMS rejection inside a success head",
+      "source": "https://xstream.5paisa.com/dev-docs/user-authentication-system/access-token",
+      "reply": {
+        "status": 200,
+        "json": {
+          "head": {
+            "responseCode": "5PPlaceOrdRes",
+            "status": "0",
+            "statusDescription": "Success"
+          },
+          "body": {
+            "BrokerOrderID": 0,
+            "ClientCode": "DEMO",
+            "Exch": "N",
+            "ExchOrderID": "0",
+            "ExchType": "D",
+            "LocalOrderID": 0,
+            "Message": "RMS: insufficient margin",
+            "RMSResponseCode": -1,
+            "RemoteOrderID": "mrc-0001",
+            "ScripCode": 51401,
+            "Status": 1,
+            "Time": "/Date(1700000000000)/"
+          }
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://xstream.5paisa.com/dev-docs/user-authentication-system/access-token",
+    "reply": {
+      "status": 200,
+      "json": {
+        "head": {
+          "responseCode": "5PPlaceOrdRes",
+          "status": "0",
+          "statusDescription": "Success"
+        },
+        "body": {
+          "Status": 9,
+          "Message": "Invalid Session"
+        }
+      }
+    }
+  }
+}

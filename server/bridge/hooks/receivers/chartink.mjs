@@ -1,5 +1,5 @@
 /**
- * ChartInk scan-alert receiver — stream S11.
+ * ChartInk scan-alert receiver.
  *
  * ChartInk posts a fixed JSON body (needs verification against https://chartink.com/articles/alerts/webhook-support-for-alerts/):
  *   { "stocks": "SEPOWER,ASTEC,EDUCOMP", "trigger_prices": "3.75,541.8,2.1", "triggered_at": "2:34 pm",

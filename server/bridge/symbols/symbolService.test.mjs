@@ -1,5 +1,5 @@
 /**
- * SymbolService with stub adapters, the fake AccountManager (S1) and a recording Scheduler stub. Covers master
+ * SymbolService with stub adapters, the fake AccountManager (accounts) and a recording Scheduler stub. Covers master
  * loading through the scheduler, single flight, the per-IST-day disk cache and the 08:30 refresh, every accepted
  * input form, the never-guess rules, search pagination, convert aliases, failures and secret hygiene.
  */

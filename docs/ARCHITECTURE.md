@@ -1,18 +1,18 @@
 # Mr. Chartist API Bridge: architecture
 
-Status: **v2 design, frozen for the parallel build** (owner: lead architect). The code contracts this document describes live in `server/bridge/core/` and are enforced by tests; the HTTP contract is [`openapi.yaml`](openapi.yaml); who builds what is in [`STREAMS.md`](STREAMS.md). Anything marked **(needs verification)** must be checked against a primary source before it ships to users.
+Status: **v2 design**. The code contracts this document describes live in `server/bridge/core/` and are enforced by tests; the HTTP contract is [`openapi.yaml`](openapi.yaml). Anything marked **(needs verification)** must be checked against a primary source before it ships to users.
 
 ## 1. What the Bridge is
 
 One local service that holds a user's connections to **several brokers and several accounts at once**, and lets every tool share them: trading front ends, ChartInk/GoCharting and signed webhook alerts, AmiBroker, Python and Node scripts, Excel and Google Sheets, and AI assistants over MCP.
 
-The headline problem is **broker rate limits**. Ten tools each polling a broker that allows 1 quote request a second cannot work. The Bridge makes the broker see one careful client: it serves from live streams first, then a short freshness-labelled cache, then batched and coalesced calls inside per-account token buckets, with orders always ahead of reads, and it can spread read-only market data over the user's *own* accounts where the broker's terms allow it.
+The headline problem is **broker rate limits**. Ten tools each polling a broker that allows 1 quote request a second cannot work. The Bridge makes the broker see one careful client: it serves from live streams first, then a short freshness-labelled cache, then batched and coalesced calls inside per-account token buckets, with orders always ahead of reads, and it can spread read-only market data over the user's *own* accounts once the user has accepted a notice that names the risk. Beyond the brokers, it can read from optional free sources and plugins the owner switched on, and labels every such answer with its data class and delay.
 
 Design principles, in priority order:
 
 1. **Safe by default.** Paper mode, loopback only, read-only keys, no market orders without protection, live trading only after three separate opt-ins in the config file plus a per-request `"mode": "live"`.
 2. **Never exceed a documented limit.** Unknown limits get conservative defaults. Every number in the policy table carries a source and a `verified` flag.
-3. **Honest data.** Every market-data value says where it came from and how old it is (`freshness`). No silent fallbacks to another symbol, account or stale value.
+3. **Honest data.** Every market-data value says where it came from, how old it is and how far to trust it (`freshness`: source, `class` realtime, delayed or eod, `delaySec`, `official`, `confidence`, `flags`). No silent fallbacks to another symbol, account, source or stale value. A delayed or end-of-day value never reaches an order, a risk check, a paper fill or an alert.
 4. **One contract.** The 41 broker adapters (`server/brokers/`) already share a tested contract; the Bridge adds no second adapter model.
 5. **Personal use.** One user (and family, as SEBI allows) on their own machine. Never a multi-user or public data service.
 
@@ -43,79 +43,55 @@ Design principles, in priority order:
 ```
 data/
   master.key            32 random bytes, mode 0600 (unless MCB_MASTER_KEY is set)
-  secrets.enc           AES-256-GCM encrypted broker credentials and session tokens   (S2)
-  keys.json             API key records: scrypt hashes, scopes, accounts, expiry      (S2)
-  audit/YYYY-MM-DD.jsonl  append-only, hash-chained audit log (IST days)              (S9)
-  safety/               kill-switch state and daily counters                          (S9)
-  instruments/<broker>-YYYY-MM-DD.json  instrument master cache                       (S4)
-  orders/               idempotency records, clientOrderId map, live order index      (S7)
-  paper/<accountId>.json  paper books                                                 (S8)
-  hooks.json            webhook definitions (token hashes only)                       (S11)
-  reference/            reference data store S5: state.json, settings.json (dashboard choices: archives,
-                        rate), lots.json, universe.json, ban.json, mwpl.json, corporate-actions.json (user
-                        rows) and raw/YYYY-MM-DD/ NSE archive downloads with .sha256              (S16)
-  recorder/             option-chain recorder S17 (docs/spec/p1-01-recorder.md §3.4):            (S17)
-    state.json          last slot, plan hash, refused chains, warnings, holiday flag
-    s1/YYYY-MM-DD/<UNDERLYING>/<EXPIRY>.ndjson(.gz)  one line per chain per minute (snapshot or gap
-                        record), append-only; gzipped at the 15:40 IST day roll
-    s1/YYYY-MM-DD/<UNDERLYING>/_und.ndjson(.gz)  spot and futures per minute
-    s1/YYYY-MM-DD/day.json  per-chain counts after the roll
-    s3/<UNDERLYING>/<YYYY>.ndjson  daily derived rows (PCR, max pain, largest OI, ΔOI, basis, rollover)
-  recorder-demo/        the same layout for demo mode only (sample data, kept 3 days; real mode never reads it)
+  secrets.enc           AES-256-GCM encrypted broker credentials and session tokens   (auth)
+  keys.json             API key records: scrypt hashes, scopes, accounts, expiry      (auth)
+  audit/YYYY-MM-DD.jsonl  append-only, hash-chained audit log (IST days)              (safety)
+  safety/               kill-switch state and daily counters                          (safety)
+  readiness/state.json  last readiness state per live account                          (readiness)
+  instruments/<broker>-YYYY-MM-DD.json  instrument master cache                       (symbols)
+  orders/               idempotency records, clientOrderId map, live order index      (orders)
+  paper/<accountId>.json  paper books                                                 (paper)
+  hooks.json            webhook definitions (token hashes only)                       (hooks)
 ```
 
 ## 3. Module map
 
-`server/bridge/core/` is the shared core (lead-owned). Every other directory belongs to exactly one stream.
+`server/bridge/core/` is the shared core. Every other directory belongs to exactly one module group. Each route in `openapi.yaml` names the module that registers it (`x-module`).
 
-| Path | Stream | Provides (deps key) | HTTP surface |
+| Path | Module | Provides (deps key) | HTTP surface |
 |---|---|---|---|
-| `core/` | lead | config, logger, bus, clock, paths, brokers; router, pipeline, errors, contracts, symbol codec, CLI | `/v1/health`, `/v1/meta`, `/openapi.yaml` |
-| `accounts/` | S1 | `accounts` (AccountManager) | `/v1/brokers`, `/v1/accounts*` |
-| `auth/` | S2 | `secrets` (SecretStore), `keyStore` (KeyStore) | `/v1/keys*`, `/v1/stream/token` |
-| `ratelimit/` | S3 | `scheduler` (Scheduler) | `/v1/limits`, `/v1/usage` |
-| `symbols/` | S4 | `symbols` (SymbolService) | `/v1/instruments/*`, `/v1/symbols/convert` |
-| `market/` | S5 | `marketData` (MarketDataService) | `/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain` |
-| `stream/` | S6 | `streamHub` (StreamHub) | WS `/v1/stream`, `/v1/stream/sse`, `/v1/stream/stats` |
-| `orders/` | S7 | `orders` (OrderService) | `/v1/orders*`, `/v1/trades`, `/v1/positions`, `/v1/holdings`, `/v1/funds`, `/v1/tickets/*` |
-| `paper/` | S8 | `paper` (PaperEngine) | `/v1/paper/*` |
-| `safety/` | S9 | `safety` (SafetyGuard), `audit` (AuditLog) | `/v1/safety*`, `/v1/audit*` |
-| `integrations/` | S10 | (routes only) | `/xl/*` |
-| `hooks/`, `mcp/` | S11 | (routes only) | `/hooks/{source}/{token}`, `/v1/hooks*`, `/mcp`, `mc-bridge mcp` |
-| `backup/` | S12 | `backupData` (BackupDataService) | `/v1/backup/status`, `/v1/backup/quotes`, `/v1/backup/history` |
-| `scanner/` | S13 | (routes only) | `/v1/scanner/*`; `scan` events on the stream |
-| `compat/` | S14 | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
-| `notify/` | S15 | (routes only) | `/v1/notify`, `/v1/notify/test`; Telegram, Discord, Slack, signed webhooks |
-| `reference/` | S16 | `reference` (ReferenceData, `docs/spec/p1-02-reference.md`); dashboard `reference.js` (bundle, chip, banners, lot gate) and `calendar.js` (Market calendar page) | `/v1/reference/*`, demo-only `PUT /v1/demo/reference` |
-| `recorder/` | S17 | `recorder` (RecorderService, `docs/spec/p1-01-recorder.md`; series planned in `p1-07`); dashboard `recorder.js` (Data recorder page) and `oi-store.js` (the OI page's cache of the server series) | `/v1/options/snapshots`, `/v1/options/snapshots/latest`, `/v1/options/daily`, `/v1/options/recorder`, `/v1/options/recorder/plan`, `/v1/options/recorder/config`; MCP `get_option_snapshots` (`options` toolset) |
-| `vol/` | S18 | `vol` (planned, `p1-03`) | `/v1/vol/*` |
-| `fno/` | S19 | (routes only; `docs/spec/p1-06-stocks.md`): F&O universe from the reference store and the masters, the server-side option sweep (one at a time, ≤ 50 % of the data account's budget, background priority, resumable), expiry and delivery costs (`dashboard/expiry-costs.js`, shared with the pages); store `dataDir/fno/` (settings, sweep jobs as NDJSON, OI baselines, HV20 per day) | `/v1/options/underlyings*`, `/v1/options/expiry-costs`, `/v1/options/sweeps*`, demo-only `POST /v1/demo/fno` |
-| `readiness/` | S20 | `readiness` (`p1-05`) | trading readiness: session, static IP, headroom, kill switch per live account; automated-send gate |
-| `exposure/` | S21 | `exposure` (planned, `p1-08`) | `/v1/options/levels`, exposure profile |
-| `strategy/` | S22 | `settlement` (planned, `p1-09`) | `/v1/strategy/*` |
-| `margin/` | S23 | `margin`, `chargePlans` (planned, `p1-10`) | basket margin, `/v1/charges/plans` |
-| `alerts/` | S24 | `alerts` (planned, `p1-11`) | `/v1/alerts*` |
-| `guards/` | S25 | `guards` (planned, `p1-12`) | `/v1/guards*` |
-| `participants/` | S26 | `participants` (planned, `p1-12`) | participant OI |
-| `book/` | S27 | `book` (planned, `p1-12`) | `/v1/book` |
-| `strategies/` | S30 | (routes only; `docs/STRATEGIES-PYTHON.md`): runs the user's Python strategy files from `<Bridge home>/strategies` as child processes, one API key per run limited to one account, paper by default; heartbeat, restart back-off, kill switch stops all; dashboard `algo.js` (Trade › Algo) | `/v1/strategies*` (admin, loopback) |
-| `demo/` | lead | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
-| `server/brokers/`, `server/lib/` | frozen | broker adapters and helpers (existing, tested); `server/lib/jsonl.mjs` is the shared append-only store helper (F0) | none directly |
+| `core/` | core | config, logger, bus, clock, paths, brokers; router, pipeline, errors, contracts, symbol codec, CLI | `/v1/health`, `/v1/meta`, `/openapi.yaml` |
+| `accounts/` | accounts | `accounts` (AccountManager) | `/v1/brokers`, `/v1/accounts*` |
+| `auth/` | auth | `secrets` (SecretStore), `keyStore` (KeyStore) | `/v1/keys*`, `/v1/stream/token` |
+| `ratelimit/` | ratelimit | `scheduler` (Scheduler) | `/v1/limits` (`?explain=1`), `/v1/usage`, `/v1/quotas*` |
+| `symbols/` | symbols | `symbols` (SymbolService) | `/v1/instruments/*`, `/v1/symbols/convert` |
+| `market/` | market | `marketData` (MarketDataService) | `/v1/ltp`, `/v1/quotes`, `/v1/depth`, `/v1/history`, `/v1/expiries`, `/v1/optionchain` (all take `purpose`) |
+| `stream/` | stream | `streamHub` (StreamHub) | WS `/v1/stream`, `/v1/stream/sse`, `/v1/stream/stats` |
+| `events/` | events | (routes only; listens to the event bus) | WS `/v1/events/ws`, `/v1/events/stream` (SSE), `/v1/events*`, `/v1/subscriptions*` (signed webhooks out) |
+| `orders/` | orders | `orders` (OrderService) | `/v1/orders*`, `/v1/trades`, `/v1/positions`, `/v1/holdings`, `/v1/funds`, `/v1/tickets/*` |
+| `paper/` | paper | `paper` (PaperEngine) | `/v1/paper/*` |
+| `safety/` | safety | `safety` (SafetyGuard), `audit` (AuditLog) | `/v1/safety*`, `/v1/audit*` |
+| `integrations/` | integrations | (routes only) | `/xl/*` |
+| `hooks/`, `mcp/` | hooks, mcp | (routes only) | `/hooks/{source}/{token}`, `/v1/hooks*`, `/mcp`, `mc-bridge mcp` |
+| `sources/` | sources | `backupData` (BackupDataService: the sources service, with its router, health and failure memory) | `/v1/sources*` (list, switch on or off, key, test, trace), `/v1/pooling*` (consent) |
+| `compat/` | compat | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
+| `readiness/` | readiness | `readiness` | `/v1/readiness*`: session, static IP, headroom, kill switch per live account; automated-send gate |
+| `demo/` | core | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
+| `server/brokers/`, `server/lib/` | | broker adapters and helpers; `server/lib/jsonl.mjs` is the shared append-only store helper | none directly |
 
-**How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, stream, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.
+**How modules plug in** (`core/modules.mjs`): each area has one `module.mjs` exporting `defineModule({ name, services, configKey?, configSchema?, register(app, deps), start?, stop? })`.
 
 - Service factories run in dependency order taken from `SERVICE_CONTRACTS[*].requires` (`core/contracts.mjs`). A factory receives only the core deps plus the services it declared; touching anything else throws.
 - `app.mjs` checks every service against its contract (`assertService`). An area that has not landed yet is a stub: it boots, and every method throws `NotImplementedError` (HTTP 501).
 - `register(app, deps)` adds routes with `app.get/post/patch/delete(path, handler, options)` and WebSocket paths with `app.upgrade(path, handler)`. Route options: `auth` (`key` | `none` | `custom`), `scope`, `allowQueryKey`, `loopbackOnly`, `public`, `body` (`json` | `json-or-text` | `raw` | `none`), `bodyLimitBytes`.
 - A module may own a config section (`configKey` + zod `configSchema`); unknown top-level config keys are errors.
-- `core/openapi.test.mjs` fails if a registered route and `docs/openapi.yaml` disagree on path, method, scope, auth, loopback, public flag or owning stream.
+- `core/openapi.test.mjs` fails if a registered route and `docs/openapi.yaml` disagree on path, method, scope, auth, loopback, public flag or owning module tag.
 
 **Service dependency graph** (construction order):
 
 ```
 secrets ─► accounts ─► scheduler ─► symbols ─► streamHub ─► marketData ─► paper ─┐
-backupData ─────────────────────────────────────────────────┘ (optional fallback)  │
-keyStore                                                                          ├─► orders
+keyStore                                  backupData (sources) ─┘                 ├─► orders
 audit ─────────────────────────────────────────────────────► safety ─────────────┘
 ```
 
@@ -130,26 +106,30 @@ Every HTTP request (`core/app.mjs`):
 5. Auth (`key` routes): `Authorization: Bearer`, `X-API-Key`, or `?key=` only where allowed and only for read-only URL keys → `keyStore.authenticate()` → scope check → per-key client limit (`scheduler.checkClient`).
 6. Body: size-capped, JSON (or text for webhooks), raw bytes kept for signature checks.
 7. Handler → JSON `{ data, meta }`, a typed `Reply` (text, CSV), 204, or a stream.
-8. Access log: method, path **without the query string**, status, ms, key id. Never bodies or keys.
+8. Access log: method, path **without the query string**, status, ms, key id. Never bodies or keys. The last 200 are also kept in memory for the dashboard (`GET /v1/requests`, this computer only); an entry for a market-data read also carries `route`, a short record of what answered it (stream, cache, a shared call, a live call or a stale value, with the source, its class and delay), built from the freshness labels the read already returned.
 
 **Market-data read** (`GET /v1/quotes?symbols=…`):
 
 ```
-route (S5) ─► symbols.resolve (S4) ─► streamHub.lastTick fresh enough? ──yes──► item (source: stream)
+route (market) ─► symbols.resolve ─► streamHub.lastTick fresh enough? ──yes──► item (source: stream)
                                         │ no
                                         ▼
                                   freshness cache hit (≤ maxAgeMs)? ──yes──► item (source: cache)
                                         │ no
                                         ▼
-               accounts.marketDataCandidates ─► scheduler.pickAccount ─► batcher (≤ policy.maxQuoteBatch, ~25 ms window)
+               source router.select ─► candidates: broker accounts (accounts.marketDataCandidates: pooling consent, the key's accounts)
+                                        and, only when the read allows backup, enabled data sources
+                                        ─► at most two tried (failover is the retry)
+                                        ─► batcher (per consumer, ≤ policy.maxQuoteBatch, ~25 ms window)
                                         ─► scheduler.schedule({ class: "quote", priority: "interactive", coalesceKey })
                                         ─► adapter.fetchQuotes(creds, refs) ─► normalise ─► cache ─► item (source: broker)
+                                           or backupData.quotes(symbols, { sourceId }) ─► item (source: backup, class delayed or eod)
 ```
 
 **Order** (`POST /v1/orders`):
 
 ```
-route (S7, scope paper) ─► validate body (zod) ─► idempotency check (replay / 409)
+route (orders, scope paper) ─► validate body (zod) ─► idempotency check (replay / 409)
   ─► symbols.resolve (lot, tick, freeze) ─► quantity = lots × lotSize or check multiple
   ─► mode = "live" only if: config.safety.liveTrading ∧ account.live.enabled ∧ key has "live"
         ∧ source ∈ account.live.allowedSources ∧ request.mode === "live" ∧ (source mcp, or a hook that requires it → confirmToken)
@@ -162,19 +142,19 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 
 **Webhook** (`POST /hooks/<source>/<token>`): verify token hash (and HMAC + timestamp for `generic`), parse, dedupe, enqueue, **reply 202 within milliseconds** (alert services abandon slow requests after a few seconds), then a worker builds an `OrderRequest` from the hook's fixed mapping and calls `orders.preview` / `orders.place` with `source: "webhook"`.
 
-**AI** (`POST /mcp` or the stdio relay): MCP tools call the same services with `source: "mcp"`. Order tools only prepare: `orders.preview` opens a ticket, which appears in the dashboard's Pending confirmations panel on the Orders page (`GET /v1/tickets`); the human confirms there (`POST /v1/tickets/{id}/confirm`, admin key, this computer only), which yields the single-use `confirmToken` without which `orders.place` refuses.
+**AI** (`POST /mcp` or the stdio relay): MCP tools call the same services with `source: "mcp"`. Order tools only prepare: `orders.preview` opens a ticket, which appears in the dashboard's Pending confirmations panel on the Orders page (`GET /v1/tickets`); the human confirms there (`POST /v1/tickets/{id}/confirm`, admin key, this computer only), which yields the single-use `confirmToken` without which `orders.place` refuses, or declines (`POST /v1/tickets/{id}/reject`), after which the ticket can never be confirmed.
 
 ## 5. Multi-account model
 
 - Accounts are declared in `bridge.config.json` (`accounts[]`): `id` (slug, the public handle), `broker` (adapter id or `paper`), `label`, `live`, `marketData.pooling`, `limits`. Credentials are **not** in the config: they are entered once (`POST /v1/accounts/{id}/session`, admin, loopback) and stored encrypted by SecretStore under `account:<id>`.
 - Many accounts of the same broker are fine (yours, your spouse's: SEBI's retail framework allows family use; each family member's account uses their own broker app and keys).
-- **Pinned vs pooled reads.** A request with `account=` is served only by that account. A request without it may be served by any account that has the capability, is connected, has `marketData.pooling: true`, names a `holder` (the same holder as the other pooled accounts), **and** whose broker policy says `pooling: "allowed"`. Default for both is off, so out of the box every read is served by the first connected capable account, and nothing is spread. Either way, only accounts the calling key may use are considered: a key limited to `["dhan-main"]` is served by `dhan-main` or not at all, never by another account's entitlement or rate budget.
+- **Pinned vs pooled reads.** A request with `account=` is served only by that account. A request without it may be served by any account that has the capability, is connected, has `marketData.pooling: true`, names a `holder` (the same holder as the other pooled accounts), whose broker policy says `pooling: "allowed"` (or `"unknown"` with the account's `poolingWhenTermsUnknown`), **and** that the owner has named in a pooling consent (`PUT /v1/pooling/consent`, admin, this computer only, versioned: a changed notice needs a new consent). Default is off, so out of the box every read is served by the first connected capable account, and nothing is spread. Either way, only accounts the calling key may use are considered: a key limited to `["dhan-main"]` is served by `dhan-main` or not at all, never by another account's entitlement or rate budget.
 - **Portfolio and orders are never pooled.** They always act on the named account.
 - **Keys can be limited to accounts** (`accounts: ["dhan-main"]`), so a key made for one tool cannot touch the family account.
 - **Paper.** Every account can trade paper (`mode: "paper"`, the default). A `broker: "paper"` account is a practice account with no broker of its own; it prices from pooled market data.
 - **Sessions.** Brokers end sessions daily (NSE requires API sessions to be logged out before the next trading day). AccountManager tracks expiry, emits `account.status`, and StreamHub resubscribes after a fresh login. There is no stored-TOTP auto-login: that would mean storing a second factor, which this project never does.
 
-## 6. Rate-limit engine (S3) and streaming (S6)
+## 6. Rate-limit engine and streaming
 
 **Endpoint classes.** Every broker call is tagged: `order` (place, modify, cancel), `quote`, `depth`, `history`, `chain`, `portfolio`, `master` (instrument downloads), `other`.
 
@@ -191,18 +171,20 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 
 - **Token buckets** per `(accountId, class)` with all three windows; a call needs a token from each window. Orders also pass SafetyGuard's own per-account cap (default 5/s, never above 10/s; place, modify and cancel all count), which is independent of the broker's limit.
 - **Priority queue** per account: `order` > `live` (stream recovery, OUTCOME_UNKNOWN reconciliation) > `interactive` (a client is waiting) > `background` (prefetch, masters). Waiting requests age upwards so background work is delayed, never starved. A request whose `signal` aborts leaves the queue.
+- **Fair queue.** Inside each lane, consumers (one per API key, one per background job) share the budget by weight (key kind: ui 4, mcp 2, excel 1, script 1, other 1; changeable per key) with start-time fair queueing, so a flood from one key waits behind other keys' requests. A consumer has a cap on queued requests and, while others wait, on in-flight calls; a full queue drops the newest request of the biggest consumer.
 - **Coalescing (singleflight).** Identical in-flight reads (`coalesceKey` = class + account + canonical args) share one broker call.
-- **Batching.** Quote and LTP requests arriving within a short window (about 25 ms) are merged up to `maxQuoteBatch` per adapter call.
+- **Batching.** Quote and LTP requests arriving within a short window (about 25 ms) are merged up to `maxQuoteBatch` per adapter call. A batch belongs to one consumer, because a batch is credited to whoever opened it: merging two consumers' symbols would make the light one wait in the heavy one's place. The cost is one extra call when two consumers ask for different symbols in the same window; the same symbol still shares the call in flight.
 - **Freshness cache.** Per-class targets (LTP 1 s, quotes 2 s, depth 1 s, chain 3 s, expiries 5 min, history 60 s for closed bars). Callers tighten with `maxAgeMs`. When the budget is exhausted the engine may serve the cached value **labelled `stale: true`** rather than queueing past the caller's deadline; portfolio and orders are never served stale.
 - **Streaming first.** If StreamHub has a live, fresh tick for a symbol, LTP and quotes come from it and cost no REST call. An option chain whose whole strike window is streamed is built from the ticks over the day's broker chain (previous OI from it), also with no REST call. Front ends and charts should subscribe rather than poll: the dashboard keeps one WebSocket per tab (`dashboard/live.js`) shared by every page.
 - **Pooled routing.** `pickAccount` chooses among eligible candidates by headroom, health and back-off state. Credentials never move between accounts; each call uses the chosen account's own session. A many-symbol unpinned quote read is split: `maxQuoteBatch` chunks go to the pooled account with the most spare quote budget (accounts in back-off or out of budget for longer than a second get none). Pooling at a broker whose policy is `unknown` needs the account's `marketData.poolingWhenTermsUnknown` as well; `not-allowed` is never pooled.
-- **Backup data (S12).** An unpinned read whose caller allows it (`ReadOptions.allowBackup`: REST, /xl, the compat API and the scanner by default via `backup.autoFallback`; never orders, paper or safety) and that no broker account could answer is served by BackupDataService (Yahoo Finance chart API, NSE website JSON), labelled `freshness.source: "backup"` with `provider` and the provider's own timestamp, and never written to the shared freshness cache. Per-provider pacing, circuit breaker and a short quote cache keep the Bridge a polite client.
-- **Scanner (S13).** Scan jobs fetch candles at `background` priority. With several pooled candidates, one worker pool per account is pinned to it and sized to the account's history `perSecond` (capped by `scanner.perAccountConcurrency`), all pulling from one queue; the scheduler still paces every call. Conditions are parsed into a tree by a small recursive-descent parser and evaluated over candle series; nothing is ever `eval`'d.
-- **Upstream back-off.** A broker 429 or rate-limit error (`UPSTREAM_RATE_LIMITED`) puts that `(account, class)` into back-off (Retry-After, else exponential from 1 s) and emits `limits.throttled`.
-- **Client limits.** Each API key has its own budget (default 50 requests/s, configurable in the `ratelimit` config section), reported in `RateLimit` / `RateLimit-Policy` headers and 429 + `Retry-After`.
-- **Observability.** `/v1/usage` shows used, queued and reset per class, every window (this second, this minute, today), two minutes of calls per second (`?series=1`), the calls saved by streaming, caching, coalescing and batching, and (admin keys) today's calls and saved calls per consumer: the dashboard page, API key label, MCP, compat or background job that caused them (`ratelimit/consumer.mjs`, AsyncLocalStorage). The dashboard's top-bar budget capsule reads the `budget` stream message. Measurements: `docs/perf/`.
+- **Upstream back-off and adaptive budget.** A broker 429 or rate-limit error (`UPSTREAM_RATE_LIMITED`) puts the whole budget pool of that account (the classes that share a bucket) into back-off (Retry-After, else exponential from 1 s, plus jitter) and emits `limits.throttled`. Each pool also has a scale below the policy ceiling that a throttle halves (floor 0.25) and clean minutes give back 5 percent at a time (additive increase, multiplicative decrease); three throttles in an hour hold it lower for a day. It never rises above the policy.
+- **Client quotas.** Each API key has a quota: a token bucket (default 50 requests/s), an optional daily cap, a weight and a cap on requests in flight. Defaults and per-key values are in the `ratelimit.client` config section; an admin can override one key at run time (`PUT /v1/quotas/{keyId}`, kept in `quotas.json`). Quotas are reported in `RateLimit` / `RateLimit-Policy` headers.
+- **Refusals say why.** Every 429 carries `scope` (`client`, `consumer-cap`, `queue`, `upstream`), `retryAfterMs` and `limit: { name, remaining, resetMs }`, so a client can tell its own quota from the broker's budget. `Retry-After` is the same wait in seconds with a little jitter.
+- **Observability.** `/v1/usage` shows used, queued and reset per class, every window (this second, this minute, today), two minutes of calls per second (`?series=1`), the calls saved by streaming, caching, coalescing and batching, and (admin keys) today's calls and saved calls per consumer: the dashboard page, API key label, MCP, compat or background job that caused them (`ratelimit/consumer.mjs`, AsyncLocalStorage). `GET /v1/limits?explain=1` adds the budget pools (spare room, scale, back-off) and the consumers in the queue with their shares, and `GET /v1/quotas` lists every key's quota and use. The dashboard's Sources page shows all of it.
 
-**StreamHub.** One upstream feed per account (`adapter.createFeed`), reference-counted subscriptions across all local clients, upstream mode = the highest mode any client wants, broker caps enforced (a client gets `SUBSCRIPTION_LIMIT`, never a silent drop), reconnect with back-off, resubscribe after re-login. Downstream protocol (WS and SSE): `snapshot` on subscribe, then `tick` with a per-connection `seq`, `status` (upstream up, down or stale), `heartbeat` every 15 s, `go_away` before shutdown. Clients authenticate with a 60-second stream token from `POST /v1/stream/token` (so keys never sit in URLs) or an Authorization header. Message schemas go in `docs/asyncapi.yaml` (S6).
+**Data sources and the router** (`sources/`, design in [sources-architecture.md](sources-architecture.md)). A source is a read-only provider with a descriptor (id, kind, tier, data class, delay, official, capabilities, limits, terms): the built-in free providers (Yahoo, Alpha Vantage, Twelve Data), the demo sources, and plugins the owner granted. All are off until the owner switches them on (`PATCH /v1/sources/{id}`; an opt-in source needs its notice acknowledged, a key-based one needs its key, which is kept in the secrets store and never returned). For a read that is not pinned, `router.select` builds candidates from the key's broker accounts and, only when the read allows backup (`?backup=true` or `sources.autoFallback`), the enabled sources. Hard filters come first: capability, data class against `purpose`, `maxAgeMs`, circuit breaker, deadline. Reads for `order`, `risk`, `paper` and `alert` accept only trusted real-time data. The rest are ordered by spare budget, error rate and latency, and at most two are tried. Streams and the cache always come first. Health is tracked per source with decaying averages; repeated hard failures eject a source for a cooldown that doubles up to five minutes, and a 429, an auth error or a not-found never trips it. `GET /v1/sources/trace` runs the same decision as a dry run. A plugin runs in its own process with brokered, allow-listed network access and a hash pin ([source-contract.md](source-contract.md)).
+
+**StreamHub.** One upstream feed per account (`adapter.createFeed`), reference-counted subscriptions across all local clients, upstream mode = the highest mode any client wants, broker caps enforced (a client gets `SUBSCRIPTION_LIMIT`, never a silent drop), reconnect with back-off, resubscribe after re-login. Downstream protocol (WS and SSE): `snapshot` on subscribe, then `tick` with a per-connection `seq`, `status` (upstream up, down or stale), `heartbeat` every 15 s, `go_away` before shutdown. Clients authenticate with a 60-second stream token from `POST /v1/stream/token` (so keys never sit in URLs) or an Authorization header. Message schemas are in `docs/asyncapi.yaml`.
 
 ## 7. Orders and paper trading
 
@@ -213,7 +195,7 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 - **Market orders.** `safety.marketOrders: "protect"` (default) sends MARKET/SL-M with broker-native market protection where the adapter supports it, or converts them to a LIMIT at LTP ± `marketProtectionPct` and says so in the response; `"reject"` refuses them. Several brokers already reject unprotected API market orders.
 - **OUTCOME_UNKNOWN.** A write that times out or fails without a clear refusal is never retried. The order is stored as `outcome_unknown`, the response is 504 `OUTCOME_UNKNOWN`, and a reconciliation job (priority `live`) looks for it in the broker order book by tag and time, then resolves the status and emits `order.updated`.
 - **Live path reuses the existing order gate.** Adapter `placeOrder/modifyOrder/cancelOrder` refuse without a single-use gate from `issueOrderGate()`; only OrderService mints one, right after SafetyGuard passes, for one call.
-- **Paper fill model** (S8; documented in `/v1/paper/accounts/{id}`): MARKET fills at the opposite best price from depth when available, else LTP ± `slippageBps` (default 5 bps); LIMIT fills when LTP crosses the limit, at the limit; SL triggers on LTP crossing the trigger; fills are checked on every tick for subscribed symbols and at least every 2 s otherwise; no queue position, partial fills or market impact. Funds start at ₹10 lakh (configurable); intraday products are squared off at 15:20 IST for NSE/BSE F&O and cash (configurable). Order ids start with `PAPER-`.
+- **Paper fill model** (documented in `/v1/paper/accounts/{id}`): MARKET fills at the opposite best price from depth when available, else LTP ± `slippageBps` (default 5 bps); LIMIT fills when LTP crosses the limit, at the limit; SL triggers on LTP crossing the trigger; fills are checked on every tick for subscribed symbols and at least every 2 s otherwise; no queue position, partial fills or market impact. Funds start at ₹10 lakh (configurable); intraday products are squared off at 15:20 IST for NSE/BSE F&O and cash (configurable). Order ids start with `PAPER-`.
 
 ## 8. Safety and security model
 
@@ -224,27 +206,27 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 | Loopback bind | core config | `127.0.0.1` default; another address needs `server.allowNonLoopback: true` in the file and logs a warning |
 | Host allowlist | core security | DNS-rebinding guard on every request and upgrade |
 | Origin allowlist (CORS) | core security | explicit origins only, no `*`; requests from unlisted origins are refused, not just un-CORSed |
-| API keys | S2 | `mcb_<keyId>_<secret>`, 32 random bytes; only a **scrypt** hash stored (N=2^15, r=8, p=1, per-key salt, `timingSafeEqual`); shown once; expiry; revocation immediate |
-| Scopes | core context + S2 | `read` ⊂ `paper` ⊂ `live`; `admin` ⊃ `read`; plus per-key account list |
+| API keys | auth | `mcb_<keyId>_<secret>`, 32 random bytes; only a **scrypt** hash stored (N=2^15, r=8, p=1, per-key salt, `timingSafeEqual`); shown once; expiry; revocation immediate |
+| Scopes | core context + auth | `read` ⊂ `paper` ⊂ `live`; `admin` ⊃ `read`; plus per-key account list |
 | URL keys | core pipeline | `?key=` only on `/xl/*`, only for keys whose single scope is `read` and that were created with `allowQuery` |
-| Stream tokens | S2 | 60-second, single-key tokens for WS/SSE URLs |
-| Secrets at rest | S2 | **AES-256-GCM**, fresh 12-byte IV per write, entry name as AAD; key from `MCB_MASTER_KEY` (base64, 32 bytes) or `dataDir/master.key` (0600; refused if group/other-readable) |
-| No second factors stored | S1, existing broker layer | passwords, PINs and TOTP codes are used once for the broker login and never stored, cached, logged or used as cache keys (`isForbiddenSecretKey`) |
+| Stream tokens | auth | 60-second, single-key tokens for WS/SSE URLs |
+| Secrets at rest | auth | **AES-256-GCM**, fresh 12-byte IV per write, entry name as AAD; key from `MCB_MASTER_KEY` (base64, 32 bytes) or `dataDir/master.key` (0600; refused if group/other-readable) |
+| No second factors stored | accounts, broker layer | passwords, PINs and TOTP codes are used once for the broker login and never stored, cached, logged or used as cache keys (`isForbiddenSecretKey`) |
 | Log redaction | core logger | secret field names, Bridge keys, bearer tokens, JWTs and registered exact values are masked; access log never has query strings |
-| Paper default + triple opt-in | core config, S7 | live needs `safety.liveTrading` + `account.live.enabled` (file only, env can never enable) + `live` key + allowed source + `"mode": "live"` |
-| Order-rate cap | core config, S9 | default 5 orders/s per account, config may not exceed 10/s |
-| Kill switch | S9 | any key can engage it (`POST /v1/safety/kill-switch`), optionally cancelling open orders; release needs admin from loopback and `confirm: "RELEASE"`; persisted across restarts; `MCB_KILL_SWITCH=1` engages at start |
-| Daily limits | S9 | order count, realised loss, per-order value and lots; limits only ratchet down at runtime |
-| Idempotency | S7 | as §7 |
-| Audit log | S9 | append-only JSON lines, one `appendFileSync` per event, SHA-256 hash chain (`/v1/audit/verify`), redacted; every order, refusal, key change, session change and kill-switch action |
-| Webhook auth | S11 | per-hook 128-bit+ URL token (hash stored, shown once); `generic` hooks also need `X-MCB-Signature: t=…,v1=HMAC-SHA256(secret, "t.body")` with a 5-minute window and replay cache; optional source-IP allowlist; each hook can only do what its definition allows |
+| Paper default + triple opt-in | core config, orders | live needs `safety.liveTrading` + `account.live.enabled` (file only, env can never enable) + `live` key + allowed source + `"mode": "live"` |
+| Order-rate cap | core config, safety | default 5 orders/s per account, config may not exceed 10/s |
+| Kill switch | safety | any key can engage it (`POST /v1/safety/kill-switch`), optionally cancelling open orders; release needs admin from loopback and `confirm: "RELEASE"`; persisted across restarts; `MCB_KILL_SWITCH=1` engages at start |
+| Daily limits | safety | order count, realised loss, per-order value and lots; limits only ratchet down at runtime |
+| Idempotency | orders | as §7 |
+| Audit log | safety | append-only JSON lines, one `appendFileSync` per event, SHA-256 hash chain (`/v1/audit/verify`), redacted; every order, refusal, key change, session change and kill-switch action |
+| Webhook auth | hooks | per-hook 128-bit+ URL token (hash stored, shown once); `generic` hooks also need `X-MCB-Signature: t=…,v1=HMAC-SHA256(secret, "t.body")` with a 5-minute window and replay cache; optional source-IP allowlist; each hook can only do what its definition allows |
 | Public ingress | core | off by default; a separate listener that serves only `public` routes (webhooks), never the API |
-| AI confirmation | S7, S11 | order tools prepare a ticket; a human confirms it in the dashboard with an admin key from this computer; client-side approval prompts and MCP annotations never count as confirmation; no tool can change paper/live mode, scopes or the kill switch release |
+| AI confirmation | orders, mcp | order tools prepare a ticket; a human confirms it in the dashboard with an admin key from this computer; client-side approval prompts and MCP annotations never count as confirmation; no tool can change paper/live mode, scopes or the kill switch release |
 | Body limits and timeouts | core | 64 KB default bodies (16 KB for hooks), 30 s request timeout, broker calls time out via `brokerFetch` |
 | Cross-site writes | core security | besides the Origin allowlist, a non-GET request with `Sec-Fetch-Site: cross-site` or `same-site` and no allowlisted Origin is refused (`ORIGIN_NOT_ALLOWED`) |
-| Trading readiness | S20 | per live account: session (stated expiry + read call), egress IP vs `live.registeredIp` (opt-in lookup, IP in memory only), headroom, kill switch; automated live sends refused with `CANNOT_TRADE` while `cannot_trade`; it never sends or engages anything |
+| Trading readiness | readiness | per live account: session (stated expiry + read call), egress IP vs `live.registeredIp` (opt-in lookup, IP in memory only), headroom, kill switch; automated live sends refused with `CANNOT_TRADE` while `cannot_trade`; it never sends or engages anything |
 
-**Security baseline (BRD §7.9), audited 29 Oct 2026** (`docs/spec/p1-05-readiness.md` §3.9):
+**Security baseline, audited 29 Oct 2026:**
 
 | # | Finding | Verdict and test |
 |---|---|---|
@@ -260,7 +242,7 @@ route (S7, scope paper) ─► validate body (zod) ─► idempotency check (rep
 
 ## 9. Symbology
 
-Canonical format (implemented in `core/symbolFormat.mjs`, used by every stream):
+Canonical format (implemented in `core/symbolFormat.mjs`, used by every module):
 
 ```
 NSE:RELIANCE                     equity          NSE:NIFTY                       index
@@ -272,14 +254,14 @@ BFO:SENSEX-2026-10-30-82500-PE   BSE option      NFO:VEDL-2026-10-27-292.5-CE   
 
 **Aliases accepted** (`/v1/symbols/convert`, and anywhere a symbol is accepted): chart tickers (`from=chart`: `NSE:NIFTY`, `NSE:M_M`, continuous `NSE:NIFTY1!` resolved to the current expiry, options `NSE:NIFTY261027C25000` **(needs verification of the option naming)**), compact trading symbols with an exchange (`NIFTY27OCT2625000CE` + `NFO`, `from=compact`), and broker-native tokens or trading symbols with a `broker` parameter.
 
-**Resolution (S4):** instrument masters from each connected broker's `fetchInstruments`, cached per IST day, merged by canonical id into `ResolvedInstrument { lotSize, tickSize, freezeQty, isin, refs: { <broker>: { token, exchange, tradingSymbol } } }`. Expired contracts drop out (exchange tokens get reused after expiry, so a token is never an identity). Lot sizes change: never hard-code them, never guess (unknown → `SYMBOL_NOT_FOUND`). Freeze quantities come from the master where a broker publishes them, otherwise from an exchange list **(needs verification per segment)**.
+**Resolution (symbols):** instrument masters from each connected broker's `fetchInstruments`, cached per IST day, merged by canonical id into `ResolvedInstrument { lotSize, tickSize, freezeQty, isin, refs: { <broker>: { token, exchange, tradingSymbol } } }`. Expired contracts drop out (exchange tokens get reused after expiry, so a token is never an identity). Lot sizes change: never hard-code them, never guess (unknown → `SYMBOL_NOT_FOUND`). Freeze quantities come from the master where a broker publishes them, otherwise from an exchange list **(needs verification per segment)**.
 
 ## 10. Integrations
 
-- **Spreadsheets and AmiBroker (S10).** `/xl/ltp` and `/xl/quote` return one value as plain text (Excel `WEBSERVICE` is GET-only, Windows desktop only, 2,048-character URLs, 32,767-character results); `/xl/chain` and `/xl/history` return flat CSV or JSON records for Power Query, Google Sheets and AmiBroker ASCII import (`layout=amibroker` plus a shipped `.format` file and an AFL include). CSV output guards against formula injection. Google Sheets `IMPORTDATA` and Apps Script run on Google's servers and cannot reach localhost; they need the user's tunnel and a read-only URL key, and refresh only hourly.
-- **Webhooks (S11).** Hosted alert services (ChartInk, GoCharting) post from the internet, cannot sign requests and give up on slow answers. So: per-hook URL token, optional IP allowlist, fast 202 and asynchronous processing, idempotency from `id`+`time` where the alert provides them, and per-hook action mapping (account, symbols, lots cap, product, paper/live, confirmation). ChartInk posts a fixed JSON with comma-joined `stocks` and `trigger_prices` and a dateless `triggered_at`; GoCharting posts plain text. Scripts use `generic` hooks, signed with HMAC (`X-MCB-Signature`). A copy-paste alert-template generator ships with the hooks UI.
-- **AI (S11, MCP).** Built on `@modelcontextprotocol/sdk` with protocol-version negotiation (the spec moved to a stateless revision 2026-07-28; which revision each client speaks **needs verification**). Transports: Streamable HTTP at `POST /mcp` (loopback, Host/Origin checked, bearer key) and stdio via the `mc-bridge mcp` relay. Toolsets: market data, analytics, account, orders; fewer than 20 tools by default, listed in a fixed order, all four annotations set explicitly, `outputSchema` + `structuredContent`, results wrapped in an untrusted-data envelope (instrument names and broker messages are third-party text). Order tools exist only when the config enables them for that account and the key has the scope, and they only prepare tickets. The same tool registry is exported as strict OpenAI function schemas. Remote access (ChatGPT, claude.ai web) needs a tunnel plus OAuth and is out of scope for v1.
-- **SDKs (S10).** Thin Python and Node clients generated from or hand-written against `openapi.yaml`, with idempotency keys by default and stream-token handling.
+- **Spreadsheets and AmiBroker (integrations).** `/xl/ltp` and `/xl/quote` return one value as plain text (Excel `WEBSERVICE` is GET-only, Windows desktop only, 2,048-character URLs, 32,767-character results); `/xl/chain` and `/xl/history` return flat CSV or JSON records for Power Query, Google Sheets and AmiBroker ASCII import (`layout=amibroker` plus a shipped `.format` file and an AFL include). CSV output guards against formula injection. Google Sheets `IMPORTDATA` and Apps Script run on Google's servers and cannot reach localhost; they need the user's tunnel and a read-only URL key, and refresh only hourly.
+- **Webhooks (hooks).** Hosted alert services (ChartInk, GoCharting) post from the internet, cannot sign requests and give up on slow answers. So: per-hook URL token, optional IP allowlist, fast 202 and asynchronous processing, idempotency from `id`+`time` where the alert provides them, and per-hook action mapping (account, symbols, lots cap, product, paper/live, confirmation). ChartInk posts a fixed JSON with comma-joined `stocks` and `trigger_prices` and a dateless `triggered_at`; GoCharting posts plain text. Scripts use `generic` hooks, signed with HMAC (`X-MCB-Signature`). A copy-paste alert-template generator ships with the hooks UI.
+- **AI (mcp).** Built on `@modelcontextprotocol/sdk` with protocol-version negotiation (the spec moved to a stateless revision 2026-07-28; which revision each client speaks **needs verification**). Transports: Streamable HTTP at `POST /mcp` (loopback, Host/Origin checked, bearer key) and stdio via the `mc-bridge mcp` relay. Fewer than 20 tools by default, listed in a fixed order, all four annotations set explicitly, `outputSchema` + `structuredContent`, results wrapped in an untrusted-data envelope (instrument names and broker messages are third-party text). Order tools exist only when the config enables them for that account and the key has the scope, and they only prepare tickets. The same tool registry is exported as strict OpenAI function schemas. Remote access (ChatGPT, claude.ai web) needs a tunnel plus OAuth and is out of scope.
+- **SDKs.** Thin Python and Node clients generated from or hand-written against `openapi.yaml`, with idempotency keys by default and stream-token handling.
 
 ## 11. API conventions
 
@@ -306,7 +288,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 | Family use | A retail algo may be used by self, spouse, dependent children and dependent parents (CIR/2025/0000013, NSE/INVG/67858) **(needs verification: the exact family definition)** | Multi-account supports family accounts; no use by anyone else. Each account names its `holder`; market-data pooling never spreads reads across different holders, because each family member is a separate user under the brokers' personal-use terms |
 | Algo provider risk | Hosting the Bridge or strategies for other people, or selling signals, would likely make the operator an exchange-empanelled algo provider; black-box strategies may need Research Analyst registration | The Bridge ships no strategies, hosts nothing for others, and stays single-user **(legal review before any hosted offering)** |
 | AI-placed orders | No regulator or broker source covers AI agents placing orders; an AI order through the user's key is still an API algo order | Read-only by default; every AI order needs human confirmation; the audit log records the client (API key label and principal) and the exact order prepared and sent (`ticket.created`, `order.placed`). The Bridge never sees the user's prompt, so no prompt context is logged **(gray area)** |
-| Market data terms | Broker API terms generally forbid passing market data to others (Kite: personal use) | Personal-use notice; loopback; no multi-user or public data endpoints; pooling only across accounts with the same `holder`, only among accounts the calling key may use, and only where the broker policy allows **(needs verification per broker)** |
+| Market data terms | Broker API terms generally forbid passing market data to others (Kite: personal use) | Personal-use notice; loopback; no multi-user or public data endpoints; pooling only across accounts with the same `holder`, only among accounts the calling key may use, only where the broker policy allows, and only after the owner accepts a versioned notice that says no broker's published terms clearly allow or forbid it **(needs verification per broker)**. Free sources and plugins are labelled delayed or end of day, are never redistributed, and show the vendor's terms before they are switched on |
 
 ## 13. What we will not do
 
@@ -322,7 +304,7 @@ These shape the design. None of this is legal advice; items flagged **(needs ver
 
 ## 14. Configuration and environment
 
-`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit` (S3), `symbols` (S4), `market` (S5), `stream` (S6), `orders` (S7), `paper` (S8), `integrations` (S10), `hooks` and `mcp` (S11), `reference` (S16: NSE archive switch, sync times, rate, sessions, holidays, brokerage default), `fno` (S19: universe, sweep budget share and method, expiry window, ban gate switch). Unknown sections are errors.
+`bridge.config.json` (see `bridge.config.example.json`). Core sections: `server`, `cors`, `dataDir`, `logging`, `accounts`, `safety`. Module sections (each validated by its module's zod schema): `ratelimit`, `symbols`, `market`, `stream`, `orders`, `paper`, `integrations`, `hooks`, `mcp`, `compat`, `readiness`. Unknown sections are errors.
 
 | Variable | Effect |
 |---|---|

@@ -2,7 +2,7 @@
  * OrderService live path, over published fakes (accounts, scheduler, symbols, market data), stub safety/audit/paper
  * and stub adapters whose order methods use the REAL order gate. Fake clock; no network.
  *
- * Acceptance (docs/STREAMS.md §S7): the same Idempotency-Key never reaches the adapter twice (concurrency test); a
+ * Acceptance: the same Idempotency-Key never reaches the adapter twice (concurrency test); a
  * timed-out live call is never retried and becomes outcome_unknown, then resolves from a fixture order book; a live
  * request without each opt-in fails with the right code.
  */

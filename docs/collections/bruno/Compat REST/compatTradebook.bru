@@ -1,0 +1,25 @@
+meta {
+  name: Trade book
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/v1/tradebook
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "apikey": "{{apiKey}}"
+  }
+}
+
+docs {
+  Trade book
+
+  - Send your Bridge API key as `apikey` in the JSON body (no Authorization header).
+
+  Reference: docs/api/compat-rest/compatTradebook.md in the repository.
+}

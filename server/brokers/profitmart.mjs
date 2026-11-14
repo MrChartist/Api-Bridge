@@ -23,7 +23,7 @@
  *
  * Orders (gated; nothing mints gates for this broker today). The official Place Order page lists prctyp
  * LMT / MKT / SL-LMT / SL-MKT and prd C / M / I / H / B / F; this adapter keeps the conservative Noren rule
- * used across the family: LMT and SL-LMT only (market orders refused locally, as the app has no market
+ * used across the family: LMT and SL-LMT only (market orders refused locally, as there is no market
  * protection for Noren), products C / M / I, validity DAY / IOC.
  */
 
@@ -78,5 +78,5 @@ export async function fetchTradeBook(creds) {
 export const buildOrderBody = (uid, order, resolvedLotSize) => core.buildOrderBody(uid, order, resolvedLotSize);
 export const buildModifyBody = (uid, orderId, changes, original) => core.buildModifyBody(uid, orderId, changes, original);
 
-/** Where the user gets a login code (for the Broker Settings help text). */
+/** Where the user gets a login code (for the login help text). */
 export const loginUrl = (apiKey) => `${OAUTH_LOGIN_URL}?client_id=${encodeURIComponent(apiKey || "")}`;

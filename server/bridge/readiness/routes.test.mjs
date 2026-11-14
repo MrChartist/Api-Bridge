@@ -1,5 +1,5 @@
 /**
- * Readiness routes (p1-05 §4) on the real app: shape vs the OpenAPI schema, account visibility, IP privacy, the
+ * Readiness routes on the real app: shape vs the OpenAPI schema, account visibility, IP privacy, the
  * check cooldown, history.
  */
 import { readFileSync } from "node:fs";
@@ -120,7 +120,7 @@ describe("readiness routes", () => {
   });
 });
 
-describe("POST /v1/readiness/check 12 s cap (§4.2)", () => {
+describe("POST /v1/readiness/check 12 s cap", () => {
   it("a probe that never answers: the reply after 12 s shows session unknown / Still checking, not the earlier pass", async () => {
     vi.useFakeTimers();
     try {

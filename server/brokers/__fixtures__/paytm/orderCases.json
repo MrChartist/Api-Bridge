@@ -1,0 +1,28 @@
+{
+  "provenance": "Envelope, field names and error codes follow the broker's official documentation named in manifest.json sources (and the header comment of the adapter, which cites the same pages); the human-readable message text is illustrative.",
+  "refusals": [
+    {
+      "name": "error body",
+      "source": "https://developer.paytmmoney.com/docs/api/login/",
+      "reply": {
+        "status": 200,
+        "json": {
+          "status": "failure",
+          "message": "Order rejected",
+          "error_code": "OM_1008"
+        }
+      }
+    }
+  ],
+  "sessionExpired": {
+    "source": "https://developer.paytmmoney.com/docs/api/login/",
+    "reply": {
+      "status": 401,
+      "json": {
+        "status": 401,
+        "message": "Invalid Access Token",
+        "error_code": "401"
+      }
+    }
+  }
+}
