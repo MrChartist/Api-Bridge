@@ -44,17 +44,60 @@ Every Indian broker has its own login, its own API, its own symbols and its own 
 <tr><td>No record of what was sent</td><td>An audit log of every order and sign-in</td></tr>
 </table>
 
+## A look inside
+
+The real dashboard in demo mode (sample data, no real account). It follows your light or dark setting, and a click opens the full-size image.
+
 <p align="center">
-  <picture>
+  <a href="docs/screenshots/orders-dark.webp"><picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/orders-dark.webp">
-    <img src="docs/screenshots/orders-light.webp" alt="The Orders page of the dashboard in demo mode: two filled paper orders and the paper funds" width="49%">
-  </picture>
-  <picture>
+    <img src="docs/screenshots/orders-light.webp" alt="The Orders page: two filled paper orders, one open limit order and the paper funds" width="100%">
+  </picture></a>
+</p>
+
+<p align="center">
+  <a href="docs/screenshots/safety-dark.webp"><picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/safety-dark.webp">
     <img src="docs/screenshots/safety-light.webp" alt="The Safety page: kill switch, daily limits and the trading-readiness check" width="49%">
-  </picture>
+  </picture></a>
+  <a href="docs/screenshots/api-keys-dark.webp"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/api-keys-dark.webp">
+    <img src="docs/screenshots/api-keys-light.webp" alt="The API page: one key per tool with only the access it needs" width="49%">
+  </picture></a>
 </p>
-<p align="center"><sub>The real dashboard, in demo mode: sample data, no real account. More: <a href="docs/screenshots/sources-overview-dark.webp">sources</a> · <a href="docs/screenshots/api-keys-dark.webp">API keys</a> · <a href="docs/screenshots/accounts-phone.webp">on a phone</a>.</sub></p>
+
+<details>
+<summary><b>More screens</b></summary>
+
+<p align="center">
+  <a href="docs/screenshots/sources-providers-dark.webp"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sources-providers-dark.webp">
+    <img src="docs/screenshots/sources-providers-light.webp" alt="The Sources page: pooling off by default and free delayed or end-of-day sources, each with its terms" width="49%">
+  </picture></a>
+  <a href="docs/screenshots/connect-dark.webp"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/connect-dark.webp">
+    <img src="docs/screenshots/connect-light.webp" alt="Connect a tool: Excel, an AI assistant, Python, Node, AmiBroker or your own app" width="49%">
+  </picture></a>
+</p>
+<p align="center">
+  <a href="docs/screenshots/data-dark.webp"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/data-dark.webp">
+    <img src="docs/screenshots/data-light.webp" alt="The Data page: history downloads, recordings, datasets and collections" width="49%">
+  </picture></a>
+  <a href="docs/screenshots/accounts-dark.webp"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/accounts-dark.webp">
+    <img src="docs/screenshots/accounts-light.webp" alt="Accounts and the 41 supported brokers" width="49%">
+  </picture></a>
+</p>
+
+</details>
+
+<p align="center">
+  <img src="docs/screenshots/orders-phone.webp" alt="The Orders page on a phone" width="24%">
+  <img src="docs/screenshots/sources-overview-phone.webp" alt="The Sources page on a phone" width="24%">
+  <img src="docs/screenshots/accounts-phone.webp" alt="The Accounts page on a phone" width="24%">
+</p>
+<p align="center"><sub>It works on a phone too.</sub></p>
 
 ## Quick start
 
