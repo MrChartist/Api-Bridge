@@ -114,7 +114,7 @@ These npm packages are installed with the Bridge (`npm ci --omit=dev`). The lice
 
 ## Tools used only to build and test
 
-Not shipped in any download: 99 packages (62 MIT, 23 Apache-2.0, 12 MPL-2.0, 1 BSD-3-Clause, 1 ISC). Their licences are in `package-lock.json`.
+Not shipped in any download: 95 packages (58 MIT, 23 Apache-2.0, 12 MPL-2.0, 1 BSD-3-Clause, 1 ISC). Their licences are in `package-lock.json`.
 
 ## Fonts
 
