@@ -167,10 +167,16 @@ flowchart LR
 7. An `Idempotency-Key` header or a `clientOrderId`, so a retry cannot double an order.
 8. Every safety check passing: kill switch, rate and daily-count limits, daily loss, order value, lots, price band, market hours and freeze quantity.
 
-Live order mapping exists for Dhan (verified), Zerodha and Upstox (not yet verified); every other broker refuses live orders for now.
+A request that misses any of them is refused with a clear error code, never quietly downgraded to paper. Nothing in the API, an MCP tool or a webhook can switch live trading on: that is done only in the config file on your own computer.
+
+Live order mapping exists for Dhan (verified with a live account), Zerodha and Upstox (checked against recorded samples only, so every live preview and order carries a warning); every other broker refuses live orders for now.
 
 - **Kill switch:** `npm run bridge -- kill --reason "text" [--cancel-open]` stops live orders everywhere, and `kill release` lifts it. It is also on the dashboard's Safety page.
 - **Readiness check:** the Safety page tells you what would stop a live order.
+- **Preview first:** `POST /v1/orders/preview` takes the same body as an order, runs every check and places nothing.
+- **Order gate:** every broker adapter refuses to send an order without a valid, single-use gate bound to that broker.
+- **Audit log:** every key change, login, order step, confirmation, kill-switch action and webhook signal is recorded, redacted and hash-chained.
+- **Damaged records are set aside, not trusted:** if the record of sent orders is damaged, paper orders keep working and live orders are refused until you check your broker's order book and run `npm run bridge -- orders acknowledge-state`.
 - **Drift check:** a read-only periodic comparison of the Bridge's live orders with the broker's order book ([orders-drift.md](docs/guides/orders-drift.md)).
 - **Pooling is off.** Spreading reads over several of your own accounts can give more room, but no broker's terms clearly allow it, so it stays off until you accept a notice that names the risk.
 
