@@ -67,6 +67,8 @@ npm ci
 npm run dev        # demo mode: opens the dashboard, already signed in
 ```
 
+The dashboard opens in your browser by itself. If it does not, open `http://127.0.0.1:4300/dashboard` in the browser's address bar (not in the terminal).
+
 In a second terminal, from the same folder, make a key and ask for a price:
 
 ```bash
