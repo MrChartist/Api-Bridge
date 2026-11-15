@@ -233,6 +233,36 @@ export function withAddableAccounts(config) {
   return Object.freeze({ ...config, accounts: [...config.accounts] });
 }
 
+/** Keys of the current `backup` section (the archive backups). Anything else there is the old data-source layout. */
+const BACKUP_SECTION_KEYS = new Set(["keep", "maxSizeMb", "includeData", "maxDataFiles", "manualKeep", "schedule"]);
+const LEGACY_DATA_SOURCE_KEYS = new Set(["enabled", "autoFallback", "providers", "order", "cacheMs", "timeoutMs", "breaker"]);
+
+/**
+ * Older versions configured the free fallback data sources (Yahoo, NSE) under `"backup": { enabled, autoFallback,
+ * providers, ... }`. That section is now `sources`, and `backup` means archive backups, so a config file written by an
+ * older version stopped loading. Read the old layout as `sources` instead, say so once, and leave the file alone.
+ * @returns {object} the same object, or a copy with the legacy `backup` section moved
+ */
+function migrateLegacyConfig(fileObj, warnings, where) {
+  const b = fileObj?.backup;
+  if (!b || typeof b !== "object" || Array.isArray(b)) return fileObj;
+  const legacy = Object.keys(b).filter((k) => LEGACY_DATA_SOURCE_KEYS.has(k) && !BACKUP_SECTION_KEYS.has(k));
+  if (!legacy.length) return fileObj;
+  const sources = { ...(fileObj.sources && typeof fileObj.sources === "object" && !Array.isArray(fileObj.sources) ? fileObj.sources : {}) };
+  const on = b.enabled === true;
+  if (on && b.autoFallback !== undefined && sources.autoFallback === undefined) sources.autoFallback = Boolean(b.autoFallback);
+  if (on && b.providers && typeof b.providers === "object" && !Array.isArray(b.providers) && sources.providers === undefined) {
+    sources.providers = Object.fromEntries(Object.entries(b.providers).map(([id, v]) => [id, v && typeof v === "object" ? v : { enabled: v !== false }]));
+  }
+  if (on && Number.isFinite(b.timeoutMs) && sources.timeoutMs === undefined) sources.timeoutMs = Math.min(15_000, Math.max(100, Math.round(b.timeoutMs)));
+  const rest = Object.fromEntries(Object.entries(b).filter(([k]) => !LEGACY_DATA_SOURCE_KEYS.has(k) || BACKUP_SECTION_KEYS.has(k)));
+  const out = { ...fileObj, sources };
+  if (Object.keys(rest).length) out.backup = rest;
+  else delete out.backup;
+  warnings.push(`Your config file${where ? ` (${where})` : ""} uses an old layout: the "backup" section with ${legacy.join(", ")} is now called "sources". It was read as "sources" this time; rename the section in the file to remove this message.`);
+  return out;
+}
+
 function readConfigFile(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -289,6 +319,7 @@ export function loadConfig({ path, env = process.env, cwd = process.cwd(), raw, 
     }
   }
   if (!fileObj || typeof fileObj !== "object" || Array.isArray(fileObj)) throw new BridgeError("VALIDATION_FAILED", "The config must be a JSON object.");
+  fileObj = migrateLegacyConfig(fileObj, warnings, source);
 
   const parsed = coreSchema.safeParse(fileObj);
   if (!parsed.success) {

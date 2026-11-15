@@ -2,6 +2,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { BACKUP_CONFIG_SCHEMA } from "../backup/config.mjs";
+import { sourcesConfigSchema } from "../sources/config.mjs";
 import { DEFAULT_PORT, effectiveAccountLimits, liveAllowedByConfig, loadConfig, moduleSections, userBridgeDir } from "./config.mjs";
 
 const load = (raw, env = {}) => loadConfig({ raw, env, cwd: "/tmp/mcb" });
@@ -136,5 +138,37 @@ describe("server.remoteDashboard", () => {
     const { config, warnings } = loadConfig({ raw: { demo: true, server: { remoteDashboard: true } }, env: {} });
     expect(config.server.remoteDashboard).toBe(true);
     expect(warnings.join(" ")).toMatch(/remoteDashboard is on/);
+  });
+});
+
+describe("a config file written by an older version", () => {
+  const legacy = { enabled: true, autoFallback: true, providers: { yahoo: { enabled: true, perSecond: 4 }, nse: { enabled: false } }, order: { equity: ["yahoo", "nse"] }, cacheMs: 15000, timeoutMs: 8000 };
+
+  it("reads the old data-source layout under backup as sources, and says so", () => {
+    const { config, warnings } = loadConfig({ raw: { backup: legacy }, env: {} });
+    expect(config.sources.autoFallback).toBe(true);
+    expect(config.sources.timeoutMs).toBe(8000);
+    expect(config.sources.providers.nse).toEqual({ enabled: false });
+    expect(config.backup).toBeUndefined();
+    expect(warnings.join(" ")).toMatch(/"backup" section with .*is now called "sources"/);
+    expect(sourcesConfigSchema.safeParse(config.sources).success).toBe(true);
+  });
+
+  it("keeps the new backup keys and an existing sources section", () => {
+    const { config } = loadConfig({ raw: { backup: { ...legacy, keep: 9 }, sources: { autoFallback: false } }, env: {} });
+    expect(config.backup).toEqual({ keep: 9 });
+    expect(BACKUP_CONFIG_SCHEMA.safeParse(config.backup).success).toBe(true);
+    expect(config.sources.autoFallback).toBe(false);
+  });
+
+  it("does not turn anything on when the old section was switched off", () => {
+    const { config } = loadConfig({ raw: { backup: { enabled: false, autoFallback: true } }, env: {} });
+    expect(config.sources.autoFallback).toBeUndefined();
+  });
+
+  it("leaves a current backup section alone", () => {
+    const { config, warnings } = loadConfig({ raw: { backup: { keep: 3, schedule: { enabled: true } } }, env: {} });
+    expect(config.backup).toEqual({ keep: 3, schedule: { enabled: true } });
+    expect(warnings.join(" ")).not.toMatch(/old layout/);
   });
 });

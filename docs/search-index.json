@@ -2615,6 +2615,25 @@
     },
     {
       "headings": [
+        "Windows: Setup.exe",
+        "Ready-to-run download",
+        "Mac: the app",
+        "Mac and Linux: one line",
+        "Windows: one line",
+        "Android (Termux)",
+        "After installing",
+        "Updating safely",
+        "Checking that the download is genuine",
+        "Uninstalling",
+        "If something goes wrong"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/install.md",
+      "text": "You do not need to know anything about programming. Pick one way below. Each takes a few minutes and needs no admin password. You never have to install Node.js yourself, and you never have to copy a key: the dashboard opens in your browser already signed in. Everything stays on...",
+      "title": "Installing the Bridge"
+    },
+    {
+      "headings": [
         "Claude Desktop",
         "Claude Code",
         "Cursor and other clients",
@@ -2999,6 +3018,18 @@
       "path": "docs/reference-data.md",
       "text": "The Bridge ships a few tables of market facts: the holiday calendar, the trading hours, special sessions such as Muhurat trading, freeze quantities, statutory charges and the delivery-margin schedule. They are plain JSON files in server/bridge/reference/data/. This page says...",
       "title": "Reference data"
+    },
+    {
+      "headings": [
+        "Version rules",
+        "Cutting a release",
+        "If something goes wrong",
+        "What a release does not do"
+      ],
+      "kind": "doc",
+      "path": "docs/release-process.md",
+      "text": "For the maintainers. A release is a version tag; the Release workflow builds the downloads from that tag and publishes them. Nothing here is done by a contributor's pull request, and nothing publishes by itself when you merge. No release exists yet: the first one has not been...",
+      "title": "Release process"
     },
     {
       "headings": [

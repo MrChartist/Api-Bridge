@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix: a config file written by an older version (with the old `"backup": { "enabled", "autoFallback", "providers", ... }` data-source section) stopped the Bridge from starting with `backup: Unrecognized keys`. That layout is now read as `"sources"` with a one-line warning, and the file is left untouched.
+
 - Licence: MIT is replaced by the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Copies already received under MIT stay MIT.
 - Removed: the Postman and Bruno collections (`docs/collections`, `scripts/gen-collections.mjs`), ROADMAP.md, SUPPORT.md and CODE_OF_CONDUCT.md.
 - Removed: the Windows Setup.exe, the Mac and Linux ZIP/app builds, the one-line installers (`install.sh`, `install.ps1`), the start files, the release workflow and the install and release-process guides. The repository is run from source with Node.js or Docker; installers will come back later.
