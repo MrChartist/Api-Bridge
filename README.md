@@ -28,7 +28,8 @@ Every Indian broker has its own login, its own API, its own symbols and its own 
 
 - **One API shape for 41 brokers.** Quotes, depth, option chains, history, positions, funds and orders look the same whichever broker is behind them, with `EXCHANGE:SYMBOL` everywhere.
 - **One connection per broker, shared fairly.** Each broker's documented limits are enforced in one place, and every API key has its own quota.
-- **Honest data.** Every price says where it came from, how old it is and whether the source is official. Delayed or end-of-day data is never used for an order, a risk check, a paper fill or an alert.
+- **A data hub for all your tools.** The Bridge fetches data once, from your broker, and serves it to every tool you connect: Excel, Sheets, AmiBroker, scripts, charts and AI assistants. When a broker's limit is reached or its session ends, you can let an opt-in fallback such as **Yahoo Finance** (about 15 minutes delayed, unofficial) answer display and analysis reads and fill history gaps, so your tools keep working.
+- **Honest data.** Every price says where it came from, how old it is and whether the source is official. Delayed or end-of-day data, Yahoo included, is never used for an order, a risk check, a paper fill or an alert.
 - **Paper first.** A live order needs eight separate opt-ins, and one command stops live orders everywhere.
 - **Local only.** It listens on `127.0.0.1`, keeps your broker secrets encrypted on your own disk, sends no telemetry, and has no server of ours in the loop.
 - **Works with what you already use.** Excel, Google Sheets, AmiBroker, TradingView, Claude and Cursor (over MCP), Python and Node.
@@ -197,6 +198,8 @@ flowchart LR
 
 - The Bridge listens on **`127.0.0.1` only**. Nothing else on your network can reach it unless you deliberately allow that.
 - Broker credentials are stored **encrypted** in the Bridge's own data folder; the master key that seals them is kept outside it and is never part of a backup.
+- **Fetch once, serve every tool.** The Bridge asks your broker (or a fallback you switched on) and shares the answer with all connected tools, so adding a tool does not add load on the broker.
+- **MCP runs on your computer too.** AI assistants such as Claude and Cursor connect to the Bridge's own MCP server locally (over `127.0.0.1` or stdio), so the same data, limits and safety checks apply to them.
 - Everything keeps working without us: there is no server of ours in the loop and no telemetry.
 
 ## Safety model
@@ -225,6 +228,8 @@ Live order mapping exists for Dhan (verified with a live account), Zerodha and U
 - **Drift check:** a read-only periodic comparison of the Bridge's live orders with the broker's order book ([orders-drift.md](docs/guides/orders-drift.md)).
 - **Pooling is off.** Spreading reads over several of your own accounts can give more room, but no broker's terms clearly allow it, so it stays off until you accept a notice that names the risk.
 
+The Bridge ships the live-order gate, the kill switch and these checks. Everything else is yours to add: data sources, plugins, alert hooks, collections and the tools that connect to it.
+
 Read [safety.md](docs/guides/safety.md), [orders.md](docs/guides/orders.md) and [compliance.md](docs/guides/compliance.md) before going live.
 
 ## Supported brokers
@@ -240,7 +245,12 @@ The full table (sign-in method, option-chain Greeks, quotes and depth, live feed
 
 </details>
 
-Real-time prices come from **your own broker account**: no free real-time source exists in India that you may redistribute. You can also switch on free **delayed** or **end-of-day** sources, or add a sandboxed plugin ([source-contract.md](docs/source-contract.md)); every answer is labelled with its class and age, and such data is refused for orders, risk checks, paper fills and alerts ([sources.md](docs/guides/sources.md)).
+Real-time prices come from **your own broker account**: no free real-time source exists in India that you may redistribute. When a broker cannot answer (its rate limit is used up, its session expired, or it is down), the Bridge can fall back to a source you switched on, and every tool downstream keeps getting an answer:
+
+- **Yahoo Finance** (opt-in): delayed quotes (about 15 minutes) and history, for cross-checks, charts and filling history gaps. It is unofficial and its terms restrict automated use, so the Bridge shows you a notice to accept first, keeps to about one request a second, and recommends it for your own personal use only.
+- **Other free delayed or end-of-day sources**, or your own **sandboxed plugin** ([source-contract.md](docs/source-contract.md)).
+
+Every answer is labelled with its source, class and age, and fallback data is refused for orders, risk checks, paper fills and alerts ([sources.md](docs/guides/sources.md)). When you add your brokers' own data feeds later, the same hub passes that data on to all your tools.
 
 ## Connect your tools
 
