@@ -28,6 +28,16 @@ describe("runCli", () => {
     expect(a.out[0]).toMatch(/^\d+\.\d+\.\d+/);
   });
 
+  it("names the settings file and what to do when the file is not valid", async () => {
+    const a = io();
+    writeFileSync(join(a.dir, "bridge.config.json"), JSON.stringify({ dataDir: "data", logging: { level: "silent" }, safety: { maxOrderValu: 1 } }));
+    expect(await runCli(["doctor"], { "no-port-check": true }, a.io)).toBe(1);
+    const text = a.err.join("\n");
+    expect(text).toMatch(/Config is not valid: safety/);
+    expect(text).toContain(`Settings file: ${join(a.dir, "bridge.config.json")}`);
+    expect(text).toMatch(/Remove or correct the settings named above/);
+  });
+
   it("rejects unknown commands", async () => {
     const a = io();
     expect(await runCli(["fly"], {}, a.io)).toBe(1);

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Settings left by an older version: `backup.enabled`, `backup.autoFallback`, `backup.providers` and `notify.targets` are now ignored with a note instead of stopping the start (no data source is switched on by them). When a settings file is not valid, the command line names the file it read and says what to do.
 - Licence: MIT is replaced by the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Copies already received under MIT stay MIT.
 - Removed: the Postman and Bruno collections (`docs/collections`, `scripts/gen-collections.mjs`), ROADMAP.md, SUPPORT.md and CODE_OF_CONDUCT.md.
 - Removed: the Windows Setup.exe, the Mac and Linux ZIP/app builds, the one-line installers (`install.sh`, `install.ps1`), the start files, the release workflow and the install and release-process guides. The repository is run from source with Node.js or Docker; installers will come back later.

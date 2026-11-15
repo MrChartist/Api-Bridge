@@ -14,7 +14,7 @@ import { cliCommand } from "./cliName.mjs";
 import { readControlToken } from "./controlToken.mjs";
 import { SIGN_IN_TTL_MS, createSignInCode } from "../auth/signIn.mjs";
 import { BridgeError, NotImplementedError } from "./errors.mjs";
-import { IGNORED_PREFIX, configFileForWrites, isLoopbackHost, keylessSignInAllowed, loadConfig } from "./config.mjs";
+import { IGNORED_PREFIX, configFileForWrites, configFileInUse, isLoopbackHost, keylessSignInAllowed, loadConfig } from "./config.mjs";
 import { createLogger } from "./logger.mjs";
 import { exposureChecks, readHooksQuietly } from "./expose.mjs";
 import { poolingDoctorChecks } from "../sources/pooling.mjs";
@@ -826,6 +826,13 @@ export async function runCli(positionals, flags, io) {
       io.err(`Error: ${err.detail}`);
       // The fields that were wrong, one per line ("scopes.0: Invalid option ..."), the way the config errors name them.
       for (const e of (err.errors ?? []).slice(0, 8)) if (e?.path && e.path !== "(root)") io.err(`  ${e.path}: ${e.message}`);
+      // A settings file the Bridge cannot accept: say which file it read and what to do. Without this, a file left
+      // by an older version in the per-user folder stops a fresh checkout with no clue where the settings came from.
+      if (/^(Config is not valid|Unknown config section)/.test(err.detail ?? "")) {
+        const file = configFileInUse({ path: flags.config, env: io.env, cwd: io.cwd });
+        if (file) io.err(`  Settings file: ${file}`);
+        io.err("  Remove or correct the settings named above in that file, then start again. A setting left by an older version is the usual cause. Keep a copy of the file first.");
+      }
       if (cmd === "keys" && sub === "create" && (err.errors ?? []).some((e) => /^scopes/.test(e?.path ?? ""))) io.err(`  Allowed scopes: ${SCOPES.join(", ")} (for example --scope read,paper).`);
       return 1;
     }

@@ -50,6 +50,10 @@ A file that still holds one of these stops the start with a message that lists t
 - `reference`: the reference-data store is not part of v2
 - `participants`: participant open interest is not part of v2
 - `stream.candles`: live candles are not served by the stream
+- `backup.enabled`: extra data sources are now switched on from the Sources page
+- `backup.autoFallback`: it is now sources.autoFallback, off by default
+- `backup.providers`: extra data sources are now set up on the Sources page
+- `notify.targets`: notification targets are now added on the Notifications page or with notify telegram setup
 - `mcp.toolsets` with `"options"`: there are no options tools
 
 ## Sections

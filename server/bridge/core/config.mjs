@@ -215,6 +215,21 @@ export function userBridgeDir(env = process.env, platform = process.platform) {
 }
 
 /**
+ * The config file loadConfig would read, by the same order (--config, MCB_CONFIG, ./bridge.config.json, then the
+ * per-user folder), or null when there is none. Used to name the file in an error about its contents.
+ * @param {{ path?: string, env?: NodeJS.ProcessEnv, cwd?: string }} [opts]
+ * @returns {string | null}
+ */
+export function configFileInUse({ path, env = process.env, cwd = process.cwd() } = {}) {
+  const p = path ?? env.MCB_CONFIG ?? DEFAULT_CONFIG_FILE;
+  const abs = isAbsolute(p) ? p : resolve(cwd, p);
+  if (existsSync(abs)) return abs;
+  if (path || env.MCB_CONFIG) return null;
+  const userFile = join(userBridgeDir(env), DEFAULT_CONFIG_FILE);
+  return existsSync(userFile) ? userFile : null;
+}
+
+/**
  * Where the dashboard saves accounts it adds: the file this Bridge loaded, else the per-user file loadConfig looks for
  * last (so a Bridge started without any config file finds the new file on its next start, from any folder).
  * @param {string | null} source  loadConfig's `source`
@@ -383,6 +398,12 @@ export const REMOVED_SETTINGS = Object.freeze({
   reference: "the reference-data store is not part of v2",
   participants: "participant open interest is not part of v2",
   "stream.candles": "live candles are not served by the stream",
+  // An older release kept its fallback data sources under "backup". In v2 "backup" means copies of your data, and
+  // extra data sources are switched on from the Sources page (off until you accept each one's terms).
+  "backup.enabled": "extra data sources are now switched on from the Sources page",
+  "backup.autoFallback": "it is now sources.autoFallback, off by default",
+  "backup.providers": "extra data sources are now set up on the Sources page",
+  "notify.targets": "notification targets are now added on the Notifications page or with notify telegram setup",
 });
 
 /**

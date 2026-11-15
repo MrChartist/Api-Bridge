@@ -99,6 +99,21 @@ describe("settings that v2 removed", () => {
     expect(out.mcp.toolsets).toEqual(["market"]);
   });
 
+  it("ignore the fallback-source settings an older release kept under backup, and old notify targets", () => {
+    const old = loadConfig({ raw: { backup: { enabled: true, autoFallback: true, providers: { yahoo: { perSecond: 4 } }, keep: 3 }, notify: { targets: [{ kind: "telegram" }] } }, env: {} }).config;
+    const warnings = [];
+    const out = applyModuleConfig(old, BUILTIN_MODULES, warnings);
+    for (const k of ["backup.enabled", "backup.autoFallback", "backup.providers", "notify.targets"]) expect(warnings[0]).toContain(`${k}: this setting was removed in v2`);
+    // What v2 does know in the same section is kept, and nothing switches a data source on.
+    expect(out.backup.keep).toBe(3);
+    expect(out.backup.enabled).toBeUndefined();
+    expect(out.notify.targets).toBeUndefined();
+    expect(out.sources?.autoFallback ?? false).toBe(false);
+    // A real mistake in the same section is still an error.
+    const typo = loadConfig({ raw: { backup: { kep: 3 } }, env: {} }).config;
+    expect(() => applyModuleConfig(typo, BUILTIN_MODULES)).toThrow(/backup/);
+  });
+
   it("leave a config that has none of them alone", () => {
     const ok = loadConfig({ raw: { stream: { heartbeatMs: 20000 }, mcp: { toolsets: ["market"] } }, env: {} }).config;
     expect(findRemovedSettings(ok)).toEqual([]);
