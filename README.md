@@ -1,10 +1,25 @@
-# Mr. Chartist API Bridge v2
+<div align="center">
 
-**One local API in front of all your Indian broker accounts.** Your scripts, spreadsheets, AI assistants and dashboards talk to the Bridge; the Bridge talks to your brokers. Every tool shares the same connections, stays inside each broker's rate limits, and orders are **paper (practice) orders unless you deliberately switch real trading on**.
+# API Bridge
 
-Version 2.0.0 · **Status: beta** · Runs on your own computer, with no hosted service and no account with us · Free and open source under the [GNU Affero General Public License v3.0](LICENSE). An independent project: not affiliated with, sponsored by or endorsed by any broker.
+**One local API in front of all your Indian broker accounts.**
 
-<p>
+Your scripts, spreadsheets, AI assistants and dashboards talk to the Bridge. The Bridge talks to your brokers.<br>
+Every tool shares the same connections and stays inside each broker's rate limits, and every order is a
+**paper (practice) order unless you deliberately switch real trading on**.
+
+[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
+![Version 2.0.0](https://img.shields.io/badge/version-2.0.0-informational)
+![Status: beta](https://img.shields.io/badge/status-beta-orange)
+![Node.js 22.12+](https://img.shields.io/badge/node-22.12%2B-339933?logo=nodedotjs&logoColor=white)
+![41 brokers](https://img.shields.io/badge/brokers-41-success)
+![Paper by default](https://img.shields.io/badge/orders-paper%20by%20default-success)
+
+[Quick start](#quick-start) · [What you get](#what-you-get) · [Brokers](#supported-brokers) · [Safety](#safety-model) · [Guides](#guides-index) · [Contributing](#contributing)
+
+</div>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/accounts-dark.webp">
     <img src="docs/screenshots/accounts-light.webp" alt="The Accounts page of the dashboard, in demo mode, listing a demo market-data account and three paper accounts" width="32%">
@@ -19,43 +34,113 @@ Version 2.0.0 · **Status: beta** · Runs on your own computer, with no hosted s
   </picture>
 </p>
 
-All screenshots are demo mode: sample data, no real account.
+<p align="center"><sub>All screenshots are demo mode: sample data, no real account.</sub></p>
 
-> **Beta software, not financial advice.** Only Dhan is verified with a live account. The other 40 brokers are beta or contract-tested ([how each is ranked](docs/BROKERS.md)). Trading involves risk of loss. Try everything in paper mode first and check figures against your broker before you ever turn live trading on. See [Safety](#safety-model) and the [licence](#license-trademarks-and-logos).
+API Bridge is built by [Mr. Chartist](https://mrchartist.com). It runs on your own computer: there is no hosted service,
+no account with us and no telemetry. It is an independent project, not affiliated with, sponsored by or endorsed by any
+broker.
+
+> [!IMPORTANT]
+> **Beta software, not financial advice.** Only Dhan is verified with a live account. The other 40 brokers are beta or
+> contract-tested ([how each is ranked](docs/BROKERS.md)). Trading involves risk of loss. Try everything in paper mode
+> first and check figures against your broker before you ever turn live trading on. See [Safety](#safety-model) and the
+> [licence](#license-trademarks-and-logos).
+
+## Open source, source only
+
+This repository **is** the product. The whole Bridge is here as source code under the
+[GNU Affero General Public License v3.0](LICENSE): the server, the dashboard, the broker adapters, the SDKs, the
+integrations, the tests and the docs.
+
+- **There is no installer, EXE, ZIP or other packaged download**, here or anywhere else. If you find one, it did not come from us.
+- You run it from this source with Node.js, or with Docker. Both take a few minutes: see [Quick start](#quick-start).
+- It is not published to npm. Do not run `mc-bridge` through `npx`: that name on npm belongs to an unrelated package.
+- You can read every line that touches your broker account before you run it.
 
 ---
 
 ## Contents
 
-1. [Why the Bridge](#why-the-bridge)
-2. [What you get](#what-you-get)
-3. [How it works](#how-it-works)
-4. [Install](#install)
-5. [Five minutes to a first answer](#five-minutes-to-a-first-answer)
-6. [Connect a broker](#connect-a-broker)
-7. [API keys](#api-keys)
-8. [Using the API](#using-the-api)
-9. [Dashboard tour](#dashboard-tour)
-10. [Supported brokers](#supported-brokers)
-11. [Data sources](#data-sources)
-12. [Orders and the safety model](#safety-model)
-13. [Rate limits](#rate-limits)
-14. [Connect your tools](#connect-your-tools)
-15. [Save and replay data](#save-and-replay-data)
-16. [Alerts, events and notifications](#alerts-events-and-notifications)
-17. [Command line reference](#command-line-reference)
-18. [Configuration](#configuration)
-19. [Where your data lives, backup and restore](#where-your-data-lives-backup-and-restore)
-20. [Security and privacy](#security-and-privacy)
-21. [Updating and removing](#updating-and-removing)
-22. [Troubleshooting](#troubleshooting)
-23. [FAQ](#faq)
-24. [What it does not do](#what-it-does-not-do)
-25. [Guides index](#guides-index)
-26. [Contributing](#contributing)
-27. [License, trademarks and logos](#license-trademarks-and-logos)
+1. [Quick start](#quick-start)
+2. [Why the Bridge](#why-the-bridge)
+3. [What you get](#what-you-get)
+4. [How it works](#how-it-works)
+5. [Connect a broker](#connect-a-broker)
+6. [API keys](#api-keys)
+7. [Using the API](#using-the-api)
+8. [Dashboard tour](#dashboard-tour)
+9. [Supported brokers](#supported-brokers)
+10. [Data sources](#data-sources)
+11. [Orders and the safety model](#safety-model)
+12. [Rate limits](#rate-limits)
+13. [Connect your tools](#connect-your-tools)
+14. [Save and replay data](#save-and-replay-data)
+15. [Alerts, events and notifications](#alerts-events-and-notifications)
+16. [Command line reference](#command-line-reference)
+17. [Configuration](#configuration)
+18. [Where your data lives, backup and restore](#where-your-data-lives-backup-and-restore)
+19. [Security and privacy](#security-and-privacy)
+20. [Updating and removing](#updating-and-removing)
+21. [Troubleshooting](#troubleshooting)
+22. [FAQ](#faq)
+23. [What it does not do](#what-it-does-not-do)
+24. [Guides index](#guides-index)
+25. [Contributing](#contributing)
+26. [License, trademarks and logos](#license-trademarks-and-logos)
 
 ---
+
+## Quick start
+
+You need **Node.js 22.12 or newer** (`node -v`) and git.
+
+```bash
+git clone https://github.com/MrChartist/Api-Bridge.git
+cd Api-Bridge
+npm ci
+npm run dev        # demo mode: sample data, no broker, opens the dashboard
+```
+
+That is **demo mode**: sample prices, no broker, paper orders only. Nothing real can happen, and the dashboard opens
+already signed in.
+
+### Your first API call
+
+To use the API from another program you need a key. In a second terminal, in the same folder:
+
+```bash
+npm run bridge -- keys create --label first --scope read,paper     # prints a key once: copy it
+export MCB_API_KEY=mcb_...                                            # the key you were just shown
+curl "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -H "Authorization: Bearer $MCB_API_KEY"
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:MCB_API_KEY = "mcb_..."
+Invoke-RestMethod "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -Headers @{ Authorization = "Bearer $env:MCB_API_KEY" }
+```
+
+(Use `curl.exe`, not `curl`, in Windows PowerShell 5.1: see [windows.md](docs/guides/windows.md).) The full walk-through
+with the output of every command, a paper order and a WebSocket stream is
+[docs/guides/quickstart.md](docs/guides/quickstart.md).
+
+### Real prices
+
+When you are ready, stop the demo and set up a broker: `npm run bridge -- init` (or use the dashboard), then
+`npm run bridge -- start --open`. See [Connect a broker](#connect-a-broker).
+
+### Docker
+
+`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The
+first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Details:
+[docker.md](docs/guides/docker.md). For an always-on server see [vps.md](docs/guides/vps.md).
+
+### About the `mc-bridge` command
+
+The rest of this README writes commands as `mc-bridge <command>`. From the repository folder that command is not on your
+PATH, so run it as **`npm run bridge -- <command>`** (or `node bin/mc-bridge.mjs <command>`). For example,
+`mc-bridge doctor` is `npm run bridge -- doctor`.
 
 ## Why the Bridge
 
@@ -81,7 +166,7 @@ It is for traders, developers and anyone building their own tools who would rath
 | **Paper trading by default** | A full paper account with margin checks, fills, daily P&L, snapshots and a reset with undo. |
 | **Hand trading** | An order ticket in the dashboard for Limit, Market, SL and SL-M orders, plus positions with profit and loss and one-click exit. |
 | **Dashboard** | Signed-in dashboard for accounts, sources, orders, positions, keys, safety, downloads, recordings, collections, events, notifications and backup. |
-| **AI assistants (MCP)** | An MCP server with 20 tools for Claude, Cursor and other assistants. Read-only by default; order tools are off until you enable them. |
+| **AI assistants (MCP)** | An MCP server with 22 tools for Claude, Cursor and other assistants. The 19 read-only tools are on by default; the 3 order tools are off until you enable them. |
 | **Webhooks and alerts** | Signed webhooks for events, plus inbound alert hooks for TradingView and ChartInk that turn alerts into orders under strict rules. |
 | **Data tools** | History downloads, real-time quote and option-chain recorders, named collections of instruments and option universes, in CSV, JSONL or AmiBroker format. |
 | **Compatibility API** | A compatibility REST layer so existing tools that expect a common trading-API shape can point at the Bridge. |
@@ -109,52 +194,6 @@ It is for traders, developers and anyone building their own tools who would rath
 - The Bridge listens on **`127.0.0.1` only**. Nothing else on your network can reach it unless you deliberately allow it.
 - Broker credentials are stored **encrypted** in the Bridge's own data folder.
 - Everything keeps working without us: there is no server of ours in the loop.
-
-## Install
-
-You need **Node.js 22.12 or newer** (`node -v`) and git. Run the Bridge from the repository folder:
-
-```bash
-git clone https://github.com/MrChartist/api-bridge-v2.git
-cd api-bridge-v2
-npm ci
-npm run dev        # demo mode: sample data, no broker, opens the dashboard
-```
-
-### Docker
-
-`docker compose up -d` builds and starts the Bridge from `docker-compose.yml`, published on `127.0.0.1:4300` only. The first start writes a config and prints an admin key once: read it with `docker compose logs bridge`. Details: [docker.md](docs/guides/docker.md). For an always-on server see [vps.md](docs/guides/vps.md).
-
-### Running mc-bridge
-
-From the repository folder the `mc-bridge` command is not on your PATH. Commands in this README that start with `mc-bridge` are run as `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`), for example `npm run bridge -- keys create --label first --scope read,paper`. Do not run `mc-bridge` through `npx`: that name on npm belongs to an unrelated package.
-
-## Five minutes to a first answer
-
-Start in **demo mode**: sample prices, no broker, paper orders only, nothing real can happen.
-
-```bash
-mc-bridge start --demo --open
-```
-
-The dashboard opens already signed in. To use the API from another program you need a key. In a second terminal:
-
-```bash
-mc-bridge keys create --label first --scope read,paper     # prints a key once: copy it
-export MCB_API_KEY=mcb_...                                    # the key you were just shown
-curl "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -H "Authorization: Bearer $MCB_API_KEY"
-```
-
-On Windows PowerShell:
-
-```powershell
-$env:MCB_API_KEY = "mcb_..."
-Invoke-RestMethod "http://127.0.0.1:4300/v1/ltp?symbols=NSE:RELIANCE" -Headers @{ Authorization = "Bearer $env:MCB_API_KEY" }
-```
-
-(Use `curl.exe`, not `curl`, in Windows PowerShell 5.1: see [windows.md](docs/guides/windows.md).) The full walk-through with the output of every command, a paper order and a WebSocket stream is [docs/guides/quickstart.md](docs/guides/quickstart.md).
-
-When you are ready for real prices, stop the demo and run `mc-bridge init` (or use the dashboard) to set up a broker, then `mc-bridge start --open`.
 
 ## Connect a broker
 
@@ -329,7 +368,7 @@ See [rate-limits.md](docs/guides/rate-limits.md).
 | **Google Sheets** | `integrations/google-sheets/bridge.gs` with `BRIDGE_QUOTES`, `BRIDGE_CHAIN` and `BRIDGE_HISTORY` functions, reached through a safe tunnel | [excel-sheets.md](docs/guides/excel-sheets.md) |
 | **AmiBroker** | `mrchartist-bridge.afl` include plus EOD and intraday import formats | [amibroker.md](docs/guides/amibroker.md) |
 | **TradingView / ChartInk** | Inbound alert webhooks that become orders under strict, per-hook rules; `mc-bridge expose alerts` publishes only that route | [tradingview.md](docs/guides/tradingview.md), [webhooks.md](docs/guides/webhooks.md), [expose-alerts.md](docs/guides/expose-alerts.md) |
-| **Claude Desktop, Claude Code, Cursor** | MCP over stdio (`mc-bridge mcp`) or HTTP (`/mcp`), 20 tools, read-only by default | [mcp.md](docs/guides/mcp.md) |
+| **Claude Desktop, Claude Code, Cursor** | MCP over stdio (`mc-bridge mcp`) or HTTP (`/mcp`), 22 tools, read-only by default | [mcp.md](docs/guides/mcp.md) |
 | **ChatGPT / OpenAI** | `mc-bridge openai-tools` prints tool definitions | [chatgpt-openai.md](docs/guides/chatgpt-openai.md) |
 | **Python / Node / curl** | SDKs and starter projects: `mc-bridge init python`, `node`, `curl`, `sheets`, `webhook-receiver`, `mcp-client` | [python.md](docs/guides/python.md), [typescript.md](docs/guides/typescript.md) |
 | **Other trading tools** | Compatibility REST layer | [compat-api.md](docs/guides/compat-api.md) |
@@ -424,7 +463,7 @@ The Bridge also copies your data to `backups/` before the first start of any new
 
 **Update.** Stop the Bridge, `git pull`, `npm ci`, start it again. Your keys, paper accounts and audit log live in the data folder, not in the repository, so an update does not touch them. Before the first start of a new version the Bridge copies your data into `backups/`. To go back to an older version, check it out, then restore the copy made before the update (a Bridge refuses a backup made by a newer version). More: [upgrading.md](docs/guides/upgrading.md).
 
-**Remove.** Delete the repository folder. Your settings and data stay in the data folder (below); delete that too if you no longer want them, after a backup.
+**Remove.** Delete the repository folder. Your settings and data stay in the data folder ([where it is](#where-your-data-lives-backup-and-restore)); delete that too if you no longer want them, after a backup.
 
 ## Troubleshooting
 
@@ -449,6 +488,8 @@ When you report a problem, include the `requestId` from the error, what `mc-brid
 ## FAQ
 
 **Is it free?** Yes. It is open source under the [AGPL-3.0](LICENSE): use, study, change and share it. If you run a modified version for other people over a network, you must offer them your changes under the same licence.
+
+**Is there an installer or an EXE?** No. The project is source only: clone this repository and run it with Node.js or Docker ([Quick start](#quick-start)). We do not publish an installer, an EXE, a ZIP or an npm package.
 
 **Does it send my data or keys anywhere?** No. It runs on your computer and talks only to your brokers and the sources you enable.
 
@@ -482,7 +523,9 @@ Reference: [docs home](docs/README.md) · [one page per endpoint](docs/api/READM
 
 ## Contributing
 
-Contributions are welcome: bug fixes with a test, doc fixes, and broker reports (try a broker in paper mode and tell us what happened). Start with [CONTRIBUTING.md](CONTRIBUTING.md), which has a quick path for a first pull request. Run the tests with `npm test`. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+The Bridge is open source so that people can check it, fix it and extend it. Contributions are welcome: bug fixes with a test, doc fixes, and broker reports (try a broker in paper mode and tell us what happened). Start with [CONTRIBUTING.md](CONTRIBUTING.md), which has a quick path for a first pull request. Run the tests with `npm test`. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+
+Questions and bug reports go to the [issue tracker](https://github.com/MrChartist/Api-Bridge/issues). Include the `requestId`, what `mc-bridge doctor` prints and the Bridge version, and never paste a key.
 
 ## License, trademarks and logos
 
