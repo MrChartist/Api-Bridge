@@ -17,9 +17,10 @@
     },
     {
       "headings": [
+        "Open source, source only",
         "Why API Bridge",
-        "Five minutes to a first answer",
-        "Running mc-bridge",
+        "Quick start",
+        "About the mc-bridge command",
         "Docker",
         "What you can do with it",
         "How it works",

@@ -11,6 +11,15 @@ Version 2.0.0 · **Status: beta** · Runs on your own computer: no hosted servic
 > [!WARNING]
 > **Beta software, not financial advice.** Only Dhan is verified with a live account; the other 40 brokers are beta or contract-tested ([how each is ranked](docs/BROKERS.md)). Trading involves risk of loss. Try everything in paper mode first, and check figures against your broker before you ever turn live trading on.
 
+## Open source, source only
+
+This repository **is** the product. The whole Bridge is here as source code under the [GNU Affero General Public License v3.0](LICENSE): the server, the dashboard, the broker adapters, the SDKs, the integrations, the tests and the docs.
+
+- **There is no installer, EXE, ZIP or other packaged download**, here or anywhere else. If you find one, it did not come from us.
+- You run it from this source with Node.js, or with Docker. Both take a few minutes: see [Quick start](#quick-start).
+- It is not published to npm. Do not run `mc-bridge` through `npx`: that name on npm belongs to an unrelated package.
+- You can read every line that touches your broker account before you run it.
+
 ---
 
 ## Why API Bridge
@@ -47,13 +56,13 @@ Every Indian broker has its own login, its own API, its own symbols and its own 
 </p>
 <p align="center"><sub>The real dashboard, in demo mode: sample data, no real account. More: <a href="docs/screenshots/sources-overview-dark.webp">sources</a> · <a href="docs/screenshots/api-keys-dark.webp">API keys</a> · <a href="docs/screenshots/accounts-phone.webp">on a phone</a>.</sub></p>
 
-## Five minutes to a first answer
+## Quick start
 
 You need **Node.js 22.12 or newer** (`node -v`) and git. Start in **demo mode**: sample prices, no broker, paper orders only, so nothing real can happen.
 
 ```bash
-git clone https://github.com/MrChartist/api-bridge-v2.git
-cd api-bridge-v2
+git clone https://github.com/MrChartist/Api-Bridge.git
+cd Api-Bridge
 npm ci
 npm run dev        # demo mode: opens the dashboard, already signed in
 ```
@@ -86,7 +95,7 @@ In Windows PowerShell 5.1 `curl` is an alias of another command, so use `Invoke-
 
 The full walk-through, with the output of every command, is [docs/guides/quickstart.md](docs/guides/quickstart.md). For real prices, stop the demo, run `npm run bridge -- init` (or use the dashboard's Accounts page) to add a broker, then `npm start`.
 
-### Running mc-bridge
+### About the `mc-bridge` command
 
 From the repository folder the `mc-bridge` command is not on your PATH. Every `mc-bridge ...` command in this README and in the guides is run as `npm run bridge -- <command>` (or `node bin/mc-bridge.mjs <command>`), for example `npm run bridge -- doctor`. Do not run it through `npx`: that name on npm belongs to an unrelated package.
 
