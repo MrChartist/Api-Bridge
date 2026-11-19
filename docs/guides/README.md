@@ -42,6 +42,7 @@ On Windows, run the commands in PowerShell, and read [windows.md](windows.md) fo
 | [telegram.md](telegram.md) | Alerts on your phone and read-only price and status commands: BotFather steps, which events, safety stance, troubleshooting |
 | [notifications.md](notifications.md) | How a message travels (outbox, retries, pacing, quiet hours), the `notify` settings and routes |
 | [recording.md](recording.md) | Saving real-time prices and option chains to files on your computer, by hand or by rules every trading day: market hours, gaps, disk limits, retention, the file layout, saving API calls |
+| [tick-research.md](tick-research.md) | Recording every tick in arrival order, reading stored ticks in place from any store, writing a signal once, and proving the historical run and a replay through the live path give identical output |
 | [amibroker.md](amibroker.md) | AmiBroker AFL and ASCII import |
 | [developers.md](developers.md) | Start in five minutes, starters (`mc-bridge init`), auth and scopes, limits and retries, errors, pagination, idempotency, events, data downloads, versioning promise |
 | [python.md](python.md) | Python SDK |

@@ -151,6 +151,8 @@ List and download files through the API (`GET /v1/recordings/{recordingId}/files
 
 ### Reading them back
 
+> Recordings are snapshots every `everySec`. To keep **every** tick in arrival order, and to replay it through the live path, use the tick log: [tick-research.md](tick-research.md).
+
 Anything that reads local data (history, downloads, datasets) can use `server/bridge/recorder/reader.mjs`:
 
 ```js

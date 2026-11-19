@@ -2373,7 +2373,8 @@
         "events",
         "downloads",
         "recorder",
-        "storage"
+        "storage",
+        "ticks"
       ],
       "kind": "guide",
       "path": "docs/guides/config.md",
@@ -2867,6 +2868,20 @@
       "path": "docs/guides/telegram.md",
       "text": "> Commands here start with mc-bridge. In a git checkout, run them as npm run bridge -- instead (why). The Bridge can send you a short Telegram message when something needs you (an order was rejected, a broker is logged out, the kill switch went on) and can answer a few read-only...",
       "title": "Telegram: alerts on your phone, and prices when you ask"
+    },
+    {
+      "headings": [
+        "1. Record every tick",
+        "2. Read stored ticks in place",
+        "3. Write the signal once",
+        "4. Run it historically, and live",
+        "5. Replay through the live path, and compare",
+        "Limits"
+      ],
+      "kind": "guide",
+      "path": "docs/guides/tick-research.md",
+      "text": "The recorder keeps a snapshot every few seconds, which is right for option chains and for reading prices back in Excel. Research on ticks needs more: every tick, in the order it arrived, and a way to show that a signal computed on stored data gives exactly what it gives live....",
+      "title": "Tick research: record every tick, write a signal once, prove history equals live"
     },
     {
       "headings": [

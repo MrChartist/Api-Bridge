@@ -60,6 +60,7 @@ Orders are paper unless you ask for live and every opt-in is in place. Practise 
 - The whole picture: [data.md](guides/data.md) ties downloads, recordings, collections and local-first reads together, with three recipes: two years of 5-minute bars, daily option chains read in Python, and a dataset kept up to date by a scheduled command.
 - Old candles: [downloads.md](guides/downloads.md) covers CSV, JSONL and AmiBroker files, datasets that update from their last bar, and the API budget share.
 - Option chains and ticks, going forward: [recording.md](guides/recording.md) covers rules that run every trading day, gaps, disk limits and the file layout.
+- Every tick, for research: [tick-research.md](guides/tick-research.md) records each tick in arrival order, reads stored ticks in place (the tick log, recordings, or any SQL store through your own driver), and checks that a signal gives identical output on history and on a replay through the live path.
 - Lists of instruments: [collections.md](guides/collections.md) covers named lists and option universes with a rolling expiry and ATM strike.
 
 ## Run it for weeks

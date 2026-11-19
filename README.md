@@ -268,6 +268,7 @@ Every answer is labelled with its source, class and age, and fallback data is re
 ## Data, events and operations
 
 - **History downloads** and **recorders** run as background jobs and never slow live reads. `npm run bridge -- download NSE:RELIANCE --interval 5m --from 2024-01-01` saves history; `record quotes` and `record chain` save real-time prices and option-chain snapshots. See [downloads.md](docs/guides/downloads.md) and [recording.md](docs/guides/recording.md).
+- **Tick research** (opt-in): record every tick in arrival order, read stored ticks in place from the tick log or any SQL store (DuckDB on Parquet/S3, PostgreSQL, QuestDB, ClickHouse ...), write a signal once, and check that history and a replay through the live path give identical output tick by tick: [tick-research.md](docs/guides/tick-research.md).
 - **Collections** are named lists of instruments and option universes (ATM, rolling expiry) used by downloads, recordings and sheets: [collections.md](docs/guides/collections.md).
 - **Events and webhooks:** a replayable stream plus signed webhooks to your own program, with retries and dead letters: [events.md](docs/guides/events.md). **Telegram** notifications go to your own bot: [telegram.md](docs/guides/telegram.md).
 - **Backup and restore:** `npm run bridge -- backup --out my-backup.tar.gz`, `backup verify`, and `restore` (the Bridge must be stopped). The Bridge also copies your data before the first start of any new version: [backup.md](docs/guides/backup.md).

@@ -36,6 +36,7 @@ export const SECTIONS = {
   downloads: { about: "Saving history to files, and keeping datasets up to date.", guide: "downloads.md" },
   recorder: { about: "Recording live prices and option chains to files, by hand or by rules every trading day.", guide: "recording.md" },
   storage: { about: "Free-disk checks for the folder the Bridge writes to.", guide: "operations.md" },
+  ticks: { about: "The tick log: every live tick, in arrival order, for research and replay. Off by default.", guide: "tick-research.md" },
 };
 
 const D = {};
@@ -452,6 +453,13 @@ d("recorder.autoRecord.rules[].format", "csv or jsonl.");
 d("storage.minFreeMb", "Free space below this makes health say degraded and the Bridge warn, in megabytes.");
 d("storage.hardFreeMb", "Free space below this pauses downloads, starts no new download and makes readiness say not ready, in megabytes. It must not be more than minFreeMb.");
 d("storage.checkIntervalSec", "How often the free space is measured, in seconds.");
+
+// ---- ticks ------------------------------------------------------------------------------------------------------
+d("ticks.record", "Write every live tick to data/ticks/<day>.ticks.jsonl, in the order the Bridge received them.");
+d("ticks.symbols", "Symbols to keep. null keeps every symbol the live feed carries; a list keeps only those, and the Bridge subscribes them itself so they are recorded even when nothing else watches them.");
+d("ticks.maxBufferedTicks", "Ticks held in memory at most before they are written. Reaching it writes at once, so memory stays bounded and no tick is dropped.");
+d("ticks.flushEveryMs", "Write buffered ticks at least this often, in milliseconds.");
+d("ticks.keepDays", "Delete tick log days older than this many days (today included). null keeps every day.");
 
 /** @type {Readonly<Record<string, string>>} */
 export const DESCRIPTIONS = Object.freeze(D);

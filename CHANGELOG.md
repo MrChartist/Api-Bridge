@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tick research ([docs/guides/tick-research.md](docs/guides/tick-research.md)), new and opt-in, in `server/bridge/ticks/`: a tick log that writes every live tick in arrival order with bounded memory and no silent loss (`ticks.record`, off by default; `seq` holes show any loss); one TickStore interface that reads the tick log, the recorder's files or any SQL store in place through your own driver (PostgreSQL, QuestDB, ClickHouse, SQL Server, Snowflake, SQLite, DuckDB on Parquet and S3); signal code written once with as-of joins, compensated window sums, rolling extremes, event-time EMA and tick features; a replay adapter that drives the real StreamHub; and a tick-by-tick comparison that proves the historical run and the live run are identical, or says where and how they first differ. Nothing else changes.
 - Settings left by an older version: `backup.enabled`, `backup.autoFallback`, `backup.providers` and `notify.targets` are now ignored with a note instead of stopping the start (no data source is switched on by them). When a settings file is not valid, the command line names the file it read and says what to do.
 - Licence: MIT is replaced by the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Copies already received under MIT stay MIT.
 - Removed: the Postman and Bruno collections (`docs/collections`, `scripts/gen-collections.mjs`), ROADMAP.md, SUPPORT.md and CODE_OF_CONDUCT.md.

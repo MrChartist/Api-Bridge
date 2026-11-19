@@ -84,6 +84,7 @@ A file that still holds one of these stops the start with a message that lists t
 - [`downloads`](#downloads)
 - [`recorder`](#recorder)
 - [`storage`](#storage)
+- [`ticks`](#ticks)
 
 ## general
 
@@ -634,5 +635,17 @@ Free-disk checks for the folder the Bridge writes to. More: [operations.md](oper
 | `storage.minFreeMb` | whole number, 10 to 1000000 | `1024` | Free space below this makes health say degraded and the Bridge warn, in megabytes. |
 | `storage.hardFreeMb` | whole number, 1 to 1000000 | `200` | Free space below this pauses downloads, starts no new download and makes readiness say not ready, in megabytes. It must not be more than minFreeMb. |
 | `storage.checkIntervalSec` | whole number, 5 to 3600 | `30` | How often the free space is measured, in seconds. |
+
+## ticks
+
+The tick log: every live tick, in arrival order, for research and replay. Off by default. More: [tick-research.md](tick-research.md).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `ticks.record` | true or false | `false` | Write every live tick to data/ticks/<day>.ticks.jsonl, in the order the Bridge received them. |
+| `ticks.symbols` | list of text; at most 2000 items, or `null` | `null` | Symbols to keep. null keeps every symbol the live feed carries; a list keeps only those, and the Bridge subscribes them itself so they are recorded even when nothing else watches them. |
+| `ticks.maxBufferedTicks` | whole number, 100 to 1000000 | `5000` | Ticks held in memory at most before they are written. Reaching it writes at once, so memory stays bounded and no tick is dropped. |
+| `ticks.flushEveryMs` | whole number, 10 to 10000 | `250` | Write buffered ticks at least this often, in milliseconds. |
+| `ticks.keepDays` | whole number, 1 to 3650; or `null` | `null` | Delete tick log days older than this many days (today included). null keeps every day. |
 
 In `ratelimit`, `<name>` stands for a name you choose: a broker id, an account id, a key id, or the kind of request. In lists such as `accounts[]` and `sources.plugins[]`, `[]` stands for one entry of the list.

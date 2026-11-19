@@ -74,6 +74,7 @@ data/
 | `integrations/` | integrations | (routes only) | `/xl/*` |
 | `hooks/`, `mcp/` | hooks, mcp | (routes only) | `/hooks/{source}/{token}`, `/v1/hooks*`, `/mcp`, `mc-bridge mcp` |
 | `sources/` | sources | `backupData` (BackupDataService: the sources service, with its router, health and failure memory) | `/v1/sources*` (list, switch on or off, key, test, trace), `/v1/pooling*` (consent) |
+| `ticks/` | ticks | (no service; listens to the bus "tick" event when `ticks.record` is on) and a research library: tick stores, signals, replay adapter, run comparison ([guide](guides/tick-research.md)) | none |
 | `compat/` | compat | (routes only) | `/api/v1/*` apikey-in-body REST, WS `/api/v1/ws` |
 | `readiness/` | readiness | `readiness` | `/v1/readiness*`: session, static IP, headroom, kill switch per live account; automated-send gate |
 | `demo/` | core | demo adapter and config; `routes.mjs`: demo-only routes (`/v1/demo/*`, registered only in demo mode, `x-demo-only: true` in OpenAPI) | `/v1/demo/*` (demo mode only) |
