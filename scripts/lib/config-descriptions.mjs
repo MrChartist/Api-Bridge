@@ -460,6 +460,10 @@ d("ticks.symbols", "Symbols to keep. null keeps every symbol the live feed carri
 d("ticks.maxBufferedTicks", "Ticks held in memory at most before they are written. Reaching it writes at once, so memory stays bounded and no tick is dropped.");
 d("ticks.flushEveryMs", "Write buffered ticks at least this often, in milliseconds.");
 d("ticks.keepDays", "Delete tick log days older than this many days (today included). null keeps every day.");
+d("ticks.depthLevels", "Order-book levels per side to keep with each tick, when the feed sends them. 0 keeps none; depth makes the files several times larger.");
+d("ticks.compressFinished", "Gzip each finished day of the tick log (readers and replays handle both).");
+d("ticks.maxDiskMb", "All tick log days together at most this, in megabytes. A write that would pass it is held, then given up and counted (DISK_LIMIT). null: no limit of its own.");
+d("ticks.minFreeDiskMb", "Keep at least this much free on the disk, in megabytes; writes are held and then counted as lost (DISK_LOW) below it.");
 
 /** @type {Readonly<Record<string, string>>} */
 export const DESCRIPTIONS = Object.freeze(D);

@@ -84,6 +84,9 @@ Usage:
   mc-bridge record list | status | show <id> | files <id> | pause <id> | resume <id> | stop <id> | delete <id>
   mc-bridge record auto on|off|status   record by itself every trading day (off until you turn it on)
   mc-bridge record rules | rule add quotes|chain <...> --every <s> | rule on|off|remove <id> | preset index-option-chains|my-watchlist
+  mc-bridge ticks status | audit [--from <day>] [--to <day>] | compress   the tick log: every tick, in arrival order (ticks.record)
+  mc-bridge ticks run <signal.mjs> --from <day> [--to <day>] [--out <file>]   a signal on stored ticks (docs/guides/tick-research.md)
+  mc-bridge ticks verify <signal.mjs> --from <day> [--live <outputs.jsonl>] [--tolerance <n>]   history vs a replay through the live path
 
 Config: --config, or MCB_CONFIG, or ./bridge.config.json, or the per-user folder (~/.mc-bridge, or
 %APPDATA%\\MrChartist\\Bridge on Windows; MCB_HOME overrides). Safe defaults when absent: paper only, 127.0.0.1:4300.
@@ -803,6 +806,10 @@ export async function runCli(positionals, flags, io) {
         return await downloadsCommand(positionals.slice(1), flags, io);
       case "record":
         return await recordCliCommand(positionals.slice(1), flags, io);
+      case "ticks": {
+        const { ticksCommand } = await import("../ticks/cli.mjs");
+        return await ticksCommand(positionals.slice(1), flags, io, { usage: USAGE });
+      }
       case "kill":
         return await killCommand(sub, flags, io);
       case "orders": {

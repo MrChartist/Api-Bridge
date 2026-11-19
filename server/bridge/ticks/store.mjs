@@ -16,6 +16,7 @@
  *                           SQL Server, Snowflake, SQLite, kdb+ (via its SQL/PG interface), DuckDB (which also reads Parquet
  *                           files and S3 in place: `read_parquet('s3://bucket/ticks/*.parquet')` as the table).
  *  - createArrayStore       ticks already in memory (tests, notebooks).
+ *  - mergeStores            several stores read as one, in replay order (a recent tick log plus an older SQL archive).
  */
 import { createReadStream, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -303,6 +304,7 @@ export function createArrayStore(ticks, { id = "memory", kind = "ticks" } = {}) 
   const list = ticks.map((t, i) => {
     const o = {};
     for (const f of TICK_FIELDS) o[f] = t[f] ?? null;
+    if (t.depth) o.depth = t.depth;
     return { ...o, seq: t.seq ?? i + 1 };
   });
   return {
@@ -314,6 +316,48 @@ export function createArrayStore(ticks, { id = "memory", kind = "ticks" } = {}) 
         if (t.receivedAt < q.fromMs || t.receivedAt > q.toMs) continue;
         if (q.symbols && !q.symbols.has(t.symbol)) continue;
         yield t;
+      }
+    },
+  };
+}
+
+// ───────────────────────── several stores as one ─────────────────────────
+
+/**
+ * Read several stores as one stream, merged in replay order: by receivedAt, then by the order the stores are given
+ * (the first wins a tie), then by each store's own order. Each store is streamed, never loaded whole: memory holds one
+ * tick per store. Give stores that do not overlap in time (an archive up to yesterday, the tick log from today): a
+ * tick present in two stores is yielded twice. Each tick gets `store` (the id it came from); `seq` is renumbered
+ * 1, 2, 3 ... across the merged stream, the original stays in `storeSeq`.
+ * @param {Array<{ id: string, kind?: string, read: Function }>} stores
+ * @param {{ id?: string }} [opts]
+ */
+export function mergeStores(stores, { id } = {}) {
+  if (!Array.isArray(stores) || !stores.length) throw new Error("mergeStores needs at least one store");
+  stores.forEach(assertTickStore);
+  const kinds = new Set(stores.map((s) => s.kind ?? "ticks"));
+  return {
+    id: id ?? stores.map((s) => s.id).join("+"),
+    kind: kinds.size === 1 ? [...kinds][0] : "mixed",
+    async *read(query) {
+      checkQuery(query);
+      const its = stores.map((s) => s.read(query)[Symbol.asyncIterator]());
+      const heads = await Promise.all(its.map((it) => it.next()));
+      let seq = 0;
+      try {
+        for (;;) {
+          let best = -1;
+          for (let i = 0; i < heads.length; i += 1) {
+            if (heads[i].done) continue;
+            if (best < 0 || heads[i].value.receivedAt < heads[best].value.receivedAt) best = i;
+          }
+          if (best < 0) return;
+          const t = heads[best].value;
+          yield { ...t, store: stores[best].id, storeSeq: t.seq, seq: ++seq };
+          heads[best] = await its[best].next();
+        }
+      } finally {
+        await Promise.all(its.map((it) => it.return?.()));
       }
     },
   };

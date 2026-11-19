@@ -13,11 +13,17 @@
  *    live signal saw them. Wall-clock time can step backwards (NTP); seq cannot.
  *  - Crash-safe lines. A crash can leave a torn last line; the next write starts on a fresh line and readers skip it.
  *
- * Layout: <root>/<YYYY-MM-DD>.ticks.jsonl (IST day of `receivedAt`), files 0600 in folders 0700. One line per tick, keys
- * shortened because tick logs are large (codec below). Nothing here reads the wall clock: the day comes from the tick.
+ *  - Disk limits. With `maxBytes` (all days together) or `minFreeBytes` (free space on the disk), a write that would pass
+ *    a limit is refused like a failing disk: held, then given up and counted with the reason DISK_LIMIT or DISK_LOW.
+ *
+ * Layout: <root>/<YYYY-MM-DD>.ticks.jsonl (IST day of `receivedAt`), finished days optionally gzipped to .ticks.jsonl.gz
+ * (compressDay), files 0600 in folders 0700. One line per tick, keys shortened because tick logs are large (codec
+ * below). Nothing here reads the wall clock: the day comes from the tick.
  */
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, statfsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
+import { writeFileAtomic } from "../../lib/jsonl.mjs";
 import { istDateOf } from "../reference/calendar.mjs";
 
 const FILE_MODE = 0o600;
@@ -46,15 +52,25 @@ const CODEC = Object.freeze([
 ]);
 const NUMERIC = new Set(["seq", "receivedAt", "exchangeTs", "ltp", "bid", "ask", "bidQty", "askQty", "volume", "oi", "open", "high", "low", "close"]);
 
-/** One tick -> one JSON line (with newline). The account id is never written: a tick log may be shared for research. */
-export function encodeTick(tick, seq) {
+const fin = (v) => typeof v === "number" && Number.isFinite(v);
+/** Depth levels on disk: [price, qty, orders] with null for an unknown value. */
+const packLevels = (levels, n) => (Array.isArray(levels) ? levels.slice(0, n).map((l) => [fin(l?.price) ? l.price : null, fin(l?.qty) ? l.qty : null, fin(l?.orders) ? l.orders : null]) : []);
+const unpackLevels = (rows) => (Array.isArray(rows) ? rows.map((r) => ({ price: r?.[0] ?? null, qty: r?.[1] ?? null, orders: r?.[2] ?? null })) : []);
+
+/**
+ * One tick -> one JSON line (with newline). The account id is never written: a tick log may be shared for research.
+ * With depthLevels > 0 the first that many bid and ask levels are kept under `d` ([bids, asks], each level
+ * [price, qty, orders]).
+ */
+export function encodeTick(tick, seq, depthLevels = 0) {
   const o = {};
   for (const [field, key] of CODEC) {
     const v = field === "seq" ? seq : tick[field];
     if (v === null || v === undefined) continue;
-    if (NUMERIC.has(field) && !(typeof v === "number" && Number.isFinite(v))) continue;
+    if (NUMERIC.has(field) && !fin(v)) continue;
     o[key] = v;
   }
+  if (depthLevels > 0 && tick.depth && (tick.depth.bids?.length || tick.depth.asks?.length)) o.d = [packLevels(tick.depth.bids, depthLevels), packLevels(tick.depth.asks, depthLevels)];
   return `${JSON.stringify(o)}\n`;
 }
 
@@ -69,7 +85,51 @@ export function decodeTick(line) {
   if (!o || typeof o !== "object" || !Number.isInteger(o.q) || !Number.isFinite(o.t) || typeof o.s !== "string") return null;
   const t = {};
   for (const [field, key] of CODEC) t[field] = o[key] ?? null;
+  if (Array.isArray(o.d)) t.depth = { bids: unpackLevels(o.d[0]), asks: unpackLevels(o.d[1]) };
   return t;
+}
+
+/** Free bytes on the disk that holds `dir`, or null when the platform cannot say. */
+export function freeBytesOf(dir) {
+  try {
+    const s = statfsSync(dir);
+    return Number(s.bavail) * Number(s.bsize);
+  } catch {
+    return null;
+  }
+}
+
+/** The day files of a tick log folder: [{ date, name, gz, bytes }], oldest first. */
+export function listTickDays(root) {
+  if (!existsSync(root)) return [];
+  const out = [];
+  for (const name of readdirSync(root)) {
+    const m = TICK_FILE_RE.exec(name);
+    if (!m) continue;
+    let bytes = 0;
+    try {
+      bytes = statSync(join(root, name)).size;
+    } catch {
+      continue;
+    }
+    out.push({ date: m[1], name, gz: Boolean(m[2]), bytes });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || Number(a.gz) - Number(b.gz));
+}
+
+/**
+ * Gzip one finished day: write <day>.ticks.jsonl.gz next to it (atomically, synced to disk before the rename), then
+ * remove the plain file. A crash in between leaves both, and readers prefer the plain one. Returns the bytes saved, or 0 when
+ * there was nothing to do. Never call it on today's file while the log is writing to it.
+ */
+export function compressDay(root, date) {
+  const plain = join(root, tickFileName(date));
+  if (!existsSync(plain)) return 0;
+  const before = statSync(plain).size;
+  const body = gzipSync(readFileSync(plain));
+  writeFileAtomic(`${plain}.gz`, body);
+  unlinkSync(plain);
+  return before - body.length;
 }
 
 /** The last complete line's seq in a file (0 when empty or none can be read). Reads only the tail. */
@@ -116,10 +176,13 @@ function endsMidLine(path) {
 }
 
 /**
- * @param {{ root: string, maxBufferedTicks?: number, maxBufferedBytes?: number, flushEveryMs?: number,
+ * @param {{ root: string, maxBufferedTicks?: number, maxBufferedBytes?: number, flushEveryMs?: number, depthLevels?: number,
+ *   maxBytes?: number | null, minFreeBytes?: number, statfs?: (dir: string) => number | null,
  *   symbols?: (symbol: string) => boolean, onLoss?: (info: { date: string, fromSeq: number, toSeq: number, count: number, error: string }) => void,
  *   append?: (path: string, data: string) => void, timers?: { setInterval: Function, clearInterval: Function } }} opts
  *   symbols: which symbols to keep (default all). append: injectable for tests (default appendFileSync, mode 0600).
+ *   depthLevels: order-book levels to keep per side (0, the default, keeps none). maxBytes: all day files together.
+ *   minFreeBytes: keep at least this much free on the disk (statfs is injectable for tests).
  */
 export function createTickLog({
   root,
@@ -127,13 +190,17 @@ export function createTickLog({
   maxBufferedBytes = 4 * 1024 * 1024,
   flushEveryMs = 250,
   symbols = () => true,
+  depthLevels = 0,
+  maxBytes = null,
+  minFreeBytes = 0,
+  statfs = freeBytesOf,
   onLoss = () => {},
   append = (path, data) => appendFileSync(path, data, { mode: FILE_MODE }),
   timers = { setInterval, clearInterval },
 }) {
   if (!root) throw new Error("createTickLog needs a root folder");
   const maxTicks = Math.max(1, Math.floor(maxBufferedTicks));
-  const maxBytes = Math.max(1024, Math.floor(maxBufferedBytes));
+  const bufLimitBytes = Math.max(1024, Math.floor(maxBufferedBytes));
   /** @type {{ date: string, path: string, seq: number, checked: boolean } | null} */
   let day = null;
   /** @type {Array<{ line: string, seq: number }>} */
@@ -141,7 +208,20 @@ export function createTickLog({
   let bufBytes = 0;
   let timer = null;
   let closed = false;
-  const counters = { written: 0, flushes: 0, lost: 0, writeErrors: 0, lastError: null, maxBuffered: 0 };
+  const counters = { written: 0, flushes: 0, lost: 0, writeErrors: 0, lastError: null, maxBuffered: 0, blocked: null };
+  const levels = Math.max(0, Math.min(20, Math.floor(depthLevels)));
+  let usedBytes = null; // all day files together; counted on first need, then kept up to date
+  const used = () => (usedBytes ??= listTickDays(root).reduce((n, d) => n + d.bytes, 0));
+
+  /** Why a write of `bytes` more may not happen now (DISK_LIMIT, DISK_LOW), or null. */
+  const diskProblem = (bytes) => {
+    if (maxBytes && used() + bytes > maxBytes) return "DISK_LIMIT";
+    if (minFreeBytes > 0) {
+      const free = statfs(root);
+      if (free !== null && free - bytes < minFreeBytes) return "DISK_LOW";
+    }
+    return null;
+  };
 
   const openDay = (date) => {
     mkdirSync(root, { recursive: true, mode: DIR_MODE });
@@ -158,7 +238,11 @@ export function createTickLog({
       day.checked = true;
     }
     try {
+      const problem = diskProblem(Buffer.byteLength(data));
+      if (problem) throw Object.assign(new Error(problem), { code: problem });
       append(day.path, data);
+      if (usedBytes !== null) usedBytes += Buffer.byteLength(data);
+      counters.blocked = null;
       counters.written += buf.length;
       counters.flushes += 1;
       buf = [];
@@ -167,6 +251,7 @@ export function createTickLog({
     } catch (err) {
       counters.writeErrors += 1;
       counters.lastError = err?.code ?? "WRITE_FAILED";
+      counters.blocked = counters.lastError;
       day.checked = false;
       const hard = maxTicks * 2;
       if (buf.length > hard) {
@@ -198,11 +283,11 @@ export function createTickLog({
       openDay(date);
     }
     day.seq += 1;
-    const line = encodeTick(tick, day.seq);
+    const line = encodeTick(tick, day.seq, levels);
     buf.push({ line, seq: day.seq });
     bufBytes += line.length;
     if (buf.length > counters.maxBuffered) counters.maxBuffered = buf.length;
-    if (buf.length >= maxTicks || bufBytes >= maxBytes) flush();
+    if (buf.length >= maxTicks || bufBytes >= bufLimitBytes) flush();
     else ensureTimer();
     return day.seq;
   }
@@ -217,7 +302,11 @@ export function createTickLog({
       });
     },
     stats() {
-      return { ...counters, buffered: buf.length, bufferedBytes: bufBytes, day: day?.date ?? null, seq: day?.seq ?? 0 };
+      return { ...counters, buffered: buf.length, bufferedBytes: bufBytes, day: day?.date ?? null, seq: day?.seq ?? 0, usedBytes: usedBytes ?? used() };
+    },
+    /** Count the disk use again (after files were deleted or compressed by someone else). */
+    rescan() {
+      usedBytes = null;
     },
     close() {
       if (closed) return;

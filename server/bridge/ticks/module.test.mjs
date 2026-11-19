@@ -57,7 +57,7 @@ describe("ticks module", () => {
   });
 
   it("validates its config section", () => {
-    expect(TICKS_CONFIG_SCHEMA.parse({})).toEqual({ record: false, symbols: null, maxBufferedTicks: 5000, flushEveryMs: 250, keepDays: null });
+    expect(TICKS_CONFIG_SCHEMA.parse({})).toEqual({ record: false, symbols: null, maxBufferedTicks: 5000, flushEveryMs: 250, keepDays: null, depthLevels: 0, compressFinished: false, maxDiskMb: null, minFreeDiskMb: 500 });
     expect(() => TICKS_CONFIG_SCHEMA.parse({ record: true, extra: 1 })).toThrow();
     expect(() => TICKS_CONFIG_SCHEMA.parse({ maxBufferedTicks: 1 })).toThrow();
   });

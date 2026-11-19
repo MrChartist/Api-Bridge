@@ -5,7 +5,8 @@
  * It only listens to the bus "tick" event, so it adds no work to the live path beyond one buffered line per tick, and the
  * recorder, stream and market modules do not know it exists. With `ticks.symbols` set it also subscribes those symbols
  * on the hub as its own client ("tick-log"), so they are recorded even when nothing else is watching them; it tries
- * again whenever a broker session or feed comes up.
+ * again whenever a broker session or feed comes up. Every hour it deletes days past `keepDays` and, with
+ * `compressFinished`, gzips finished days; `maxDiskMb` and `minFreeDiskMb` stop writes before a limit is passed.
  *
  * The research side (stores, signals, replay, comparison) is a library with no service: see index.mjs and
  * docs/guides/tick-research.md. Owns config section `ticks` (config.mjs). No routes.
@@ -16,7 +17,7 @@ import { addDays, istDateOf } from "../reference/calendar.mjs";
 import { defineModule } from "../core/modules.mjs";
 import { addMetrics } from "../core/metrics.mjs";
 import { TICKS_CONFIG_SCHEMA, ticksSettings } from "./config.mjs";
-import { TICK_FILE_RE, createTickLog } from "./tickLog.mjs";
+import { TICK_FILE_RE, compressDay, createTickLog, listTickDays } from "./tickLog.mjs";
 
 const CLIENT_ID = "tick-log";
 /** @type {WeakMap<object, { log: ReturnType<typeof createTickLog>, off: Array<() => void>, timer: any }>} */
@@ -76,6 +77,9 @@ export function createTicksModule(opts = {}) {
         root,
         maxBufferedTicks: cfg.maxBufferedTicks,
         flushEveryMs: cfg.flushEveryMs,
+        depthLevels: cfg.depthLevels,
+        maxBytes: cfg.maxDiskMb ? cfg.maxDiskMb * 1024 * 1024 : null,
+        minFreeBytes: cfg.minFreeDiskMb * 1024 * 1024,
         symbols: wanted ? (s) => wanted.has(s) : () => true,
         onLoss: (l) => log.warn("tick log gave up ticks the disk would not take", l),
       });
@@ -94,12 +98,27 @@ export function createTicksModule(opts = {}) {
         off.push(deps.bus.on("account.status", (e) => (e?.session === "connected" ? subscribe() : undefined)));
         off.push(deps.bus.on("stream.status", (e) => (e?.connected ? subscribe() : undefined)));
       }
-      const prune = () => {
+      const tidy = () => {
         const removed = pruneTickLog(root, cfg.keepDays, deps.clock.now());
         if (removed.length) log.info("old tick log days removed", { count: removed.length });
+        let compressed = 0;
+        if (cfg.compressFinished) {
+          const today = istDateOf(deps.clock.now());
+          for (const d of listTickDays(root)) {
+            if (d.gz || d.date >= today) continue;
+            try {
+              compressDay(root, d.date);
+              compressed += 1;
+            } catch (err) {
+              log.warn("a tick log day could not be compressed", { date: d.date, code: err?.code });
+            }
+          }
+          if (compressed) log.info("finished tick log days compressed", { count: compressed });
+        }
+        if (removed.length || compressed) tickLog.rescan();
       };
-      prune();
-      const timer = cfg.keepDays ? setI(prune, 3600_000) : null;
+      tidy();
+      const timer = cfg.keepDays || cfg.compressFinished ? setI(tidy, 3600_000) : null;
       timer?.unref?.();
       running.set(deps, { log: tickLog, off, timer });
       log.info("recording every tick", { root, symbols: wanted ? wanted.size : "all streamed" });

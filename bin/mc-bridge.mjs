@@ -24,6 +24,7 @@
  *   mc-bridge subscriptions list | add <https url> --topics ... | test | deliveries | dead-letters | tail   (signed webhooks out; see docs/guides/events.md)
  *   mc-bridge download <symbols...> --interval 5m --from 2024-01-01 [--dataset <name>] [--watch] | list | show | pause | resume | cancel | files | datasets | update
  *                                       (save history to files; see docs/guides/downloads.md)
+ *   mc-bridge ticks status | audit | compress | run <signal.mjs> --from <day> | verify <signal.mjs> --from <day> [--live <file>]   (docs/guides/tick-research.md)
  *   mc-bridge record quotes|chain ..., record list|status|show|files|pause|resume|stop|delete, record auto on|off, record rules|rule ..., record preset ...   (save real-time data; docs/guides/recording.md)
  *
  * The CLI runs on this computer with access to the data directory, so it acts as the local administrator
@@ -121,6 +122,10 @@ const { positionals, values } = parseArgs({
     "max-disk-mb": { type: "string" },
     "all-day": { type: "boolean" },
     "delete-files": { type: "boolean" },
+    // mc-bridge ticks
+    live: { type: "string" },
+    tolerance: { type: "string" },
+    store: { type: "string" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },

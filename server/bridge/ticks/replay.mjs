@@ -3,12 +3,14 @@
  * SSE endpoints, runLive) runs unchanged on yesterday's market. It plugs in where every broker does: an adapter with
  * createFeed(creds, { onTick, onStatus }) (server/brokers/contract.mjs). The hub needs no replay mode.
  *
- *   const clock = createReplayClock();
- *   const replay = createReplayAdapter({ store, range, clock, refFor: (s) => symbols.resolve(s).refs.replay });
- *   // build the StreamHub with deps.clock = clock and an account whose adapter is replay.adapter, then:
+ *   const { hub, replay, close } = createReplayHub({ store, range });   // the real StreamHub, fed by the replay
  *   const live = await runLive(signal, hub);
  *   await replay.start();            // every stored tick, in replay order, through the hub
+ *   close();
  *   compareRuns(historical.outputs, live.outputs)   // identical
+ *
+ * createReplayAdapter is the lower-level piece, for a hub you build yourself (deps.clock = the replay clock and an
+ * account whose adapter is replay.adapter).
  *
  * Time: the hub stamps `receivedAt` with deps.clock.now(). The replay clock is set to each tick's recorded receivedAt
  * just before the tick is handed over, so the live run sees the same event times the historical run reads from the
@@ -17,6 +19,10 @@
  * Pace: `speed: Infinity` (default) plays as fast as the consumers keep up, yielding to the event loop every
  * `yieldEvery` ticks so sockets drain. A finite speed waits (gap between ticks) / speed of real time: 1 is real time.
  */
+import { createEventBus } from "../core/eventBus.mjs";
+import { createNullLogger } from "../core/logger.mjs";
+import { parseSymbol } from "../core/symbolFormat.mjs";
+import { createStreamHub } from "../stream/streamHub.mjs";
 import { assertTickStore } from "./store.mjs";
 
 /** A clock the replay moves. Same shape as deps.clock ({ now() }). */
@@ -100,6 +106,7 @@ export function createReplayAdapter({ store, range, clock, refFor = canonicalRef
         const key = `${ref.exchange}:${ref.token}`;
         const q = { token: ref.token, exchange: ref.exchange };
         for (const f of QUOTE_FIELDS) q[f] = t[f];
+        if (t.depth) q.depth = t.depth;
         let sent = false;
         for (const feed of feeds) {
           if (!feed.subs.has(key)) continue;
@@ -120,4 +127,39 @@ export function createReplayAdapter({ store, range, clock, refFor = canonicalRef
   }
 
   return { adapter, start, stats: () => ({ ...stats }) };
+}
+
+/**
+ * The real StreamHub, running on a replay instead of a broker: one replay account, symbols taken as they are written
+ * (canonical, the token is the symbol itself), the replay clock as the hub's clock. Nothing else of the Bridge is
+ * started, no data folder is touched and no network is used.
+ * @param {{ store: import("./store.mjs").TickStore, range: { fromMs: number, toMs: number, symbols?: string[] },
+ *   speed?: number, yieldEvery?: number, stream?: object, logger?: object }} opts  stream: StreamHub config overrides
+ *   (stream.*). yieldEvery: ticks between full event-loop turns at full speed (each tick already gives way to
+ *   pending microtasks, so a WebSocket session flushes every tick).
+ * @returns {{ hub: any, replay: ReturnType<typeof createReplayAdapter>, clock: ReturnType<typeof createReplayClock>, bus: any, close: () => void }}
+ */
+export function createReplayHub({ store, range, speed = Infinity, yieldEvery = 256, stream = {}, logger = createNullLogger() }) {
+  const clock = createReplayClock(range.fromMs);
+  const replay = createReplayAdapter({ store, range, clock, speed, yieldEvery });
+  const bus = createEventBus({ logger });
+  const ACCOUNT = "replay";
+  const accounts = {
+    marketDataCandidates: () => [ACCOUNT],
+    capabilities: () => ({ policy: null }),
+    creds: async () => ({}),
+    adapter: () => replay.adapter,
+    get: () => ({ id: ACCOUNT, broker: "replay" }),
+  };
+  const symbols = {
+    parse: (s) => parseSymbol(s),
+    resolve: async (s) => ({ canonical: parseSymbol(s).canonical, refs: null }),
+    toBroker: async (s) => canonicalRef(parseSymbol(s).canonical),
+  };
+  // Generous caps: a replay is one local consumer, not a broker with a subscription limit.
+  const hub = createStreamHub(
+    { config: { stream: { maxSubscriptionsPerUpstream: 5000, maxSymbolsPerClient: 5000, ...stream } }, logger, bus, clock, accounts, symbols },
+    { random: () => 1, marketOpen: () => false },
+  );
+  return { hub, replay, clock, bus, close: () => hub.stop() };
 }

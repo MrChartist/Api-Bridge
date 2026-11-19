@@ -647,5 +647,9 @@ The tick log: every live tick, in arrival order, for research and replay. Off by
 | `ticks.maxBufferedTicks` | whole number, 100 to 1000000 | `5000` | Ticks held in memory at most before they are written. Reaching it writes at once, so memory stays bounded and no tick is dropped. |
 | `ticks.flushEveryMs` | whole number, 10 to 10000 | `250` | Write buffered ticks at least this often, in milliseconds. |
 | `ticks.keepDays` | whole number, 1 to 3650; or `null` | `null` | Delete tick log days older than this many days (today included). null keeps every day. |
+| `ticks.depthLevels` | whole number, 0 to 20 | `0` | Order-book levels per side to keep with each tick, when the feed sends them. 0 keeps none; depth makes the files several times larger. |
+| `ticks.compressFinished` | true or false | `false` | Gzip each finished day of the tick log (readers and replays handle both). |
+| `ticks.maxDiskMb` | whole number, 10 to 10000000; or `null` | `null` | All tick log days together at most this, in megabytes. A write that would pass it is held, then given up and counted (DISK_LIMIT). null: no limit of its own. |
+| `ticks.minFreeDiskMb` | whole number, 0 to 1000000 | `500` | Keep at least this much free on the disk, in megabytes; writes are held and then counted as lost (DISK_LOW) below it. |
 
 In `ratelimit`, `<name>` stands for a name you choose: a broker id, an account id, a key id, or the kind of request. In lists such as `accounts[]` and `sources.plugins[]`, `[]` stands for one entry of the list.

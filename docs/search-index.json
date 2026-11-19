@@ -2871,11 +2871,15 @@
     },
     {
       "headings": [
+        "In one minute",
         "1. Record every tick",
         "2. Read stored ticks in place",
         "3. Write the signal once",
         "4. Run it historically, and live",
         "5. Replay through the live path, and compare",
+        "6. All checks at once",
+        "Saving a real live run",
+        "The command",
         "Limits"
       ],
       "kind": "guide",

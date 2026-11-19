@@ -7,13 +7,17 @@
  *   stored ticks (store.mjs): tick log · recordings · any SQL store (DuckDB/Parquet/S3, Postgres, QuestDB, ClickHouse ...)
  *        │                                    │
  *        ▼ runHistorical (runner.mjs)          ▼ replay adapter (replay.mjs) ─► StreamHub ─► runLive (runner.mjs)
- *   historical outputs ──────────► compareRuns (compare.mjs) ◄────────── live outputs
+ *   historical outputs ──────────► compareRuns (compare.mjs) ◄────────── live outputs (or saved: outputLog.mjs)
+ *
+ * verifySignal (verify.mjs) runs every check at once; `mc-bridge ticks verify` (cli.mjs) from the terminal.
  *
  * Guide: docs/guides/tick-research.md.
  */
-export { createTickLog, encodeTick, decodeTick, lastSeqOf, tickFileName } from "./tickLog.mjs";
-export { createTickLogStore, createRecordingStore, createSqlTickStore, createArrayStore, auditTickLog, assertTickStore, compareTicks, TICK_FIELDS, DEFAULT_SQL_COLUMNS } from "./store.mjs";
+export { createTickLog, encodeTick, decodeTick, lastSeqOf, tickFileName, listTickDays, compressDay, freeBytesOf } from "./tickLog.mjs";
+export { createTickLogStore, createRecordingStore, createSqlTickStore, createArrayStore, mergeStores, auditTickLog, assertTickStore, compareTicks, TICK_FIELDS, DEFAULT_SQL_COLUMNS } from "./store.mjs";
 export { defineSignal, compensatedSum, windowSum, windowExtremes, ema, asof, deltaOf, mid, spread, microprice, imbalance, logReturn } from "./signal.mjs";
 export { createSignalRunner, runHistorical, runLive, asHubTick } from "./runner.mjs";
-export { createReplayAdapter, createReplayClock, canonicalRef } from "./replay.mjs";
+export { createReplayAdapter, createReplayClock, createReplayHub, canonicalRef } from "./replay.mjs";
 export { compareRuns, valuesEqual } from "./compare.mjs";
+export { checkDeterminism, runReplay, verifySignal } from "./verify.mjs";
+export { createOutputLog, readOutputs } from "./outputLog.mjs";
